@@ -11,7 +11,7 @@ export default function App() {
     <main className="app-shell">
       <section className="welcome-card">
         <div className="eyebrow">Meilenstein 1</div>
-        <h1>SSH Vault</h1>
+        <h1>Terminus</h1>
         <p className="subtitle">
           Das sichere Grundgerüst läuft. Als Nächstes bauen wir das verschlüsselte
           JSON-Vault.
