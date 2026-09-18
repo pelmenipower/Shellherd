@@ -1,0 +1,89 @@
+import { describe, expect, it } from 'vitest';
+import {
+  ConnectionNodeSchema,
+  FolderNodeSchema,
+  VaultSchema,
+} from './schema';
+
+import { exampleVault } from './example';
+
+describe('ConnectionNodeSchema', () => {
+    it('accepts a valid SSH connection', () => {
+        const connection = {
+            id: 'connection-api',
+            type: 'connection',
+            name: 'API Server',
+            host: 'api.example.local',
+            port: 22,
+            username: 'developer',
+            authentication: {
+                method: 'agent',
+            },
+            tags: ['development'],
+        };
+
+        const result = ConnectionNodeSchema.safeParse(connection);
+
+        expect(result.success).toBe(true);
+    });
+
+    it('rejects a port represented as text', () => {
+        const connection = {
+            id: 'connection-api',
+            type: 'connection',
+            name: 'API Server',
+            host: 'api.example.local',
+            port: '22',
+            authentication: {
+                method: 'agent',
+            },
+            tags: [],
+        };
+
+        const result = ConnectionNodeSchema.safeParse(connection);
+
+        expect(result.success).toBe(false)
+    });
+
+    it('rejects ports outside the valid range', () => {
+        const connection = {
+            id: 'connection-api',
+            type: 'connection',
+            name: 'API Server',
+            host: 'api.example.local',
+            port: 100_000,
+            username: 'developer',
+            authentication: {
+                method: 'agent',
+            },
+            tags: ['development'],
+        };
+
+        const result = ConnectionNodeSchema.safeParse(connection);
+
+        expect(result.success).toBe(false)
+    });
+});
+
+describe('VaultSchema', () => {
+  it('accepts a complete valid vault', () => {
+    const result = VaultSchema.safeParse(exampleVault);
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an unsupported theme', () => {
+    const invalidVault = {
+      ...exampleVault,
+
+      settings: {
+        ...exampleVault.settings,
+        theme: 'neon',
+      },
+    };
+
+    const result = VaultSchema.safeParse(invalidVault);
+
+    expect(result.success).toBe(false);
+  });
+});
