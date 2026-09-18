@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   ConnectionNodeSchema,
-  FolderNodeSchema,
+  EncryptedVaultFileSchema,
   VaultSchema,
 } from './schema';
-
 import { exampleVault } from './example';
+
 
 describe('ConnectionNodeSchema', () => {
     it('accepts a valid SSH connection', () => {
@@ -83,6 +83,35 @@ describe('VaultSchema', () => {
     };
 
     const result = VaultSchema.safeParse(invalidVault);
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('EncryptedVaultFileSchema', () => {
+  it('rejects dangerous Argon2 memory settings', () => {
+    const file = {
+      format: 'terminus-encrypted-vault',
+      version: 1,
+
+      kdf: {
+        algorithm: 'argon2id',
+        salt: 'c2FsdA==',
+        memoryKiB: 10_000_000,
+        iterations: 3,
+        parallelism: 1,
+      },
+
+      cipher: {
+        algorithm: 'aes-256-gcm',
+        nonce: 'bm9uY2U=',
+        authTag: 'dGFn',
+      },
+
+      payload: 'ZW5jcnlwdGVk',
+    };
+
+    const result = EncryptedVaultFileSchema.safeParse(file);
 
     expect(result.success).toBe(false);
   });

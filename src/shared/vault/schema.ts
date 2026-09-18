@@ -9,6 +9,7 @@ import type {
   WorkspacePane,
   WorkspaceSplit,
 } from './types';
+import type { EncryptedVaultFile } from './file-format';
 
 export const AuthenticationSchema = z.discriminatedUnion('method', [
     z.object({
@@ -110,3 +111,25 @@ export const VaultSchema: z.ZodType<Vault> = z.object({
   workspaces: z.array(WorkspaceSchema),
   settings: VaultSettingsSchema,
 });
+
+export const EncryptedVaultFileSchema: z.ZodType<EncryptedVaultFile> =
+  z.object({
+    format: z.literal('terminus-encrypted-vault'),
+    version: z.literal(1),
+
+    kdf: z.object({
+      algorithm: z.literal('argon2id'),
+      salt: z.string().min(1),
+      memoryKiB: z.number().int().min(16_384).max(262_144),
+      iterations: z.number().int().min(1).max(10),
+      parallelism: z.number().int().min(1).max(4),
+    }),
+
+    cipher: z.object({
+      algorithm: z.literal('aes-256-gcm'),
+      nonce: z.string().min(1),
+      authTag: z.string().min(1),
+    }),
+
+    payload: z.string().min(1),
+  });
