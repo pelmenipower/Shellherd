@@ -1,11 +1,22 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import {
+  contextBridge,
+  ipcRenderer,
+} from 'electron';
 
-export interface DesktopApi {
-  getVersion: () => Promise<string>;
-}
+import type { DesktopApi } from '../shared/ipc';
 
 const desktopApi: DesktopApi = {
-  getVersion: () => ipcRenderer.invoke('app:get-version'),
+  getVersion: () =>
+    ipcRenderer.invoke('app:get-version'),
+
+  saveVault: (request) =>
+    ipcRenderer.invoke('vault:save', request),
+
+  openVault: (request) =>
+    ipcRenderer.invoke('vault:open', request),
 };
 
-contextBridge.exposeInMainWorld('desktopApi', desktopApi);
+contextBridge.exposeInMainWorld(
+  'desktopApi',
+  desktopApi,
+);

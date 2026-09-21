@@ -1,7 +1,9 @@
-interface DesktopApi {
-  getVersion: () => Promise<string>;
+import type { DesktopApi } from '../../shared/ipc';
+
+declare global {
+  interface Window {
+    desktopApi: DesktopApi;
+  }
 }
 
-interface Window {
-  desktopApi: DesktopApi;
-}
+export {};
