@@ -5,33 +5,45 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
 
-import { decryptVault, encryptVault } from './crypto';
+import {
+  decryptVault,
+  encryptVault,
+} from './crypto';
+import { EncryptedVaultFileSchema } from '../../shared/vault/schema';
 
+import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import type { Vault } from '../../shared/vault/types';
 
 const FILE_EXTENSION = '.terminus';
 
-export function ensureVaultFileExtension(filePath: string): string {
+export function ensureVaultFileExtension(
+  filePath: string,
+): string {
   return filePath.toLowerCase().endsWith(FILE_EXTENSION)
     ? filePath
     : `${filePath}${FILE_EXTENSION}`;
 }
 
-export async function saveVault(
+export async function writeEncryptedVaultFile(
   filePath: string,
-  vault: Vault,
-  password: string,
+  encryptedVault: EncryptedVaultFile,
 ): Promise<string> {
   const finalPath = ensureVaultFileExtension(filePath);
-  const temporaryPath = `${finalPath}.${randomUUID()}.tmp`;
+  const temporaryPath =
+    `${finalPath}.${randomUUID()}.tmp`;
 
-  const encryptedVault = await encryptVault(vault, password);
-  const serializedVault = JSON.stringify(encryptedVault, null, 2);
+  const serializedVault = JSON.stringify(
+    encryptedVault,
+    null,
+    2,
+  );
 
-  await mkdir(dirname(finalPath), { recursive: true });
+  await mkdir(dirname(finalPath), {
+    recursive: true,
+  });
 
   try {
     await writeFile(temporaryPath, serializedVault, {
@@ -41,25 +53,60 @@ export async function saveVault(
 
     await rename(temporaryPath, finalPath);
   } finally {
-    await rm(temporaryPath, { force: true });
+    await rm(temporaryPath, {
+      force: true,
+    });
   }
 
   return finalPath;
+}
+
+export async function readEncryptedVaultFile(
+  filePath: string,
+): Promise<EncryptedVaultFile> {
+  const serializedVault = await readFile(
+    filePath,
+    'utf8',
+  );
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(serializedVault);
+  } catch {
+    throw new Error(
+      'Die ausgewählte Datei enthält kein gültiges JSON.',
+    );
+  }
+
+  return EncryptedVaultFileSchema.parse(parsed);
+}
+
+export async function saveVault(
+  filePath: string,
+  vault: Vault,
+  password: string,
+): Promise<string> {
+  const encryptedVault = await encryptVault(
+    vault,
+    password,
+  );
+
+  return writeEncryptedVaultFile(
+    filePath,
+    encryptedVault,
+  );
 }
 
 export async function loadVault(
   filePath: string,
   password: string,
 ): Promise<Vault> {
-  const serializedVault = await readFile(filePath, 'utf8');
+  const encryptedVault =
+    await readEncryptedVaultFile(filePath);
 
-  let encryptedVault: unknown;
-
-  try {
-    encryptedVault = JSON.parse(serializedVault);
-  } catch {
-    throw new Error('Die ausgewählte Datei enthält kein gültiges JSON.');
-  }
-
-  return decryptVault(encryptedVault, password);
+  return decryptVault(
+    encryptedVault,
+    password,
+  );
 }
