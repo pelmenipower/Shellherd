@@ -1,8 +1,17 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron';
 import { join } from 'node:path';
 
+import { registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
+import type { SshSessionManager } from './ssh/session';
+
 import { IPC_CHANNELS } from '../shared/ipc';
-import { registerVaultIpcHandlers } from './vault/ipc';
+import {
+  registerVaultIpcHandlers,
+  vaultSessionManager,
+} from './vault/ipc';
+
+
+let sshSessionManager: SshSessionManager;
 
 function createMainWindow(): void {
   const window = new BrowserWindow({
@@ -17,11 +26,38 @@ function createMainWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      devTools: false,
     },
   });
 
-  window.webContents.openDevTools({
-    mode: 'detach',
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', event => event.preventDefault());
+  window.webContents.on('render-process-gone', () => sshSessionManager.closeOwner(window.webContents.id));
+  const ownerId = window.webContents.id;
+  window.webContents.on('destroyed', () => sshSessionManager.closeOwner(ownerId));
+  window.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
+    if (isMainFrame) sshSessionManager.closeOwner(ownerId);
+  });
+  let closing = false;
+  let confirmingClose = false;
+  window.on('close', event => {
+    if (closing || !sshSessionManager.hasOwner(ownerId)) return;
+    let confirm = true;
+    try { confirm = vaultSessionManager.getSnapshot().vault.settings.confirmBeforeClosingSession; } catch { /* locked */ }
+    if (!confirm) { sshSessionManager.closeOwner(ownerId); return; }
+    event.preventDefault();
+    if (confirmingClose) return;
+    confirmingClose = true;
+    void dialog.showMessageBox(window, {
+      type: 'question', title: 'Terminus schließen', message: 'Alle aktiven SSH-Verbindungen trennen und Terminus schließen?',
+      buttons: ['Abbrechen', 'Trennen und schließen'], defaultId: 0, cancelId: 0, noLink: true,
+    }).then(result => {
+      if (result.response === 1 && !window.isDestroyed()) {
+        closing = true;
+        sshSessionManager.closeOwner(ownerId);
+        window.close();
+      }
+    }).catch(() => {}).finally(() => { confirmingClose = false; });
   });
 
   window.once('ready-to-show', () => window.show());
@@ -41,7 +77,19 @@ app.whenReady().then(() => {
     () => app.getVersion(),
   );
 
-  registerVaultIpcHandlers();
+  sshSessionManager = registerSshIpcHandlers();
+  ipcMain.handle(IPC_CHANNELS.readClipboardText, event => {
+    requireSshSender(event);
+    vaultSessionManager.getSnapshot();
+    return clipboard.readText();
+  });
+  ipcMain.handle(IPC_CHANNELS.writeClipboardText, (event, text: unknown) => {
+    requireSshSender(event);
+    vaultSessionManager.getSnapshot();
+    if (typeof text !== 'string' || text.length > 4 * 1024 * 1024) throw new Error('Der markierte Text ist zu groß.');
+    clipboard.writeText(text);
+  });
+  registerVaultIpcHandlers(() => sshSessionManager.closeAll());
   createMainWindow();
 
   app.on('activate', () => {
@@ -55,4 +103,9 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('will-quit', () => {
+  sshSessionManager?.closeAll();
+  vaultSessionManager.lock();
 });

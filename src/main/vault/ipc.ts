@@ -6,13 +6,17 @@ import {
 import { basename } from 'node:path';
 
 import { IPC_CHANNELS } from '../../shared/ipc';
-import { loadVault, saveVault } from './storage';
+import { VaultSessionManager } from './session';
+import { saveVault } from './storage';
 
 import type {
-  OpenVaultRequest,
-  OpenVaultResult,
   SaveVaultRequest,
   SaveVaultResult,
+  SelectVaultFileResult,
+  UnlockVaultRequest,
+  UnlockVaultResult,
+  SaveCurrentVaultRequest,
+  VaultSessionResult,
 } from '../../shared/ipc';
 
 import type { OpenDialogOptions } from 'electron';
@@ -23,7 +27,17 @@ function requirePassword(password: unknown): asserts password is string {
   }
 }
 
-export function registerVaultIpcHandlers(): void {
+export const vaultSessionManager =
+  new VaultSessionManager();
+
+export function registerVaultIpcHandlers(onSessionChange: () => void = () => {}): void {
+  ipcMain.handle(IPC_CHANNELS.selectPrivateKeyFile, async (event): Promise<SelectVaultFileResult> => {
+    vaultSessionManager.getSnapshot();
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options: OpenDialogOptions = { title: 'Privaten SSH-Schlüssel auswählen', properties: ['openFile'] };
+    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+    return result.canceled || !result.filePaths[0] ? { canceled: true } : { canceled: false, filePath: result.filePaths[0] };
+  });
   ipcMain.handle(
     IPC_CHANNELS.saveVault,
     async (
@@ -65,6 +79,12 @@ export function registerVaultIpcHandlers(): void {
         request.password,
       );
 
+      await vaultSessionManager.unlock(
+        filePath,
+        request.password,
+      );
+
+      onSessionChange();
       return {
         canceled: false,
         filePath,
@@ -73,26 +93,21 @@ export function registerVaultIpcHandlers(): void {
   );
 
   ipcMain.handle(
-    IPC_CHANNELS.openVault,
-    async (
-      event,
-      request: OpenVaultRequest,
-    ): Promise<OpenVaultResult> => {
-      requirePassword(request?.password);
-
+    IPC_CHANNELS.selectVaultFile,
+    async (event): Promise<SelectVaultFileResult> => {
       const parentWindow =
         BrowserWindow.fromWebContents(event.sender);
 
-        const options: OpenDialogOptions = {
-            title: 'Terminus-Vault öffnen',
-            properties: ['openFile'],
-            filters: [
-                {
-                name: 'Terminus Vault',
-                extensions: ['terminus'],
-                },
-            ],
-        };
+      const options: OpenDialogOptions = {
+        title: 'Terminus-Vault auswählen',
+        properties: ['openFile'],
+        filters: [
+          {
+            name: 'Terminus Vault',
+            extensions: ['terminus'],
+          },
+        ],
+      };
 
       const result = parentWindow
         ? await dialog.showOpenDialog(parentWindow, options)
@@ -104,16 +119,61 @@ export function registerVaultIpcHandlers(): void {
         return { canceled: true };
       }
 
-      const vault = await loadVault(
-        filePath,
-        request.password,
-      );
-
       return {
         canceled: false,
         filePath,
-        vault,
       };
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.unlockVault,
+    async (
+      _event,
+      request: UnlockVaultRequest,
+    ): Promise<UnlockVaultResult> => {
+      requirePassword(request?.password);
+
+      if (
+        !request ||
+        typeof request.filePath !== 'string' ||
+        request.filePath.length === 0
+      ) {
+        throw new Error(
+          'Es wurde keine Vault-Datei ausgewählt.',
+        );
+      }
+
+      const snapshot = await vaultSessionManager.unlock(
+        request.filePath,
+        request.password,
+      );
+
+      onSessionChange();
+      return {
+        filePath: snapshot.filePath,
+        vault: snapshot.vault,
+      };
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.saveCurrentVault,
+    async (
+      _event,
+      request: SaveCurrentVaultRequest,
+    ): Promise<VaultSessionResult> => {
+      return vaultSessionManager.save(
+        request.vault,
+      );
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.lockVault,
+    () => {
+      onSessionChange();
+      vaultSessionManager.lock();
     },
   );
 }
