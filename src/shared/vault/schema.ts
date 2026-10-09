@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CONNECTION_ICONS } from './appearance';
 import type {
   FolderNode,
   Vault,
@@ -41,7 +42,8 @@ export const ConnectionNodeSchema = z.object({
     authentication: AuthenticationSchema,
 
     tags: z.array(z.string()),
-    color: z.string().optional()
+    color: z.string().optional(),
+    icon: z.enum(CONNECTION_ICONS).optional(),
 });
 
 export const VaultNodeSchema: z.ZodType<VaultNode> = z.lazy(() =>

@@ -1,0 +1,45 @@
+﻿.compact-editor.node-editor { width: 100%; max-width: 680px; min-width: 0; }
+.compact-editor.node-editor h2 { margin: 0 0 16px; font-size: 18px; font-weight: 600; }
+.compact-editor form { display: flex; flex-direction: column; gap: 12px; }
+.compact-editor label { display: flex; flex-direction: column; gap: 5px; margin: 0; font-size: 12px; font-weight: 500; }
+.compact-editor input:not([type='color']), .compact-editor select, .compact-editor textarea { width: 100%; min-width: 0; margin: 0; border-radius: 5px; padding: 7px 9px; font-size: 13px; line-height: 20px; box-sizing: border-box; }
+.compact-editor input:not([type='color']), .compact-editor select { height: 36px; }
+.compact-editor textarea { resize: vertical; min-height: 64px; }
+.compact-editor .editor-field { min-width: 0; }
+.connection-appearance { margin: 0; padding: 0; border: 0; min-width: 0; }
+.connection-appearance legend { padding: 0 0 5px; font-size: 12px; color: var(--ui-muted); }
+.connection-appearance-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.connection-icon-options { display: flex; gap: 3px; }
+.compact-editor .connection-icon-options button { display: grid; place-items: center; width: 28px; min-height: 32px; padding: 0; background: transparent; }
+.compact-editor .connection-icon-options button[aria-pressed='true'] { border-color: var(--ui-accent); background: #183245; }
+.compact-editor .editor-field > label { margin-bottom: 5px; }
+.compact-editor .editor-input-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.compact-editor .editor-input-group input { flex: 1; }
+.compact-editor .editor-input-group button { flex-shrink: 0; }
+.compact-editor .editor-host-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px; gap: 10px; }
+.compact-editor .editor-auth-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.compact-editor .editor-details { margin: 0; padding: 10px 0 0; border-top: 1px solid var(--ui-border, #334155); }
+.compact-editor summary { cursor: pointer; color: var(--ui-muted, #b8c7da); font-size: 12px; font-weight: 500; padding: 3px 0; }
+.compact-editor summary:hover { color: var(--ui-text, #e2e8f0); }
+.compact-editor summary:focus-visible { outline: 2px solid var(--ui-accent, #22d3ee); outline-offset: 3px; border-radius: 3px; }
+.compact-editor .editor-details-content { display: flex; flex-direction: column; gap: 12px; padding: 12px 0 4px; }
+.compact-editor .editor-color-row { display: flex; align-items: end; gap: 8px; }
+.compact-editor .editor-color-row .editor-field { flex: 1; }
+.compact-editor input[type='color'] { width: 40px; height: 36px; padding: 3px; border-radius: 5px; cursor: pointer; }
+.compact-editor .field-error { color: var(--ui-danger, #fda4af); font-size: 12px; line-height: 1.5; margin: 5px 0 0; }
+.compact-editor [aria-invalid='true'] { border-color: var(--ui-danger, #fda4af); }
+.compact-editor .editor-action-bar { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 0; padding: 12px 0; background: var(--ui-panel, #111827); border-top: 1px solid var(--ui-border, #334155); }
+.compact-editor button { min-height: 32px; padding: 6px 10px; border-radius: 5px; font-size: 12px; line-height: 18px; }
+.compact-editor .editor-management { margin-top: 4px; }
+.compact-editor .editor-management > button { margin-top: 10px; }
+.compact-editor .editor-management p { font-size: 12px; line-height: 1.5; color: var(--ui-muted, #b8c7da); margin: 10px 0 0; }
+.confirm-dialog.compact-confirm { width: min(420px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 20px; border-radius: 8px; overflow: auto; }
+.confirm-dialog.compact-confirm h2 { font-size: 18px; line-height: 1.4; margin: 0 0 10px; }
+.confirm-dialog.compact-confirm p { font-size: 13px; line-height: 1.55; margin: 0 0 20px; }
+.confirm-dialog.compact-confirm .form-actions { gap: 8px; margin: 0; flex-wrap: wrap; }
+.confirm-dialog.compact-confirm button { min-height: 32px; padding: 6px 10px; border-radius: 5px; font-size: 13px; }
+@container (max-width: 370px) {
+  .compact-editor .editor-auth-row { grid-template-columns: 1fr; }
+  .compact-editor .editor-color-row { flex-wrap: wrap; }
+  .compact-editor .editor-color-row .editor-field { min-width: 150px; }
+}

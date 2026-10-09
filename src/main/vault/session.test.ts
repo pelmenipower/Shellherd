@@ -20,6 +20,8 @@ import {
   writeEncryptedVaultFile,
 } from './storage';
 import { VaultSessionManager } from './session';
+import { addNode, updateNode, removeNodeFromVault } from '../../shared/vault/mutations';
+import { validateVaultConsistency } from '../../shared/vault/consistency';
 import { exampleVault } from '../../shared/vault/example';
 
 const temporaryDirectories: string[] = [];
@@ -125,6 +127,37 @@ describe('VaultSessionManager', () => {
     expect(persistedVault.name).toBe(
       'Gespeicherter Session-Vault',
     );
+  });
+
+  it('persists nested folder edits and removes workspace references when deleting their subtree', async () => {
+    const { filePath, password } = await createTestVault();
+    const manager = new VaultSessionManager();
+    try {
+      const { vault } = await manager.unlock(filePath, password);
+      const connection = { id: 'synthetic-ssh', type: 'connection' as const, name: 'Synthetic SSH',
+        host: 'example.test', port: 22, authentication: { method: 'agent' as const }, tags: [] };
+      const nodes = addNode(vault.nodes, {
+        id: 'synthetic-folder', type: 'folder', name: 'Folder', children: [
+          { id: 'synthetic-child', type: 'folder', name: 'Child', children: [connection] },
+        ],
+      });
+      const updated = { ...vault, nodes: updateNode(nodes, 'synthetic-child', node => ({
+        ...node, name: 'Renamed', comment: 'Synthetic comment',
+      })), workspaces: [{ id: 'synthetic-workspace', name: 'Workspace', layout: {
+        type: 'pane' as const, connectionIds: [connection.id], activeConnectionId: connection.id,
+      } }] };
+      await manager.save(updated);
+      manager.lock();
+      const reopened = await manager.unlock(filePath, password);
+      expect(reopened.vault.nodes).toEqual(updated.nodes);
+      const deleted = removeNodeFromVault(reopened.vault, 'synthetic-folder');
+      expect(validateVaultConsistency(deleted)).toEqual([]);
+      await manager.save(deleted);
+      manager.lock();
+      const final = await manager.unlock(filePath, password);
+      expect(final.vault.nodes).toEqual(vault.nodes);
+      expect(final.vault.workspaces[0].layout).toEqual({ type: 'pane', connectionIds: [] });
+    } finally { manager.lock(); }
   });
 
   it('rejects saving after the vault was locked', async () => {

@@ -1,30 +1,125 @@
-# SSH Vault
+# Terminus
 
-Lokaler SSH-Verbindungsmanager mit verschlüsselten, portablen JSON-Vaults.
-
-## Entwicklungsstand
-
-Meilenstein 1 stellt die sichere Electron-Prozessarchitektur bereit:
-
-- `src/main`: Desktop-Prozess mit Zugriff auf Betriebssystemfunktionen
-- `src/preload`: schmale, kontrollierte Brücke zur Oberfläche
-- `src/renderer`: React-Oberfläche ohne direkten Node.js-Zugriff
+Lokaler SSH-Verbindungsmanager mit verschlüsselten, portablen `.terminus`-Vaults.
 
 ## Lokal starten
 
-```bash
+```powershell
 npm install
 npm run dev
 ```
 
+DevTools sind im App-Fenster deaktiviert, auch beim Entwicklungsstart.
+
 ## Qualität prüfen
 
-```bash
+```powershell
 npm run typecheck
+npm test
 npm run build
 ```
 
-## Nächster Meilenstein
+## Aktueller Stand
 
-Definition des JSON-Datenmodells und Erstellen, Verschlüsseln sowie Öffnen einer
-`.sshvault`-Datei.
+Vaults erstellen, öffnen und sperren; verschachtelte Ordner und SSH-Verbindungen
+anlegen, bearbeiten und löschen. Änderungen werden verschlüsselt gespeichert.
+Bis zu 16 SSH-Sessions können als Terminal-Tabs gleichzeitig laufen, auch mehrere
+Sessions derselben Verbindung. Doppelklick oder Enter auf einer Verbindung startet
+eine Session im fokussierten Bereich. Ein einfacher Klick wählt nur aus.
+Die Suche findet Namen, Hosts, Benutzer, Tags und Ordnerpfade. Ordner sind
+einklappbar; die Verbindungsliste lässt sich verstellen und ausblenden.
+
+`Neu` → `Neue Verbindung` öffnet das kompakte Formular. `Speichern und verbinden`
+speichert verschlüsselt und startet anschließend SSH. Kommentar, Tags, Farbe und
+Zielordner stehen unter `Weitere Angaben`; Schlüsseldateien lassen sich auswählen.
+Unter `Symbol und Farbe` sind sechs Symbole und eine frei wählbare Farbe pro
+Verbindung verfügbar. Sie erscheinen in Verbindungsliste, Terminal-Tabs und
+Verbindungsauswahl. Änderungen gelten auch für bereits laufende Tabs und werden
+im verschlüsselten Vault gespeichert; bestehende Vaults verwenden das Terminalsymbol.
+Über das Bearbeiten-Symbol einer Zeile öffnest du die Eigenschaften. Ungespeicherte
+Eingaben sind beim Wechsel geschützt. Ordner lassen sich über F2 direkt umbenennen.
+Hintergrund-Tabs bleiben verbunden und
+verarbeiten ihre Ausgabe weiter. Im Tabstreifen wechseln Pfeiltasten sowie
+Home/End zwischen Tabs. Das Schließen eines Tabs beendet nur seine Session.
+Die Vault-Sperre beendet alle Sessions. Gespeicherte Workspaces lassen sich nach
+dem Entsperren gezielt öffnen; dabei starten neue SSH-Sessions.
+
+Text im Terminal markieren kopiert die Auswahl automatisch in die Zwischenablage.
+Rechtsklick fügt den Text aus der Zwischenablage in das angeklickte Terminal ein.
+Das Einfügen läuft über xterm und berücksichtigt den Bracketed-Paste-Modus des
+Servers. Die üblichen Kopier- und Einfüge-Tastenkürzel bleiben verfügbar.
+
+## Split-Ansichten und Workspaces
+
+Ziehe einen Terminal-Tab oder die freie Titelleiste an den linken, rechten, oberen
+oder unteren Rand eines Bereichs. Eine halbtransparente Vorschau zeigt die neue
+Aufteilung vor dem Loslassen. In der Mitte wird der Tab in den bestehenden
+Bereich verschoben. Escape bricht das Ziehen ab. Bis zu vier Bereiche sind möglich;
+unzulässige Aufteilungen werden in der Vorschau gekennzeichnet. Leer gezogene
+Quellbereiche werden automatisch zusammengeführt. Jeder Bereich hat eigene Tabs.
+Das `+` direkt neben den Tabs öffnet eine durchsuchbare Auswahl gespeicherter
+Verbindungen und startet die gewählte Verbindung als neuen Tab in diesem Bereich.
+Enter öffnet den ersten Treffer, Pfeiltasten wählen aus und Escape schließt die
+Auswahl. Das `×` innerhalb der gemeinsamen Tab-Fläche schließt dessen Session.
+Im Tabstreifen zeigt eine Einfügelinie, wo der Tab einsortiert wird. So lassen
+sich bestehende Bereiche wieder zusammenführen und Tabs innerhalb ihrer Leiste
+umordnen. Die freie Titelleiste zieht den aktiven Tab des Bereichs. Das funktioniert
+auch nach mehreren Aufteilungen und Verschiebungen; Escape oder Loslassen
+außerhalb der Terminalfläche verwirft die Vorschau.
+
+Im Drei-Punkte-Menü jedes Bereichs bleiben `Nebeneinander teilen`,
+`Untereinander teilen`, `Aktiven Tab verschieben` und `Bereich zusammenführen`
+als Tastaturalternative erreichbar. Trennlinien lassen sich direkt ziehen oder
+fokussieren und mit Pfeiltasten verstellen; Doppelklick setzt gleiche Größen.
+Das Maximieren-Symbol vergrößert einen Bereich vorübergehend. Diese Aktionen
+erhalten laufende Sessions und ihre Terminalausgabe. Im kleinen Fenster füllt
+der Editor den Arbeitsbereich, während die Terminals im Hintergrund weiterlaufen.
+
+`Speichern` in der Kopfzeile aktualisiert den aktiven Workspace oder fragt beim
+ersten Speichern nach einem Namen. Änderungen sind dort mit `geändert` markiert.
+Das Workspace-Menü enthält Öffnen, Umbenennen, Löschen und `Speichern unter …`.
+Gespeichert werden die Aufteilung, Größenverhältnisse, Verbindungsreferenzen
+und aktive Verbindung je Bereich im verschlüsselten Vault. Terminalausgabe
+wird nicht gespeichert. `Speichern unter …` erstellt eine weitere Definition;
+die Auswahl im Menü ändert den aktiven Workspace erst beim Öffnen.
+`Workspace öffnen` ersetzt die aktuellen Tabs und startet maximal 16 Sessions.
+Bei laufenden Sessions erscheint entsprechend der Vault-Einstellung eine
+Bestätigung. `Workspace schließen` beendet alle Tabs, erhält aber das gespeicherte
+Layout. `Workspace löschen` entfernt nur die gespeicherte Definition.
+Mehrere Tabs derselben Verbindung werden wiederhergestellt; ihre aktive Instanz
+wird innerhalb eines Bereichs auf die erste Instanz dieser Verbindung gesetzt.
+
+Die Terminals unterstützen Passwort, privaten Schlüssel mit optionaler
+Passphrase sowie SSH-Agent. Unter Windows wird ohne `SSH_AUTH_SOCK` der
+OpenSSH-Agent unter `\\.\pipe\openssh-ssh-agent` verwendet; der Dienst muss laufen
+und den passenden Schlüssel enthalten. Auf Unix muss `SSH_AUTH_SOCK` gesetzt sein.
+Agent-Forwarding ist deaktiviert. Interaktive MFA-/Keyboard-Interactive-Anmeldung
+folgt in einem weiteren Schritt.
+
+## Server-Schlüssel
+
+Beim ersten Kontakt den angezeigten SHA-256-Fingerprint mit einer
+vertrauenswürdigen Quelle vergleichen. Nur ausdrücklich bestätigte Schlüssel
+werden in `known-hosts.json` im Electron-Benutzerdatenverzeichnis gespeichert.
+Diese Datei enthält Hosts, Ports und öffentliche Fingerprints, keine Zugangsdaten.
+Sie ist eine eigene Terminus-Vertrauensdatei; OpenSSHs `known_hosts` wird noch
+nicht importiert. Abweichende Schlüssel und beschädigte Vertrauensdateien brechen
+die Verbindung ab. Ein Schlüsselwechsel muss mit dem Server-Administrator geklärt
+werden; eine Oberfläche zur gezielten Verwaltung vertrauter Hosts folgt später.
+
+## Prozessgrenzen und Lebenszyklus
+
+- Main: verschlüsselte Dateien, Vault-Session-Key, `ssh2`, Host-Key-Prüfung.
+- Preload: explizite, typisierte IPC-Methoden; Events ohne Electron-Eventobjekt.
+- Renderer: React und xterm.js; kein Node-, Dateisystem- oder Socket-Zugriff.
+- SSH-Anfragen verwenden gespeicherte Connection-IDs und besitzgebundene Session-IDs.
+- Ausgabe pausiert bei ausstehenden xterm-Bestätigungen; Eingaben und Scrollback
+  sind begrenzt. Terminalausgabe wird nicht auf Platte protokolliert.
+- Trennen, Vault-Sperre, Fensterende und Renderer-Ausfall beenden die SSH-Session.
+  Bei aktiven Sessions wird das Schließen entsprechend der Vault-Einstellung bestätigt.
+
+Die SSH-Tests betreiben einen lokalen `ssh2`-Server mit zur Laufzeit erzeugten
+Testschlüsseln und synthetischen Zugangsdaten. Sie prüfen echte Handshakes,
+Shell-I/O, Resize, Fehler, Besitzgrenzen, parallele Sessions und Backpressure.
+Weitere Tests sichern die Tab-Auswahl und das Schließen einzelner Tabs sowie
+serialisierte Host-Key-Bestätigungen ab.

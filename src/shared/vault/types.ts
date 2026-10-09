@@ -1,3 +1,5 @@
+import type { ConnectionIconName } from './appearance';
+
 export type Authentication =
   | {
       method: 'agent';
@@ -26,6 +28,7 @@ export interface ConnectionNode {
 
   tags: string[];
   color?: string;
+  icon?: ConnectionIconName;
 }
 
 export interface FolderNode {
@@ -87,4 +90,4 @@ export interface VaultSettings {
   theme: 'dark' | 'light' | 'system';
   autoLockMinutes: number;
   confirmBeforeClosingSession: boolean;
-} 
+}

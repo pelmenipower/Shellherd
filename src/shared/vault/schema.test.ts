@@ -66,6 +66,13 @@ describe('ConnectionNodeSchema', () => {
 });
 
 describe('VaultSchema', () => {
+  it('round-trips optional connection appearance without requiring it in old vaults', () => {
+    const node = { id: 'appearance', type: 'connection', name: 'DB', host: 'example.test', port: 22, authentication: { method: 'agent' }, tags: [] };
+    expect(ConnectionNodeSchema.parse(node).icon).toBeUndefined();
+    const vault = VaultSchema.parse({ ...exampleVault, nodes: [{ ...node, icon: 'database', color: '#fbbf24' }] });
+    expect(vault.nodes[0]).toMatchObject({ icon: 'database', color: '#fbbf24' });
+    expect(ConnectionNodeSchema.safeParse({ ...node, icon: 'unknown' }).success).toBe(false);
+  });
   it('accepts a complete valid vault', () => {
     const result = VaultSchema.safeParse(exampleVault);
 
