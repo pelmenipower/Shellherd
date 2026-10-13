@@ -1,0 +1,186 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace Terminus.RdpHost
+{
+    public sealed class OpenRequest
+    {
+        public string SessionId;
+        public string Server;
+        public int Port;
+        public string UserName;
+        public string Domain;
+        public string Password;
+        public int Width;
+        public int Height;
+        public bool Clipboard;
+    }
+
+    /// <summary>
+    /// One RDP connection. Prototype stage P2: the control lives in its own top-level window.
+    /// All members run on the STA UI thread.
+    /// </summary>
+    public sealed class RdpSession : IRdpEventTarget
+    {
+        private const int MinSize = 200, MaxSize = 8192;
+        // Disconnect reasons 1-3 are regular user/server disconnects, not errors.
+        private const int LocalDisconnect = 1, RemoteByUser = 2, ByServer = 3;
+
+        private readonly string id;
+        private readonly Form window;
+        private readonly RdpControl control;
+        private readonly Timer resizeTimer = new Timer { Interval = 300 };
+        private readonly Action<RdpSession> onClosed;
+        private Timer closeTimer;
+        private bool loggedIn, closing, closed;
+
+        public string Id { get { return id; } }
+
+        public RdpSession(OpenRequest request, Action<RdpSession> onClosed)
+        {
+            id = request.SessionId;
+            this.onClosed = onClosed;
+            window = new Form
+            {
+                Text = "Terminus RDP-Prototyp - " + request.Server,
+                ClientSize = new Size(request.Width, request.Height),
+                StartPosition = FormStartPosition.CenterScreen,
+            };
+            control = new RdpControl(new RdpEventSink(this)) { Dock = DockStyle.Fill };
+            window.Controls.Add(control);
+            window.FormClosing += (sender, e) => { if (!closed) { e.Cancel = true; Close(); } };
+            window.ClientSizeChanged += (sender, e) => { resizeTimer.Stop(); resizeTimer.Start(); };
+            resizeTimer.Tick += (sender, e) => { resizeTimer.Stop(); SyncDisplaySize(); };
+            window.Show();
+            Connect(request);
+        }
+
+        private void Connect(OpenRequest request)
+        {
+            dynamic ocx = control.Ocx;
+            ocx.Server = request.Server;
+            if (request.UserName != null) ocx.UserName = request.UserName;
+            if (request.Domain != null) ocx.Domain = request.Domain;
+            ocx.DesktopWidth = Even(control.ClientSize.Width);
+            ocx.DesktopHeight = Even(control.ClientSize.Height);
+            ocx.ColorDepth = 32;
+
+            dynamic settings = ocx.AdvancedSettings9;
+            settings.RDPPort = request.Port;
+            settings.EnableCredSspSupport = true;
+            // 2 = warn on failed server authentication; the control shows its own dialog.
+            settings.AuthenticationLevel = (uint)2;
+            settings.RedirectClipboard = request.Clipboard;
+            settings.RedirectDrives = false;
+            settings.RedirectPrinters = false;
+            settings.RedirectPorts = false;
+            settings.RedirectSmartCards = false;
+            settings.RedirectDevices = false;
+            // Reconnects are explicit user actions, never automatic.
+            settings.EnableAutoReconnect = false;
+            settings.SmartSizing = false;
+            settings.ContainerHandledFullScreen = 1;
+
+            if (request.Password != null) ((IMsTscNonScriptable)control.Ocx).SetClearTextPassword(request.Password);
+            else ((IMsRdpClientNonScriptable5)control.Ocx).SetAllowPromptingForCredentials(true);
+            request.Password = null;
+
+            ocx.Connect();
+        }
+
+        private static int Even(int value)
+        {
+            int clamped = Math.Max(MinSize, Math.Min(MaxSize, value));
+            return clamped - clamped % 2;
+        }
+
+        private void SyncDisplaySize()
+        {
+            if (!loggedIn || closing) return;
+            int width = Even(control.ClientSize.Width), height = Even(control.ClientSize.Height);
+            try
+            {
+                dynamic ocx = control.Ocx;
+                ocx.UpdateSessionDisplaySettings((uint)width, (uint)height, (uint)width, (uint)height, (uint)0, (uint)100, (uint)100);
+            }
+            catch (Exception error)
+            {
+                Status("warning", 0, "Auflösung konnte nicht angepasst werden: " + error.Message);
+            }
+        }
+
+        public void Close()
+        {
+            if (closed || closing) return;
+            closing = true;
+            int state = 0;
+            try { state = Convert.ToInt32(((dynamic)control.Ocx).Connected); } catch { }
+            if (state == 0) { Finish(); return; }
+            try { ((dynamic)control.Ocx).Disconnect(); } catch { Finish(); return; }
+            // OnDisconnected finishes the session; the timer guarantees cleanup if it never arrives.
+            closeTimer = new Timer { Interval = 5000 };
+            closeTimer.Tick += (sender, e) => Finish();
+            closeTimer.Start();
+        }
+
+        private void Finish()
+        {
+            if (closed) return;
+            closed = true;
+            resizeTimer.Dispose();
+            if (closeTimer != null) closeTimer.Dispose();
+            try { control.Dispose(); } catch { }
+            window.Close();
+            window.Dispose();
+            Status("closed", 0, null);
+            onClosed(this);
+        }
+
+        private void Status(string status, int code, string message)
+        {
+            var payload = Protocol.Message("status");
+            payload["sessionId"] = id;
+            payload["status"] = status;
+            if (code != 0) payload["code"] = code;
+            if (message != null) payload["message"] = message;
+            Protocol.Send(payload);
+        }
+
+        private string Describe(int reason)
+        {
+            try
+            {
+                dynamic ocx = control.Ocx;
+                return (string)ocx.GetErrorDescription((uint)reason, Convert.ToUInt32(ocx.ExtendedDisconnectReason));
+            }
+            catch { return null; }
+        }
+
+        public void Connecting() { Status("connecting", 0, null); }
+        public void Connected() { Status("connected", 0, null); }
+
+        public void LoginComplete()
+        {
+            loggedIn = true;
+            Status("loginComplete", 0, null);
+            SyncDisplaySize();
+        }
+
+        public void Disconnected(int reason)
+        {
+            loggedIn = false;
+            bool regular = reason == LocalDisconnect || reason == RemoteByUser || reason == ByServer;
+            Status(regular ? "disconnected" : "error", reason, Describe(reason));
+            if (closing) Finish();
+        }
+
+        public void FatalError(int code) { Status("error", code, "Schwerer Fehler im RDP-Control."); }
+        public void Warning(int code) { Status("warning", code, null); }
+        public void RemoteSizeChanged(int width, int height) { Status("remoteSize", 0, width + "x" + height); }
+        public void AuthenticationWarning(bool displayed) { Status(displayed ? "authWarningShown" : "authWarningDismissed", 0, null); }
+        public void LogonError(int code) { Status("logonError", code, null); }
+        public void FocusReleased(int direction) { Status("focusReleased", direction, null); }
+    }
+}
