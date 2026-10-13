@@ -32,11 +32,11 @@
 | Workspace-Speicherung | Wiederherstellung gemischter SSH-/RDP-Workspaces |
 | Unit-Tests und Electron-Prüfszenarien | Native Windows- und echte RDP-Integrationstests |
 
-**Lokal geprüft:** `mstscax.dll` ist vorhanden. `dotnet` und .NET-Laufzeiten sind vorhanden; `dotnet --list-sdks` meldet derzeit kein SDK. Das passende SDK muss vor der Umsetzung bereitgestellt werden. Die Existenz der DLL beweist noch keine erfolgreiche COM-Aktivierung. Ein erreichbarer RDP-Testrechner und Testzugang wurden nicht geprüft.
+**Lokal geprüft:** `mstscax.dll` ist vorhanden. .NET Framework 4.8.1 ist Teil von Windows 11; der zugehörige C#-Compiler `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe` (C# 5) funktioniert. Damit lässt sich der Helfer **ohne zusätzliche Installation** bauen und beim Anwender ohne mitgelieferte Laufzeit ausführen – derselbe technische Weg (WinForms + RDP-ActiveX), den etablierte Clients wie mRemoteNG nutzen. Ein .NET SDK ist nicht erforderlich. Die Existenz der DLL beweist noch keine erfolgreiche COM-Aktivierung. Interne RDP-Testserver stehen zur Verfügung; Erreichbarkeit und Anmeldung werden in P1 geprüft.
 
 ## 3. Architekturvorschlag
 
-**Empfehlung für den Prototyp:** kleine C#-/WinForms-Hilfskomponente mit Microsofts RDP-ActiveX-Control. Electron bleibt für Navigation, Vault und Layout zuständig. Der Helfer übernimmt die native RDP-Darstellung und Eingabe.
+**Empfehlung für den Prototyp:** kleine C#-/WinForms-Hilfskomponente auf Basis des in Windows enthaltenen .NET Framework 4.8 mit Microsofts RDP-ActiveX-Control. Electron bleibt für Navigation, Vault und Layout zuständig. Der Helfer übernimmt die native RDP-Darstellung und Eingabe.
 
 ```text
 React: Formulare, Tabs, Layout, RDP-Platzhalter
@@ -60,7 +60,7 @@ Geplante Verantwortlichkeiten:
 5. **Prozessmodell:** zunächst ein Helfer je App-Fenster mit mehreren Controls. Ein Helferabsturz betrifft dessen RDP-Sitzungen; SSH bleibt unabhängig. Diese Grenze muss in der Oberfläche verständlich behandelt werden.
 6. **Gekoppelte Eingabeverarbeitung:** Wird ein Fenster des Helfers per `SetParent` zum Kind des Electron-Fensters, koppelt Windows die Eingabewarteschlangen beider Threads. Blockiert der Helfer-UI-Thread (COM-Aufruf, modaler Dialog, Hänger), kann dadurch auch das Terminus-Fenster einfrieren – inklusive SSH. „SSH bleibt unabhängig“ gilt dann nur bei einem Absturz, nicht bei einem Hänger. Siehe Varianten in Abschnitt 4.
 
-Die technische Grundlage ist dokumentiert: Windows Forms bietet ActiveX-Hosting über [AxHost](https://learn.microsoft.com/en-us/dotnet/api/system.windows.forms.axhost?view=net-10.0), Microsoft stellt [RDP-Control-Schnittstellen](https://learn.microsoft.com/en-us/windows/win32/termserv/imsrdpclient9) bereit und Electron liefert über [getNativeWindowHandle](https://www.electronjs.org/docs/latest/api/base-window#wingetnativewindowhandle) das native Fensterhandle. **Die Kombination in unserer App ist ein zu prüfender Architekturvorschlag, keine bereits nachgewiesene Integration.**
+Die technische Grundlage ist dokumentiert: Windows Forms bietet ActiveX-Hosting über [AxHost](https://learn.microsoft.com/en-us/dotnet/api/system.windows.forms.axhost?view=netframework-4.8), Microsoft stellt [RDP-Control-Schnittstellen](https://learn.microsoft.com/en-us/windows/win32/termserv/imsrdpclient9) bereit und Electron liefert über [getNativeWindowHandle](https://www.electronjs.org/docs/latest/api/base-window#wingetnativewindowhandle) das native Fensterhandle. **Die Kombination in unserer App ist ein zu prüfender Architekturvorschlag, keine bereits nachgewiesene Integration.**
 
 ## 4. Zuerst den schwierigsten Teil prüfen
 
@@ -99,7 +99,7 @@ Die Zeiten gelten für aktive Entwicklung mit Coding-Assistent, funktionierender
 
 | Paket | Konkrete Arbeiten | Ergebnis / Abnahme | Ansatz |
 |---|---|---|---:|
-| **P1 – Voraussetzungen** | SDK bereitstellen, x64-Build festlegen, COM-Aktivierung prüfen, Testverbindung mit Windows-Client verifizieren | Reproduzierbar baubares Grundprojekt und geeigneter Testserver | 30–60 Min. |
+| **P1 – Voraussetzungen** | Build-Skript mit `csc.exe` (x64, .NET Framework 4.8) anlegen, COM-Aktivierung prüfen, Testverbindung zum internen Testserver mit dem Windows-Client verifizieren | Reproduzierbar baubares Grundprojekt ohne Zusatzinstallation, erreichbarer Testserver | 20–45 Min. |
 | **P2 – Nativer RDP-Prototyp** | STA-Thread, ActiveX-Host, Connect/Disconnect, Benutzer/Domäne/Passwort, Statusereignisse | Echte interaktive RDP-Sitzung im Helfer | 45–90 Min. |
 | **P3 – Einbettung** | Native Fläche an Electron anbinden, private Prozesskommunikation, Bounds, Fokus, Aus-/Einblenden; Overlay- und DPI-Risiken prüfen | Eingebettete Sitzung; dokumentierte Architekturentscheidung | 60–120 Min. |
 | **P4 – Datenmodell und Formular** | SSH/RDP-Union, Validatoren, Altformatmigration, RDP-Felder, Icons/Farben und Protokollanzeige | RDP-Verbindung anlegen, bearbeiten und verschlüsselt wieder öffnen | 30–60 Min. |
@@ -211,7 +211,7 @@ Die Namen neuer Dateien sind Vorschläge. Bestehende Dateien bleiben Ausgangspun
 
 | Bereich | Dateien / Aufgaben |
 |---|---|
-| Native Komponente | Neu: `native/Terminus.RdpHost/` mit Projektdatei, STA-Einstieg, RDP-Control, Nachrichtenprotokoll, Fenster-/DPI-Verwaltung und Lifecycle |
+| Native Komponente | Neu: `native/Terminus.RdpHost/` mit C#-Quellen, Manifest (Per-Monitor-DPI v2), Build-Skript, STA-Einstieg, RDP-Control, Nachrichtenprotokoll, Fenster-/DPI-Verwaltung und Lifecycle |
 | Gemeinsames Modell | `src/shared/vault/types.ts`, `schema.ts`; neu: `migrations.ts` und Tests |
 | RDP-Verträge | Neu: `src/shared/rdp.ts` für validierbare Requests, Status und Fähigkeiten |
 | Main-Prozess | Neu: `src/main/rdp/host.ts`, `session.ts`, `ipc.ts`, `validation.ts` plus Tests |
@@ -246,15 +246,17 @@ Die Namen neuer Dateien sind Vorschläge. Bestehende Dateien bleiben Ausgangspun
 | Vault sperren / App schließen | Alle zugehörigen Sitzungen beendet; kein übrig gebliebener Helfer |
 | Gemischten Workspace wiederherstellen | Protokolle, Bereiche, Größen und aktive Verbindungen stimmen |
 | Sitzungslimit | 17. Sitzung wird auch bei konkurrierenden Starts verhindert |
-| Zweiter Windows-Rechner | Auslieferung startet ohne SDK oder Entwicklungsverzeichnis |
+| Zweiter Windows-Rechner | Auslieferung startet ohne Zusatzinstallation oder Entwicklungsverzeichnis |
 
 Unit-Tests decken Migration, Validierung, Routing, Besitzergrenzen, Budget und Lifecycle ab. Echte RDP-Tests benötigen einen dafür freigegebenen Testserver; produktive Sitzungen sind kein Testmaterial. Fehlende Testumgebung wird im Abnahmebericht ausdrücklich als offen vermerkt.
 
 ## 12. Build, Auslieferung und Abschluss
 
-- SDK-Version und NuGet-Abhängigkeiten festlegen; native Builds reproduzierbar machen.
-- ActiveX-Interop so integrieren, dass ein Build keine manuell angeklickte Visual-Studio-Konfiguration voraussetzt. Die `dotnet`-CLI unterstützt keine `COMReference`-Einträge (Task `ResolveComReference` fehlt in der .NET-Variante von MSBuild). Deshalb die benötigten RDP-Schnittstellen per `[ComImport]` selbst deklarieren und das Control über eine eigene `AxHost`-Ableitung mit fester CLSID erzeugen. Damit genügt das .NET SDK; Visual Studio ist nicht erforderlich.
-- Für die erste Auslieferung einen self-contained x64-Helfer prüfen; dadurch ist kein installiertes .NET-SDK beim Anwender erforderlich. Windows-RDP-Komponenten bleiben eine Voraussetzung.
+- **Toolchain:** Build über den in Windows enthaltenen `csc.exe` von .NET Framework 4.8 (`/platform:x64 /target:winexe`), aufgerufen aus einem npm-Skript. Keine NuGet-Abhängigkeiten, kein SDK, kein Visual Studio. Einschränkung: Sprachstand C# 5.
+- **ActiveX-Interop:** Ohne `aximp.exe`/`COMReference` werden die benötigten RDP-Schnittstellen per `[ComImport]` selbst deklariert und das Control über eine eigene `AxHost`-Ableitung mit fester CLSID erzeugt. Es werden keine generierten Interop-DLLs mitgeliefert.
+- **DPI:** Per-Monitor-DPI v2 über Anwendungsmanifest bzw. `app.config` (ab .NET Framework 4.7 für WinForms unterstützt).
+- **Auslieferung:** Der Helfer ist eine kleine `.exe` ohne mitgelieferte Laufzeit; .NET Framework 4.8 und die Windows-RDP-Komponenten sind auf Windows 10/11 vorhanden.
+- Sollte sich C# 5 oder .NET Framework im Prototyp als echtes Hindernis erweisen, ist .NET 10 mit self-contained Auslieferung die Ausweichoption (größeres Artefakt, SDK zum Bauen nötig).
 - Den Helfer außerhalb eines möglichen ASAR-Archivs als ausführbare Ressource mitliefern. Dev- und Produktionspfade getrennt testen.
 - Die aktuelle `package.json` enthält einen Produktionsbuild, aber noch keinen Installer-/Distributionsschritt. Ein vollständiger Installer ist gegebenenfalls ein zusätzliches Paket; P9 verspricht zunächst ein lauffähiges gebündeltes Artefakt.
 - Fehlendes oder inkompatibles RDP-Control verständlich melden. SSH bleibt nutzbar.
@@ -264,8 +266,8 @@ Unit-Tests decken Migration, Validierung, Routing, Besitzergrenzen, Budget und L
 ## 13. Startpunkt für eine spätere Umsetzung
 
 - [ ] Windows-only und der Umfang aus Abschnitt 1 sind die Arbeitsgrundlage.
-- [ ] Geeigneter RDP-Testserver und Testzugang sind verfügbar.
-- [ ] Passendes SDK ist vorhanden oder wird bereitgestellt.
+- [x] Geeigneter RDP-Testserver und Testzugang sind verfügbar (interne Testserver).
+- [x] Toolchain ist vorhanden (.NET Framework 4.8 `csc.exe`, keine Installation nötig).
 - [ ] P1–P3 werden zuerst umgesetzt und demonstriert.
 - [ ] Danach werden Einbettungsansatz und verbleibender Aufwand anhand der Ergebnisse bestätigt.
 - [ ] Erst anschließend folgen Formatmigration, vollständige UI-Anbindung und Auslieferung.
