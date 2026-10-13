@@ -26,6 +26,8 @@ interface Session {
   window: BrowserWindow;
   bounds: ViewportRect;
   revision: number;
+  /** Last screen rectangle sent; identical updates from renderer and window events are skipped. */
+  sentBounds?: string;
   failed: boolean;
   status: RdpEvent['status'];
 }
@@ -99,11 +101,17 @@ export class RdpSessionManager {
     this.send({ type: 'close', sessionId: id });
   }
 
+  /** Starts the helper ahead of the first RDP tab; .NET cold start plus virus scanning can take seconds. */
+  prewarm(): void {
+    if (process.platform === 'win32') { try { this.ensureHelper(); } catch { /* reported on first open */ } }
+  }
+
   /** Re-owns the surface by another window; it stays hidden until the new panel reports its bounds. */
   transferOwner(fromOwner: number, id: string, toOwner: number, window: BrowserWindow): RdpEvent['status'] {
     const session = this.owned(fromOwner, id);
     session.ownerId = toOwner;
     session.window = window;
+    session.sentBounds = undefined;
     this.track(window);
     this.send({ type: 'visible', sessionId: id, visible: false });
     this.send({ type: 'reparent', sessionId: id, parent: window.getNativeWindowHandle().readBigUInt64LE(0).toString() });
@@ -137,8 +145,12 @@ export class RdpSessionManager {
 
   private sendBounds(session: Session): void {
     if (session.window.isDestroyed()) return;
+    const rect = toScreenRect(session.window, session.bounds);
+    const key = `${rect.x},${rect.y},${rect.width},${rect.height}`;
+    if (key === session.sentBounds) return;
+    session.sentBounds = key;
     session.revision += 1;
-    this.send({ type: 'bounds', sessionId: session.id, revision: session.revision, ...toScreenRect(session.window, session.bounds) });
+    this.send({ type: 'bounds', sessionId: session.id, revision: session.revision, ...rect });
   }
 
   /** Window moves change screen coordinates; owned surfaces (variant B) must follow. */

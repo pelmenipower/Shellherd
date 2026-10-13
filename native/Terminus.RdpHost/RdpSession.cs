@@ -232,9 +232,11 @@ namespace Terminus.RdpHost
             if (!loggedIn || closing) return;
             int width = Even(control.ClientSize.Width), height = Even(control.ClientSize.Height);
             if (MatchesRemote()) { SetSmartSizing(false); return; }
-            SetSmartSizing(true);
             // One resolution change at a time; the remote size event or the timeout releases the next one.
             if (updatePending) { Trace("updateDeferred", width + "x" + height); return; }
+            // The control rejects UpdateSessionDisplaySettings with E_UNEXPECTED while SmartSizing is on
+            // (measured against rdp-test); scaling only bridges the time until this call.
+            SetSmartSizing(false);
             try
             {
                 dynamic ocx = control.Ocx;
@@ -250,7 +252,9 @@ namespace Terminus.RdpHost
                 if (error.ErrorCode == EUnexpected && ++resizeRetries <= 5) { resizeTimer.Interval = 1000; resizeTimer.Start(); return; }
                 resizeRetries = 0;
                 Trace("updateDisplayFailed", error.Message);
-                Status("warning", 0, "Auflösung konnte nicht angepasst werden: " + error.Message);
+                // Server without dynamic resolution: a scaled image beats a cropped one.
+                SetSmartSizing(true);
+                Status("warning", 0, "Der Server unterstützt keine dynamische Auflösung; das Bild wird skaliert.");
             }
             finally { if (resizeRetries == 0) resizeTimer.Interval = ResizeDelay; }
         }

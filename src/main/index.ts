@@ -146,7 +146,7 @@ app.whenReady().then(() => {
   });
   registerVaultIpcHandlers({
     onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); },
-    onVaultChange: broadcastCatalog,
+    onVaultChange: () => { broadcastCatalog(); rdpSessionManager.prewarm(); },
     guard: event => windowRegistry.requireMain(event),
   });
   createWindow('main');
