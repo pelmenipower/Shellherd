@@ -46,6 +46,10 @@ namespace Terminus.RdpHost
         private readonly Timer resizeTimer = new Timer { Interval = ResizeDelay };
         private readonly Timer updateTimer = new Timer { Interval = UpdateTimeout };
         private bool updatePending;
+        // Servers without the display control channel (before Windows Server 2012 R2) reject
+        // UpdateSessionDisplaySettings; Reconnect(width, height) resizes them with a short reconnect.
+        private bool dynamicResolution = true, reconnecting;
+        private int loginTick;
         private readonly Action<RdpSession> onClosed;
         private Timer closeTimer;
         private const int EUnexpected = unchecked((int)0x8000FFFF);
@@ -234,6 +238,7 @@ namespace Terminus.RdpHost
             if (MatchesRemote()) { SetSmartSizing(false); return; }
             // One resolution change at a time; the remote size event or the timeout releases the next one.
             if (updatePending) { Trace("updateDeferred", width + "x" + height); return; }
+            if (!dynamicResolution) { ReconnectWithSize(width, height); return; }
             // The control rejects UpdateSessionDisplaySettings with E_UNEXPECTED while SmartSizing is on
             // (measured against rdp-test); scaling only bridges the time until this call.
             SetSmartSizing(false);
@@ -248,15 +253,53 @@ namespace Terminus.RdpHost
             }
             catch (COMException error)
             {
-                // Right after login the control rejects updates with E_UNEXPECTED; retry a few times.
-                if (error.ErrorCode == EUnexpected && ++resizeRetries <= 5) { resizeTimer.Interval = 1000; resizeTimer.Start(); return; }
+                // Right after login the control may still reject updates; later E_UNEXPECTED means no display control channel.
+                bool justLoggedIn = unchecked(Environment.TickCount - loginTick) < 10000;
+                if (error.ErrorCode == EUnexpected && justLoggedIn && ++resizeRetries <= 5) { resizeTimer.Interval = 1000; resizeTimer.Start(); return; }
                 resizeRetries = 0;
                 Trace("updateDisplayFailed", error.Message);
-                // Server without dynamic resolution: a scaled image beats a cropped one.
+                if (error.ErrorCode == EUnexpected)
+                {
+                    dynamicResolution = false;
+                    Trace("dynamicResolution", "unsupported, using reconnect");
+                    ReconnectWithSize(width, height);
+                    return;
+                }
                 SetSmartSizing(true);
-                Status("warning", 0, "Der Server unterstützt keine dynamische Auflösung; das Bild wird skaliert.");
+                Status("warning", 0, "Die Auflösung konnte nicht angepasst werden; das Bild wird skaliert.");
             }
             finally { if (resizeRetries == 0) resizeTimer.Interval = ResizeDelay; }
+        }
+
+        /// <summary>Re-establishes the same session with a new resolution (IMsRdpClient8.Reconnect).</summary>
+        private void ReconnectWithSize(int width, int height)
+        {
+            int result;
+            try
+            {
+                Trace("reconnect", width + "x" + height);
+                reconnecting = true;
+                result = Convert.ToInt32(((dynamic)control.Ocx).Reconnect((uint)width, (uint)height));
+            }
+            catch (Exception error)
+            {
+                reconnecting = false;
+                Trace("reconnectFailed", error.Message);
+                SetSmartSizing(true);
+                Status("warning", 0, "Die Auflösung konnte nicht angepasst werden; das Bild wird skaliert.");
+                return;
+            }
+            Trace("reconnectResult", result == 0 ? "started" : "blocked (" + result + ")");
+            if (result != 0)
+            {
+                reconnecting = false;
+                SetSmartSizing(true);
+                return;
+            }
+            SetSmartSizing(false);
+            updatePending = true;
+            updateTimer.Interval = UpdateTimeout * 3;
+            updateTimer.Stop(); updateTimer.Start();
         }
 
         public void Close()
@@ -324,12 +367,22 @@ namespace Terminus.RdpHost
             catch { return null; }
         }
 
-        public void Connecting() { Status("connecting", 0, null); }
-        public void Connected() { Status("connected", 0, null); }
+        // During a resize by reconnect the tab keeps its connected state.
+        public void Connecting() { if (reconnecting) Trace("reconnecting", null); else Status("connecting", 0, null); }
+        public void Connected() { if (reconnecting) Trace("reconnectConnected", null); else Status("connected", 0, null); }
 
         public void LoginComplete()
         {
             loggedIn = true;
+            loginTick = Environment.TickCount;
+            if (reconnecting)
+            {
+                // Resize by reconnect finished; the tab stays connected.
+                reconnecting = false;
+                Trace("reconnected", remoteWidth + "x" + remoteHeight);
+                SyncDisplaySize();
+                return;
+            }
             Status("loginComplete", 0, null);
             SyncDisplaySize();
         }
@@ -337,6 +390,12 @@ namespace Terminus.RdpHost
         public void Disconnected(int reason)
         {
             loggedIn = false;
+            if (reconnecting && !closing)
+            {
+                // Part of a resize by reconnect, not a lost connection.
+                Trace("reconnectDisconnect", reason.ToString());
+                return;
+            }
             // A disconnect we requested is never an error, whatever reason code the control reports.
             bool regular = closing || reason == LocalDisconnect || reason == RemoteByUser || reason == ByServer;
             var extra = new Dictionary<string, object>();
@@ -355,6 +414,7 @@ namespace Terminus.RdpHost
             bool answered = updatePending;
             updatePending = false;
             updateTimer.Stop();
+            updateTimer.Interval = UpdateTimeout;
             if (loggedIn && MatchesRemote()) SetSmartSizing(false);
             // The surface may have changed again while the server was busy.
             else if (answered && loggedIn) { resizeTimer.Stop(); resizeTimer.Start(); }
