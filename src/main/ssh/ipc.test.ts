@@ -24,7 +24,7 @@ function sender(id = 1, subframe = false): IpcMainInvokeEvent {
 let manager: SshSessionManager;
 beforeEach(() => {
   mocks.handlers.clear(); mocks.trustedWindow = true;
-  mocks.getSnapshot.mockReturnValue({ vault: { nodes: [{ id: 'saved-id', type: 'connection', name: 'Synthetic',
+  mocks.getSnapshot.mockReturnValue({ vault: { nodes: [{ id: 'saved-id', type: 'connection', protocol: 'ssh', name: 'Synthetic',
     host: 'example.test', port: 22, username: 'synthetic-user', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [] }] } });
   manager = registerSshIpcHandlers();
 });

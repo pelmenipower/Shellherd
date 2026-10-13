@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, webContents } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { join } from 'node:path';
+import { spawn as spawnShell } from 'node-pty';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { vaultSessionManager } from '../vault/ipc';
 import { KnownHosts } from './known-hosts';
@@ -31,9 +32,10 @@ export function registerSshIpcHandlers(): SshSessionManager {
   const manager = new SshSessionManager({
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
-      if (!connection) throw new Error('Die SSH-Verbindung wurde nicht gefunden.');
+      if (!connection) throw new Error('Die Verbindung wurde nicht gefunden.');
       return connection;
     },
+    spawnShell,
     verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);

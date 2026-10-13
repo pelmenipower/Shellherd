@@ -20,6 +20,7 @@
     "@xterm/xterm": "^6.0.0",
     "crypto": "^1.0.1",
     "hash-wasm": "4.12.0",
+    "node-pty": "1.1.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "ssh2": "^1.17.0",

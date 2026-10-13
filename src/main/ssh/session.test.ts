@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Server } from 'ssh2';
 import type { Connection, ServerChannel, PseudoTtyOptions } from 'ssh2';
-import type { ConnectionNode } from '../../shared/vault/types';
+import type { SshConnectionNode } from '../../shared/vault/types';
 import type { SshEvent } from '../../shared/ssh';
 import { agentSocket, SshSessionManager } from './session';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
@@ -14,7 +14,8 @@ import { HostKeyError } from './known-hosts';
 const hostKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
 let server: Server;
 let manager: SshSessionManager;
-let connection: ConnectionNode;
+let connection: SshConnectionNode;
+const noShell = (): never => { throw new Error('SSH tests never start local shells'); };
 let events: SshEvent[];
 let peers: Connection[];
 let shell: ServerChannel | undefined;
@@ -60,12 +61,12 @@ beforeEach(async () => {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   if (typeof address === 'string' || !address) throw new Error('Missing server address');
-  connection = { id: 'test-connection', type: 'connection', name: 'Synthetic server', host: '127.0.0.1',
+  connection = { id: 'test-connection', type: 'connection', protocol: 'ssh', name: 'Synthetic server', host: '127.0.0.1',
     port: address.port, username: 'synthetic-user', authentication: { method: 'password', password: 'synthetic-password' }, tags: [] };
   manager = new SshSessionManager({ getConnection: id => {
     if (id !== connection.id) throw new Error('Unknown saved connection');
     return structuredClone(connection);
-  }, verifyHost: async () => true, emit: (owner, event) => {
+  }, verifyHost: async () => true, spawnShell: noShell, emit: (owner, event) => {
     events.push(event);
     if (autoAck && event.type === 'data') manager.acknowledge(owner, event.sessionId, event.sequence);
   } });
@@ -151,7 +152,7 @@ describe('SSH session manager with a real local SSH server', () => {
   });
 
   it('rejects changed host keys before authentication', async () => {
-    manager = new SshSessionManager({ getConnection: () => connection,
+    manager = new SshSessionManager({ getConnection: () => connection, spawnShell: noShell,
       verifyHost: async () => { throw new HostKeyError('Server-Schlüssel geändert'); },
       emit: (_owner, event) => events.push(event) });
     await manager.connect(1, prepare());
@@ -192,7 +193,7 @@ describe('SSH session manager with a real local SSH server', () => {
 
   it('aborts a pending host-key decision cleanly when closed', async () => {
     let complete: ((accepted: boolean) => void) | undefined;
-    manager = new SshSessionManager({ getConnection: () => connection,
+    manager = new SshSessionManager({ getConnection: () => connection, spawnShell: noShell,
       verifyHost: () => new Promise(resolve => { complete = resolve; }), emit: (_owner, event) => events.push(event) });
     const id = prepare();
     await manager.connect(1, id);
