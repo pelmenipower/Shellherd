@@ -11,6 +11,7 @@ import { requireSshSender } from './ssh/ipc';
 import type { SshSessionManager } from './ssh/session';
 import type { RdpSessionManager } from './rdp/host';
 import { vaultSessionManager } from './vault/ipc';
+import { DragGhost, tearOffBounds } from './drag-ghost';
 import { visibleBounds } from './windows';
 import type { WindowRegistry } from './windows';
 
@@ -61,7 +62,9 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
   const send = (window: BrowserWindow | undefined, channel: string, payload: unknown): void => {
     if (window && !window.isDestroyed()) window.webContents.send(channel, payload);
   };
+  const ghost = new DragGhost();
   const clearHover = (sourceId: number): void => {
+    ghost.dispose();
     const target = hovered.get(sourceId);
     hovered.delete(sourceId);
     if (target !== undefined) send(registry.get(target), IPC_CHANNELS.tabDragHover, null);
@@ -88,12 +91,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
       const point = { x: parsed.target.x, y: parsed.target.y };
       target = registry.windowAt(point, from);
       if (target) drop = registry.toClient(target, point);
-      else {
-        const source = registry.get(from);
-        const size = source?.getBounds() ?? { width: 1000, height: 700 };
-        target = createSecondary(visibleBounds({ x: Math.round(point.x - 160), y: Math.round(point.y - 20),
-          width: Math.max(640, Math.min(size.width, 1400)), height: Math.max(420, Math.min(size.height, 1000)) }));
-      }
+      else target = createSecondary(tearOffBounds(point, registry.get(from)?.getBounds()));
     }
     if (!target || target.isDestroyed() || target.webContents.id === from) throw new Error('Kein Zielfenster verfügbar.');
     const to = target.webContents.id;
@@ -116,7 +114,12 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
     const target = registry.windowAt(point, from);
     const previous = hovered.get(from);
     if (previous !== undefined && previous !== target?.webContents.id) send(registry.get(previous), IPC_CHANNELS.tabDragHover, null);
-    if (!target) { hovered.delete(from); return; }
+    if (!target) {
+      hovered.delete(from);
+      ghost.show(tearOffBounds(point, registry.get(from)?.getBounds()), point.label);
+      return;
+    }
+    ghost.hide();
     hovered.set(from, target.webContents.id);
     send(target, IPC_CHANNELS.tabDragHover, { ...registry.toClient(target, point), label: point.label });
   });
