@@ -21,6 +21,8 @@ namespace Terminus.RdpHost
         public IntPtr Parent;
         public ScreenRect Bounds;
         public bool Visible;
+        /// <summary>Scale the last frame while the remote resolution changes.</summary>
+        public bool SmartResize;
     }
 
     /// <summary>
@@ -46,6 +48,7 @@ namespace Terminus.RdpHost
         private bool loggedIn, closing, closed;
         private int remoteWidth, remoteHeight, resizeRetries;
         private bool smartSizing;
+        private readonly bool smartResize;
 
         public string Id { get { return id; } }
 
@@ -53,6 +56,7 @@ namespace Terminus.RdpHost
         {
             id = request.SessionId;
             mode = request.Mode;
+            smartResize = request.SmartResize;
             parent = request.Parent;
             this.onClosed = onClosed;
             if (mode == SurfaceMode.Window)
@@ -76,7 +80,8 @@ namespace Terminus.RdpHost
             window.ClientSizeChanged += (sender, e) =>
             {
                 // Scale the last frame immediately so the area never turns blank while the server catches up.
-                if (loggedIn && !MatchesRemote()) SetSmartSizing(true);
+                Trace("surfaceResized", control.ClientSize.Width + "x" + control.ClientSize.Height);
+                if (smartResize && loggedIn && !MatchesRemote()) SetSmartSizing(true);
                 resizeTimer.Stop(); resizeTimer.Start();
             };
             resizeTimer.Tick += (sender, e) => { resizeTimer.Stop(); SyncDisplaySize(); };
@@ -191,7 +196,8 @@ namespace Terminus.RdpHost
         /// <summary>Scales the remote image to the surface; stays on if the server cannot resize dynamically.</summary>
         private void SetSmartSizing(bool enabled)
         {
-            if (smartSizing == enabled) return;
+            if (smartSizing == enabled || (enabled && !smartResize)) return;
+            Trace("smartSizing", enabled ? "on" : "off");
             try { ((dynamic)control.Ocx).AdvancedSettings9.SmartSizing = enabled; smartSizing = enabled; }
             catch { /* control not ready; the next resize retries */ }
         }
@@ -205,6 +211,7 @@ namespace Terminus.RdpHost
             try
             {
                 dynamic ocx = control.Ocx;
+                Trace("updateDisplay", width + "x" + height);
                 ocx.UpdateSessionDisplaySettings((uint)width, (uint)height, (uint)width, (uint)height, (uint)0, (uint)100, (uint)100);
                 resizeRetries = 0;
             }
@@ -213,6 +220,7 @@ namespace Terminus.RdpHost
                 // Right after login the control rejects updates with E_UNEXPECTED; retry a few times.
                 if (error.ErrorCode == EUnexpected && ++resizeRetries <= 5) { resizeTimer.Interval = 1000; resizeTimer.Start(); return; }
                 resizeRetries = 0;
+                Trace("updateDisplayFailed", error.Message);
                 Status("warning", 0, "Auflösung konnte nicht angepasst werden: " + error.Message);
             }
             finally { if (resizeRetries == 0) resizeTimer.Interval = 300; }
@@ -243,6 +251,17 @@ namespace Terminus.RdpHost
             window.Dispose();
             Status("closed", 0, null);
             onClosed(this);
+        }
+
+        /// <summary>Diagnostics only; the main process logs these with TERMINUS_RDP_DEBUG=1.</summary>
+        private void Trace(string name, string detail)
+        {
+            var payload = Protocol.Message("trace");
+            payload["sessionId"] = id;
+            payload["event"] = name;
+            payload["detail"] = detail;
+            payload["ms"] = Environment.TickCount;
+            Protocol.Send(payload);
         }
 
         private void Status(string status, int code, string message)

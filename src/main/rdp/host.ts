@@ -69,7 +69,7 @@ export class RdpSessionManager {
     // The password only travels through the private stdin pipe; without one the control asks for credentials.
     this.send({ type: 'open', sessionId: session.id, server: target.host, port: target.port, username: account.username,
       domain: target.domain?.trim() || account.domain, ...(target.password ? { password: target.password } : {}),
-      clipboard: target.clipboard, mode: this.dependencies.mode, parent: handle, visible: request.visible, ...toScreenRect(window, request.bounds) });
+      clipboard: target.clipboard, smartResize: process.env.TERMINUS_RDP_SMARTSIZE !== '0', mode: this.dependencies.mode, parent: handle, visible: request.visible, ...toScreenRect(window, request.bounds) });
     return { sessionId: session.id };
   }
 

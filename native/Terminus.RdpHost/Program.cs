@@ -133,6 +133,7 @@ namespace Terminus.RdpHost
                 Clipboard = Protocol.Bool(message, "clipboard", true),
                 Mode = ParseMode(Protocol.String(message, "mode", false)),
                 Visible = Protocol.Bool(message, "visible", true),
+                SmartResize = Protocol.Bool(message, "smartResize", true),
             };
             if (request.Mode == SurfaceMode.Window)
             {
