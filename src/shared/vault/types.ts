@@ -94,6 +94,13 @@ export interface Workspace {
   name: string;
   comment?: string;
   layout: WorkspaceLayout;
+  /** Detached windows with screen position (DIP) and their own layout. */
+  windows?: WorkspaceWindow[];
+}
+
+export interface WorkspaceWindow {
+  bounds: { x: number; y: number; width: number; height: number };
+  layout: WorkspaceLayout;
 }
 
 export type WorkspaceLayout = WorkspacePane | WorkspaceSplit;

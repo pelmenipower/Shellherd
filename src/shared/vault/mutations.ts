@@ -310,6 +310,9 @@ export function removeNodeFromVault(
           workspace.layout,
           removedConnectionIds,
         ),
+        ...(workspace.windows ? { windows: workspace.windows.map(window => ({
+          ...window, layout: removeConnectionsFromLayout(window.layout, removedConnectionIds),
+        })) } : {}),
       }),
     ),
   };

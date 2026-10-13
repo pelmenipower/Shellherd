@@ -38,6 +38,9 @@ export function validateVaultConsistency(
       connectionIds,
       issues,
     );
+    workspace.windows?.forEach((window, windowIndex) => {
+      validateWorkspaceLayout(window.layout, `workspaces[${index}].windows[${windowIndex}].layout`, connectionIds, issues);
+    });
   });
 
   return issues;

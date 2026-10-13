@@ -1,10 +1,14 @@
-import type { ConnectionNode, ConnectionProtocol } from '../../shared/vault/types';
+import type { ConnectionNode } from '../../shared/vault/types';
+import type { TabConnection, TransferSession } from '../../shared/windows';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import type { SshStatus } from '../../shared/ssh';
 import { connectionAddress } from '../../shared/vault/connections';
 
 /** Tab metadata only; never credentials. */
-export interface TerminalConnection { id: string; name: string; protocol: ConnectionProtocol; address: string }
+export type TerminalConnection = TabConnection;
+
+/** A running session taken over from another window instead of opening a new one. */
+export interface AdoptedSession { session?: TransferSession; snapshot?: string }
 
 export function toTerminalConnection(node: ConnectionNode): TerminalConnection {
   return { id: node.id, name: node.name, protocol: node.protocol, address: connectionAddress(node) };
@@ -14,11 +18,13 @@ export interface TerminalTab {
   connection: TerminalConnection;
   ordinal: number;
   status: SshStatus;
+  adopt?: AdoptedSession;
 }
 export interface TerminalTabsState { tabs: TerminalTab[]; activeTabId: string | null }
 export const emptyTerminalTabs: TerminalTabsState = { tabs: [], activeTabId: null };
 export type TerminalTabsAction =
   | { type: 'open'; id: string; connection: TerminalConnection }
+  | { type: 'adopt'; id: string; connection: TerminalConnection; status: SshStatus; adopt: AdoptedSession }
   | { type: 'select'; id: string | null }
   | { type: 'status'; id: string; status: SshStatus }
   | { type: 'close'; id: string }
@@ -37,6 +43,12 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
       const { id, name, protocol, address } = action.connection;
       const ordinal = Math.max(0, ...state.tabs.filter(tab => tab.connection.id === id).map(tab => tab.ordinal)) + 1;
       return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address }, ordinal, status: 'connecting' }], activeTabId: action.id };
+    }
+    case 'adopt': {
+      if (state.tabs.some(tab => tab.id === action.id)) return state;
+      const { id, name, protocol, address } = action.connection;
+      const ordinal = Math.max(0, ...state.tabs.filter(tab => tab.connection.id === id).map(tab => tab.ordinal)) + 1;
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
     }
     case 'select':
       return action.id === null || state.tabs.some(tab => tab.id === action.id) ? { ...state, activeTabId: action.id } : state;

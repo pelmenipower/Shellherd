@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { TerminalConnection } from '../terminal-tabs';
+import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import type { RdpStatus, ViewportRect } from '../../../shared/rdp';
 import type { SshStatus } from '../../../shared/ssh';
 import { useNativeSurfacesBlocked } from '../native-surface';
-import { rdpSessions } from '../rdp-sessions';
+import { liveSessions } from '../session-registry';
 
 interface RdpPanelProps {
   connection: TerminalConnection;
@@ -14,6 +14,9 @@ interface RdpPanelProps {
   style?: CSSProperties;
   onFocus?: () => void;
   onStatusChange: (id: string, status: SshStatus) => void;
+  /** Session moved here from another window; no new connection is opened. */
+  adopt?: AdoptedSession;
+  initialStatus?: SshStatus;
 }
 
 const statusLabels: Record<RdpStatus, string> = {
@@ -21,11 +24,12 @@ const statusLabels: Record<RdpStatus, string> = {
 };
 
 /** Placeholder in the layout; the native RDP surface is positioned exactly over it by the main process. */
-export function RdpPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange }: RdpPanelProps) {
+export function RdpPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus }: RdpPanelProps) {
   const container = useRef<HTMLDivElement>(null);
   const session = useRef<string | null>(null);
   const lastBounds = useRef('');
-  const [status, setStatus] = useState<RdpStatus>('connecting');
+  const [status, setStatus] = useState<RdpStatus>(initialStatus ?? 'connecting');
+  const adoptRef = useRef(adopt);
   const [message, setMessage] = useState<string | null>(null);
   const blocked = useNativeSurfacesBlocked();
   const shown = visible && !blocked && (status === 'connecting' || status === 'connected');
@@ -55,14 +59,26 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
       setStatus(next); setMessage(text ?? null); onStatusChange(tabId, next);
     };
     const unsubscribe = window.desktopApi.onRdpEvent(event => { if (event.sessionId === id) report(event.status, event.message); });
-    // StrictMode mounts twice in development; only the surviving mount opens a session.
+    const attach = (sessionId: string): void => {
+      id = sessionId;
+      session.current = id;
+      liveSessions.set(tabId, { kind: 'rdp', sessionId: id });
+    };
+    // StrictMode mounts twice in development; only the surviving mount opens or adopts a session.
     const timer = setTimeout(() => {
+      const adopted = adoptRef.current?.session;
+      if (adopted) {
+        attach(adopted.sessionId);
+        lastBounds.current = '';
+        syncRef.current();
+        void window.desktopApi.rdpVisible({ sessionId: adopted.sessionId, visible: shownRef.current }).catch(() => {});
+        return;
+      }
+      if (adoptRef.current) return;
       const bounds = measure();
       window.desktopApi.rdpOpen({ connectionId: connection.id, bounds, visible: shownRef.current }).then(result => {
         if (disposed) { void window.desktopApi.rdpClose(result).catch(() => {}); return; }
-        id = result.sessionId;
-        session.current = id;
-        rdpSessions.set(tabId, id);
+        attach(result.sessionId);
         lastBounds.current = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
         syncRef.current();
       }).catch((error: Error) => report('error', error.message));
@@ -72,8 +88,8 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
       clearTimeout(timer);
       unsubscribe();
       session.current = null;
-      rdpSessions.delete(tabId);
-      if (id) void window.desktopApi.rdpClose({ sessionId: id }).catch(() => {});
+      liveSessions.delete(tabId);
+      if (id && !liveSessions.takeTransferred(id)) void window.desktopApi.rdpClose({ sessionId: id }).catch(() => {});
     };
   }, [connection.id, tabId, onStatusChange]);
 

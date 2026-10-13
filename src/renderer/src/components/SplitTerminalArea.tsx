@@ -8,7 +8,10 @@ import { TerminalPanel } from './TerminalPanel';
 import { RdpPanel } from './RdpPanel';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { ContextMenu } from './ContextMenu';
-import { RDP_ACTION_LABELS, rdpSessions } from '../rdp-sessions';
+import { RDP_ACTION_LABELS } from '../rdp-sessions';
+import { liveSessions } from '../session-registry';
+import type { ExternalDragHover } from '../../../shared/windows';
+import { tabLabel } from '../terminal-tabs';
 import { RDP_ACTIONS } from '../../../shared/rdp';
 import { TerminalTabs } from './TerminalTabs';
 import { ConnectionPicker } from './ConnectionPicker';
@@ -24,7 +27,21 @@ interface Props {
   onStatus: (id: string, status: SshStatus) => void; onClose: (id: string) => void;
   draggedTabId: string | null; onDrag: (id: string | null) => void;
   visible?: boolean;
+  /** Tab dragged from another window, in viewport coordinates. */
+  externalHover?: ExternalDragHover;
+  /** A tab received from another window waits to be docked at this viewport point. */
+  pendingDock?: { tabId: string; x: number; y: number } | null;
+  onDockHandled?: () => void;
+  /** Dropped outside this window: move the tab to the window there or to a new one (screen DIP). */
+  onTearOff?: (tabId: string, x: number, y: number) => void;
 }
+/** Preview area of a dock zone inside a pane region (percent of the stage). */
+function zoneRect(region: { left: number; top: number; width: number; height: number }, zone: DockZone) {
+  if (zone === 'left' || zone === 'right') return { ...region, width: region.width / 2, left: zone === 'left' ? region.left : region.left + region.width / 2 };
+  if (zone === 'top' || zone === 'bottom') return { ...region, height: region.height / 2, top: zone === 'top' ? region.top : region.top + region.height / 2 };
+  return region;
+}
+const outsideWindow = (x: number, y: number): boolean => x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight;
 const rectangle = (region: { left: number; top: number; width: number; height: number }): CSSProperties => ({
   left: `${region.left}%`, top: `${region.top}%`, width: `${region.width}%`, height: `${region.height}%`,
 });
@@ -32,7 +49,26 @@ interface DockTarget {
   paneId: string; zone: DockZone; beforeTabId?: string | null;
   marker?: { left: number; top: number };
 }
-export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, focused, busy, onLayout, onFocus, onSelect, onStatus, onClose, draggedTabId, onDrag, visible = true }: Props) {
+export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, focused, busy, onLayout, onFocus, onSelect, onStatus, onClose, draggedTabId, onDrag, visible = true,
+  externalHover = null, pendingDock = null, onDockHandled, onTearOff }: Props) {
+  const external = useRef<{ frame: number; point: { x: number; y: number; label: string } | null } | null>(null);
+  /** Reports the pointer outside this window so the window below can preview the drop; null ends it. */
+  const reportExternal = (point: { x: number; y: number; label: string } | null): void => {
+    if (!point) {
+      if (external.current) { cancelAnimationFrame(external.current.frame); external.current = null; window.desktopApi.tabDragMove(null); }
+      return;
+    }
+    if (external.current) { external.current.point = point; return; }
+    const state = { frame: 0, point: point as { x: number; y: number; label: string } | null };
+    external.current = state;
+    const flush = (): void => {
+      if (external.current !== state) return;
+      if (state.point) window.desktopApi.tabDragMove(state.point);
+      state.point = null;
+      state.frame = requestAnimationFrame(flush);
+    };
+    flush();
+  };
   const appearance = useMemo(() => new Map(searchVaultNodes(nodes, '').flatMap(({ node }) =>
     node.type === 'connection' ? [[node.id, { icon: node.icon, color: node.color }] as const] : [])), [nodes]);
   const [hover, setHover] = useState<DockTarget | null>(null);
@@ -41,7 +77,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
   const [keysMenu, setKeysMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
   const closeKeysMenu = useCallback(() => setKeysMenu(null), []);
   // Drop previews and pane menus are HTML; native RDP surfaces would cover them.
-  useNativeSurfaceBlock(Boolean(draggedTabId) || menuPane !== null);
+  useNativeSurfaceBlock(Boolean(draggedTabId) || menuPane !== null || externalHover !== null);
   const stage = useRef<HTMLDivElement>(null);
   const drag = useRef<{ tabId: string; pointerId: number; x: number; y: number; active: boolean; maximized: string | null } | null>(null);
   const [stageSize, setStageSize] = useState({ width: 1000, height: 700 });
@@ -63,6 +99,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     drag.current = null;
     if (previous && stage.current?.hasPointerCapture(previous.pointerId)) stage.current.releasePointerCapture(previous.pointerId);
     if (previous?.active) setMaximized(previous.maximized);
+    if (external.current) { cancelAnimationFrame(external.current.frame); external.current = null; window.desktopApi.tabDragMove(null); }
     setHover(null); onDrag(null);
   }, [onDrag]);
   useEffect(() => { if (busy || !visible) cancelDrag(); }, [busy, visible, cancelDrag]);
@@ -122,16 +159,28 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     if (!event.buttons) { cancelDrag(); return; }
     if (!current.active && Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6) return;
     current.active = true; setMaximized(null); setMenuPane(null); onDrag(current.tabId);
+    if (onTearOff && outsideWindow(event.clientX, event.clientY)) {
+      setHover(null);
+      const tab = tabs.find(item => item.id === current.tabId);
+      reportExternal({ x: event.screenX, y: event.screenY, label: tab ? tabLabel(tab, tabs) : '' });
+      return;
+    }
+    reportExternal(null);
     setHover(targetAt(event.clientX, event.clientY, current.tabId));
   };
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     const current = drag.current;
     if (!current || event.pointerId !== current.pointerId) return;
-    const target = current.active && !busy ? targetAt(event.clientX, event.clientY, current.tabId) : null;
+    const tearOff = current.active && !busy && onTearOff && outsideWindow(event.clientX, event.clientY);
+    const target = current.active && !busy && !tearOff ? targetAt(event.clientX, event.clientY, current.tabId) : null;
     drag.current = null;
     if (stage.current?.hasPointerCapture(event.pointerId)) stage.current.releasePointerCapture(event.pointerId);
+    reportExternal(null);
     setHover(null); onDrag(null);
-    if (target) {
+    if (tearOff) {
+      setMaximized(current.maximized);
+      onTearOff(current.tabId, event.screenX, event.screenY);
+    } else if (target) {
       const next = dockTab(currentLayout.current, current.tabId, target.paneId, target.zone, crypto.randomUUID(), target.beforeTabId);
       if (next !== currentLayout.current) onLayout(next);
       const owner = panes(next).find(pane => pane.tabIds.includes(current.tabId));
@@ -141,6 +190,20 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
       if (owner) selectTab(owner.id, current.tabId);
     } else setMaximized(current.maximized);
   };
+  // Dock a tab received from another window where it was dropped.
+  useEffect(() => {
+    if (!pendingDock || !panes(layout).some(pane => pane.tabIds.includes(pendingDock.tabId))) return;
+    const target = targetAt(pendingDock.x, pendingDock.y, pendingDock.tabId);
+    if (target) {
+      const next = dockTab(layout, pendingDock.tabId, target.paneId, target.zone, crypto.randomUUID(), target.beforeTabId);
+      if (next !== layout) onLayout(next);
+      const owner = panes(next).find(pane => pane.tabIds.includes(pendingDock.tabId));
+      if (owner) selectTab(owner.id, pendingDock.tabId);
+    }
+    onDockHandled?.();
+  }, [pendingDock, layout]);
+  const externalTarget = externalHover ? targetAt(externalHover.x, externalHover.y, '') : null;
+  const externalRegion = externalTarget ? regions.find(region => region.pane.id === externalTarget.paneId) : undefined;
   const beginResize = (event: React.PointerEvent<HTMLDivElement>, region: SplitRect) => {
     if (busy || event.button !== 0 || !stage.current) return;
     event.preventDefault();
@@ -216,7 +279,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
         const panel = { tabId: tab.id, connection: tab.connection,
           visible: visible && region?.pane.activeTabId === tab.id, focused: region?.pane.id === focusedPane.id,
           style: region ? { ...rectangle(region), top: `calc(${region.top}% + 32px)`, height: `calc(${region.height}% - 32px)` } : undefined,
-          onFocus: () => { if (region) onFocus(region.pane.id); if (selected !== tab.id) onSelect(tab.id); }, onStatusChange: onStatus };
+          onFocus: () => { if (region) onFocus(region.pane.id); if (selected !== tab.id) onSelect(tab.id); }, onStatusChange: onStatus,
+          adopt: tab.adopt, initialStatus: tab.status };
         return tab.connection.protocol === 'rdp' ? <RdpPanel key={tab.id} {...panel} />
           : <TerminalPanel key={tab.id} {...panel} onClose={() => onClose(tab.id)} />;
       })}
@@ -241,11 +305,16 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
       })}
       {keysMenu && <ContextMenu x={keysMenu.x} y={keysMenu.y} label="Tastenkombination senden" onClose={closeKeysMenu}
         entries={[{ kind: 'heading', label: 'An Remotedesktop senden' }, ...RDP_ACTIONS.map(action => ({ kind: 'item' as const,
-          label: RDP_ACTION_LABELS[action].label, hint: RDP_ACTION_LABELS[action].hint, disabled: !rdpSessions.get(keysMenu.tabId),
+          label: RDP_ACTION_LABELS[action].label, hint: RDP_ACTION_LABELS[action].hint, disabled: !liveSessions.get(keysMenu.tabId),
           onSelect: () => {
-            const sessionId = rdpSessions.get(keysMenu.tabId);
+            const sessionId = liveSessions.get(keysMenu.tabId)?.sessionId;
             if (sessionId) void window.desktopApi.rdpAction({ sessionId, action }).catch(() => {});
           } }))]} />}
+      {externalHover && <div className="dock-preview" style={rectangle(externalRegion
+        ? zoneRect(externalRegion, externalTarget!.marker ? 'center' : externalTarget!.zone) : { left: 0, top: 0, width: 100, height: 100 })}>
+        <span>{externalHover.label ? `„${externalHover.label}“ ` : ''}{externalTarget?.marker ? 'als Tab einfügen' : externalTarget && externalTarget.zone !== 'center' ? 'hier andocken' : 'hierher verschieben'}
+          <small>Aus anderem Fenster</small></span>
+      </div>}
       {hover && draggedTabId && <div className={`dock-preview${previewRegion ? '' : ' dock-blocked'}`} style={rectangle(previewRegion ?? regions.find(region => region.pane.id === hover.paneId) ?? regions[0])}>
         <span>{previewRegion ? hover.marker ? 'Als Tab einfügen' : hover.zone === 'center' ? 'Hierher verschieben' : 'Hier teilen' : hover.zone === 'center' ? 'Bereits an dieser Position' : 'Hier nicht teilbar'}<small>Esc zum Abbrechen</small></span>
       </div>}

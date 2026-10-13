@@ -31,6 +31,7 @@ import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { SplitTerminalArea } from './components/SplitTerminalArea';
 import { WorkspaceControls } from './components/WorkspaceControls';
 import { useTerminalLayout } from './hooks/useTerminalLayout';
+import { useTabTransfer } from './hooks/useTabTransfer';
 import { restoreLayout, savedLayout } from './terminal-layout';
 import { ConnectionForm } from './components/ConnectionForm';
 import { parentFolderId } from './connection-form';
@@ -120,6 +121,9 @@ export default function App() {
   const terminals = useTerminalTabs();
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const terminalLayout = useTerminalLayout(terminals.tabs, terminals.activeTabId);
+  const transfer = useTabTransfer(terminals, setError);
+  // Announce readiness after the transfer listeners above are registered.
+  useEffect(() => { void window.desktopApi.windowReady(); }, []);
   const [pendingSshAction, setPendingSshAction] = useState<
     { type: 'closeTab'; tabId: string } | { type: 'lockVault' } | { type: 'openWorkspace'; workspaceId: string } | { type: 'closeWorkspace' } | null
   >(null);
@@ -399,7 +403,10 @@ export default function App() {
   async function saveWorkspace(name: string, id?: string): Promise<string | null> {
     if (!vault || busy || !name.trim()) return null;
     const existing = vault.workspaces.find(workspace => workspace.id === id);
-    const workspace = { ...existing, id: existing?.id ?? crypto.randomUUID(), name: name.trim(), layout: savedLayout(terminalLayout.layout, terminals.tabs) };
+    const windows = await window.desktopApi.workspaceWindows().catch(() => []);
+    const { windows: _previous, ...rest } = existing ?? {};
+    const workspace = { ...rest, id: existing?.id ?? crypto.randomUUID(), name: name.trim(), layout: savedLayout(terminalLayout.layout, terminals.tabs),
+      ...(windows.length ? { windows } : {}) };
     const workspaces = upsertWorkspace(vault.workspaces, workspace);
     if (!await persistVault({ ...vault, workspaces })) return null;
     setActiveWorkspaceId(workspace.id);
@@ -433,6 +440,8 @@ export default function App() {
         setPendingSshAction({ type: 'openWorkspace', workspaceId: id });
         return;
       }
+      void window.desktopApi.closeSecondaryWindows().then(() => window.desktopApi.openWorkspaceWindows(workspace.windows ?? []))
+        .catch(() => setError('Nicht alle Fenster des Workspaces konnten geöffnet werden.'));
       terminalLayout.replace(restored.layout);
       terminals.restore(restored.tabs, restored.activeTabId);
       setActiveWorkspaceId(id);
@@ -451,6 +460,7 @@ export default function App() {
     }
     terminals.reset();
     terminalLayout.reset();
+    void window.desktopApi.closeSecondaryWindows().catch(() => {});
     setActiveWorkspaceId(null);
   }
 
@@ -583,11 +593,12 @@ export default function App() {
           {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu. Über „Neu“ oder Rechtsklick wählst du die Verbindungsart.</p><button type="button" className="secondary-button" onClick={() => newConnection()}>Neue SSH-Verbindung</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}${!terminals.tabs.length ? ' no-terminals' : ''}`}>
-          <div className="terminal-area" hidden={!terminals.tabs.length}>
+          <div className="terminal-area" hidden={!terminals.tabs.length && !transfer.externalHover}>
             <SplitTerminalArea nodes={vault.nodes} onConnect={connectNode} tabs={terminals.tabs} selected={terminals.activeTabId} layout={terminalLayout.layout}
               draggedTabId={draggedTabId} onDrag={setDraggedTabId} visible={terminals.tabs.length > 0}
               focused={terminalLayout.focused} busy={busy} onLayout={terminalLayout.setLayout} onFocus={terminalLayout.setFocused}
-              onSelect={terminals.select} onStatus={terminals.updateStatus} onClose={requestCloseTab} />
+              onSelect={terminals.select} onStatus={terminals.updateStatus} onClose={requestCloseTab}
+              externalHover={transfer.externalHover} pendingDock={transfer.pendingDock} onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff} />
           </div>
           {!terminals.tabs.length && !editorOpen && <div className="workspace-placeholder">
             <h1>Mit einem Server verbinden</h1><p>Doppelklicke eine Verbindung oder wähle sie aus und drücke Enter.</p>

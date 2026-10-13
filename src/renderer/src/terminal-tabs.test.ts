@@ -56,4 +56,11 @@ describe('terminal tab lifecycle', () => {
     expect(toTerminalConnection({ id: 'p', type: 'connection', protocol: 'powershell', name: 'PS', tags: [] }))
       .toEqual({ id: 'p', name: 'PS', protocol: 'powershell', address: 'Lokal · PowerShell' });
   });
+  it('adopts tabs from other windows with their status and session', () => {
+    const state = reduce(opened(), { type: 'adopt', id: 'moved', connection, status: 'connected',
+      adopt: { session: { kind: 'terminal', sessionId: 'synthetic' }, snapshot: 'screen' } });
+    expect(state.activeTabId).toBe('moved');
+    expect(state.tabs.at(-1)).toMatchObject({ id: 'moved', status: 'connected', ordinal: 3, adopt: { snapshot: 'screen' } });
+    expect(reduce(state, { type: 'adopt', id: 'moved', connection, status: 'closed', adopt: {} })).toBe(state);
+  });
 });

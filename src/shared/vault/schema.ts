@@ -117,6 +117,10 @@ export const WorkspaceSchema: z.ZodType<Workspace> = z.object({
   name: z.string().min(1),
   comment: z.string().optional(),
   layout: WorkspaceLayoutSchema,
+  windows: z.array(z.object({
+    bounds: z.object({ x: z.number().int(), y: z.number().int(), width: z.number().int().min(320).max(20_000), height: z.number().int().min(240).max(20_000) }),
+    layout: WorkspaceLayoutSchema,
+  })).max(8).optional(),
 });
 
 export const VaultSettingsSchema: z.ZodType<VaultSettings> = z.object({
