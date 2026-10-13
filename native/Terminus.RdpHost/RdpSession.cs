@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Terminus.RdpHost
@@ -34,7 +35,9 @@ namespace Terminus.RdpHost
         private readonly Timer resizeTimer = new Timer { Interval = 300 };
         private readonly Action<RdpSession> onClosed;
         private Timer closeTimer;
+        private const int EUnexpected = unchecked((int)0x8000FFFF);
         private bool loggedIn, closing, closed;
+        private int remoteWidth, remoteHeight, resizeRetries;
 
         public string Id { get { return id; } }
 
@@ -100,15 +103,21 @@ namespace Terminus.RdpHost
         {
             if (!loggedIn || closing) return;
             int width = Even(control.ClientSize.Width), height = Even(control.ClientSize.Height);
+            if (width == remoteWidth && height == remoteHeight) return;
             try
             {
                 dynamic ocx = control.Ocx;
                 ocx.UpdateSessionDisplaySettings((uint)width, (uint)height, (uint)width, (uint)height, (uint)0, (uint)100, (uint)100);
+                resizeRetries = 0;
             }
-            catch (Exception error)
+            catch (COMException error)
             {
+                // Right after login the control rejects updates with E_UNEXPECTED; retry a few times.
+                if (error.ErrorCode == EUnexpected && ++resizeRetries <= 5) { resizeTimer.Interval = 1000; resizeTimer.Start(); return; }
+                resizeRetries = 0;
                 Status("warning", 0, "Auflösung konnte nicht angepasst werden: " + error.Message);
             }
+            finally { if (resizeRetries == 0) resizeTimer.Interval = 300; }
         }
 
         public void Close()
@@ -171,14 +180,20 @@ namespace Terminus.RdpHost
         public void Disconnected(int reason)
         {
             loggedIn = false;
-            bool regular = reason == LocalDisconnect || reason == RemoteByUser || reason == ByServer;
+            // A disconnect we requested is never an error, whatever reason code the control reports.
+            bool regular = closing || reason == LocalDisconnect || reason == RemoteByUser || reason == ByServer;
             Status(regular ? "disconnected" : "error", reason, Describe(reason));
             if (closing) Finish();
         }
 
         public void FatalError(int code) { Status("error", code, "Schwerer Fehler im RDP-Control."); }
         public void Warning(int code) { Status("warning", code, null); }
-        public void RemoteSizeChanged(int width, int height) { Status("remoteSize", 0, width + "x" + height); }
+        public void RemoteSizeChanged(int width, int height)
+        {
+            remoteWidth = width;
+            remoteHeight = height;
+            Status("remoteSize", 0, width + "x" + height);
+        }
         public void AuthenticationWarning(bool displayed) { Status(displayed ? "authWarningShown" : "authWarningDismissed", 0, null); }
         public void LogonError(int code) { Status("logonError", code, null); }
         public void FocusReleased(int direction) { Status("focusReleased", direction, null); }
