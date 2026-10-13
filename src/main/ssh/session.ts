@@ -6,7 +6,7 @@ import { Client } from 'ssh2';
 import type { ClientChannel, ConnectConfig } from 'ssh2';
 import type { IPty, IPtyForkOptions, IWindowsPtyForkOptions } from 'node-pty';
 import type { ConnectionNode, LocalShellConnectionNode, LocalShellProtocol, VaultNode } from '../../shared/vault/types';
-import type { SshEvent, SshPrepareRequest, TerminalSize } from '../../shared/ssh';
+import type { SshEvent, SshPrepareRequest, SshStatus, TerminalSize } from '../../shared/ssh';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
 
@@ -41,6 +41,8 @@ interface Session {
   sequence: number;
   timer?: ReturnType<typeof setTimeout>;
   key?: Buffer;
+  /** Between a window transfer and the new window's attach: output is held, not emitted. */
+  handover?: { held: Buffer[]; bytes: number };
 }
 
 export function findConnection(nodes: VaultNode[], id: string): ConnectionNode | undefined {
@@ -208,6 +210,13 @@ export class SshSessionManager {
 
   private output(session: Session, chunk: Buffer): void {
     if (!this.active(session) || chunk.length === 0) return;
+    if (session.handover) {
+      // Streams are paused; only chunks already in flight arrive here.
+      if (session.handover.bytes + chunk.length > OUTPUT_LIMIT) { this.finish(session, 'error', 'Die Terminalausgabe konnte nicht übergeben werden.'); return; }
+      session.handover.held.push(chunk);
+      session.handover.bytes += chunk.length;
+      return;
+    }
     if (session.outputBytes + chunk.length > OUTPUT_LIMIT) {
       this.finish(session, 'error', 'Die Terminalausgabe konnte nicht schnell genug verarbeitet werden.');
       return;
@@ -258,6 +267,31 @@ export class SshSessionManager {
     if (!session) return;
     this.owned(ownerId, id);
     this.finish(session, 'closed');
+  }
+
+  /**
+   * Moves a session to another window without reconnecting. Output still awaiting an acknowledgment
+   * from the old window is considered delivered; the new window restores the screen from a snapshot.
+   */
+  transferOwner(fromOwner: number, id: string, toOwner: number): SshStatus {
+    const session = this.owned(fromOwner, id);
+    session.ownerId = toOwner;
+    session.outstanding.clear();
+    session.outputBytes = 0;
+    if (session.phase === 'connected') { clearTimeout(session.timer); session.timer = undefined; }
+    session.handover ??= { held: [], bytes: 0 };
+    session.stream?.pause(); session.stream?.stderr.pause(); session.pty?.pause();
+    return session.phase === 'connected' ? 'connected' : 'connecting';
+  }
+
+  /** The new window is ready: deliver held output and resume the streams. */
+  attach(ownerId: number, id: string): void {
+    const session = this.owned(ownerId, id);
+    const handover = session.handover;
+    if (!handover) return;
+    session.handover = undefined;
+    for (const chunk of handover.held) this.output(session, chunk);
+    if (session.outputBytes < OUTPUT_HIGH) { session.stream?.resume(); session.stream?.stderr.resume(); session.pty?.resume(); }
   }
 
   closeAll(): void { for (const session of [...this.sessions.values()]) this.finish(session, 'closed'); }

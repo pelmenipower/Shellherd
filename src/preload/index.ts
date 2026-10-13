@@ -8,7 +8,28 @@ import type { SshEvent } from '../shared/ssh';
 import type { RdpEvent } from '../shared/rdp';
 import type { DesktopApi } from '../shared/ipc';
 
+function subscribe<T>(channel: string, listener: (value: T) => void): () => void {
+  const handler = (_event: IpcRendererEvent, value: T): void => listener(value);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
+
 const desktopApi: DesktopApi = {
+  windowReady: () => ipcRenderer.invoke('window:ready'),
+  windowCloseReady: () => ipcRenderer.invoke('window:close-ready'),
+  onWindowEvacuate: listener => subscribe('window:evacuate', listener),
+  connectionCatalog: () => ipcRenderer.invoke('window:connection-catalog'),
+  onConnectionCatalog: listener => subscribe('window:connection-catalog-changed', listener),
+  transferTab: request => ipcRenderer.invoke('tabs:transfer', request),
+  onIncomingTab: listener => subscribe('tabs:incoming', listener),
+  tabDragMove: point => ipcRenderer.send('tabs:drag-move', point),
+  onTabDragHover: listener => subscribe('tabs:drag-hover', listener),
+  workspaceWindows: () => ipcRenderer.invoke('workspace:windows'),
+  onWorkspaceCollect: listener => subscribe('workspace:collect', listener),
+  workspaceReport: report => ipcRenderer.invoke('workspace:report', report),
+  openWorkspaceWindows: windows => ipcRenderer.invoke('workspace:open-windows', windows),
+  onWorkspaceRestore: listener => subscribe('workspace:restore', listener),
+  closeSecondaryWindows: () => ipcRenderer.invoke('window:close-secondaries'),
   readClipboardText: () => ipcRenderer.invoke('clipboard:read-text'),
   writeClipboardText: text => ipcRenderer.invoke('clipboard:write-text', text),
   sshPrepare: request => ipcRenderer.invoke('ssh:prepare', request),
@@ -17,6 +38,7 @@ const desktopApi: DesktopApi = {
   sshResize: request => ipcRenderer.invoke('ssh:resize', request),
   sshAck: request => ipcRenderer.invoke('ssh:ack', request),
   sshClose: request => ipcRenderer.invoke('ssh:close', request),
+  sshAttach: request => ipcRenderer.invoke('ssh:attach', request),
   onSshEvent: listener => {
     const handler = (_event: IpcRendererEvent, event: SshEvent): void => listener(event);
     ipcRenderer.on('ssh:event', handler);

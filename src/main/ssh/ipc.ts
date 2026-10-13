@@ -60,6 +60,7 @@ export function registerSshIpcHandlers(): SshSessionManager {
     // A final output acknowledgment may arrive after a remote close.
     manager.acknowledge(ownerId, parsed.sessionId, parsed.sequence);
   });
+  ipcMain.handle(IPC_CHANNELS.sshAttach, (event, request: unknown) => manager.attach(requireSshSender(event), parseRequest(SessionSchema, request).sessionId));
   ipcMain.handle(IPC_CHANNELS.sshClose, (event, request: unknown) => manager.close(requireSshSender(event), parseRequest(SessionSchema, request).sessionId));
   return manager;
 }

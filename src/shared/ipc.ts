@@ -1,5 +1,6 @@
 import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
-import type { Vault } from './vault/types';
+import type { Vault, WorkspaceLayout } from './vault/types';
+import type { ConnectionCatalog, ExternalDragHover, IncomingTab, TabTransferRequest, WindowRole, WorkspaceWindowState } from './windows';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 
 export const IPC_CHANNELS = {
@@ -18,6 +19,7 @@ export const IPC_CHANNELS = {
   sshResize: 'ssh:resize',
   sshAck: 'ssh:ack',
   sshClose: 'ssh:close',
+  sshAttach: 'ssh:attach',
   sshEvent: 'ssh:event',
   rdpOpen: 'rdp:open',
   rdpBounds: 'rdp:bounds',
@@ -26,6 +28,21 @@ export const IPC_CHANNELS = {
   rdpClose: 'rdp:close',
   rdpAction: 'rdp:action',
   rdpEvent: 'rdp:event',
+  windowReady: 'window:ready',
+  windowCloseReady: 'window:close-ready',
+  windowEvacuate: 'window:evacuate',
+  connectionCatalog: 'window:connection-catalog',
+  connectionCatalogChanged: 'window:connection-catalog-changed',
+  tabTransfer: 'tabs:transfer',
+  tabIncoming: 'tabs:incoming',
+  tabDragMove: 'tabs:drag-move',
+  tabDragHover: 'tabs:drag-hover',
+  workspaceWindows: 'workspace:windows',
+  workspaceCollect: 'workspace:collect',
+  workspaceReport: 'workspace:report',
+  workspaceOpenWindows: 'workspace:open-windows',
+  workspaceRestore: 'workspace:restore',
+  closeSecondaryWindows: 'window:close-secondaries',
 } as const;
 
 export type SelectVaultFileResult =
@@ -80,6 +97,8 @@ export interface DesktopApi {
   sshResize: (request: SshResizeRequest) => Promise<void>;
   sshAck: (request: SshAckRequest) => Promise<void>;
   sshClose: (request: SshSessionRequest) => Promise<void>;
+  /** Takes over a session transferred from another window. */
+  sshAttach: (request: SshSessionRequest) => Promise<void>;
   onSshEvent: (listener: (event: SshEvent) => void) => () => void;
   rdpOpen: (request: RdpOpenRequest) => Promise<{ sessionId: string }>;
   rdpBounds: (request: RdpBoundsRequest) => Promise<void>;
@@ -88,6 +107,22 @@ export interface DesktopApi {
   rdpClose: (request: RdpSessionRequest) => Promise<void>;
   rdpAction: (request: RdpActionRequest) => Promise<void>;
   onRdpEvent: (listener: (event: RdpEvent) => void) => () => void;
+  windowReady: () => Promise<{ role: WindowRole }>;
+  windowCloseReady: () => Promise<void>;
+  onWindowEvacuate: (listener: () => void) => () => void;
+  connectionCatalog: () => Promise<ConnectionCatalog>;
+  onConnectionCatalog: (listener: (catalog: ConnectionCatalog) => void) => () => void;
+  transferTab: (request: TabTransferRequest) => Promise<void>;
+  onIncomingTab: (listener: (tab: IncomingTab) => void) => () => void;
+  /** Screen point (DIP) of a tab dragged outside its window; null ends the hover. */
+  tabDragMove: (point: { x: number; y: number; label: string } | null) => void;
+  onTabDragHover: (listener: (hover: ExternalDragHover) => void) => () => void;
+  workspaceWindows: () => Promise<WorkspaceWindowState[]>;
+  onWorkspaceCollect: (listener: (request: { requestId: string }) => void) => () => void;
+  workspaceReport: (report: { requestId: string; layout: WorkspaceLayout | null }) => Promise<void>;
+  openWorkspaceWindows: (windows: WorkspaceWindowState[]) => Promise<void>;
+  onWorkspaceRestore: (listener: (layout: WorkspaceLayout) => void) => () => void;
+  closeSecondaryWindows: () => Promise<void>;
   getVersion: () => Promise<string>;
   selectVaultFile: () => Promise<SelectVaultFileResult>;
   selectPrivateKeyFile: () => Promise<SelectVaultFileResult>;

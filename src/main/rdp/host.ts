@@ -27,6 +27,7 @@ interface Session {
   bounds: ViewportRect;
   revision: number;
   failed: boolean;
+  status: RdpEvent['status'];
 }
 
 /** Splits `DOMAIN\user`; UPNs (`user@domain`) stay a plain user name. */
@@ -61,7 +62,7 @@ export class RdpSessionManager {
   open(ownerId: number, window: BrowserWindow, request: RdpOpenRequest): { sessionId: string } {
     if (this.sessions.size >= MAX_SSH_SESSIONS) throw new Error(`Maximal ${MAX_SSH_SESSIONS} Sessions gleichzeitig. Schließe zuerst einen Tab.`);
     const target = this.dependencies.getTarget(request.connectionId);
-    const session: Session = { id: randomUUID(), ownerId, window, bounds: request.bounds, revision: 0, failed: false };
+    const session: Session = { id: randomUUID(), ownerId, window, bounds: request.bounds, revision: 0, failed: false, status: 'connecting' };
     this.track(window);
     this.sessions.set(session.id, session);
     const handle = window.getNativeWindowHandle().readBigUInt64LE(0).toString();
@@ -96,6 +97,17 @@ export class RdpSessionManager {
     if (!session) return;
     this.owned(ownerId, id);
     this.send({ type: 'close', sessionId: id });
+  }
+
+  /** Re-owns the surface by another window; it stays hidden until the new panel reports its bounds. */
+  transferOwner(fromOwner: number, id: string, toOwner: number, window: BrowserWindow): RdpEvent['status'] {
+    const session = this.owned(fromOwner, id);
+    session.ownerId = toOwner;
+    session.window = window;
+    this.track(window);
+    this.send({ type: 'visible', sessionId: id, visible: false });
+    this.send({ type: 'reparent', sessionId: id, parent: window.getNativeWindowHandle().readBigUInt64LE(0).toString() });
+    return session.status;
   }
 
   closeOwner(ownerId: number): void {
@@ -174,8 +186,10 @@ export class RdpSessionManager {
     if (message.type !== 'status' || !message.sessionId) return;
     const session = this.sessions.get(message.sessionId);
     if (!session) return;
-    const emit = (status: RdpEvent['status'], text?: string): void =>
+    const emit = (status: RdpEvent['status'], text?: string): void => {
+      session.status = status;
       this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(text ? { message: text } : {}) });
+    };
     switch (message.status) {
       case 'connecting': emit('connecting'); break;
       case 'loginComplete': emit('connected'); break;

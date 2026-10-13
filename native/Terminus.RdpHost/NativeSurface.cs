@@ -82,5 +82,11 @@ namespace Terminus.RdpHost
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool IsWindow(IntPtr window);
+
+        /// <summary>For top-level windows, GWLP_HWNDPARENT changes the owner.</summary>
+        public const int GWLP_HWNDPARENT = -8;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr SetWindowLongPtr(IntPtr window, int index, IntPtr value);
     }
 }

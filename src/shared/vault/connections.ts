@@ -1,5 +1,5 @@
 import type { ConnectionIconName } from './appearance';
-import type { ConnectionNode, ConnectionProtocol, RemoteConnectionNode } from './types';
+import type { ConnectionNode, ConnectionProtocol, RemoteConnectionNode, VaultNode } from './types';
 
 export interface ProtocolInfo {
   label: string;
@@ -25,6 +25,16 @@ export const NEW_CONNECTION_KINDS: { protocol: ConnectionProtocol | 'sftp' | 'ft
   { protocol: 'sftp', label: 'SFTP', planned: true },
   { protocol: 'ftp', label: 'FTP', planned: true },
 ];
+
+/** Copy for windows that only display connections: SSH credentials and RDP passwords removed. */
+export function redactSecrets(nodes: VaultNode[]): VaultNode[] {
+  return nodes.map((node): VaultNode => {
+    if (node.type === 'folder') return { ...node, children: redactSecrets(node.children) };
+    if (node.protocol === 'ssh') return { ...node, authentication: { method: 'agent' } };
+    if (node.protocol === 'rdp') { const { password: _password, ...rest } = node; return rest; }
+    return node;
+  });
+}
 
 export function isRemoteConnection(node: ConnectionNode): node is RemoteConnectionNode {
   return node.protocol === 'ssh' || node.protocol === 'rdp';

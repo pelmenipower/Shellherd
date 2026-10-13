@@ -37,7 +37,7 @@ namespace Terminus.RdpHost
 
         private readonly string id;
         private readonly SurfaceMode mode;
-        private readonly IntPtr parent;
+        private IntPtr parent;
         private readonly Form window;
         private int boundsRevision = -1;
         private readonly RdpControl control;
@@ -113,6 +113,17 @@ namespace Terminus.RdpHost
             {
                 Native.SetWindowPos(window.Handle, IntPtr.Zero, bounds.X, bounds.Y, width, height, Native.SWP_NOACTIVATE | Native.SWP_NOZORDER);
             }
+        }
+
+        /// <summary>Moves the surface to another Terminus window without touching the connection.</summary>
+        public void Reparent(IntPtr newParent)
+        {
+            if (mode == SurfaceMode.Window || closed) return;
+            if (!Native.IsWindow(newParent)) throw new ArgumentException("Ungültiges Fensterhandle.");
+            parent = newParent;
+            boundsRevision = -1;
+            if (mode == SurfaceMode.Child) Native.SetParent(window.Handle, newParent);
+            else Native.SetWindowLongPtr(window.Handle, Native.GWLP_HWNDPARENT, newParent);
         }
 
         public void SetVisible(bool visible)

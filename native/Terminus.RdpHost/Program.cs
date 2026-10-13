@@ -111,6 +111,7 @@ namespace Terminus.RdpHost
                     case "bounds": Find(message).SetBounds(Rect(message), Protocol.Int(message, "revision", 0, int.MaxValue, 0)); break;
                     case "visible": Find(message).SetVisible(Protocol.Bool(message, "visible", true)); break;
                     case "focus": Find(message).Focus(); break;
+                    case "reparent": Find(message).Reparent(ParseHandle(Protocol.String(message, "parent", true))); break;
                     case "ping": Reply("pong", requestId); break;
                     case "action": Find(message).SendAction(Protocol.String(message, "action", true)); break;
                     default: throw new FormatException("Unbekannter Nachrichtentyp: " + type);
@@ -142,10 +143,7 @@ namespace Terminus.RdpHost
             }
             else
             {
-                ulong handle;
-                if (!ulong.TryParse(Protocol.String(message, "parent", true), out handle) || handle == 0)
-                    throw new FormatException("Ungültiges Fensterhandle.");
-                request.Parent = new IntPtr(unchecked((long)handle));
+                request.Parent = ParseHandle(Protocol.String(message, "parent", true));
                 request.Bounds = Rect(message);
             }
             if (request.SessionId.Length == 0 || request.SessionId.Length > 64) throw new FormatException("Ungültige sessionId.");
@@ -158,6 +156,13 @@ namespace Terminus.RdpHost
             if (requestId != null) reply["requestId"] = requestId;
             reply["sessionId"] = session.Id;
             Protocol.Send(reply);
+        }
+
+        private static IntPtr ParseHandle(string text)
+        {
+            ulong handle;
+            if (!ulong.TryParse(text, out handle) || handle == 0) throw new FormatException("Ungültiges Fensterhandle.");
+            return new IntPtr(unchecked((long)handle));
         }
 
         private static SurfaceMode ParseMode(string mode)
