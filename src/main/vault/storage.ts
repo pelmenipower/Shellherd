@@ -1,4 +1,6 @@
+import { constants } from 'node:fs';
 import {
+  copyFile,
   mkdir,
   readFile,
   rename,
@@ -59,6 +61,31 @@ export async function writeEncryptedVaultFile(
   }
 
   return finalPath;
+}
+
+/**
+ * Copies the still-encrypted original next to it before a format upgrade overwrites it.
+ * Existing backups are never overwritten.
+ */
+export async function backupVaultFile(
+  filePath: string,
+  label: string,
+): Promise<string> {
+  const base = filePath.replace(/\.terminus$/i, '');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const target = `${base}.${label}-backup-${stamp}${attempt ? `-${attempt}` : ''}${FILE_EXTENSION}`;
+
+    try {
+      await copyFile(filePath, target, constants.COPYFILE_EXCL);
+      return target;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+  }
+
+  throw new Error('Für die Vault-Sicherung wurde kein freier Dateiname gefunden.');
 }
 
 export async function readEncryptedVaultFile(

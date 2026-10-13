@@ -55,7 +55,7 @@ describe('addNode', () => {
 
     const connection: VaultNode = {
       id: 'connection-api',
-      type: 'connection',
+      type: 'connection', protocol: 'ssh',
       name: 'API Server',
       host: 'api.example.local',
       port: 22,
@@ -151,7 +151,7 @@ describe('updateNode', () => {
             children: [
               {
                 id: 'connection-api',
-                type: 'connection',
+                type: 'connection', protocol: 'ssh',
                 name: 'Alter API-Server',
                 host: 'old.example.local',
                 port: 22,
@@ -248,7 +248,7 @@ describe('removeNode', () => {
             children: [
               {
                 id: 'connection-api',
-                type: 'connection',
+                type: 'connection', protocol: 'ssh',
                 name: 'API Server',
                 host: 'api.example.local',
                 port: 22,
@@ -292,7 +292,7 @@ describe('removeNode', () => {
         children: [
           {
             id: 'connection-api',
-            type: 'connection',
+            type: 'connection', protocol: 'ssh',
             name: 'API Server',
             host: 'api.example.local',
             port: 22,
@@ -324,7 +324,7 @@ describe('removeNodeFromVault', () => {
   it('removes all folder connections from workspace layouts', () => {
     const vault: Vault = {
       format: 'terminus-vault',
-      version: 1,
+      version: 2,
       id: 'vault-test',
       name: 'Test Vault',
       createdAt: '2026-01-01T00:00:00.000Z',
@@ -338,7 +338,7 @@ describe('removeNodeFromVault', () => {
           children: [
             {
               id: 'connection-api',
-              type: 'connection',
+              type: 'connection', protocol: 'ssh',
               name: 'API',
               host: 'api.local',
               port: 22,
@@ -349,7 +349,7 @@ describe('removeNodeFromVault', () => {
             },
             {
               id: 'connection-database',
-              type: 'connection',
+              type: 'connection', protocol: 'ssh',
               name: 'Datenbank',
               host: 'database.local',
               port: 22,
@@ -362,7 +362,7 @@ describe('removeNodeFromVault', () => {
         },
         {
           id: 'connection-jump-host',
-          type: 'connection',
+          type: 'connection', protocol: 'ssh',
           name: 'Jump Host',
           host: 'jump.local',
           port: 22,

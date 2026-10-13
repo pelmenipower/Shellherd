@@ -3,6 +3,7 @@ import {
   unlockVault,
 } from './crypto';
 import {
+  backupVaultFile,
   readEncryptedVaultFile,
   writeEncryptedVaultFile,
 } from './storage';
@@ -15,6 +16,8 @@ interface ActiveVaultSession {
   vault: Vault;
   key: Buffer;
   kdf: EncryptedVaultFile['kdf'];
+  /** Older on-disk format; the original file is backed up before the first save. */
+  migratedFrom?: number;
 }
 
 export interface VaultSessionSnapshot {
@@ -57,6 +60,7 @@ export class VaultSessionManager {
       kdf: {
         ...unlocked.kdf,
       },
+      migratedFrom: unlocked.migratedFrom,
     };
 
     return this.getSnapshot();
@@ -77,6 +81,12 @@ export class VaultSessionManager {
       session.key,
       session.kdf,
     );
+
+    // A failed backup aborts the save; the original file stays untouched.
+    if (session.migratedFrom !== undefined) {
+      await backupVaultFile(session.filePath, `v${session.migratedFrom}`);
+      session.migratedFrom = undefined;
+    }
 
     const filePath = await writeEncryptedVaultFile(
       session.filePath,

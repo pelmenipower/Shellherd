@@ -29,22 +29,52 @@ export const AuthenticationSchema = z.discriminatedUnion('method', [
     }),
 ]);
 
-export const ConnectionNodeSchema = z.object({
+const connectionBase = {
     id: z.string(),
     type: z.literal('connection'),
     name: z.string(),
     comment: z.string().optional(),
 
-    host:  z.string(),
-    port:  z.number().int().min(1).max(65_535),
-    username: z.string().optional(),
-
-    authentication: AuthenticationSchema,
-
     tags: z.array(z.string()),
     color: z.string().optional(),
     icon: z.enum(CONNECTION_ICONS).optional(),
+};
+
+const remoteTarget = {
+    host: z.string(),
+    port: z.number().int().min(1).max(65_535),
+    username: z.string().optional(),
+};
+
+export const SshConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.literal('ssh'),
+    ...remoteTarget,
+    authentication: AuthenticationSchema,
 });
+
+export const RdpConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.literal('rdp'),
+    ...remoteTarget,
+    password: z.string().optional(),
+    rdp: z.object({
+        domain: z.string().optional(),
+        clipboard: z.boolean(),
+    }),
+});
+
+export const LocalShellConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.enum(['powershell', 'cmd']),
+    workingDirectory: z.string().optional(),
+});
+
+export const ConnectionNodeSchema = z.discriminatedUnion('protocol', [
+    SshConnectionNodeSchema,
+    RdpConnectionNodeSchema,
+    LocalShellConnectionNodeSchema,
+]);
 
 export const VaultNodeSchema: z.ZodType<VaultNode> = z.lazy(() =>
     z.union([ConnectionNodeSchema, FolderNodeSchema]),
@@ -100,7 +130,7 @@ export const VaultSettingsSchema: z.ZodType<VaultSettings> = z.object({
 
 export const VaultSchema: z.ZodType<Vault> = z.object({
   format: z.literal('terminus-vault'),
-  version: z.literal(1),
+  version: z.literal(2),
 
   id: z.string().min(1),
   name: z.string().min(1),
