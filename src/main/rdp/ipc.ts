@@ -6,6 +6,7 @@ import { findConnection } from '../ssh/session';
 import { requireSshSender } from '../ssh/ipc';
 import { vaultSessionManager } from '../vault/ipc';
 import { RdpSessionManager } from './host';
+import { RDP_ACTIONS } from '../../shared/rdp';
 import type { RdpSurfaceMode } from '../../shared/rdp';
 
 const coordinate = z.number().finite().min(-100_000).max(100_000);
@@ -15,7 +16,7 @@ const OpenSchema = z.object({ connectionId: z.string().min(1).max(256), bounds: 
 const SessionSchema = z.object(session).strict();
 const BoundsSchema = z.object({ ...session, bounds: Rect }).strict();
 const VisibleSchema = z.object({ ...session, visible: z.boolean() }).strict();
-const HangSchema = z.object({ ms: z.number().int().min(0).max(30_000) }).strict();
+const ActionSchema = z.object({ ...session, action: z.enum(RDP_ACTIONS) }).strict();
 
 function parse<T>(schema: z.ZodType<T>, request: unknown): T {
   const result = schema.safeParse(request);
@@ -59,8 +60,9 @@ export function registerRdpIpcHandlers(): RdpSessionManager {
   });
   ipcMain.handle(IPC_CHANNELS.rdpFocus, (event, request: unknown) => manager.focus(requireSshSender(event), parse(SessionSchema, request).sessionId));
   ipcMain.handle(IPC_CHANNELS.rdpClose, (event, request: unknown) => manager.close(requireSshSender(event), parse(SessionSchema, request).sessionId));
-  ipcMain.handle(IPC_CHANNELS.rdpDebugHang, (event, request: unknown) => {
-    manager.debugHang(requireSshSender(event), parse(HangSchema, request).ms);
+  ipcMain.handle(IPC_CHANNELS.rdpAction, (event, request: unknown) => {
+    const parsed = parse(ActionSchema, request);
+    manager.action(requireSshSender(event), parsed.sessionId, parsed.action);
   });
   return manager;
 }

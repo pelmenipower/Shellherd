@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { screen } from 'electron';
 import type { BrowserWindow, Rectangle } from 'electron';
-import type { RdpEvent, RdpOpenRequest, RdpSurfaceMode, ViewportRect } from '../../shared/rdp';
+import type { RdpAction, RdpEvent, RdpOpenRequest, RdpSurfaceMode, ViewportRect } from '../../shared/rdp';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
 /** Set TERMINUS_RDP_DEBUG=1 to log helper traffic; passwords are masked. */
@@ -87,10 +87,8 @@ export class RdpSessionManager {
     this.send({ type: 'focus', sessionId: this.owned(ownerId, id).id });
   }
 
-  /** Prototype only: blocks the helper UI thread to test whether Terminus stays responsive. */
-  debugHang(ownerId: number, ms: number): void {
-    if (!this.hasOwner(ownerId)) throw new Error('Keine aktive RDP-Verbindung.');
-    this.send({ type: 'debugHang', ms });
+  action(ownerId: number, id: string, action: RdpAction): void {
+    this.send({ type: 'action', sessionId: this.owned(ownerId, id).id, action });
   }
 
   close(ownerId: number, id: string): void {

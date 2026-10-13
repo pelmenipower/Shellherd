@@ -45,6 +45,7 @@ namespace Terminus.RdpHost
         private const int EUnexpected = unchecked((int)0x8000FFFF);
         private bool loggedIn, closing, closed;
         private int remoteWidth, remoteHeight, resizeRetries;
+        private bool smartSizing;
 
         public string Id { get { return id; } }
 
@@ -72,7 +73,12 @@ namespace Terminus.RdpHost
             control = new RdpControl(new RdpEventSink(this)) { Dock = DockStyle.Fill };
             window.Controls.Add(control);
             window.FormClosing += (sender, e) => { if (!closed) { e.Cancel = true; Close(); } };
-            window.ClientSizeChanged += (sender, e) => { resizeTimer.Stop(); resizeTimer.Start(); };
+            window.ClientSizeChanged += (sender, e) =>
+            {
+                // Scale the last frame immediately so the area never turns blank while the server catches up.
+                if (loggedIn && !MatchesRemote()) SetSmartSizing(true);
+                resizeTimer.Stop(); resizeTimer.Start();
+            };
             resizeTimer.Tick += (sender, e) => { resizeTimer.Stop(); SyncDisplaySize(); };
             if (mode != SurfaceMode.Window)
             {
@@ -116,6 +122,28 @@ namespace Terminus.RdpHost
             control.Focus();
         }
 
+        /// <summary>Fixed key actions; the renderer can only choose from this list.</summary>
+        public void SendAction(string action)
+        {
+            if (!loggedIn || closing) throw new InvalidOperationException("Die RDP-Sitzung ist nicht angemeldet.");
+            control.Focus();
+            dynamic ocx = control.Ocx;
+            switch (action)
+            {
+                case "ctrlAltDel":
+                    // Scan codes Ctrl, Alt, Del pressed, then released in reverse order.
+                    var keyUp = new short[] { 0, 0, 0, -1, -1, -1 };
+                    var keyData = new[] { 0x1D, 0x38, 0x53, 0x53, 0x38, 0x1D };
+                    ((IMsRdpClientNonScriptable)control.Ocx).SendKeys(keyData.Length, keyUp, keyData);
+                    break;
+                case "startScreen": ocx.SendRemoteAction(3); break;
+                case "appSwitch": ocx.SendRemoteAction(4); break;
+                case "actionCenter": ocx.SendRemoteAction(5); break;
+                case "taskManager": ocx.SendRemoteAction(6); break;
+                default: throw new FormatException("Unbekannte Aktion: " + action);
+            }
+        }
+
         private void Connect(OpenRequest request)
         {
             dynamic ocx = control.Ocx;
@@ -155,11 +183,25 @@ namespace Terminus.RdpHost
             return clamped - clamped % 2;
         }
 
+        private bool MatchesRemote()
+        {
+            return Even(control.ClientSize.Width) == remoteWidth && Even(control.ClientSize.Height) == remoteHeight;
+        }
+
+        /// <summary>Scales the remote image to the surface; stays on if the server cannot resize dynamically.</summary>
+        private void SetSmartSizing(bool enabled)
+        {
+            if (smartSizing == enabled) return;
+            try { ((dynamic)control.Ocx).AdvancedSettings9.SmartSizing = enabled; smartSizing = enabled; }
+            catch { /* control not ready; the next resize retries */ }
+        }
+
         private void SyncDisplaySize()
         {
             if (!loggedIn || closing) return;
             int width = Even(control.ClientSize.Width), height = Even(control.ClientSize.Height);
-            if (width == remoteWidth && height == remoteHeight) return;
+            if (width == remoteWidth && height == remoteHeight) { SetSmartSizing(false); return; }
+            SetSmartSizing(true);
             try
             {
                 dynamic ocx = control.Ocx;
@@ -257,6 +299,7 @@ namespace Terminus.RdpHost
         {
             remoteWidth = width;
             remoteHeight = height;
+            if (loggedIn && MatchesRemote()) SetSmartSizing(false);
             Status("remoteSize", 0, width + "x" + height);
         }
         public void AuthenticationWarning(bool displayed) { Status(displayed ? "authWarningShown" : "authWarningDismissed", 0, null); }

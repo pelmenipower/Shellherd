@@ -7,6 +7,9 @@ import { dockTab, dockZone, mergePane, moveTab, paneRects, panes, resizeBounds, 
 import { TerminalPanel } from './TerminalPanel';
 import { RdpPanel } from './RdpPanel';
 import { useNativeSurfaceBlock } from '../native-surface';
+import { ContextMenu } from './ContextMenu';
+import { RDP_ACTION_LABELS, rdpSessions } from '../rdp-sessions';
+import { RDP_ACTIONS } from '../../../shared/rdp';
 import { TerminalTabs } from './TerminalTabs';
 import { ConnectionPicker } from './ConnectionPicker';
 import type { VaultNode } from '../../../shared/vault/types';
@@ -35,6 +38,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
   const [hover, setHover] = useState<DockTarget | null>(null);
   const [maximized, setMaximized] = useState<string | null>(null);
   const [menuPane, setMenuPane] = useState<string | null>(null);
+  const [keysMenu, setKeysMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
+  const closeKeysMenu = useCallback(() => setKeysMenu(null), []);
   // Drop previews and pane menus are HTML; native RDP surfaces would cover them.
   useNativeSurfaceBlock(Boolean(draggedTabId) || menuPane !== null);
   const stage = useRef<HTMLDivElement>(null);
@@ -170,6 +175,14 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           <ConnectionPicker nodes={nodes} disabled={busy} limitReached={tabs.length >= MAX_SSH_SESSIONS} paneNumber={index + 1}
             onConnect={id => onConnect(id, region.pane.id)} />
           <span className="pane-header-spacer" />
+          {tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'rdp' && <button type="button" className="pane-action" disabled={busy}
+            aria-label={`Tastenkombination an Remotedesktop in Bereich ${index + 1} senden`} title="Tastenkombinationen senden" aria-haspopup="menu"
+            onClick={event => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              setKeysMenu({ x: rect.left, y: rect.bottom + 4, tabId: region.pane.activeTabId! });
+            }}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+          </button>}
           {paneList.length > 1 && <button type="button" className="pane-action" disabled={busy} aria-label={zoomed ? 'Alle Bereiche anzeigen' : `Bereich ${index + 1} maximieren`}
             title={zoomed ? 'Alle Bereiche anzeigen' : 'Bereich maximieren'} onClick={() => setMaximized(zoomed ? null : region.pane.id)}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5"><path d={zoomed ? 'M8 3v5H3m18 0h-5V3M3 16h5v5m8 0v-5h5' : 'M3 9V3h6m6 0h6v6M3 15v6h6m6 0h6v-6'} /></svg>
@@ -191,9 +204,6 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
               {paneList.map((pane, paneIndex) => <option value={pane.id} key={pane.id}>Bereich {paneIndex + 1}</option>)}
             </select></label>}
           </>}
-          {tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'rdp' && <button type="button" onClick={() => {
-            setMenuPane(null); void window.desktopApi.rdpDebugHang({ ms: 10_000 }).catch(() => {});
-          }}>Test: RDP-Helfer 10 s blockieren</button>}
           <p>Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben.</p>
           <button type="button" onClick={() => setMenuPane(null)}>Schließen</button>
         </div>}
@@ -229,6 +239,13 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
             onLayout(setRatio(layout, region.split.id, Math.max(bounds.min, Math.min(bounds.max, ratio))));
           }} />;
       })}
+      {keysMenu && <ContextMenu x={keysMenu.x} y={keysMenu.y} label="Tastenkombination senden" onClose={closeKeysMenu}
+        entries={[{ kind: 'heading', label: 'An Remotedesktop senden' }, ...RDP_ACTIONS.map(action => ({ kind: 'item' as const,
+          label: RDP_ACTION_LABELS[action].label, hint: RDP_ACTION_LABELS[action].hint, disabled: !rdpSessions.get(keysMenu.tabId),
+          onSelect: () => {
+            const sessionId = rdpSessions.get(keysMenu.tabId);
+            if (sessionId) void window.desktopApi.rdpAction({ sessionId, action }).catch(() => {});
+          } }))]} />}
       {hover && draggedTabId && <div className={`dock-preview${previewRegion ? '' : ' dock-blocked'}`} style={rectangle(previewRegion ?? regions.find(region => region.pane.id === hover.paneId) ?? regions[0])}>
         <span>{previewRegion ? hover.marker ? 'Als Tab einfügen' : hover.zone === 'center' ? 'Hierher verschieben' : 'Hier teilen' : hover.zone === 'center' ? 'Bereits an dieser Position' : 'Hier nicht teilbar'}<small>Esc zum Abbrechen</small></span>
       </div>}

@@ -4,6 +4,7 @@ import type { TerminalConnection } from '../terminal-tabs';
 import type { RdpStatus, ViewportRect } from '../../../shared/rdp';
 import type { SshStatus } from '../../../shared/ssh';
 import { useNativeSurfacesBlocked } from '../native-surface';
+import { rdpSessions } from '../rdp-sessions';
 
 interface RdpPanelProps {
   connection: TerminalConnection;
@@ -61,6 +62,7 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
         if (disposed) { void window.desktopApi.rdpClose(result).catch(() => {}); return; }
         id = result.sessionId;
         session.current = id;
+        rdpSessions.set(tabId, id);
         lastBounds.current = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
         syncRef.current();
       }).catch((error: Error) => report('error', error.message));
@@ -70,6 +72,7 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
       clearTimeout(timer);
       unsubscribe();
       session.current = null;
+      rdpSessions.delete(tabId);
       if (id) void window.desktopApi.rdpClose({ sessionId: id }).catch(() => {});
     };
   }, [connection.id, tabId, onStatusChange]);

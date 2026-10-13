@@ -112,11 +112,7 @@ namespace Terminus.RdpHost
                     case "visible": Find(message).SetVisible(Protocol.Bool(message, "visible", true)); break;
                     case "focus": Find(message).Focus(); break;
                     case "ping": Reply("pong", requestId); break;
-                    case "debugHang":
-                        // Prototype only: blocks the UI thread to test whether a hung helper freezes Terminus.
-                        Thread.Sleep(Protocol.Int(message, "ms", 0, 30000, 5000));
-                        Reply("debugHangDone", requestId);
-                        break;
+                    case "action": Find(message).SendAction(Protocol.String(message, "action", true)); break;
                     default: throw new FormatException("Unbekannter Nachrichtentyp: " + type);
                 }
             }

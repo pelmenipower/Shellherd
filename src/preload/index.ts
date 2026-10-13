@@ -27,7 +27,7 @@ const desktopApi: DesktopApi = {
   rdpVisible: request => ipcRenderer.invoke('rdp:visible', request),
   rdpFocus: request => ipcRenderer.invoke('rdp:focus', request),
   rdpClose: request => ipcRenderer.invoke('rdp:close', request),
-  rdpDebugHang: request => ipcRenderer.invoke('rdp:debug-hang', request),
+  rdpAction: request => ipcRenderer.invoke('rdp:action', request),
   onRdpEvent: listener => {
     const handler = (_event: IpcRendererEvent, event: RdpEvent): void => listener(event);
     ipcRenderer.on('rdp:event', handler);

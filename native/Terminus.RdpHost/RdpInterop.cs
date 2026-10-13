@@ -30,6 +30,15 @@ namespace Terminus.RdpHost
         void SetClearTextPassword([MarshalAs(UnmanagedType.BStr)] string password);
     }
 
+    [ComImport, Guid("2f079c4c-87b2-4afd-97ab-20cdb43038ae"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IMsRdpClientNonScriptable
+    {
+        // Slots 3-13: IMsTscNonScriptable members and NotifyRedirectDeviceChange.
+        void _VtblGap1_11();
+        // Slot 14: SendKeys(numKeys, VARIANT_BOOL* keyUp, long* keyData) with scan codes.
+        void SendKeys(int numKeys, [MarshalAs(UnmanagedType.LPArray)] short[] keyUp, [MarshalAs(UnmanagedType.LPArray)] int[] keyData);
+    }
+
     [ComImport, Guid("4f6996d5-d7b1-412c-b0ff-063718566907"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IMsRdpClientNonScriptable5
     {
