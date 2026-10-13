@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { IPC_CHANNELS } from '../shared/ipc';
 import { WorkspaceLayoutSchema, WorkspaceViewsSchema } from '../shared/vault/schema';
 import { redactSecrets } from '../shared/vault/connections';
-import type { ConnectionCatalog, IncomingTab, WindowLayoutReport, WorkspaceWindowState } from '../shared/windows';
+import type { ConnectionCatalog, IncomingTab, IncomingView, TransferLayout, WindowLayoutReport, WorkspaceWindowState } from '../shared/windows';
 import { requireSshSender } from './ssh/ipc';
 import type { SshSessionManager } from './ssh/session';
 import type { RdpSessionManager } from './rdp/host';
@@ -19,17 +19,29 @@ const TabConnectionSchema = z.object({
   id: z.string().min(1).max(256), name: z.string().max(500),
   protocol: z.enum(['ssh', 'rdp', 'powershell', 'cmd']), address: z.string().max(1000),
 }).strict();
-const TransferSchema = z.object({
+const TargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('main') }).strict(),
+  z.object({ kind: z.literal('drop'), x: finite, y: finite }).strict(),
+  z.object({ kind: z.literal('new'), x: finite, y: finite }).strict(),
+]);
+const tabFields = {
   connection: TabConnectionSchema,
   status: z.enum(['connecting', 'connected', 'closed', 'error']),
   session: z.object({ kind: z.enum(['terminal', 'rdp']), sessionId: z.string().uuid() }).strict().optional(),
   snapshot: z.string().max(8 * 1024 * 1024).optional(),
-  target: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('main') }).strict(),
-    z.object({ kind: z.literal('drop'), x: finite, y: finite }).strict(),
-  ]),
+};
+const TransferSchema = z.object({ ...tabFields, target: TargetSchema }).strict();
+const id = z.string().min(1).max(128);
+const LayoutSchema: z.ZodType<TransferLayout> = z.lazy(() => z.union([
+  z.object({ type: z.literal('pane'), id, tabIds: z.array(id).max(16), activeTabId: id.nullable() }).strict(),
+  z.object({ type: z.literal('split'), id, direction: z.enum(['horizontal', 'vertical']), ratio: z.number().min(0.1).max(0.9),
+    first: LayoutSchema, second: LayoutSchema }).strict(),
+]));
+const ViewTransferSchema = z.object({
+  name: z.string().min(1).max(60), layout: LayoutSchema, target: TargetSchema,
+  tabs: z.array(z.object({ key: id, ...tabFields }).strict()).max(16),
 }).strict();
-const DragSchema = z.object({ x: finite, y: finite, label: z.string().max(500) }).strict().nullable();
+const DragSchema = z.object({ x: finite, y: finite, label: z.string().max(500), kind: z.enum(['tab', 'view']).optional() }).strict().nullable();
 const BoundsSchema = z.object({ x: z.number().int(), y: z.number().int(), width: z.number().int().min(320).max(20_000), height: z.number().int().min(240).max(20_000) }).strict();
 const SavedSchema = { layout: WorkspaceLayoutSchema, views: WorkspaceViewsSchema.optional() };
 const WindowsSchema = z.array(z.object({ bounds: BoundsSchema, ...SavedSchema }).strict()).max(8);
@@ -78,32 +90,59 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
 
   ipcMain.handle(IPC_CHANNELS.connectionCatalog, event => { requireSshSender(event); return catalog(); });
 
+  /** Finds or creates the receiving window and waits until it can take over sessions. */
+  const resolveTarget = async (from: number, spec: z.infer<typeof TargetSchema>): Promise<{ target: BrowserWindow; drop?: IncomingTab['drop'] }> => {
+    let target: BrowserWindow | undefined;
+    let drop: IncomingTab['drop'];
+    if (spec.kind === 'main') target = registry.main();
+    else {
+      const point = { x: spec.x, y: spec.y };
+      target = spec.kind === 'drop' ? registry.windowAt(point, from) : undefined;
+      if (target) drop = registry.toClient(target, point);
+      else target = createSecondary(tearOffBounds(point, registry.get(from)?.getBounds()));
+    }
+    if (!target || target.isDestroyed() || target.webContents.id === from) throw new Error('Kein Zielfenster verfügbar.');
+    await registry.whenReady(target.webContents.id);
+    return { target, ...(drop ? { drop } : {}) };
+  };
+  const moveSession = (from: number, tab: z.infer<z.ZodObject<typeof tabFields>>, target: BrowserWindow) => {
+    const to = target.webContents.id;
+    let status = tab.status;
+    if (tab.session?.kind === 'terminal') status = ssh.transferOwner(from, tab.session.sessionId, to);
+    if (tab.session?.kind === 'rdp') status = rdp.transferOwner(from, tab.session.sessionId, to, target);
+    return { connection: tab.connection, status, ...(tab.session ? { session: tab.session } : {}), ...(tab.snapshot ? { snapshot: tab.snapshot } : {}) };
+  };
+  const present = (target: BrowserWindow): void => {
+    if (target.isMinimized()) target.restore();
+    target.focus();
+  };
+
   ipcMain.handle(IPC_CHANNELS.tabTransfer, async (event, request: unknown) => {
     const from = requireSshSender(event);
     const parsed = parse(TransferSchema, request);
     vaultSessionManager.getSnapshot();
     clearHover(from);
-    let target: BrowserWindow | undefined;
-    let drop: IncomingTab['drop'];
-    if (parsed.target.kind === 'main') {
-      target = registry.main();
-    } else {
-      const point = { x: parsed.target.x, y: parsed.target.y };
-      target = registry.windowAt(point, from);
-      if (target) drop = registry.toClient(target, point);
-      else target = createSecondary(tearOffBounds(point, registry.get(from)?.getBounds()));
-    }
-    if (!target || target.isDestroyed() || target.webContents.id === from) throw new Error('Kein Zielfenster verfügbar.');
-    const to = target.webContents.id;
-    await registry.whenReady(to);
-    let status = parsed.status;
-    if (parsed.session?.kind === 'terminal') status = ssh.transferOwner(from, parsed.session.sessionId, to);
-    if (parsed.session?.kind === 'rdp') status = rdp.transferOwner(from, parsed.session.sessionId, to, target);
-    const incoming: IncomingTab = { connection: parsed.connection, status, ...(parsed.session ? { session: parsed.session } : {}),
-      ...(parsed.snapshot ? { snapshot: parsed.snapshot } : {}), ...(drop ? { drop } : {}) };
+    const { target, drop } = await resolveTarget(from, parsed.target);
+    const incoming: IncomingTab = { ...moveSession(from, parsed, target), ...(drop ? { drop } : {}) };
     send(target, IPC_CHANNELS.tabIncoming, incoming);
-    if (target.isMinimized()) target.restore();
-    target.focus();
+    present(target);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.viewTransfer, async (event, request: unknown) => {
+    const from = requireSshSender(event);
+    const parsed = parse(ViewTransferSchema, request);
+    vaultSessionManager.getSnapshot();
+    clearHover(from);
+    if (parsed.tabs.reduce((total, tab) => total + (tab.snapshot?.length ?? 0), 0) > 32 * 1024 * 1024) throw new Error('Die Ansicht ist zu groß zum Verschieben.');
+    // Check every session first so a view never ends up split between two windows.
+    for (const tab of parsed.tabs) {
+      if (tab.session && !(tab.session.kind === 'terminal' ? ssh : rdp).owns(from, tab.session.sessionId)) throw new Error('Eine Sitzung der Ansicht ist nicht verfügbar.');
+    }
+    const { target } = await resolveTarget(from, parsed.target);
+    const incoming: IncomingView = { name: parsed.name, layout: parsed.layout,
+      tabs: parsed.tabs.map(tab => ({ key: tab.key, ...moveSession(from, tab, target) })) };
+    send(target, IPC_CHANNELS.viewIncoming, incoming);
+    present(target);
   });
 
   ipcMain.on(IPC_CHANNELS.tabDragMove, (event, value: unknown) => {
@@ -121,7 +160,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
     }
     ghost.hide();
     hovered.set(from, target.webContents.id);
-    send(target, IPC_CHANNELS.tabDragHover, { ...registry.toClient(target, point), label: point.label });
+    send(target, IPC_CHANNELS.tabDragHover, { ...registry.toClient(target, point), label: point.label, ...(point.kind ? { kind: point.kind } : {}) });
   });
 
   ipcMain.handle(IPC_CHANNELS.windowCloseReady, event => {

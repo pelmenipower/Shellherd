@@ -298,6 +298,7 @@ export class SshSessionManager {
   closeOwner(ownerId: number): void {
     for (const session of [...this.sessions.values()]) if (session.ownerId === ownerId) this.finish(session, 'closed');
   }
+  owns(ownerId: number, id: string): boolean { return this.sessions.get(id)?.ownerId === ownerId; }
   hasOwner(ownerId: number): boolean { return [...this.sessions.values()].some(session => session.ownerId === ownerId); }
 
   private finish(session: Session, status: 'closed' | 'error', message?: string): void {

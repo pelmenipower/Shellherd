@@ -19,8 +19,8 @@ export function SecondaryWindow() {
   const [pendingClose, setPendingClose] = useState<string | null>(null);
   const terminals = useTerminalTabs();
   const terminalLayout = useTerminalLayout(terminals.tabs, terminals.activeTabId);
-  const transfer = useTabTransfer(terminals, setError);
-  const viewControls = useViewControls(terminalLayout, terminals.select);
+  const transfer = useTabTransfer(terminals, terminalLayout, setError);
+  const viewControls = useViewControls(terminalLayout, terminals.select, transfer.transferView);
 
   // Effects and listeners read the latest state through refs.
   const state = useRef({ tabs: terminals.tabs, views: terminalLayout.viewsState, catalog, replaceViews: terminalLayout.replaceViews, restore: terminals.restore });

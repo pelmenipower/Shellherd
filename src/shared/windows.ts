@@ -11,7 +11,27 @@ export interface TransferSession { kind: 'terminal' | 'rdp'; sessionId: string }
 export type TransferTarget =
   | { kind: 'main' }
   /** Screen point in DIP; dropped onto the window under it or into a new window. */
-  | { kind: 'drop'; x: number; y: number };
+  | { kind: 'drop'; x: number; y: number }
+  /** Always a new window at this screen point (DIP). */
+  | { kind: 'new'; x: number; y: number };
+
+/** Split layout of a view with tab keys of the sending window. */
+export type TransferLayout =
+  | { type: 'pane'; id: string; tabIds: string[]; activeTabId: string | null }
+  | { type: 'split'; id: string; direction: 'horizontal' | 'vertical'; ratio: number; first: TransferLayout; second: TransferLayout };
+
+export interface ViewTransferTab {
+  /** Tab ID in the sending window; referenced by the layout. */
+  key: string;
+  connection: TabConnection;
+  status: SshStatus;
+  session?: TransferSession;
+  snapshot?: string;
+}
+
+/** A whole view (layout, tabs and sessions) moving to another window. */
+export interface ViewTransferRequest { name: string; layout: TransferLayout; tabs: ViewTransferTab[]; target: TransferTarget }
+export interface IncomingView { name: string; layout: TransferLayout; tabs: ViewTransferTab[] }
 
 export interface TabTransferRequest {
   connection: TabConnection;
@@ -33,7 +53,7 @@ export interface IncomingTab {
 }
 
 /** Pointer of a tab dragged from another window, in viewport CSS pixels; null when it left. */
-export type ExternalDragHover = { x: number; y: number; label: string } | null;
+export type ExternalDragHover = { x: number; y: number; label: string; kind?: 'tab' | 'view' } | null;
 
 /** What detached windows know about the vault: connection metadata without secrets. */
 export interface ConnectionCatalog { nodes: VaultNode[]; confirmBeforeClosingSession: boolean }

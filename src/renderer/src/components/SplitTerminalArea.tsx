@@ -61,15 +61,16 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
   /** View tab under the pointer while a tab is dragged (pointer capture still allows hit-testing). */
   const viewAt = (x: number, y: number): string | null => viewControls
     ? (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-view-id]')?.dataset.viewId ?? null : null;
-  const external = useRef<{ frame: number; point: { x: number; y: number; label: string } | null } | null>(null);
+  type ExternalPoint = { x: number; y: number; label: string; kind?: 'tab' | 'view' };
+  const external = useRef<{ frame: number; point: ExternalPoint | null } | null>(null);
   /** Reports the pointer outside this window so the window below can preview the drop; null ends it. */
-  const reportExternal = (point: { x: number; y: number; label: string } | null): void => {
+  const reportExternal = (point: ExternalPoint | null): void => {
     if (!point) {
       if (external.current) { cancelAnimationFrame(external.current.frame); external.current = null; window.desktopApi.tabDragMove(null); }
       return;
     }
     if (external.current) { external.current.point = point; return; }
-    const state = { frame: 0, point: point as { x: number; y: number; label: string } | null };
+    const state = { frame: 0, point: point as ExternalPoint | null };
     external.current = state;
     const flush = (): void => {
       if (external.current !== state) return;
@@ -87,7 +88,58 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
   const [keysMenu, setKeysMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
   const closeKeysMenu = useCallback(() => setKeysMenu(null), []);
   // Drop previews and pane menus are HTML; native RDP surfaces would cover them.
-  useNativeSurfaceBlock(Boolean(draggedTabId) || menuPane !== null || externalHover !== null);
+  const [viewDragging, setViewDragging] = useState(false);
+  const [viewMenu, setViewMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  const closeViewMenu = useCallback(() => setViewMenu(null), []);
+  useNativeSurfaceBlock(Boolean(draggedTabId) || menuPane !== null || externalHover !== null || viewDragging);
+  /**
+   * Dragging a view tab: drop on another view tab to reorder, outside the window to detach the whole
+   * view, or over another Terminus window to dock it there as a view. A plain click still selects.
+   */
+  const beginViewDrag = (view: { id: string; name: string }, event: ReactPointerEvent<HTMLButtonElement>): void => {
+    if (busy || event.button !== 0 || !event.isPrimary || !viewControls) return;
+    const bar = event.currentTarget.closest<HTMLElement>('.view-bar');
+    const start = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+    let active = false;
+    const finish = (): void => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('pointercancel', cancel);
+      if (bar?.hasPointerCapture(start.pointerId)) bar.releasePointerCapture(start.pointerId);
+      markViewDrop(null);
+      setViewDragging(false);
+    };
+    const move = (moved: PointerEvent): void => {
+      if (moved.pointerId !== start.pointerId) return;
+      if (!active) {
+        if (Math.hypot(moved.clientX - start.x, moved.clientY - start.y) < 6) return;
+        active = true;
+        bar?.setPointerCapture(start.pointerId);
+        setViewDragging(true);
+      }
+      if (outsideWindow(moved.clientX, moved.clientY)) {
+        markViewDrop(null);
+        reportExternal({ x: moved.screenX, y: moved.screenY, label: view.name, kind: 'view' });
+        return;
+      }
+      reportExternal(null);
+      const over = viewAt(moved.clientX, moved.clientY);
+      markViewDrop(over && over !== view.id ? over : null);
+    };
+    const up = (released: PointerEvent): void => {
+      if (released.pointerId !== start.pointerId) return;
+      const before = viewDropRef.current;
+      finish();
+      reportExternal(null);
+      if (!active) return;
+      if (outsideWindow(released.clientX, released.clientY)) viewControls.transfer(view.id, { kind: 'drop', x: released.screenX, y: released.screenY });
+      else if (before) viewControls.reorder(view.id, before);
+    };
+    const cancel = (): void => { finish(); reportExternal(null); };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', cancel);
+  };
   const stage = useRef<HTMLDivElement>(null);
   const drag = useRef<{ tabId: string; pointerId: number; x: number; y: number; active: boolean; maximized: string | null } | null>(null);
   const [stageSize, setStageSize] = useState({ width: 1000, height: 700 });
@@ -219,7 +271,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     }
     onDockHandled?.();
   }, [pendingDock, layout]);
-  const externalTarget = externalHover ? targetAt(externalHover.x, externalHover.y, '') : null;
+  const externalTarget = externalHover && externalHover.kind !== 'view' ? targetAt(externalHover.x, externalHover.y, '') : null;
   const externalRegion = externalTarget ? regions.find(region => region.pane.id === externalTarget.paneId) : undefined;
   const beginResize = (event: React.PointerEvent<HTMLDivElement>, region: SplitRect) => {
     if (busy || event.button !== 0 || !stage.current) return;
@@ -253,6 +305,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
             }} />
             : <button type="button" role="tab" aria-selected={active} disabled={busy} title="Doppelklick oder F2 benennt die Ansicht um"
               onClick={() => viewControls.select(view.id)} onDoubleClick={() => setRenamingView({ id: view.id, name: view.name })}
+              onPointerDown={event => beginViewDrag(view, event)}
+              onContextMenu={event => { event.preventDefault(); if (!busy) setViewMenu({ x: event.clientX, y: event.clientY, id: view.id }); }}
               onKeyDown={event => { if (event.key === 'F2') { event.preventDefault(); setRenamingView({ id: view.id, name: view.name }); } }}>
               <span>{view.name}</span><small>{view.tabCount}</small>
             </button>}
@@ -349,6 +403,17 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
             onLayout(setRatio(layout, region.split.id, Math.max(bounds.min, Math.min(bounds.max, ratio))));
           }} />;
       })}
+      {viewMenu && viewControls && (() => {
+        const view = viewControls.views.find(item => item.id === viewMenu.id);
+        if (!view) return null;
+        return <ContextMenu x={viewMenu.x} y={viewMenu.y} label={`Aktionen für ${view.name}`} onClose={closeViewMenu} entries={[
+          { kind: 'item', label: 'In neues Fenster verschieben', disabled: view.tabCount === 0,
+            onSelect: () => viewControls.transfer(view.id, { kind: 'new', x: window.screenX + 80, y: window.screenY + 80 }) },
+          { kind: 'item', label: 'Umbenennen', hint: 'F2', onSelect: () => setRenamingView({ id: view.id, name: view.name }) },
+          { kind: 'separator' },
+          { kind: 'item', label: 'Ansicht schließen', hint: 'Tabs bleiben erhalten', disabled: viewControls.views.length < 2, onSelect: () => viewControls.close(view.id) },
+        ]} />;
+      })()}
       {keysMenu && <ContextMenu x={keysMenu.x} y={keysMenu.y} label="Tastenkombination senden" onClose={closeKeysMenu}
         entries={[{ kind: 'heading', label: 'An Remotedesktop senden' }, ...RDP_ACTIONS.map(action => ({ kind: 'item' as const,
           label: RDP_ACTION_LABELS[action].label, hint: RDP_ACTION_LABELS[action].hint, disabled: !liveSessions.get(keysMenu.tabId),
@@ -358,7 +423,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           } }))]} />}
       {externalHover && <div className="dock-preview" style={rectangle(externalRegion
         ? zoneRect(externalRegion, externalTarget!.marker ? 'center' : externalTarget!.zone) : { left: 0, top: 0, width: 100, height: 100 })}>
-        <span>{externalHover.label ? `„${externalHover.label}“ ` : ''}{externalTarget?.marker ? 'als Tab einfügen' : externalTarget && externalTarget.zone !== 'center' ? 'hier andocken' : 'hierher verschieben'}
+        <span>{externalHover.label ? `„${externalHover.label}“ ` : ''}{externalHover.kind === 'view' ? 'als Ansicht hinzufügen'
+          : externalTarget?.marker ? 'als Tab einfügen' : externalTarget && externalTarget.zone !== 'center' ? 'hier andocken' : 'hierher verschieben'}
           <small>Aus anderem Fenster</small></span>
       </div>}
       {hover && draggedTabId && <div className={`dock-preview${previewRegion ? '' : ' dock-blocked'}`} style={rectangle(previewRegion ?? regions.find(region => region.pane.id === hover.paneId) ?? regions[0])}>

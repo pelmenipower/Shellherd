@@ -33,6 +33,10 @@ export function useTerminalLayout(tabs: TerminalTab[], selected: string | null) 
     const id = crypto.randomUUID();
     replaceViews({ views: [{ id, name: 'Ansicht 1', layout: next }], activeViewId: id });
   }, [replaceViews]);
+  // Stable: transfer listeners subscribe with these.
+  const insertView = useCallback((name: string, next: LiveLayout) => setState(current => views.insertView(current, crypto.randomUUID(), name, next)), []);
+  const removeView = useCallback((id: string) => setState(current => views.removeView(current, id)), []);
+  const moveView = useCallback((id: string, beforeId: string) => setState(current => views.moveView(current, id, beforeId)), []);
   return {
     layout, setLayout, focused, setFocused, replace, replaceViews,
     reset: () => replace(emptyLayout()),
@@ -43,5 +47,6 @@ export function useTerminalLayout(tabs: TerminalTab[], selected: string | null) 
     closeView: (id: string) => setState(current => views.closeView(current, id)),
     moveTabToView: (tabId: string, viewId: string) => setState(current => views.moveTabToView(current, tabId, viewId)),
     paneToView: (paneId: string) => setState(current => views.paneToView(current, paneId, crypto.randomUUID())),
+    insertView, removeView, moveView,
   };
 }

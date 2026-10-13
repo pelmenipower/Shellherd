@@ -1,6 +1,6 @@
 import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
 import type { Vault, WorkspaceLayout } from './vault/types';
-import type { ConnectionCatalog, ExternalDragHover, IncomingTab, TabTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
+import type { ConnectionCatalog, ExternalDragHover, IncomingTab, IncomingView, TabTransferRequest, ViewTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 
 export const IPC_CHANNELS = {
@@ -34,6 +34,8 @@ export const IPC_CHANNELS = {
   connectionCatalog: 'window:connection-catalog',
   connectionCatalogChanged: 'window:connection-catalog-changed',
   tabTransfer: 'tabs:transfer',
+  viewTransfer: 'views:transfer',
+  viewIncoming: 'views:incoming',
   tabIncoming: 'tabs:incoming',
   tabDragMove: 'tabs:drag-move',
   tabDragHover: 'tabs:drag-hover',
@@ -114,8 +116,10 @@ export interface DesktopApi {
   onConnectionCatalog: (listener: (catalog: ConnectionCatalog) => void) => () => void;
   transferTab: (request: TabTransferRequest) => Promise<void>;
   onIncomingTab: (listener: (tab: IncomingTab) => void) => () => void;
+  transferView: (request: ViewTransferRequest) => Promise<void>;
+  onIncomingView: (listener: (view: IncomingView) => void) => () => void;
   /** Screen point (DIP) of a tab dragged outside its window; null ends the hover. */
-  tabDragMove: (point: { x: number; y: number; label: string } | null) => void;
+  tabDragMove: (point: { x: number; y: number; label: string; kind?: 'tab' | 'view' } | null) => void;
   onTabDragHover: (listener: (hover: ExternalDragHover) => void) => () => void;
   workspaceWindows: () => Promise<WorkspaceWindowState[]>;
   onWorkspaceCollect: (listener: (request: { requestId: string }) => void) => () => void;

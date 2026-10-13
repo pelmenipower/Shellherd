@@ -132,4 +132,42 @@ export interface ViewControls {
   close: (id: string) => void;
   moveTab: (tabId: string, viewId: string) => void;
   paneToView: (paneId: string) => void;
+  /** Moves a whole view with its sessions to another window. */
+  transfer: (id: string, target: import('../../shared/windows').TransferTarget) => void;
+  reorder: (id: string, beforeId: string) => void;
+}
+
+/** Adds a view received from another window; an empty sole view is replaced instead of kept. */
+export function insertView(state: ViewsState, id: string, name: string, layout: LiveLayout): ViewsState {
+  const [only] = state.views;
+  const replaceEmpty = state.views.length === 1 && panes(only.layout).every(pane => pane.tabIds.length === 0);
+  const view = { id, name, layout };
+  return { views: replaceEmpty ? [view] : [...state.views, view], activeViewId: id };
+}
+
+/** Drops a view whose tabs left the window; the last view becomes empty instead. */
+export function removeView(state: ViewsState, id: string): ViewsState {
+  if (!state.views.some(view => view.id === id)) return state;
+  if (state.views.length === 1) return { views: [{ ...state.views[0], layout: emptyLayout() }], activeViewId: state.views[0].id };
+  const index = state.views.findIndex(view => view.id === id);
+  const views = state.views.filter(view => view.id !== id);
+  return { views, activeViewId: state.activeViewId === id ? views[Math.max(0, index - 1)].id : state.activeViewId };
+}
+
+/** Moves a view before another one in the view bar. */
+export function moveView(state: ViewsState, id: string, beforeId: string): ViewsState {
+  const moving = state.views.find(view => view.id === id);
+  if (!moving || id === beforeId) return state;
+  const rest = state.views.filter(view => view.id !== id);
+  const index = rest.findIndex(view => view.id === beforeId);
+  if (index < 0) return state;
+  return { ...state, views: [...rest.slice(0, index), moving, ...rest.slice(index)] };
+}
+
+/** Replaces tab keys of another window with local tab IDs; unknown keys are dropped. */
+export function remapLayout(layout: LiveLayout, ids: Map<string, string>): LiveLayout {
+  if (layout.type === 'split') return { ...layout, first: remapLayout(layout.first, ids), second: remapLayout(layout.second, ids) };
+  const tabIds = layout.tabIds.flatMap(key => ids.get(key) ?? []);
+  const active = layout.activeTabId ? ids.get(layout.activeTabId) : undefined;
+  return { ...layout, tabIds, activeTabId: active ?? tabIds[0] ?? null };
 }

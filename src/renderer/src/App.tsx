@@ -122,8 +122,8 @@ export default function App() {
   const terminals = useTerminalTabs();
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const terminalLayout = useTerminalLayout(terminals.tabs, terminals.activeTabId);
-  const transfer = useTabTransfer(terminals, setError);
-  const viewControls = useViewControls(terminalLayout, terminals.select);
+  const transfer = useTabTransfer(terminals, terminalLayout, setError);
+  const viewControls = useViewControls(terminalLayout, terminals.select, transfer.transferView);
   // Announce readiness after the transfer listeners above are registered.
   useEffect(() => { void window.desktopApi.windowReady(); }, []);
   const [pendingSshAction, setPendingSshAction] = useState<

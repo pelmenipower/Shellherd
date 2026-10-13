@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ConnectionNode } from '../../shared/vault/types';
 import type { TerminalTab } from './terminal-tabs';
 import { panes, splitPane } from './terminal-layout';
-import { activeView, addView, closeView, initialViews, moveTabToView, paneToView, renameView, restoreViews, savedViews, syncViews } from './terminal-views';
+import { activeView, addView, closeView, fromWorkspaceViews, initialViews, insertView, moveTabToView, moveView, paneToView, remapLayout, removeView, renameView, restoreViews, savedViews, syncViews, toWorkspaceViews } from './terminal-views';
 
 const connection = { id: 'server', name: 'Server', protocol: 'ssh' as const, address: 'h:22' };
 const tab = (id: string): TerminalTab => ({ id, connection, ordinal: 1, status: 'connected' });
@@ -59,5 +59,43 @@ describe('terminal views', () => {
     expect(restored.state.views.map(view => view.name)).toEqual(['Ansicht 1', 'Datenbanken']);
     expect(restored.tabs.map(item => item.ordinal)).toEqual([1, 2]);
     expect(() => restoreViews(Array(17).fill({ name: 'x', layout: { type: 'pane', connectionIds: ['server'] } }), () => node, () => `id-${++next}`)).toThrow('16 Sessions');
+  });
+
+  it('inserts a received view, replacing an empty sole view, and removes sent views', () => {
+    const empty = initialViews();
+    const layout = { type: 'pane' as const, id: 'root', tabIds: ['x'], activeTabId: 'x' };
+    const inserted = insertView(empty, 'in', 'Remote', layout);
+    expect(inserted.views.map(view => view.id)).toEqual(['in']);
+    const second = insertView(inserted, 'in2', 'Second', layout);
+    expect(second.views.map(view => view.id)).toEqual(['in', 'in2']);
+    expect(second.activeViewId).toBe('in2');
+    expect(removeView(second, 'in2')).toEqual({ views: [second.views[0]], activeViewId: 'in' });
+    expect(tabIds(removeView(inserted, 'in').views[0].layout)).toEqual([]);
+    expect(moveView(second, 'in2', 'in').views.map(view => view.id)).toEqual(['in2', 'in']);
+    expect(moveView(second, 'in2', 'missing')).toBe(second);
+  });
+
+  it('remaps tab keys of another window and keeps the split structure', () => {
+    const layout = { type: 'split' as const, id: 's', direction: 'horizontal' as const, ratio: 0.3,
+      first: { type: 'pane' as const, id: 'a', tabIds: ['k1', 'gone'], activeTabId: 'gone' },
+      second: { type: 'pane' as const, id: 'b', tabIds: ['k2'], activeTabId: 'k2' } };
+    const remapped = remapLayout(layout, new Map([['k1', 'n1'], ['k2', 'n2']]));
+    expect(remapped).toEqual({ ...layout, first: { type: 'pane', id: 'a', tabIds: ['n1'], activeTabId: 'n1' }, second: { type: 'pane', id: 'b', tabIds: ['n2'], activeTabId: 'n2' } });
+  });
+
+  it('saves several views with all their tabs into a workspace and restores them', () => {
+    const node: ConnectionNode = { id: 'server', type: 'connection', protocol: 'ssh', name: 'Server', host: 'h', port: 22, authentication: { method: 'agent' }, tags: [] };
+    let state = syncViews(initialViews(), [tab('a'), tab('b')], 'b', 'root');
+    const view = activeView(state);
+    state = { ...state, views: [{ ...view, layout: splitPane(view.layout, 'root', 'vertical', 'split') }] };
+    state = renameView(syncViews(addView(state, 'second'), [tab('a'), tab('b'), tab('c')], 'c', 'root'), 'second', 'Logs');
+    const saved = toWorkspaceViews(state, [tab('a'), tab('b'), tab('c')]);
+    expect(saved.views?.map(item => item.name)).toEqual(['Ansicht 1', 'Logs']);
+    expect(saved.layout).toEqual(saved.views?.[0].layout);
+    let next = 0;
+    const restored = fromWorkspaceViews(saved, () => node, () => `id-${++next}`);
+    expect(restored.tabs).toHaveLength(3);
+    expect(restored.state.views.map(item => panes(item.layout).length)).toEqual([2, 1]);
+    expect(toWorkspaceViews(restored.state, restored.tabs)).toEqual(saved);
   });
 });
