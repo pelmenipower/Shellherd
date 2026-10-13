@@ -41,7 +41,11 @@ namespace Terminus.RdpHost
         private readonly Form window;
         private int boundsRevision = -1;
         private readonly RdpControl control;
-        private readonly Timer resizeTimer = new Timer { Interval = 300 };
+        // Wait for the user to stop resizing; every resolution change makes the server rebuild its graphics.
+        private const int ResizeDelay = 500, UpdateTimeout = 4000, SizeTolerance = 8;
+        private readonly Timer resizeTimer = new Timer { Interval = ResizeDelay };
+        private readonly Timer updateTimer = new Timer { Interval = UpdateTimeout };
+        private bool updatePending;
         private readonly Action<RdpSession> onClosed;
         private Timer closeTimer;
         private const int EUnexpected = unchecked((int)0x8000FFFF);
@@ -85,6 +89,14 @@ namespace Terminus.RdpHost
                 resizeTimer.Stop(); resizeTimer.Start();
             };
             resizeTimer.Tick += (sender, e) => { resizeTimer.Stop(); SyncDisplaySize(); };
+            updateTimer.Tick += (sender, e) =>
+            {
+                // No answer: the server may not support dynamic resolution; keep the scaled image.
+                updateTimer.Stop();
+                updatePending = false;
+                Trace("updateTimeout", remoteWidth + "x" + remoteHeight);
+                if (!MatchesRemote()) { resizeTimer.Stop(); resizeTimer.Start(); }
+            };
             if (mode != SurfaceMode.Window)
             {
                 IntPtr handle = window.Handle;
@@ -199,9 +211,11 @@ namespace Terminus.RdpHost
             return clamped - clamped % 2;
         }
 
+        /// <summary>Servers may round the requested size (e.g. to multiples of 4); a few pixels count as a match.</summary>
         private bool MatchesRemote()
         {
-            return Even(control.ClientSize.Width) == remoteWidth && Even(control.ClientSize.Height) == remoteHeight;
+            return Math.Abs(Even(control.ClientSize.Width) - remoteWidth) <= SizeTolerance
+                && Math.Abs(Even(control.ClientSize.Height) - remoteHeight) <= SizeTolerance;
         }
 
         /// <summary>Scales the remote image to the surface; stays on if the server cannot resize dynamically.</summary>
@@ -217,14 +231,18 @@ namespace Terminus.RdpHost
         {
             if (!loggedIn || closing) return;
             int width = Even(control.ClientSize.Width), height = Even(control.ClientSize.Height);
-            if (width == remoteWidth && height == remoteHeight) { SetSmartSizing(false); return; }
+            if (MatchesRemote()) { SetSmartSizing(false); return; }
             SetSmartSizing(true);
+            // One resolution change at a time; the remote size event or the timeout releases the next one.
+            if (updatePending) { Trace("updateDeferred", width + "x" + height); return; }
             try
             {
                 dynamic ocx = control.Ocx;
                 Trace("updateDisplay", width + "x" + height);
                 ocx.UpdateSessionDisplaySettings((uint)width, (uint)height, (uint)width, (uint)height, (uint)0, (uint)100, (uint)100);
                 resizeRetries = 0;
+                updatePending = true;
+                updateTimer.Stop(); updateTimer.Start();
             }
             catch (COMException error)
             {
@@ -234,7 +252,7 @@ namespace Terminus.RdpHost
                 Trace("updateDisplayFailed", error.Message);
                 Status("warning", 0, "Auflösung konnte nicht angepasst werden: " + error.Message);
             }
-            finally { if (resizeRetries == 0) resizeTimer.Interval = 300; }
+            finally { if (resizeRetries == 0) resizeTimer.Interval = ResizeDelay; }
         }
 
         public void Close()
@@ -256,6 +274,7 @@ namespace Terminus.RdpHost
             if (closed) return;
             closed = true;
             resizeTimer.Dispose();
+            updateTimer.Dispose();
             if (closeTimer != null) closeTimer.Dispose();
             try { control.Dispose(); } catch { }
             window.Close();
@@ -329,7 +348,12 @@ namespace Terminus.RdpHost
         {
             remoteWidth = width;
             remoteHeight = height;
+            bool answered = updatePending;
+            updatePending = false;
+            updateTimer.Stop();
             if (loggedIn && MatchesRemote()) SetSmartSizing(false);
+            // The surface may have changed again while the server was busy.
+            else if (answered && loggedIn) { resizeTimer.Stop(); resizeTimer.Start(); }
             Status("remoteSize", 0, width + "x" + height);
         }
         public void AuthenticationWarning(bool displayed) { Status(displayed ? "authWarningShown" : "authWarningDismissed", 0, null); }
