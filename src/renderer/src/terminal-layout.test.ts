@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { dockTab, dockZone, emptyLayout, mergePane, moveTab, paneRects, panes, restoreLayout, resizeBounds, savedLayout, setRatio, splitPane, syncLayout } from './terminal-layout';
 import type { LiveLayout } from './terminal-layout';
 import type { TerminalTab } from './terminal-tabs';
-import type { WorkspaceLayout } from '../../shared/vault/types';
+import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
 
-const connection = { id: 'server', name: 'Server', host: 'example.test', port: 22, username: 'synthetic' };
+const node: ConnectionNode = { id: 'server', type: 'connection', protocol: 'ssh', name: 'Server', host: 'example.test', port: 22,
+  username: 'synthetic', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [] };
+const connection = { id: 'server', name: 'Server', protocol: 'ssh' as const, address: 'synthetic@example.test:22' };
 const tabs: TerminalTab[] = ['a', 'b', 'c'].map((id, index) => ({ id, connection, ordinal: index + 1, status: 'connected' }));
 const initial = () => syncLayout(emptyLayout(), tabs, 'c', 'root');
 const ids = (layout: LiveLayout) => panes(layout).flatMap(pane => pane.tabIds).sort();
@@ -119,7 +121,7 @@ describe('terminal layout and saved workspaces', () => {
   it('round trips references, duplicate sessions and proportions while generating fresh session IDs', () => {
     const original = splitPane(initial(), 'root', 'horizontal', 'split');
     const saved = savedLayout(original, tabs);
-    const restored = restoreLayout(saved, () => ({ ...connection, authentication: { method: 'password', password: 'synthetic-secret' } }), uuid);
+    const restored = restoreLayout(saved, () => node, uuid);
     expect(savedLayout(restored.layout, restored.tabs)).toEqual(saved);
     expect(restored.tabs).toHaveLength(3);
     expect(restored.tabs.map(tab => tab.ordinal)).toEqual([1, 2, 3]);
@@ -129,9 +131,9 @@ describe('terminal layout and saved workspaces', () => {
   });
   it('rejects missing references or layouts exceeding runtime limits before opening any session', () => {
     expect(() => restoreLayout({ type: 'pane', connectionIds: ['missing'] }, () => undefined, uuid)).toThrow('fehlende Verbindung');
-    expect(() => restoreLayout({ type: 'pane', connectionIds: Array(17).fill('server') }, () => connection, uuid)).toThrow('16 Sessions');
+    expect(() => restoreLayout({ type: 'pane', connectionIds: Array(17).fill('server') }, () => node, uuid)).toThrow('16 Sessions');
     let saved: WorkspaceLayout = { type: 'pane', connectionIds: [] };
     for (let index = 0; index < 4; index++) saved = { type: 'split', direction: 'horizontal', ratio: 0.5, first: saved, second: { type: 'pane', connectionIds: [] } };
-    expect(() => restoreLayout(saved, () => connection, uuid)).toThrow('vier Terminalbereiche');
+    expect(() => restoreLayout(saved, () => node, uuid)).toThrow('vier Terminalbereiche');
   });
 });

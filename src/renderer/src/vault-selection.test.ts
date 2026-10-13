@@ -19,7 +19,7 @@ describe('vault selection', () => {
   });
 
   it('finds connections alongside folders', () => {
-    const connection: VaultNode = { id: 'ssh', type: 'connection', name: 'SSH', host: 'example.test',
+    const connection: VaultNode = { id: 'ssh', type: 'connection', protocol: 'ssh', name: 'SSH', host: 'example.test',
       port: 22, authentication: { method: 'agent' }, tags: [] };
     expect(findNode([...nodes, connection], 'ssh')).toBe(connection);
   });

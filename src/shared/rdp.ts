@@ -10,6 +10,3 @@ export interface RdpVisibleRequest extends RdpSessionRequest { visible: boolean 
 
 export type RdpStatus = 'connecting' | 'connected' | 'closed' | 'error';
 export type RdpEvent = { type: 'status'; sessionId: string; status: RdpStatus; message?: string };
-
-/** Prototype: RDP connections are marked with this tag until the vault model gets a protocol field (P4). */
-export const RDP_PROTOTYPE_TAG = 'rdp';

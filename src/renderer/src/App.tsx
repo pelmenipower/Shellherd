@@ -10,6 +10,7 @@ import type {
 
 import type {
   ConnectionNode,
+  ConnectionProtocol,
   FolderNode,
   Vault,
   VaultNode,
@@ -21,7 +22,8 @@ import { FolderEditor } from './components/FolderEditor';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
-import { isRunning, tabLabel } from './terminal-tabs';
+import { isRunning, tabLabel, toTerminalConnection } from './terminal-tabs';
+import { NEW_CONNECTION_KINDS } from '../../shared/vault/connections';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { SplitTerminalArea } from './components/SplitTerminalArea';
 import { WorkspaceControls } from './components/WorkspaceControls';
@@ -38,7 +40,7 @@ function createEmptyVault(name: string): Vault {
 
   return {
     format: 'terminus-vault',
-    version: 1,
+    version: 2,
 
     id: crypto.randomUUID(),
     name: name.trim(),
@@ -120,6 +122,7 @@ export default function App() {
   >(null);
   const pendingTab = pendingSshAction?.type === 'closeTab' ? terminals.tabs.find(tab => tab.id === pendingSshAction.tabId) : undefined;
   const [showConnectionForm, setShowConnectionForm] = useState(false);
+  const [newConnectionTarget, setNewConnectionTarget] = useState<{ protocol: ConnectionProtocol; parentId: string | null }>({ protocol: 'ssh', parentId: null });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const selectedNode = vault && selectedNodeId
     ? findNode(vault.nodes, selectedNodeId)
@@ -469,8 +472,19 @@ export default function App() {
     navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorOpen(true); setEditorDirty(false); setError(null); });
   }
 
-  function newConnection(): void {
-    navigateEditor(() => { setShowConnectionForm(true); setEditorOpen(true); setEditorDirty(false); setShowFolderForm(false); setError(null); });
+  /** parentId: target folder ('' = vault root); undefined uses the current selection. */
+  function newConnection(protocol: ConnectionProtocol = 'ssh', parentId?: string): void {
+    navigateEditor(() => {
+      setNewConnectionTarget({ protocol, parentId: parentId ?? null });
+      setShowConnectionForm(true); setEditorOpen(true); setEditorDirty(false); setShowFolderForm(false); setError(null);
+    });
+  }
+
+  function newFolder(parentId: string): void {
+    navigateEditor(() => {
+      setSelectedNodeId(parentId || null); setShowConnectionForm(false); setEditorOpen(false); setEditorDirty(false);
+      setFolderName(''); setShowFolderForm(true); setError(null);
+    });
   }
 
   function connectNode(id: string, paneId?: string): void {
@@ -479,14 +493,14 @@ export default function App() {
     navigateEditor(() => {
       if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
       if (paneId) terminalLayout.setFocused(paneId);
-      terminals.open(node); setEditorOpen(false); setEditorDirty(false); setError(null);
+      terminals.open(toTerminalConnection(node)); setEditorOpen(false); setEditorDirty(false); setError(null);
     });
   }
 
   async function saveAndConnect(connection: ConnectionNode, parentId: string): Promise<boolean> {
     if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return false; }
     if (!await saveConnection(connection, parentId)) return false;
-    terminals.open(connection); setEditorOpen(false); setEditorDirty(false); return true;
+    terminals.open(toTerminalConnection(connection)); setEditorOpen(false); setEditorDirty(false); return true;
   }
 
   async function renameNode(id: string, name: string): Promise<boolean> {
@@ -524,7 +538,7 @@ export default function App() {
         }} />}
       {pendingSshAction && <ConfirmDialog
         title={pendingSshAction.type === 'lockVault' ? 'Vault sperren?' : pendingSshAction.type === 'openWorkspace' ? 'Aktiven Workspace ersetzen?' : pendingSshAction.type === 'closeWorkspace' ? 'Workspace schließen?' : `Tab „${pendingTab ? tabLabel(pendingTab, terminals.tabs) : 'Terminal'}“ schließen?`}
-        description={pendingSshAction.type === 'closeTab' ? 'Diese SSH-Verbindung wird beendet. Laufende Programme auf dem Server können dadurch beendet werden.' : `${runningCount} aktive SSH-Verbindung${runningCount === 1 ? '' : 'en'} ${runningCount === 1 ? 'wird' : 'werden'} beendet. Laufende Programme auf den Servern können dadurch beendet werden.`}
+        description={pendingSshAction.type === 'closeTab' ? 'Diese Verbindung wird beendet. Laufende Programme in der Sitzung können dadurch beendet werden.' : `${runningCount} aktive Verbindung${runningCount === 1 ? '' : 'en'} ${runningCount === 1 ? 'wird' : 'werden'} beendet. Laufende Programme in den Sitzungen können dadurch beendet werden.`}
         confirmLabel={pendingSshAction.type === 'lockVault' ? 'Trennen und sperren' : pendingSshAction.type === 'openWorkspace' ? 'Ersetzen und öffnen' : 'Verbindung trennen'}
         busy={busy} onCancel={() => setPendingSshAction(null)} onConfirm={() => {
           const action = pendingSshAction; setPendingSshAction(null);
@@ -539,7 +553,11 @@ export default function App() {
             <details className="new-node-menu" onKeyDown={event => {
               if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); }
             }}><summary aria-label="Neu anlegen">Neu</summary><div className="new-node-actions">
-              <button type="button" disabled={busy} onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); newConnection(); }}>Neue Verbindung</button>
+              <span className="new-node-actions-heading">Neue Verbindung</span>
+              {NEW_CONNECTION_KINDS.map(item => <button key={item.protocol} type="button" disabled={busy || item.planned}
+                onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); if (!item.planned) newConnection(item.protocol as ConnectionProtocol); }}>
+                <span>{item.label}</span>{item.planned && <small>geplant</small>}</button>)}
+              <hr />
               <button type="button" aria-label="Neuen Ordner erstellen" disabled={busy || !canCreateFolder} onClick={event => {
                 event.currentTarget.closest('details')?.removeAttribute('open'); setShowFolderForm(true);
               }}>Neuer Ordner</button>
@@ -555,8 +573,8 @@ export default function App() {
           </form>}
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); setError(null); })}
-            onConnect={connectNode} onEdit={editNode} onRename={renameNode} />
-          {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu.</p><button type="button" className="secondary-button" onClick={newConnection}>Neue Verbindung</button></div>}
+            onConnect={connectNode} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
+          {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu. Über „Neu“ oder Rechtsklick wählst du die Verbindungsart.</p><button type="button" className="secondary-button" onClick={() => newConnection()}>Neue SSH-Verbindung</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}${!terminals.tabs.length ? ' no-terminals' : ''}`}>
           <div className="terminal-area" hidden={!terminals.tabs.length}>
@@ -567,7 +585,7 @@ export default function App() {
           </div>
           {!terminals.tabs.length && !editorOpen && <div className="workspace-placeholder">
             <h1>Mit einem Server verbinden</h1><p>Doppelklicke eine Verbindung oder wähle sie aus und drücke Enter.</p>
-            <button className="primary-button" type="button" disabled={busy} onClick={newConnection}>Neue Verbindung</button>
+            <button className="primary-button" type="button" disabled={busy} onClick={() => newConnection()}>Neue SSH-Verbindung</button>
           </div>}
           {editorOpen && <aside className="properties-panel" aria-label="Eigenschaften">
             <div className="properties-heading"><span>{editorDirty ? 'Ungespeicherte Änderungen' : 'Eigenschaften'}</span>
@@ -575,9 +593,10 @@ export default function App() {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>
               </button></div>
             {showConnectionForm || selectedNode?.type === 'connection' ? <ConnectionForm
-              key={`${showConnectionForm ? `new-${selectedNodeId ?? 'root'}` : selectedNode?.id}-${editorRevision}`}
+              key={`${showConnectionForm ? `new-${newConnectionTarget.protocol}-${newConnectionTarget.parentId ?? selectedNodeId ?? 'root'}` : selectedNode?.id}-${editorRevision}`}
               connection={!showConnectionForm && selectedNode?.type === 'connection' ? selectedNode : undefined} nodes={vault.nodes}
-              initialParentId={showConnectionForm ? selectedNode?.type === 'folder' ? selectedNode.id : '' : parentFolderId(vault.nodes, selectedNodeId ?? '') ?? ''}
+              protocol={showConnectionForm ? newConnectionTarget.protocol : undefined}
+              initialParentId={showConnectionForm ? newConnectionTarget.parentId ?? (selectedNode?.type === 'folder' ? selectedNode.id : '') : parentFolderId(vault.nodes, selectedNodeId ?? '') ?? ''}
               busy={busy} onDirtyChange={setEditorDirty} onConnect={() => { if (selectedNode?.type === 'connection') connectNode(selectedNode.id); }}
               onSave={saveConnection} onSaveAndConnect={saveAndConnect} onCancel={closeEditor} onDelete={deleteSelectedNode}
               onPickKey={async () => { const result = await window.desktopApi.selectPrivateKeyFile(); return result.canceled ? null : result.filePath; }} />

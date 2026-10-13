@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
-import { connectionProtocol, emptyTerminalTabs, isRunning, tabLabel, terminalTabsReducer as reduce } from './terminal-tabs';
+import { emptyTerminalTabs, isRunning, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
 import type { TerminalTabsState } from './terminal-tabs';
-const connection = { id: 'ssh', name: 'Server', host: 'example.test', port: 22, username: 'synthetic' };
+const connection = { id: 'ssh', name: 'Server', protocol: 'ssh' as const, address: 'synthetic@example.test:22' };
 function opened(): TerminalTabsState {
   return reduce(reduce(emptyTerminalTabs, { type: 'open', id: 'first', connection }), { type: 'open', id: 'second', connection });
 }
@@ -41,7 +41,7 @@ describe('terminal tab lifecycle', () => {
     expect(retained.activeTabId).toBe('other');
   });
   it('caps tab count, rejects duplicate IDs and never stores credentials in tab metadata', () => {
-    const withSecrets = { ...connection, authentication: { method: 'password' as const, password: 'synthetic-secret' } };
+    const withSecrets = { ...connection, authentication: { method: 'password' as const, password: 'synthetic-secret' } } as typeof connection;
     let state = reduce(emptyTerminalTabs, { type: 'open', id: 'first', connection: withSecrets });
     expect(JSON.stringify(state)).not.toContain('synthetic-secret');
     expect(reduce(state, { type: 'open', id: 'first', connection })).toBe(state);
@@ -50,10 +50,10 @@ describe('terminal tab lifecycle', () => {
     expect(reduce(state, { type: 'select', id: 'unknown' })).toBe(state);
     expect(reduce(state, { type: 'reset' })).toEqual(emptyTerminalTabs);
   });
-  it('marks tagged connections as RDP (prototype) and defaults to SSH', () => {
-    expect(connectionProtocol({ ...connection, tags: ['rdp'] })).toBe('rdp');
-    expect(connectionProtocol({ ...connection, tags: [] })).toBe('ssh');
-    const state = reduce(emptyTerminalTabs, { type: 'open', id: 'r', connection: { ...connection, tags: ['rdp'] } as typeof connection });
-    expect(state.tabs[0].connection.protocol).toBe('rdp');
+  it('builds tab metadata per protocol without credentials', () => {
+    expect(toTerminalConnection({ id: 'r', type: 'connection', protocol: 'rdp', name: 'Desk', host: 'h', port: 3389, username: 'D\\u',
+      password: 'synthetic-secret', rdp: { clipboard: true }, tags: [] })).toEqual({ id: 'r', name: 'Desk', protocol: 'rdp', address: 'D\\u@h:3389' });
+    expect(toTerminalConnection({ id: 'p', type: 'connection', protocol: 'powershell', name: 'PS', tags: [] }))
+      .toEqual({ id: 'p', name: 'PS', protocol: 'powershell', address: 'Lokal · PowerShell' });
   });
 });

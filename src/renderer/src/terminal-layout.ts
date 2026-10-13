@@ -1,6 +1,6 @@
-import type { WorkspaceLayout } from '../../shared/vault/types';
-import type { TerminalTab, TerminalConnection } from './terminal-tabs';
-import { connectionProtocol } from './terminal-tabs';
+import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
+import type { TerminalTab } from './terminal-tabs';
+import { toTerminalConnection } from './terminal-tabs';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
 export interface LivePane { type: 'pane'; id: string; tabIds: string[]; activeTabId: string | null }
@@ -139,7 +139,7 @@ export function savedLayout(layout: LiveLayout, tabs: TerminalTab[]): WorkspaceL
   const active = layout.activeTabId ? connectionId(layout.activeTabId) : undefined;
   return { type: 'pane', connectionIds: layout.tabIds.flatMap(id => connectionId(id) ? [connectionId(id)!] : []), ...(active ? { activeConnectionId: active } : {}) };
 }
-export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => TerminalConnection | undefined, uuid: () => string): { layout: LiveLayout; tabs: TerminalTab[]; activeTabId: string | null } {
+export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => ConnectionNode | undefined, uuid: () => string): { layout: LiveLayout; tabs: TerminalTab[]; activeTabId: string | null } {
   const tabs: TerminalTab[] = [];
   const restore = (node: WorkspaceLayout): LiveLayout => {
     if (node.type === 'split') return { ...node, id: uuid(), first: restore(node.first), second: restore(node.second) };
@@ -147,9 +147,8 @@ export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => Te
       const connection = lookup(id);
       if (!connection) throw new Error('Der Workspace verweist auf eine fehlende Verbindung.');
       if (tabs.length >= MAX_SSH_SESSIONS) throw new Error(`Ein Workspace darf höchstens ${MAX_SSH_SESSIONS} Sessions starten.`);
-      const { name, host, port, username } = connection;
       const tabId = uuid();
-      tabs.push({ id: tabId, connection: { id, name, host, port, username, protocol: connectionProtocol(connection) }, ordinal: tabs.filter(tab => tab.connection.id === id).length + 1, status: 'connecting' });
+      tabs.push({ id: tabId, connection: toTerminalConnection(connection), ordinal: tabs.filter(tab => tab.connection.id === id).length + 1, status: 'connecting' });
       return tabId;
     });
     const activeTabId = tabIds.find(id => tabs.find(tab => tab.id === id)?.connection.id === node.activeConnectionId) ?? tabIds[0] ?? null;

@@ -2,7 +2,6 @@ import { BrowserWindow, ipcMain, webContents } from 'electron';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/ipc';
-import { RDP_PROTOTYPE_TAG } from '../../shared/rdp';
 import { findConnection } from '../ssh/session';
 import { requireSshSender } from '../ssh/ipc';
 import { vaultSessionManager } from '../vault/ipc';
@@ -29,9 +28,10 @@ export function registerRdpIpcHandlers(): RdpSessionManager {
     mode: process.env.TERMINUS_RDP_MODE === 'owned' ? 'owned' : 'child',
     getTarget: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
-      if (!connection || !connection.tags.includes(RDP_PROTOTYPE_TAG)) throw new Error('Die RDP-Verbindung wurde nicht gefunden.');
+      if (connection?.protocol !== 'rdp') throw new Error('Die RDP-Verbindung wurde nicht gefunden.');
       if (!connection.host.trim()) throw new Error('Bitte speichere einen Host, bevor du die Verbindung startest.');
-      return { host: connection.host, port: connection.port, username: connection.username };
+      return { host: connection.host, port: connection.port, username: connection.username, domain: connection.rdp.domain,
+        password: connection.password || undefined, clipboard: connection.rdp.clipboard };
     },
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);

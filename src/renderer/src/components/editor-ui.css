@@ -43,3 +43,5 @@
   .compact-editor .editor-color-row { flex-wrap: wrap; }
   .compact-editor .editor-color-row .editor-field { min-width: 150px; }
 }
+.compact-editor .editor-hint { margin: -4px 0 0; color: var(--ui-muted, #a7b7cb); font-size: 12px; line-height: 1.5; }
+.compact-editor .editor-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; }

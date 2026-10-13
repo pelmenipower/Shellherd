@@ -7,7 +7,7 @@ import type { BrowserWindow, Rectangle } from 'electron';
 import type { RdpEvent, RdpOpenRequest, RdpSurfaceMode, ViewportRect } from '../../shared/rdp';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
-export interface RdpTarget { host: string; port: number; username?: string; domain?: string }
+export interface RdpTarget { host: string; port: number; username?: string; domain?: string; password?: string; clipboard: boolean }
 
 export interface RdpDependencies {
   executable: string;
@@ -61,9 +61,11 @@ export class RdpSessionManager {
     this.track(window);
     this.sessions.set(session.id, session);
     const handle = window.getNativeWindowHandle().readBigUInt64LE(0).toString();
-    // No password: the control prompts for credentials itself in the prototype.
-    this.send({ type: 'open', sessionId: session.id, server: target.host, port: target.port, ...splitAccount(target.username),
-      clipboard: true, mode: this.dependencies.mode, parent: handle, visible: request.visible, ...toScreenRect(window, request.bounds) });
+    const account = splitAccount(target.username);
+    // The password only travels through the private stdin pipe; without one the control asks for credentials.
+    this.send({ type: 'open', sessionId: session.id, server: target.host, port: target.port, username: account.username,
+      domain: target.domain?.trim() || account.domain, ...(target.password ? { password: target.password } : {}),
+      clipboard: target.clipboard, mode: this.dependencies.mode, parent: handle, visible: request.visible, ...toScreenRect(window, request.bounds) });
     return { sessionId: session.id };
   }
 

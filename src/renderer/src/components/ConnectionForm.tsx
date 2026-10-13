@@ -1,14 +1,23 @@
-﻿import { useEffect, useId, useRef, useState } from 'react';
-import type { ConnectionNode, VaultNode } from '../../../shared/vault/types';
-import { ConnectionFieldError, connectionFromFields, folderOptions } from '../connection-form';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { ConnectionNode, ConnectionProtocol, VaultNode } from '../../../shared/vault/types';
+import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folderOptions } from '../connection-form';
 import type { ConnectionFields } from '../connection-form';
 import { ConfirmDialog } from './ConfirmDialog';
 import './editor-ui.css';
 import { CONNECTION_ICONS } from '../../../shared/vault/appearance';
 import { ConnectionIcon, connectionIconLabels } from './ConnectionIcon';
+import { PROTOCOLS } from '../../../shared/vault/connections';
+
+const newTitles: Record<ConnectionProtocol, string> = {
+  ssh: 'Neue SSH-Verbindung', rdp: 'Neue Remotedesktop-Verbindung (RDP)',
+  powershell: 'Neue lokale PowerShell', cmd: 'Neue lokale Eingabeaufforderung (CMD)',
+};
+const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten' };
 
 interface ConnectionFormProps {
   connection?: ConnectionNode;
+  /** Kind of a new connection; existing connections keep their protocol. */
+  protocol?: ConnectionProtocol;
   nodes: VaultNode[];
   initialParentId: string;
   busy: boolean;
@@ -21,21 +30,14 @@ interface ConnectionFormProps {
   onPickKey?: () => Promise<string | null>;
 }
 
-export function ConnectionForm({ connection, nodes, initialParentId, busy, onSave, onCancel, onDelete, onConnect,
+export function ConnectionForm({ connection, protocol: requestedProtocol, nodes, initialParentId, busy, onSave, onCancel, onDelete, onConnect,
   onDirtyChange, onSaveAndConnect, onPickKey }: ConnectionFormProps) {
   const prefix = useId();
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const submittingRef = useRef(false);
-  const [fields, setFields] = useState<ConnectionFields>(() => ({
-    name: connection?.name ?? '', comment: connection?.comment ?? '', host: connection?.host ?? '',
-    port: String(connection?.port ?? 22), username: connection?.username ?? '',
-    method: connection?.authentication.method ?? 'agent',
-    password: connection?.authentication.method === 'password' ? connection.authentication.password : '',
-    keyPath: connection?.authentication.method === 'privateKey' ? connection.authentication.keyPath : '',
-    passphrase: connection?.authentication.method === 'privateKey' ? connection.authentication.passphrase ?? '' : '',
-    tags: connection?.tags.join(', ') ?? '', color: connection?.color ?? '',
-    icon: connection?.icon ?? 'terminal',
-  }));
+  const protocol = connection?.protocol ?? requestedProtocol ?? 'ssh';
+  const remote = protocol === 'ssh' || protocol === 'rdp';
+  const [fields, setFields] = useState<ConnectionFields>(() => fieldsFromConnection(protocol, connection));
   const [parentId, setParentId] = useState(initialParentId);
   const [savedSignature, setSavedSignature] = useState(() => JSON.stringify({ fields, parentId }));
   const dirty = savedSignature !== JSON.stringify({ fields, parentId });
@@ -52,7 +54,7 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
     if (busy || submittingRef.current) return;
     submittingRef.current = true;
     try {
-      const updated = connectionFromFields(connection?.id ?? crypto.randomUUID(), fields);
+      const updated = connectionFromFields(connection?.id ?? crypto.randomUUID(), fields, protocol);
       setError(null);
       const saved = await (connect && onSaveAndConnect ? onSaveAndConnect : onSave)(updated, parentId);
       if (saved) { setSavedSignature(JSON.stringify({ fields, parentId })); onDirtyChange?.(false); }
@@ -60,7 +62,7 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
       const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
       setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : 'Speichern fehlgeschlagen. Deine Eingaben bleiben erhalten. Bitte versuche es erneut.' });
       if (field) {
-        if (field === 'color' && detailsRef.current) detailsRef.current.open = true;
+        if ((field === 'color' || field === 'workingDirectory') && detailsRef.current) detailsRef.current.open = true;
         requestAnimationFrame(() => document.getElementById(`${prefix}-${field}`)?.focus());
       }
     } finally { submittingRef.current = false; }
@@ -87,7 +89,7 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
 
   return (
     <section className="node-editor compact-editor" aria-label="Verbindung bearbeiten">
-      <h2>{connection ? 'Verbindung bearbeiten' : 'Neue SSH-Verbindung'}</h2>
+      <h2>{connection ? `${PROTOCOLS[protocol].short}-Verbindung bearbeiten` : newTitles[protocol]}</h2>
       <form noValidate data-editor-form onSubmit={event => { event.preventDefault(); void submit(false); }}>
         {textField('Verbindungsname', 'name')}
         <fieldset className="connection-appearance">
@@ -104,8 +106,19 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
             <button className="secondary-button" type="button" disabled={busy || !fields.color} onClick={() => setField('color', '')}>Standardfarbe</button>
           </div>
         </fieldset>
-        <div className="editor-host-row">{textField('Host', 'host')}{textField('Port', 'port')}</div>
-        <div className="editor-auth-row">
+        {remote && <div className="editor-host-row">{textField('Host', 'host')}{textField('Port', 'port')}</div>}
+        {protocol === 'rdp' && <>
+          <div className="editor-auth-row">{textField('Benutzername', 'username')}{textField('Domäne (optional)', 'domain')}</div>
+          <p className="editor-hint">Alternativ DOMÄNE\Benutzer oder benutzer@domäne als Benutzername.</p>
+          {textField('Passwort (leer: beim Verbinden fragen)', 'password', true)}
+          <label className="editor-checkbox"><input type="checkbox" checked={fields.clipboard === 'on'} disabled={busy}
+            onChange={event => setField('clipboard', event.target.checked ? 'on' : 'off')} />Zwischenablage mit dem Remotedesktop teilen</label>
+        </>}
+        {(protocol === 'powershell' || protocol === 'cmd') && <>
+          {textField('Startordner (leer: Benutzerprofil)', 'workingDirectory')}
+          <p className="editor-hint">Startet {PROTOCOLS[protocol].short} auf diesem Computer.</p>
+        </>}
+        {protocol === 'ssh' && <><div className="editor-auth-row">
           {textField('Benutzername', 'username')}
           <label>Authentifizierung
             <select value={fields.method} disabled={busy} onChange={event => {
@@ -120,7 +133,7 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
         {fields.method === 'privateKey' && <>
           {textField('Pfad zum privaten Schlüssel', 'keyPath')}
           {textField('Schlüssel-Passphrase', 'passphrase', true)}
-        </>}
+        </>}</>}
         <details className="editor-details" ref={detailsRef}>
           <summary>Weitere Angaben</summary>
           <div className="editor-details-content">
@@ -137,7 +150,7 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
         <div className="form-actions editor-action-bar">
           <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>Abbrechen</button>
           <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !dirty)}>{busy ? 'Speichert ...' : 'Verbindung speichern'}</button>
-          {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>SSH verbinden</button>
+          {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>{connectLabels[protocol]}</button>
             : onSaveAndConnect && <button className="primary-button" type="button" disabled={busy} onClick={() => { void submit(true); }}>Speichern und verbinden</button>}
         </div>
       </form>
@@ -146,7 +159,7 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
         <button className="danger-button" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Verbindung löschen</button>
       </details>}
       {confirmDelete && onDelete && <ConfirmDialog title={`Verbindung „${connection?.name}“ löschen?`}
-        description="Die Verbindung wird unwiderruflich entfernt, auch aus gespeicherten Workspaces. Ihre aktiven SSH-Sessions werden beendet."
+        description="Die Verbindung wird unwiderruflich entfernt, auch aus gespeicherten Workspaces. Ihre aktiven Sitzungen werden beendet."
         busy={busy} onCancel={() => setConfirmDelete(false)} onConfirm={() => { void onDelete().then(saved => { if (saved) setConfirmDelete(false); }); }} />}
     </section>
   );

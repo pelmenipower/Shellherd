@@ -64,4 +64,4 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
   );
 }
 
-function connectionAddress(tab: TerminalTab): string { return `${tab.connection.username ? `${tab.connection.username}@` : ''}${tab.connection.host}:${tab.connection.port}`; }
+function connectionAddress(tab: TerminalTab): string { return tab.connection.address; }
