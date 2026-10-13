@@ -38,8 +38,14 @@ export function validateVaultConsistency(
       connectionIds,
       issues,
     );
+    workspace.views?.forEach((view, viewIndex) => {
+      validateWorkspaceLayout(view.layout, `workspaces[${index}].views[${viewIndex}].layout`, connectionIds, issues);
+    });
     workspace.windows?.forEach((window, windowIndex) => {
       validateWorkspaceLayout(window.layout, `workspaces[${index}].windows[${windowIndex}].layout`, connectionIds, issues);
+      window.views?.forEach((view, viewIndex) => {
+        validateWorkspaceLayout(view.layout, `workspaces[${index}].windows[${windowIndex}].views[${viewIndex}].layout`, connectionIds, issues);
+      });
     });
   });
 

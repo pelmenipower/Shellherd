@@ -35,6 +35,19 @@ describe('workspace windows', () => {
     expect(validateVaultConsistency(broken)[0].path).toContain('windows[0]');
   });
 
+  it('validates and prunes views of the workspace and of its windows', () => {
+    const pane = { type: 'pane' as const, connectionIds: ['connection-dev-api'] };
+    const withViews: Vault = { ...vault, workspaces: [{ ...vault.workspaces[0], views: [{ name: 'A', layout: pane }, { name: 'B', layout: pane }],
+      windows: [{ ...vault.workspaces[0].windows![0], views: [{ name: 'C', layout: pane }] }] }] };
+    expect(validateVaultConsistency(withViews)).toEqual([]);
+    const broken = structuredClone(withViews);
+    broken.workspaces[0].windows![0].views![0].layout = { type: 'pane', connectionIds: ['missing'] };
+    expect(validateVaultConsistency(broken)[0].path).toContain('windows[0].views[0]');
+    const updated = removeNodeFromVault(withViews, 'connection-dev-api');
+    expect(updated.workspaces[0].views!.map(view => view.layout)).toEqual([{ type: 'pane', connectionIds: [] }, { type: 'pane', connectionIds: [] }]);
+    expect(updated.workspaces[0].windows![0].views![0].layout).toEqual({ type: 'pane', connectionIds: [] });
+  });
+
   it('removes deleted connections from window layouts', () => {
     const updated = removeNodeFromVault(vault, 'connection-dev-api');
     expect(updated.workspaces[0].windows![0].layout).toEqual({ type: 'pane', connectionIds: [] });

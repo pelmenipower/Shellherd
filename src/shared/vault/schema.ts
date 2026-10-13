@@ -112,14 +112,21 @@ export const WorkspaceSplitSchema: z.ZodType<WorkspaceSplit> = z.object({
   second: WorkspaceLayoutSchema,
 });
 
+export const WorkspaceViewsSchema = z.array(z.object({
+  name: z.string().min(1).max(60),
+  layout: WorkspaceLayoutSchema,
+})).min(1).max(12);
+
 export const WorkspaceSchema: z.ZodType<Workspace> = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   comment: z.string().optional(),
   layout: WorkspaceLayoutSchema,
+  views: WorkspaceViewsSchema.optional(),
   windows: z.array(z.object({
     bounds: z.object({ x: z.number().int(), y: z.number().int(), width: z.number().int().min(320).max(20_000), height: z.number().int().min(240).max(20_000) }),
     layout: WorkspaceLayoutSchema,
+    views: WorkspaceViewsSchema.optional(),
   })).max(8).optional(),
 });
 

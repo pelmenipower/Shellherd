@@ -5,8 +5,9 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
 import { useTerminalLayout } from './hooks/useTerminalLayout';
 import { useTabTransfer } from './hooks/useTabTransfer';
+import { useViewControls } from './hooks/useViewControls';
 import { isRunning, tabLabel, toTerminalConnection } from './terminal-tabs';
-import { restoreLayout, savedLayout } from './terminal-layout';
+import { fromWorkspaceViews, toWorkspaceViews } from './terminal-views';
 import { findNode } from './vault-selection';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
@@ -19,10 +20,11 @@ export function SecondaryWindow() {
   const terminals = useTerminalTabs();
   const terminalLayout = useTerminalLayout(terminals.tabs, terminals.activeTabId);
   const transfer = useTabTransfer(terminals, setError);
+  const viewControls = useViewControls(terminalLayout, terminals.select);
 
   // Effects and listeners read the latest state through refs.
-  const state = useRef({ tabs: terminals.tabs, layout: terminalLayout.layout, catalog, replace: terminalLayout.replace, restore: terminals.restore });
-  state.current = { tabs: terminals.tabs, layout: terminalLayout.layout, catalog, replace: terminalLayout.replace, restore: terminals.restore };
+  const state = useRef({ tabs: terminals.tabs, views: terminalLayout.viewsState, catalog, replaceViews: terminalLayout.replaceViews, restore: terminals.restore });
+  state.current = { tabs: terminals.tabs, views: terminalLayout.viewsState, catalog, replaceViews: terminalLayout.replaceViews, restore: terminals.restore };
 
   useEffect(() => {
     let active = true;
@@ -56,18 +58,18 @@ export function SecondaryWindow() {
   }, [terminals.tabs.length]);
 
   useEffect(() => window.desktopApi.onWorkspaceCollect(({ requestId }) => {
-    const { tabs, layout } = state.current;
-    void window.desktopApi.workspaceReport({ requestId, layout: tabs.length ? savedLayout(layout, tabs) : null });
+    const { tabs, views } = state.current;
+    void window.desktopApi.workspaceReport({ requestId, report: tabs.length ? toWorkspaceViews(views, tabs) : null });
   }), []);
 
   useEffect(() => window.desktopApi.onWorkspaceRestore(saved => {
-    const { catalog: current, replace, restore } = state.current;
+    const { catalog: current, replaceViews, restore } = state.current;
     try {
-      const restored = restoreLayout(saved, id => {
+      const restored = fromWorkspaceViews(saved, id => {
         const node = current && findNode(current.nodes, id);
         return node?.type === 'connection' ? node : undefined;
       }, () => crypto.randomUUID());
-      replace(restored.layout);
+      replaceViews(restored.state);
       restore(restored.tabs, restored.activeTabId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Das Fenster konnte nicht wiederhergestellt werden.');
@@ -96,7 +98,7 @@ export function SecondaryWindow() {
         layout={terminalLayout.layout} draggedTabId={draggedTabId} onDrag={setDraggedTabId} focused={terminalLayout.focused} busy={false}
         onLayout={terminalLayout.setLayout} onFocus={terminalLayout.setFocused} onSelect={terminals.select} onStatus={terminals.updateStatus}
         onClose={requestClose} externalHover={transfer.externalHover} pendingDock={transfer.pendingDock}
-        onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff} />
+        onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff} viewControls={viewControls} />
     </div>
     {closingTab && <ConfirmDialog title={`Tab „${tabLabel(closingTab, terminals.tabs)}“ schließen?`}
       description="Diese Verbindung wird beendet. Laufende Programme in der Sitzung können dadurch beendet werden."

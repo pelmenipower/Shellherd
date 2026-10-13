@@ -1,4 +1,4 @@
-import type { ConnectionProtocol, VaultNode, WorkspaceLayout } from './vault/types';
+import type { ConnectionProtocol, VaultNode, WorkspaceLayout, WorkspaceView } from './vault/types';
 import type { SshStatus } from './ssh';
 
 export type WindowRole = 'main' | 'secondary';
@@ -39,4 +39,6 @@ export type ExternalDragHover = { x: number; y: number; label: string } | null;
 export interface ConnectionCatalog { nodes: VaultNode[]; confirmBeforeClosingSession: boolean }
 
 export interface WindowBounds { x: number; y: number; width: number; height: number }
-export interface WorkspaceWindowState { bounds: WindowBounds; layout: WorkspaceLayout }
+export interface WorkspaceWindowState { bounds: WindowBounds; layout: WorkspaceLayout; views?: WorkspaceView[] }
+/** A window's saved views; null when it has no tabs. */
+export type WindowLayoutReport = { layout: WorkspaceLayout; views?: WorkspaceView[] } | null;

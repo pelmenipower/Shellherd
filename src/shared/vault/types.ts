@@ -93,14 +93,23 @@ export interface Workspace {
   id: string;
   name: string;
   comment?: string;
+  /** First view; kept for workspaces with a single view. */
   layout: WorkspaceLayout;
+  /** All views when there are several; `layout` then equals views[0].layout. */
+  views?: WorkspaceView[];
   /** Detached windows with screen position (DIP) and their own layout. */
   windows?: WorkspaceWindow[];
+}
+
+export interface WorkspaceView {
+  name: string;
+  layout: WorkspaceLayout;
 }
 
 export interface WorkspaceWindow {
   bounds: { x: number; y: number; width: number; height: number };
   layout: WorkspaceLayout;
+  views?: WorkspaceView[];
 }
 
 export type WorkspaceLayout = WorkspacePane | WorkspaceSplit;

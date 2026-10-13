@@ -1,6 +1,6 @@
 import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
 import type { Vault, WorkspaceLayout } from './vault/types';
-import type { ConnectionCatalog, ExternalDragHover, IncomingTab, TabTransferRequest, WindowRole, WorkspaceWindowState } from './windows';
+import type { ConnectionCatalog, ExternalDragHover, IncomingTab, TabTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 
 export const IPC_CHANNELS = {
@@ -119,9 +119,9 @@ export interface DesktopApi {
   onTabDragHover: (listener: (hover: ExternalDragHover) => void) => () => void;
   workspaceWindows: () => Promise<WorkspaceWindowState[]>;
   onWorkspaceCollect: (listener: (request: { requestId: string }) => void) => () => void;
-  workspaceReport: (report: { requestId: string; layout: WorkspaceLayout | null }) => Promise<void>;
+  workspaceReport: (report: { requestId: string; report: WindowLayoutReport }) => Promise<void>;
   openWorkspaceWindows: (windows: WorkspaceWindowState[]) => Promise<void>;
-  onWorkspaceRestore: (listener: (layout: WorkspaceLayout) => void) => () => void;
+  onWorkspaceRestore: (listener: (saved: NonNullable<WindowLayoutReport>) => void) => () => void;
   closeSecondaryWindows: () => Promise<void>;
   getVersion: () => Promise<string>;
   selectVaultFile: () => Promise<SelectVaultFileResult>;

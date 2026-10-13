@@ -12,6 +12,7 @@ import { RDP_ACTION_LABELS } from '../rdp-sessions';
 import { liveSessions } from '../session-registry';
 import type { ExternalDragHover } from '../../../shared/windows';
 import { tabLabel } from '../terminal-tabs';
+import type { ViewControls } from '../terminal-views';
 import { RDP_ACTIONS } from '../../../shared/rdp';
 import { TerminalTabs } from './TerminalTabs';
 import { ConnectionPicker } from './ConnectionPicker';
@@ -34,6 +35,8 @@ interface Props {
   onDockHandled?: () => void;
   /** Dropped outside this window: move the tab to the window there or to a new one (screen DIP). */
   onTearOff?: (tabId: string, x: number, y: number) => void;
+  /** Top-level views of this window; omitted hides the view bar. */
+  viewControls?: ViewControls;
 }
 /** Preview area of a dock zone inside a pane region (percent of the stage). */
 function zoneRect(region: { left: number; top: number; width: number; height: number }, zone: DockZone) {
@@ -50,7 +53,14 @@ interface DockTarget {
   marker?: { left: number; top: number };
 }
 export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, focused, busy, onLayout, onFocus, onSelect, onStatus, onClose, draggedTabId, onDrag, visible = true,
-  externalHover = null, pendingDock = null, onDockHandled, onTearOff }: Props) {
+  externalHover = null, pendingDock = null, onDockHandled, onTearOff, viewControls }: Props) {
+  const [viewDrop, setViewDrop] = useState<string | null>(null);
+  const viewDropRef = useRef<string | null>(null);
+  const [renamingView, setRenamingView] = useState<{ id: string; name: string } | null>(null);
+  const markViewDrop = (id: string | null): void => { viewDropRef.current = id; setViewDrop(id); };
+  /** View tab under the pointer while a tab is dragged (pointer capture still allows hit-testing). */
+  const viewAt = (x: number, y: number): string | null => viewControls
+    ? (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-view-id]')?.dataset.viewId ?? null : null;
   const external = useRef<{ frame: number; point: { x: number; y: number; label: string } | null } | null>(null);
   /** Reports the pointer outside this window so the window below can preview the drop; null ends it. */
   const reportExternal = (point: { x: number; y: number; label: string } | null): void => {
@@ -100,6 +110,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     if (previous && stage.current?.hasPointerCapture(previous.pointerId)) stage.current.releasePointerCapture(previous.pointerId);
     if (previous?.active) setMaximized(previous.maximized);
     if (external.current) { cancelAnimationFrame(external.current.frame); external.current = null; window.desktopApi.tabDragMove(null); }
+    viewDropRef.current = null; setViewDrop(null);
     setHover(null); onDrag(null);
   }, [onDrag]);
   useEffect(() => { if (busy || !visible) cancelDrag(); }, [busy, visible, cancelDrag]);
@@ -166,13 +177,17 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
       return;
     }
     reportExternal(null);
-    setHover(targetAt(event.clientX, event.clientY, current.tabId));
+    const view = viewAt(event.clientX, event.clientY);
+    markViewDrop(view);
+    setHover(view ? null : targetAt(event.clientX, event.clientY, current.tabId));
   };
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     const current = drag.current;
     if (!current || event.pointerId !== current.pointerId) return;
     const tearOff = current.active && !busy && onTearOff && outsideWindow(event.clientX, event.clientY);
-    const target = current.active && !busy && !tearOff ? targetAt(event.clientX, event.clientY, current.tabId) : null;
+    const viewTarget = current.active && !busy && !tearOff ? viewDropRef.current : null;
+    markViewDrop(null);
+    const target = current.active && !busy && !tearOff && !viewTarget ? targetAt(event.clientX, event.clientY, current.tabId) : null;
     drag.current = null;
     if (stage.current?.hasPointerCapture(event.pointerId)) stage.current.releasePointerCapture(event.pointerId);
     reportExternal(null);
@@ -180,6 +195,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     if (tearOff) {
       setMaximized(current.maximized);
       onTearOff(current.tabId, event.screenX, event.screenY);
+    } else if (viewTarget) {
+      viewControls?.moveTab(current.tabId, viewTarget);
     } else if (target) {
       const next = dockTab(currentLayout.current, current.tabId, target.paneId, target.zone, crypto.randomUUID(), target.beforeTabId);
       if (next !== currentLayout.current) onLayout(next);
@@ -223,6 +240,32 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     target.addEventListener('pointerup', stop); target.addEventListener('pointercancel', stop); target.addEventListener('lostpointercapture', stop);
   };
   return <section className="split-workspace" hidden={!visible} aria-label="Terminalbereiche">
+    {viewControls && <div className="view-bar" role="tablist" aria-label="Ansichten">
+      {viewControls.views.map(view => {
+        const active = view.id === viewControls.activeViewId;
+        return <div key={view.id} data-view-id={view.id} className={`view-tab${active ? ' is-active' : ''}${viewDrop === view.id ? ' is-drop-target' : ''}`}>
+          {renamingView?.id === view.id ? <input className="view-rename" aria-label="Ansicht umbenennen" autoFocus value={renamingView.name}
+            onFocus={event => event.target.select()} onChange={event => setRenamingView({ id: view.id, name: event.target.value })}
+            onBlur={() => { viewControls.rename(view.id, renamingView.name); setRenamingView(null); }}
+            onKeyDown={event => {
+              if (event.key === 'Enter') { viewControls.rename(view.id, renamingView.name); setRenamingView(null); }
+              if (event.key === 'Escape') setRenamingView(null);
+            }} />
+            : <button type="button" role="tab" aria-selected={active} disabled={busy} title="Doppelklick oder F2 benennt die Ansicht um"
+              onClick={() => viewControls.select(view.id)} onDoubleClick={() => setRenamingView({ id: view.id, name: view.name })}
+              onKeyDown={event => { if (event.key === 'F2') { event.preventDefault(); setRenamingView({ id: view.id, name: view.name }); } }}>
+              <span>{view.name}</span><small>{view.tabCount}</small>
+            </button>}
+          {viewControls.views.length > 1 && <button type="button" className="view-close" disabled={busy} aria-label={`Ansicht ${view.name} schließen`}
+            title="Ansicht schließen – ihre Tabs wandern in die Nachbaransicht" onClick={() => viewControls.close(view.id)}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
+          </button>}
+        </div>;
+      })}
+      <button type="button" className="view-add" disabled={busy || viewControls.views.length >= 12} aria-label="Neue Ansicht" title="Neue Ansicht" onClick={viewControls.add}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+      </button>
+    </div>}
     <div className={`split-terminal-stage${draggedTabId ? ' is-dragging-tab' : ''}`} ref={stage}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}
       onLostPointerCapture={event => { if (drag.current?.pointerId === event.pointerId) cancelDrag(); }}>
@@ -267,7 +310,10 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
               {paneList.map((pane, paneIndex) => <option value={pane.id} key={pane.id}>Bereich {paneIndex + 1}</option>)}
             </select></label>}
           </>}
-          <p>Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben.</p>
+          {viewControls && region.pane.tabIds.length > 0 && <button type="button" disabled={busy} onClick={() => {
+            setMenuPane(null); setMaximized(null); viewControls.paneToView(region.pane.id);
+          }}>Als eigene Ansicht öffnen</button>}
+          <p>Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben. Tabs auf eine Ansicht oben ziehen, um sie dorthin zu verschieben.</p>
           <button type="button" onClick={() => setMenuPane(null)}>Schließen</button>
         </div>}
         {!region.pane.activeTabId && <div className="empty-pane"><p>Verbindung aus der Liste öffnen oder einen Tab hier ablegen.</p>

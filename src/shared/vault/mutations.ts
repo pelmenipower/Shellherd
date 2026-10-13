@@ -310,8 +310,14 @@ export function removeNodeFromVault(
           workspace.layout,
           removedConnectionIds,
         ),
+        ...(workspace.views ? { views: workspace.views.map(view => ({
+          ...view, layout: removeConnectionsFromLayout(view.layout, removedConnectionIds),
+        })) } : {}),
         ...(workspace.windows ? { windows: workspace.windows.map(window => ({
           ...window, layout: removeConnectionsFromLayout(window.layout, removedConnectionIds),
+          ...(window.views ? { views: window.views.map(view => ({
+            ...view, layout: removeConnectionsFromLayout(view.layout, removedConnectionIds),
+          })) } : {}),
         })) } : {}),
       }),
     ),

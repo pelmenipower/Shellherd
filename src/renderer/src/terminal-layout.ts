@@ -85,6 +85,23 @@ export function moveTab(layout: LiveLayout, tabId: string, paneId: string, befor
   result = mapPane(result, paneId, insert);
   return source.tabIds.length === 1 ? mergePane(result, source.id) : result;
 }
+/** Removes a tab from its pane; a pane emptied this way disappears from a split. */
+export function removeTab(layout: LiveLayout, tabId: string): LiveLayout {
+  const source = panes(layout).find(pane => pane.tabIds.includes(tabId));
+  if (!source) return layout;
+  const result = mapPane(layout, source.id, pane => {
+    const tabIds = pane.tabIds.filter(id => id !== tabId);
+    return { ...pane, tabIds, activeTabId: pane.activeTabId === tabId ? tabIds[0] ?? null : pane.activeTabId };
+  });
+  return source.tabIds.length === 1 ? detachPane(result, source.id) : result;
+}
+/** Removes a pane together with its tabs; the sibling takes its space. A lone root pane stays. */
+export function detachPane(layout: LiveLayout, paneId: string): LiveLayout {
+  if (layout.type === 'pane') return layout;
+  if (layout.first.type === 'pane' && layout.first.id === paneId) return layout.second;
+  if (layout.second.type === 'pane' && layout.second.id === paneId) return layout.first;
+  return { ...layout, first: detachPane(layout.first, paneId), second: detachPane(layout.second, paneId) };
+}
 export function mergePane(layout: LiveLayout, paneId: string): LiveLayout {
   if (layout.type === 'pane') return layout;
   const removed = layout.first.type === 'pane' && layout.first.id === paneId ? layout.first

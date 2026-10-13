@@ -3,10 +3,9 @@ import type { BrowserWindow, Rectangle } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../shared/ipc';
-import { WorkspaceLayoutSchema } from '../shared/vault/schema';
+import { WorkspaceLayoutSchema, WorkspaceViewsSchema } from '../shared/vault/schema';
 import { redactSecrets } from '../shared/vault/connections';
-import type { ConnectionCatalog, IncomingTab, WorkspaceWindowState } from '../shared/windows';
-import type { WorkspaceLayout } from '../shared/vault/types';
+import type { ConnectionCatalog, IncomingTab, WindowLayoutReport, WorkspaceWindowState } from '../shared/windows';
 import { requireSshSender } from './ssh/ipc';
 import type { SshSessionManager } from './ssh/session';
 import type { RdpSessionManager } from './rdp/host';
@@ -32,8 +31,9 @@ const TransferSchema = z.object({
 }).strict();
 const DragSchema = z.object({ x: finite, y: finite, label: z.string().max(500) }).strict().nullable();
 const BoundsSchema = z.object({ x: z.number().int(), y: z.number().int(), width: z.number().int().min(320).max(20_000), height: z.number().int().min(240).max(20_000) }).strict();
-const WindowsSchema = z.array(z.object({ bounds: BoundsSchema, layout: WorkspaceLayoutSchema }).strict()).max(8);
-const ReportSchema = z.object({ requestId: z.string().uuid(), layout: WorkspaceLayoutSchema.nullable() }).strict();
+const SavedSchema = { layout: WorkspaceLayoutSchema, views: WorkspaceViewsSchema.optional() };
+const WindowsSchema = z.array(z.object({ bounds: BoundsSchema, ...SavedSchema }).strict()).max(8);
+const ReportSchema = z.object({ requestId: z.string().uuid(), report: z.object(SavedSchema).strict().nullable() }).strict();
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
@@ -58,7 +58,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
   broadcastCatalog: () => void;
 } {
   const hovered = new Map<number, number>();
-  const reports = new Map<string, (layout: WorkspaceLayout | null) => void>();
+  const reports = new Map<string, (report: WindowLayoutReport) => void>();
   const send = (window: BrowserWindow | undefined, channel: string, payload: unknown): void => {
     if (window && !window.isDestroyed()) window.webContents.send(channel, payload);
   };
@@ -136,9 +136,9 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
     const results = await Promise.all(registry.secondaries().map(window => new Promise<WorkspaceWindowState | null>(resolve => {
       const requestId = randomUUID();
       const timer = setTimeout(() => { reports.delete(requestId); resolve(null); }, 2_000);
-      reports.set(requestId, layout => {
+      reports.set(requestId, report => {
         clearTimeout(timer);
-        resolve(layout && !window.isDestroyed() ? { bounds: window.getNormalBounds(), layout } : null);
+        resolve(report && !window.isDestroyed() ? { bounds: window.getNormalBounds(), ...report } : null);
       });
       send(window, IPC_CHANNELS.workspaceCollect, { requestId });
     })));
@@ -148,7 +148,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
   ipcMain.handle(IPC_CHANNELS.workspaceReport, (event, value: unknown) => {
     requireSshSender(event);
     const parsed = parse(ReportSchema, value);
-    reports.get(parsed.requestId)?.(parsed.layout);
+    reports.get(parsed.requestId)?.(parsed.report);
     reports.delete(parsed.requestId);
   });
 
@@ -158,7 +158,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
     for (const item of parse(WindowsSchema, value)) {
       const window = createSecondary(visibleBounds(item.bounds));
       await registry.whenReady(window.webContents.id);
-      send(window, IPC_CHANNELS.workspaceRestore, item.layout);
+      send(window, IPC_CHANNELS.workspaceRestore, { layout: item.layout, ...(item.views ? { views: item.views } : {}) });
     }
   });
 
