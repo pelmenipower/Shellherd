@@ -73,13 +73,7 @@ label { font-size: 12px; font-weight: 500; color: var(--ui-muted); }
 .sidebar-resize:hover, .sidebar-resize:focus-visible { background: rgb(103 232 249 / 20%); }
 .sidebar-heading { display: flex; justify-content: space-between; align-items: center; padding: 0 4px 8px; font-size: 12px; color: var(--ui-muted); }
 .connection-count { padding-left: 4px; font-variant-numeric: tabular-nums; }
-.new-node-menu { position: relative; }
-.new-node-menu summary { padding: 4px 8px; border-radius: 4px; color: var(--ui-text); }
-.new-node-actions { position: absolute; top: 28px; right: 0; width: 250px; z-index: 25; display: grid; gap: 4px; padding: 6px; border: 1px solid var(--ui-border); background: var(--ui-panel); border-radius: 5px; }
-.new-node-actions button { display: flex; justify-content: space-between; gap: 12px; text-align: left; }
-.new-node-actions button small { color: var(--ui-muted); }
-.new-node-actions-heading { padding: 4px 6px 0; color: var(--ui-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
-.new-node-actions hr { width: 100%; margin: 2px 0; border: 0; border-top: 1px solid var(--ui-border); }
+.new-node-button { padding: 4px 8px; border-radius: 4px; color: var(--ui-text); }
 .root-row { width: 100%; text-align: left; background: transparent; border-color: transparent; color: var(--ui-muted); margin-bottom: 6px; }
 .root-row[aria-pressed='true'] { background: #182b3c; color: var(--ui-text); }
 .sidebar-create-form { padding: 10px 4px; border-bottom: 1px solid var(--ui-border); margin-bottom: 8px; }

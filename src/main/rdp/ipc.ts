@@ -6,6 +6,7 @@ import { findConnection } from '../ssh/session';
 import { requireSshSender } from '../ssh/ipc';
 import { vaultSessionManager } from '../vault/ipc';
 import { RdpSessionManager } from './host';
+import type { RdpSurfaceMode } from '../../shared/rdp';
 
 const coordinate = z.number().finite().min(-100_000).max(100_000);
 const Rect = z.object({ x: coordinate, y: coordinate, width: z.number().finite().min(0).max(100_000), height: z.number().finite().min(0).max(100_000) }).strict();
@@ -22,10 +23,16 @@ function parse<T>(schema: z.ZodType<T>, request: unknown): T {
   return result.data;
 }
 
+export function rdpSurfaceMode(): RdpSurfaceMode {
+  return process.env.TERMINUS_RDP_MODE === 'child' ? 'child' : 'owned';
+}
+
 export function registerRdpIpcHandlers(): RdpSessionManager {
   const manager = new RdpSessionManager({
     executable: join(__dirname, '../rdp-host/Terminus.RdpHost.exe'),
-    mode: process.env.TERMINUS_RDP_MODE === 'owned' ? 'owned' : 'child',
+    // Owned surfaces (variant B) are the default: child windows (A) are hidden by Chromium's
+    // DirectComposition and share the input queue with Terminus. A stays available for experiments.
+    mode: rdpSurfaceMode(),
     getTarget: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
       if (connection?.protocol !== 'rdp') throw new Error('Die RDP-Verbindung wurde nicht gefunden.');

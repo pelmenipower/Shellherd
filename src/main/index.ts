@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
 import type { SshSessionManager } from './ssh/session';
-import { registerRdpIpcHandlers } from './rdp/ipc';
+import { rdpSurfaceMode, registerRdpIpcHandlers } from './rdp/ipc';
 import type { RdpSessionManager } from './rdp/host';
 
 import { IPC_CHANNELS } from '../shared/ipc';
@@ -78,6 +78,9 @@ function createMainWindow(): void {
     );
   }
 }
+
+// Experimental variant A only: child windows from the helper are invisible under DirectComposition.
+if (rdpSurfaceMode() === 'child') app.commandLine.appendSwitch('disable-direct-composition');
 
 app.whenReady().then(() => {
   ipcMain.handle(

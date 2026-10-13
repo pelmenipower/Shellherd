@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useState,
   useRef,
@@ -18,6 +19,8 @@ import type {
 
 import { addNode, updateNode, removeNode, removeNodeFromVault, upsertWorkspace, removeWorkspace } from '../../shared/vault/mutations';
 import { VaultTree } from './components/VaultTree';
+import { ContextMenu } from './components/ContextMenu';
+import type { ContextMenuEntry } from './components/ContextMenu';
 import { FolderEditor } from './components/FolderEditor';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ResizableSidebar } from './components/ResizableSidebar';
@@ -122,6 +125,8 @@ export default function App() {
   >(null);
   const pendingTab = pendingSshAction?.type === 'closeTab' ? terminals.tabs.find(tab => tab.id === pendingSshAction.tabId) : undefined;
   const [showConnectionForm, setShowConnectionForm] = useState(false);
+  const [newMenu, setNewMenu] = useState<{ x: number; y: number } | null>(null);
+  const closeNewMenu = useCallback(() => setNewMenu(null), []);
   const [newConnectionTarget, setNewConnectionTarget] = useState<{ protocol: ConnectionProtocol; parentId: string | null }>({ protocol: 'ssh', parentId: null });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const selectedNode = vault && selectedNodeId
@@ -550,18 +555,19 @@ export default function App() {
       <div className="vault-content">
         <ResizableSidebar collapsed={sidebarCollapsed}>
           <div className="sidebar-heading"><span>Verbindungen <span className="connection-count">{connectionCount}</span></span>
-            <details className="new-node-menu" onKeyDown={event => {
-              if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); }
-            }}><summary aria-label="Neu anlegen">Neu</summary><div className="new-node-actions">
-              <span className="new-node-actions-heading">Neue Verbindung</span>
-              {NEW_CONNECTION_KINDS.map(item => <button key={item.protocol} type="button" disabled={busy || item.planned}
-                onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); if (!item.planned) newConnection(item.protocol as ConnectionProtocol); }}>
-                <span>{item.label}</span>{item.planned && <small>geplant</small>}</button>)}
-              <hr />
-              <button type="button" aria-label="Neuen Ordner erstellen" disabled={busy || !canCreateFolder} onClick={event => {
-                event.currentTarget.closest('details')?.removeAttribute('open'); setShowFolderForm(true);
-              }}>Neuer Ordner</button>
-            </div></details>
+            <button className="new-node-button" type="button" aria-haspopup="menu" aria-expanded={newMenu !== null} disabled={busy}
+              onClick={event => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setNewMenu(newMenu ? null : { x: rect.left, y: rect.bottom + 4 });
+              }}>Neu</button>
+            {newMenu && <ContextMenu x={newMenu.x} y={newMenu.y} label="Neu anlegen" onClose={closeNewMenu} entries={[
+              { kind: 'heading', label: 'Neue Verbindung' },
+              ...NEW_CONNECTION_KINDS.map((item): ContextMenuEntry => item.planned
+                ? { kind: 'item', label: item.label, hint: 'geplant', disabled: true, onSelect: () => {} }
+                : { kind: 'item', label: item.label, onSelect: () => newConnection(item.protocol as ConnectionProtocol) }),
+              { kind: 'separator' },
+              { kind: 'item', label: 'Neuer Ordner', disabled: !canCreateFolder, onSelect: () => setShowFolderForm(true) },
+            ]} />}
           </div>
           <button className="root-row" type="button" disabled={busy} aria-pressed={selectedNodeId === null}
             onClick={() => navigateEditor(() => { setSelectedNodeId(null); setShowConnectionForm(false); setEditorOpen(false); setEditorDirty(false); })}>Alle Verbindungen</button>
