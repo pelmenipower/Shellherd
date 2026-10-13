@@ -205,7 +205,13 @@ namespace Terminus.RdpHost
 
         private void Status(string status, int code, string message)
         {
-            var payload = Protocol.Message("status");
+            Status(status, code, message, null);
+        }
+
+        private void Status(string status, int code, string message, Dictionary<string, object> extra)
+        {
+            var payload = extra ?? Protocol.Message("status");
+            payload["type"] = "status";
             payload["sessionId"] = id;
             payload["status"] = status;
             if (code != 0) payload["code"] = code;
@@ -238,7 +244,10 @@ namespace Terminus.RdpHost
             loggedIn = false;
             // A disconnect we requested is never an error, whatever reason code the control reports.
             bool regular = closing || reason == LocalDisconnect || reason == RemoteByUser || reason == ByServer;
-            Status(regular ? "disconnected" : "error", reason, Describe(reason));
+            var extra = new Dictionary<string, object>();
+            try { extra["extendedReason"] = Convert.ToInt32(((dynamic)control.Ocx).ExtendedDisconnectReason); } catch { }
+            extra["requested"] = closing;
+            Status(regular ? "disconnected" : "error", reason, Describe(reason), extra);
             if (closing) Finish();
         }
 

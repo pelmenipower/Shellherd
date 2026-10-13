@@ -7,7 +7,11 @@ import type { BrowserWindow, Rectangle } from 'electron';
 import type { RdpEvent, RdpOpenRequest, RdpSurfaceMode, ViewportRect } from '../../shared/rdp';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
-export interface RdpTarget { host: string; port: number; username?: string; domain?: string; password?: string; clipboard: boolean }
+/** Set TERMINUS_RDP_DEBUG=1 to log helper traffic; passwords are masked. */
+const debug = process.env.TERMINUS_RDP_DEBUG === '1';
+const timestamp = (): string => new Date().toISOString().slice(11, 23);
+
+export interface RdpTarget{ host: string; port: number; username?: string; domain?: string; password?: string; clipboard: boolean }
 
 export interface RdpDependencies {
   executable: string;
@@ -157,10 +161,15 @@ export class RdpSessionManager {
   }
 
   private send(message: Record<string, unknown>): void {
+    if (debug) {
+      const { password, ...visible } = message;
+      console.log(`[rdp ${timestamp()}] ->`, JSON.stringify({ ...visible, ...(password ? { password: '***' } : {}) }));
+    }
     this.ensureHelper().stdin.write(`${JSON.stringify(message)}\n`);
   }
 
   private receive(line: string): void {
+    if (debug) console.log(`[rdp ${timestamp()}] <-`, line);
     let message: { type?: string; sessionId?: string; status?: string; message?: string };
     try { message = JSON.parse(line); } catch { return; }
     if (message.type === 'error') { console.warn('RDP-Helfer:', message.message); return; }
