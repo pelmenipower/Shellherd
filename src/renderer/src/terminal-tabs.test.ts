@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
-import { emptyTerminalTabs, isRunning, tabLabel, terminalTabsReducer as reduce } from './terminal-tabs';
+import { connectionProtocol, emptyTerminalTabs, isRunning, tabLabel, terminalTabsReducer as reduce } from './terminal-tabs';
 import type { TerminalTabsState } from './terminal-tabs';
 const connection = { id: 'ssh', name: 'Server', host: 'example.test', port: 22, username: 'synthetic' };
 function opened(): TerminalTabsState {
@@ -49,5 +49,11 @@ describe('terminal tab lifecycle', () => {
     expect(reduce(state, { type: 'open', id: 'overflow', connection })).toBe(state);
     expect(reduce(state, { type: 'select', id: 'unknown' })).toBe(state);
     expect(reduce(state, { type: 'reset' })).toEqual(emptyTerminalTabs);
+  });
+  it('marks tagged connections as RDP (prototype) and defaults to SSH', () => {
+    expect(connectionProtocol({ ...connection, tags: ['rdp'] })).toBe('rdp');
+    expect(connectionProtocol({ ...connection, tags: [] })).toBe('ssh');
+    const state = reduce(emptyTerminalTabs, { type: 'open', id: 'r', connection: { ...connection, tags: ['rdp'] } as typeof connection });
+    expect(state.tabs[0].connection.protocol).toBe('rdp');
   });
 });

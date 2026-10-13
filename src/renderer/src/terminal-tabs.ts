@@ -1,8 +1,15 @@
 import type { ConnectionNode } from '../../shared/vault/types';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import type { SshStatus } from '../../shared/ssh';
+import { RDP_PROTOTYPE_TAG } from '../../shared/rdp';
 
-export type TerminalConnection = Pick<ConnectionNode, 'id' | 'name' | 'host' | 'port' | 'username'>;
+export type ConnectionProtocol = 'ssh' | 'rdp';
+export type TerminalConnection = Pick<ConnectionNode, 'id' | 'name' | 'host' | 'port' | 'username'> & { protocol?: ConnectionProtocol };
+
+/** Prototype: the tag marks RDP connections until the vault model has a protocol field (P4). */
+export function connectionProtocol(connection: TerminalConnection & { tags?: string[] }): ConnectionProtocol {
+  return connection.protocol ?? (connection.tags?.includes(RDP_PROTOTYPE_TAG) ? 'rdp' : 'ssh');
+}
 export interface TerminalTab {
   id: string;
   connection: TerminalConnection;
@@ -30,7 +37,8 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
       if (state.tabs.length >= MAX_SSH_SESSIONS || state.tabs.some(tab => tab.id === action.id)) return state;
       const { id, name, host, port, username } = action.connection;
       const ordinal = Math.max(0, ...state.tabs.filter(tab => tab.connection.id === id).map(tab => tab.ordinal)) + 1;
-      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, host, port, username }, ordinal, status: 'connecting' }], activeTabId: action.id };
+      const protocol = connectionProtocol(action.connection);
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, host, port, username, protocol }, ordinal, status: 'connecting' }], activeTabId: action.id };
     }
     case 'select':
       return action.id === null || state.tabs.some(tab => tab.id === action.id) ? { ...state, activeTabId: action.id } : state;

@@ -1,5 +1,6 @@
 import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
 import type { Vault } from './vault/types';
+import type { RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 
 export const IPC_CHANNELS = {
   getVersion: 'app:get-version',
@@ -18,6 +19,13 @@ export const IPC_CHANNELS = {
   sshAck: 'ssh:ack',
   sshClose: 'ssh:close',
   sshEvent: 'ssh:event',
+  rdpOpen: 'rdp:open',
+  rdpBounds: 'rdp:bounds',
+  rdpVisible: 'rdp:visible',
+  rdpFocus: 'rdp:focus',
+  rdpClose: 'rdp:close',
+  rdpDebugHang: 'rdp:debug-hang',
+  rdpEvent: 'rdp:event',
 } as const;
 
 export type SelectVaultFileResult =
@@ -73,6 +81,13 @@ export interface DesktopApi {
   sshAck: (request: SshAckRequest) => Promise<void>;
   sshClose: (request: SshSessionRequest) => Promise<void>;
   onSshEvent: (listener: (event: SshEvent) => void) => () => void;
+  rdpOpen: (request: RdpOpenRequest) => Promise<{ sessionId: string }>;
+  rdpBounds: (request: RdpBoundsRequest) => Promise<void>;
+  rdpVisible: (request: RdpVisibleRequest) => Promise<void>;
+  rdpFocus: (request: RdpSessionRequest) => Promise<void>;
+  rdpClose: (request: RdpSessionRequest) => Promise<void>;
+  rdpDebugHang: (request: { ms: number }) => Promise<void>;
+  onRdpEvent: (listener: (event: RdpEvent) => void) => () => void;
   getVersion: () => Promise<string>;
   selectVaultFile: () => Promise<SelectVaultFileResult>;
   selectPrivateKeyFile: () => Promise<SelectVaultFileResult>;

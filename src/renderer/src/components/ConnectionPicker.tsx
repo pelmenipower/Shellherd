@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { VaultNode } from '../../../shared/vault/types';
 import { searchVaultNodes } from '../vault-search';
 import { ConnectionIcon } from './ConnectionIcon';
+import { useNativeSurfaceBlock } from '../native-surface';
 
 interface Props {
   nodes: VaultNode[];
@@ -18,6 +19,7 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
   const search = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  useNativeSurfaceBlock(open);
   const results = searchVaultNodes(nodes, query).filter(item => item.node.type === 'connection');
 
   const close = () => { popover.current?.hidePopover(); };

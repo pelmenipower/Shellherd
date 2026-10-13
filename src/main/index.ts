@@ -3,6 +3,8 @@ import { join } from 'node:path';
 
 import { registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
 import type { SshSessionManager } from './ssh/session';
+import { registerRdpIpcHandlers } from './rdp/ipc';
+import type { RdpSessionManager } from './rdp/host';
 
 import { IPC_CHANNELS } from '../shared/ipc';
 import {
@@ -12,6 +14,12 @@ import {
 
 
 let sshSessionManager: SshSessionManager;
+let rdpSessionManager: RdpSessionManager;
+
+// SSH and RDP share every lifecycle path: crash, navigation, close, lock and quit.
+const closeOwnerSessions = (ownerId: number): void => { sshSessionManager.closeOwner(ownerId); rdpSessionManager.closeOwner(ownerId); };
+const closeAllSessions = (): void => { sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); };
+const hasOwnerSessions = (ownerId: number): boolean => sshSessionManager.hasOwner(ownerId) || rdpSessionManager.hasOwner(ownerId);
 
 function createMainWindow(): void {
   const window = new BrowserWindow({
@@ -32,29 +40,29 @@ function createMainWindow(): void {
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
-  window.webContents.on('render-process-gone', () => sshSessionManager.closeOwner(window.webContents.id));
+  window.webContents.on('render-process-gone', () => closeOwnerSessions(window.webContents.id));
   const ownerId = window.webContents.id;
-  window.webContents.on('destroyed', () => sshSessionManager.closeOwner(ownerId));
+  window.webContents.on('destroyed', () => closeOwnerSessions(ownerId));
   window.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
-    if (isMainFrame) sshSessionManager.closeOwner(ownerId);
+    if (isMainFrame) closeOwnerSessions(ownerId);
   });
   let closing = false;
   let confirmingClose = false;
   window.on('close', event => {
-    if (closing || !sshSessionManager.hasOwner(ownerId)) return;
+    if (closing || !hasOwnerSessions(ownerId)) return;
     let confirm = true;
     try { confirm = vaultSessionManager.getSnapshot().vault.settings.confirmBeforeClosingSession; } catch { /* locked */ }
-    if (!confirm) { sshSessionManager.closeOwner(ownerId); return; }
+    if (!confirm) { closeOwnerSessions(ownerId); return; }
     event.preventDefault();
     if (confirmingClose) return;
     confirmingClose = true;
     void dialog.showMessageBox(window, {
-      type: 'question', title: 'Terminus schließen', message: 'Alle aktiven SSH-Verbindungen trennen und Terminus schließen?',
+      type: 'question', title: 'Terminus schließen', message: 'Alle aktiven Verbindungen trennen und Terminus schließen?',
       buttons: ['Abbrechen', 'Trennen und schließen'], defaultId: 0, cancelId: 0, noLink: true,
     }).then(result => {
       if (result.response === 1 && !window.isDestroyed()) {
         closing = true;
-        sshSessionManager.closeOwner(ownerId);
+        closeOwnerSessions(ownerId);
         window.close();
       }
     }).catch(() => {}).finally(() => { confirmingClose = false; });
@@ -78,6 +86,7 @@ app.whenReady().then(() => {
   );
 
   sshSessionManager = registerSshIpcHandlers();
+  rdpSessionManager = registerRdpIpcHandlers();
   ipcMain.handle(IPC_CHANNELS.readClipboardText, event => {
     requireSshSender(event);
     vaultSessionManager.getSnapshot();
@@ -89,7 +98,7 @@ app.whenReady().then(() => {
     if (typeof text !== 'string' || text.length > 4 * 1024 * 1024) throw new Error('Der markierte Text ist zu groß.');
     clipboard.writeText(text);
   });
-  registerVaultIpcHandlers(() => sshSessionManager.closeAll());
+  registerVaultIpcHandlers(closeAllSessions);
   createMainWindow();
 
   app.on('activate', () => {
@@ -106,6 +115,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
-  sshSessionManager?.closeAll();
+  closeAllSessions();
+  rdpSessionManager?.dispose();
   vaultSessionManager.lock();
 });

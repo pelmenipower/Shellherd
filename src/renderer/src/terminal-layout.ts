@@ -1,5 +1,6 @@
 import type { WorkspaceLayout } from '../../shared/vault/types';
 import type { TerminalTab, TerminalConnection } from './terminal-tabs';
+import { connectionProtocol } from './terminal-tabs';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
 export interface LivePane { type: 'pane'; id: string; tabIds: string[]; activeTabId: string | null }
@@ -148,7 +149,7 @@ export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => Te
       if (tabs.length >= MAX_SSH_SESSIONS) throw new Error(`Ein Workspace darf höchstens ${MAX_SSH_SESSIONS} Sessions starten.`);
       const { name, host, port, username } = connection;
       const tabId = uuid();
-      tabs.push({ id: tabId, connection: { id, name, host, port, username }, ordinal: tabs.filter(tab => tab.connection.id === id).length + 1, status: 'connecting' });
+      tabs.push({ id: tabId, connection: { id, name, host, port, username, protocol: connectionProtocol(connection) }, ordinal: tabs.filter(tab => tab.connection.id === id).length + 1, status: 'connecting' });
       return tabId;
     });
     const activeTabId = tabIds.find(id => tabs.find(tab => tab.id === id)?.connection.id === node.activeConnectionId) ?? tabIds[0] ?? null;

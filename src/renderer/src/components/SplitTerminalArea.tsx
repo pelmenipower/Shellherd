@@ -5,6 +5,8 @@ import type { SshStatus } from '../../../shared/ssh';
 import type { LiveLayout, DockZone, SplitRect } from '../terminal-layout';
 import { dockTab, dockZone, mergePane, moveTab, paneRects, panes, resizeBounds, setRatio, splitRects, splitPane } from '../terminal-layout';
 import { TerminalPanel } from './TerminalPanel';
+import { RdpPanel } from './RdpPanel';
+import { useNativeSurfaceBlock } from '../native-surface';
 import { TerminalTabs } from './TerminalTabs';
 import { ConnectionPicker } from './ConnectionPicker';
 import type { VaultNode } from '../../../shared/vault/types';
@@ -33,6 +35,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
   const [hover, setHover] = useState<DockTarget | null>(null);
   const [maximized, setMaximized] = useState<string | null>(null);
   const [menuPane, setMenuPane] = useState<string | null>(null);
+  // Drop previews and pane menus are HTML; native RDP surfaces would cover them.
+  useNativeSurfaceBlock(Boolean(draggedTabId) || menuPane !== null);
   const stage = useRef<HTMLDivElement>(null);
   const drag = useRef<{ tabId: string; pointerId: number; x: number; y: number; active: boolean; maximized: string | null } | null>(null);
   const [stageSize, setStageSize] = useState({ width: 1000, height: 700 });
@@ -187,6 +191,9 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
               {paneList.map((pane, paneIndex) => <option value={pane.id} key={pane.id}>Bereich {paneIndex + 1}</option>)}
             </select></label>}
           </>}
+          {tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'rdp' && <button type="button" onClick={() => {
+            setMenuPane(null); void window.desktopApi.rdpDebugHang({ ms: 10_000 }).catch(() => {});
+          }}>Test: RDP-Helfer 10 s blockieren</button>}
           <p>Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben.</p>
           <button type="button" onClick={() => setMenuPane(null)}>Schließen</button>
         </div>}
@@ -196,11 +203,12 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
       {/* Stable siblings: docking and maximizing must never remount a session. */}
       {tabs.map(tab => {
         const region = shownRegions.find(region => region.pane.tabIds.includes(tab.id));
-        return <TerminalPanel key={tab.id} tabId={tab.id} connection={tab.connection}
-          visible={visible && region?.pane.activeTabId === tab.id} focused={region?.pane.id === focusedPane.id}
-          style={region ? { ...rectangle(region), top: `calc(${region.top}% + 32px)`, height: `calc(${region.height}% - 32px)` } : undefined}
-          onFocus={() => { if (region) onFocus(region.pane.id); if (selected !== tab.id) onSelect(tab.id); }}
-          onStatusChange={onStatus} onClose={() => onClose(tab.id)} />;
+        const panel = { tabId: tab.id, connection: tab.connection,
+          visible: visible && region?.pane.activeTabId === tab.id, focused: region?.pane.id === focusedPane.id,
+          style: region ? { ...rectangle(region), top: `calc(${region.top}% + 32px)`, height: `calc(${region.height}% - 32px)` } : undefined,
+          onFocus: () => { if (region) onFocus(region.pane.id); if (selected !== tab.id) onSelect(tab.id); }, onStatusChange: onStatus };
+        return tab.connection.protocol === 'rdp' ? <RdpPanel key={tab.id} {...panel} />
+          : <TerminalPanel key={tab.id} {...panel} onClose={() => onClose(tab.id)} />;
       })}
       {!zoomed && splitRects(layout).map((region, index) => {
         const horizontal = region.split.direction === 'horizontal';

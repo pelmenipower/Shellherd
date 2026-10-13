@@ -17,11 +17,15 @@ namespace Terminus.RdpHost
         public int Width;
         public int Height;
         public bool Clipboard;
+        public SurfaceMode Mode;
+        public IntPtr Parent;
+        public ScreenRect Bounds;
+        public bool Visible;
     }
 
     /// <summary>
-    /// One RDP connection. Prototype stage P2: the control lives in its own top-level window.
-    /// All members run on the STA UI thread.
+    /// One RDP connection. The control lives either in its own window (P2 harness) or in a surface
+    /// embedded into the Terminus window (P3 variants A/B). All members run on the STA UI thread.
     /// </summary>
     public sealed class RdpSession : IRdpEventTarget
     {
@@ -30,7 +34,10 @@ namespace Terminus.RdpHost
         private const int LocalDisconnect = 1, RemoteByUser = 2, ByServer = 3;
 
         private readonly string id;
+        private readonly SurfaceMode mode;
+        private readonly IntPtr parent;
         private readonly Form window;
+        private int boundsRevision = -1;
         private readonly RdpControl control;
         private readonly Timer resizeTimer = new Timer { Interval = 300 };
         private readonly Action<RdpSession> onClosed;
@@ -44,20 +51,69 @@ namespace Terminus.RdpHost
         public RdpSession(OpenRequest request, Action<RdpSession> onClosed)
         {
             id = request.SessionId;
+            mode = request.Mode;
+            parent = request.Parent;
             this.onClosed = onClosed;
-            window = new Form
+            if (mode == SurfaceMode.Window)
             {
-                Text = "Terminus RDP-Prototyp - " + request.Server,
-                ClientSize = new Size(request.Width, request.Height),
-                StartPosition = FormStartPosition.CenterScreen,
-            };
+                window = new Form
+                {
+                    Text = "Terminus RDP-Prototyp - " + request.Server,
+                    ClientSize = new Size(request.Width, request.Height),
+                    StartPosition = FormStartPosition.CenterScreen,
+                };
+            }
+            else
+            {
+                if (!Native.IsWindow(parent)) throw new ArgumentException("Ungültiges Fensterhandle.");
+                window = new SurfaceForm(mode == SurfaceMode.Owned ? parent : IntPtr.Zero);
+                if (mode == SurfaceMode.Child) window.TopLevel = false;
+            }
             control = new RdpControl(new RdpEventSink(this)) { Dock = DockStyle.Fill };
             window.Controls.Add(control);
             window.FormClosing += (sender, e) => { if (!closed) { e.Cancel = true; Close(); } };
             window.ClientSizeChanged += (sender, e) => { resizeTimer.Stop(); resizeTimer.Start(); };
             resizeTimer.Tick += (sender, e) => { resizeTimer.Stop(); SyncDisplaySize(); };
+            if (mode != SurfaceMode.Window)
+            {
+                IntPtr handle = window.Handle;
+                if (mode == SurfaceMode.Child && Native.SetParent(handle, parent) == IntPtr.Zero)
+                    throw new InvalidOperationException("SetParent fehlgeschlagen: " + Marshal.GetLastWin32Error());
+                SetBounds(request.Bounds, 0);
+            }
             window.Show();
+            if (mode != SurfaceMode.Window && !request.Visible) SetVisible(false);
             Connect(request);
+        }
+
+        /// <summary>Positions the surface. Bounds are physical screen pixels; stale revisions are ignored.</summary>
+        public void SetBounds(ScreenRect bounds, int revision)
+        {
+            if (mode == SurfaceMode.Window || closed || revision <= boundsRevision) return;
+            boundsRevision = revision;
+            int width = Math.Max(1, bounds.Width), height = Math.Max(1, bounds.Height);
+            if (mode == SurfaceMode.Child)
+            {
+                var origin = new Native.POINT { X = bounds.X, Y = bounds.Y };
+                Native.ScreenToClient(parent, ref origin);
+                Native.SetWindowPos(window.Handle, Native.HWND_TOP, origin.X, origin.Y, width, height, Native.SWP_NOACTIVATE);
+            }
+            else
+            {
+                Native.SetWindowPos(window.Handle, IntPtr.Zero, bounds.X, bounds.Y, width, height, Native.SWP_NOACTIVATE | Native.SWP_NOZORDER);
+            }
+        }
+
+        public void SetVisible(bool visible)
+        {
+            if (mode == SurfaceMode.Window || closed) return;
+            Native.ShowWindow(window.Handle, visible ? Native.SW_SHOWNA : Native.SW_HIDE);
+        }
+
+        public void Focus()
+        {
+            if (closed) return;
+            control.Focus();
         }
 
         private void Connect(OpenRequest request)

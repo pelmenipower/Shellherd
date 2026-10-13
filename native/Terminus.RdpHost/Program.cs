@@ -37,7 +37,8 @@ namespace Terminus.RdpHost
         private readonly ApplicationContext context;
         private readonly Control dispatcher = new Control();
         private readonly Dictionary<string, RdpSession> sessions = new Dictionary<string, RdpSession>();
-        private bool stopping;
+        private readonly Queue<Action> pending = new Queue<Action>();
+        private bool stopping, draining;
 
         public SessionHost(ApplicationContext context)
         {
@@ -58,12 +59,42 @@ namespace Terminus.RdpHost
                     Dictionary<string, object> message;
                     try { message = Protocol.Parse(line); }
                     catch (Exception error) { SendError(null, "Ungültige Nachricht: " + error.Message); continue; }
-                    dispatcher.BeginInvoke((Action)(() => Handle(message)));
+                    Enqueue(() => Handle(message));
                 }
             }
             catch (Exception error) { SendError(null, "Eingabekanal fehlerhaft: " + error.Message); }
             // stdin closed: the parent ended or wants us gone.
-            dispatcher.BeginInvoke((Action)Shutdown);
+            Enqueue(Shutdown);
+        }
+
+        private void Enqueue(Action work)
+        {
+            lock (pending) pending.Enqueue(work);
+            dispatcher.BeginInvoke((Action)Drain);
+        }
+
+        /// <summary>
+        /// Runs commands strictly in order. Creating or calling the ActiveX control can pump messages;
+        /// without this guard a later command (bounds, visible) could run before an earlier open finished.
+        /// </summary>
+        private void Drain()
+        {
+            if (draining) return;
+            draining = true;
+            try
+            {
+                while (true)
+                {
+                    Action work;
+                    lock (pending)
+                    {
+                        if (pending.Count == 0) return;
+                        work = pending.Dequeue();
+                    }
+                    work();
+                }
+            }
+            finally { draining = false; }
         }
 
         private void Handle(Dictionary<string, object> message)
@@ -77,7 +108,15 @@ namespace Terminus.RdpHost
                 {
                     case "open": Open(message, requestId); break;
                     case "close": Find(message).Close(); Reply("closing", requestId); break;
+                    case "bounds": Find(message).SetBounds(Rect(message), Protocol.Int(message, "revision", 0, int.MaxValue, 0)); break;
+                    case "visible": Find(message).SetVisible(Protocol.Bool(message, "visible", true)); break;
+                    case "focus": Find(message).Focus(); break;
                     case "ping": Reply("pong", requestId); break;
+                    case "debugHang":
+                        // Prototype only: blocks the UI thread to test whether a hung helper freezes Terminus.
+                        Thread.Sleep(Protocol.Int(message, "ms", 0, 30000, 5000));
+                        Reply("debugHangDone", requestId);
+                        break;
                     default: throw new FormatException("Unbekannter Nachrichtentyp: " + type);
                 }
             }
@@ -95,10 +134,23 @@ namespace Terminus.RdpHost
                 UserName = Protocol.String(message, "username", false),
                 Domain = Protocol.String(message, "domain", false),
                 Password = Protocol.String(message, "password", false),
-                Width = Protocol.Int(message, "width", 200, 8192, 1280),
-                Height = Protocol.Int(message, "height", 200, 8192, 800),
                 Clipboard = Protocol.Bool(message, "clipboard", true),
+                Mode = ParseMode(Protocol.String(message, "mode", false)),
+                Visible = Protocol.Bool(message, "visible", true),
             };
+            if (request.Mode == SurfaceMode.Window)
+            {
+                request.Width = Protocol.Int(message, "width", 200, 8192, 1280);
+                request.Height = Protocol.Int(message, "height", 200, 8192, 800);
+            }
+            else
+            {
+                ulong handle;
+                if (!ulong.TryParse(Protocol.String(message, "parent", true), out handle) || handle == 0)
+                    throw new FormatException("Ungültiges Fensterhandle.");
+                request.Parent = new IntPtr(unchecked((long)handle));
+                request.Bounds = Rect(message);
+            }
             if (request.SessionId.Length == 0 || request.SessionId.Length > 64) throw new FormatException("Ungültige sessionId.");
             if (request.Server.Trim().Length == 0 || request.Server.Length > 255) throw new FormatException("Ungültiger Server.");
             if (sessions.ContainsKey(request.SessionId)) throw new InvalidOperationException("Sitzung existiert bereits.");
@@ -109,6 +161,29 @@ namespace Terminus.RdpHost
             if (requestId != null) reply["requestId"] = requestId;
             reply["sessionId"] = session.Id;
             Protocol.Send(reply);
+        }
+
+        private static SurfaceMode ParseMode(string mode)
+        {
+            switch (mode)
+            {
+                case null: case "window": return SurfaceMode.Window;
+                case "child": return SurfaceMode.Child;
+                case "owned": return SurfaceMode.Owned;
+                default: throw new FormatException("Unbekannter Modus: " + mode);
+            }
+        }
+
+        private static ScreenRect Rect(Dictionary<string, object> message)
+        {
+            const int Limit = 1 << 20;
+            return new ScreenRect
+            {
+                X = Protocol.Int(message, "x", -Limit, Limit, 0),
+                Y = Protocol.Int(message, "y", -Limit, Limit, 0),
+                Width = Protocol.Int(message, "width", 1, 16384, 800),
+                Height = Protocol.Int(message, "height", 1, 16384, 600),
+            };
         }
 
         private RdpSession Find(Dictionary<string, object> message)
