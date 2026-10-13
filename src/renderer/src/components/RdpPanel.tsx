@@ -31,8 +31,9 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
   const [status, setStatus] = useState<RdpStatus>(initialStatus ?? 'connecting');
   const adoptRef = useRef(adopt);
   const [message, setMessage] = useState<string | null>(null);
+  const [resizing, setResizing] = useState(false);
   const blocked = useNativeSurfacesBlocked();
-  const shown = visible && !blocked && (status === 'connecting' || status === 'connected');
+  const shown = visible && !blocked && !resizing && (status === 'connecting' || status === 'connected');
   const shownRef = useRef(shown);
   shownRef.current = shown;
 
@@ -58,7 +59,11 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
       if (disposed) return;
       setStatus(next); setMessage(text ?? null); onStatusChange(tabId, next);
     };
-    const unsubscribe = window.desktopApi.onRdpEvent(event => { if (event.sessionId === id) report(event.status, event.message); });
+    const unsubscribe = window.desktopApi.onRdpEvent(event => {
+      if (event.sessionId !== id || disposed) return;
+      if (event.type === 'resizing') setResizing(event.active);
+      else report(event.status, event.message);
+    });
     const attach = (sessionId: string): void => {
       id = sessionId;
       session.current = id;
@@ -118,7 +123,8 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
       id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
       <span className="terminal-live-status" role="status">{statusLabels[status]}</span>
       <div ref={container} className="rdp-surface">
-        {!shown && <p className="rdp-placeholder">{blocked && (status === 'connecting' || status === 'connected')
+        {!shown && <p className="rdp-placeholder">{resizing ? 'Auflösung wird angepasst …'
+          : blocked && (status === 'connecting' || status === 'connected')
           ? 'Remotedesktop ausgeblendet, solange ein Menü geöffnet ist.' : message ?? statusLabels[status]}</p>}
       </div>
     </section>

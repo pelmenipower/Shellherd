@@ -135,6 +135,7 @@ namespace Terminus.RdpHost
                 Mode = ParseMode(Protocol.String(message, "mode", false)),
                 Visible = Protocol.Bool(message, "visible", true),
                 SmartResize = Protocol.Bool(message, "smartResize", true),
+                DynamicResolution = Protocol.Bool(message, "dynamicResolution", true),
             };
             if (request.Mode == SurfaceMode.Window)
             {

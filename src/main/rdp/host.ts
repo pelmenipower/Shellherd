@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { screen } from 'electron';
 import type { BrowserWindow, Rectangle } from 'electron';
-import type { RdpAction, RdpEvent, RdpOpenRequest, RdpSurfaceMode, ViewportRect } from '../../shared/rdp';
+import type { RdpAction, RdpEvent, RdpOpenRequest, RdpStatus, RdpSurfaceMode, ViewportRect } from '../../shared/rdp';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
 /** Set TERMINUS_RDP_DEBUG=1 to log helper traffic; passwords are masked. */
@@ -22,6 +22,7 @@ export interface RdpDependencies {
 
 interface Session {
   id: string;
+  connectionId: string;
   ownerId: number;
   window: BrowserWindow;
   bounds: ViewportRect;
@@ -29,7 +30,7 @@ interface Session {
   /** Last screen rectangle sent; identical updates from renderer and window events are skipped. */
   sentBounds?: string;
   failed: boolean;
-  status: RdpEvent['status'];
+  status: RdpStatus;
 }
 
 /** Splits `DOMAIN\user`; UPNs (`user@domain`) stay a plain user name. */
@@ -58,13 +59,15 @@ export class RdpSessionManager {
   private helper?: ChildProcessWithoutNullStreams;
   private sessions = new Map<string, Session>();
   private tracked = new WeakSet<BrowserWindow>();
+  /** Connections whose server rejected dynamic resolution; later sessions resize by reconnect at once. */
+  private staticResolution = new Set<string>();
 
   constructor(private readonly dependencies: RdpDependencies) {}
 
   open(ownerId: number, window: BrowserWindow, request: RdpOpenRequest): { sessionId: string } {
     if (this.sessions.size >= MAX_SSH_SESSIONS) throw new Error(`Maximal ${MAX_SSH_SESSIONS} Sessions gleichzeitig. Schließe zuerst einen Tab.`);
     const target = this.dependencies.getTarget(request.connectionId);
-    const session: Session = { id: randomUUID(), ownerId, window, bounds: request.bounds, revision: 0, failed: false, status: 'connecting' };
+    const session: Session = { id: randomUUID(), connectionId: request.connectionId, ownerId, window, bounds: request.bounds, revision: 0, failed: false, status: 'connecting' };
     this.track(window);
     this.sessions.set(session.id, session);
     const handle = window.getNativeWindowHandle().readBigUInt64LE(0).toString();
@@ -72,7 +75,8 @@ export class RdpSessionManager {
     // The password only travels through the private stdin pipe; without one the control asks for credentials.
     this.send({ type: 'open', sessionId: session.id, server: target.host, port: target.port, username: account.username,
       domain: target.domain?.trim() || account.domain, ...(target.password ? { password: target.password } : {}),
-      clipboard: target.clipboard, smartResize: process.env.TERMINUS_RDP_SMARTSIZE !== '0', mode: this.dependencies.mode, parent: handle, visible: request.visible, ...toScreenRect(window, request.bounds) });
+      clipboard: target.clipboard, smartResize: process.env.TERMINUS_RDP_SMARTSIZE !== '0',
+      dynamicResolution: !this.staticResolution.has(request.connectionId), mode: this.dependencies.mode, parent: handle, visible: request.visible, ...toScreenRect(window, request.bounds) });
     return { sessionId: session.id };
   }
 
@@ -107,7 +111,7 @@ export class RdpSessionManager {
   }
 
   /** Re-owns the surface by another window; it stays hidden until the new panel reports its bounds. */
-  transferOwner(fromOwner: number, id: string, toOwner: number, window: BrowserWindow): RdpEvent['status'] {
+  transferOwner(fromOwner: number, id: string, toOwner: number, window: BrowserWindow): RdpStatus {
     const session = this.owned(fromOwner, id);
     session.ownerId = toOwner;
     session.window = window;
@@ -192,13 +196,18 @@ export class RdpSessionManager {
 
   private receive(line: string): void {
     if (debug) console.log(`[rdp ${timestamp()}] <-`, line);
-    let message: { type?: string; sessionId?: string; status?: string; message?: string };
+    let message: { type?: string; sessionId?: string; status?: string; message?: string; active?: boolean; dynamicResolution?: boolean };
     try { message = JSON.parse(line); } catch { return; }
     if (message.type === 'error') { console.warn('RDP-Helfer:', message.message); return; }
-    if (message.type !== 'status' || !message.sessionId) return;
-    const session = this.sessions.get(message.sessionId);
+    const session = message.sessionId ? this.sessions.get(message.sessionId) : undefined;
     if (!session) return;
-    const emit = (status: RdpEvent['status'], text?: string): void => {
+    if (message.type === 'capability' && message.dynamicResolution === false) { this.staticResolution.add(session.connectionId); return; }
+    if (message.type === 'resizing') {
+      this.dependencies.emit(session.ownerId, { type: 'resizing', sessionId: session.id, active: message.active === true });
+      return;
+    }
+    if (message.type !== 'status') return;
+    const emit = (status: RdpStatus, text?: string): void => {
       session.status = status;
       this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(text ? { message: text } : {}) });
     };

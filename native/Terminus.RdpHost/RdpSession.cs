@@ -23,6 +23,8 @@ namespace Terminus.RdpHost
         public bool Visible;
         /// <summary>Scale the last frame while the remote resolution changes.</summary>
         public bool SmartResize;
+        /// <summary>False when an earlier session showed the server cannot resize dynamically.</summary>
+        public bool DynamicResolution;
     }
 
     /// <summary>
@@ -65,6 +67,7 @@ namespace Terminus.RdpHost
             id = request.SessionId;
             mode = request.Mode;
             smartResize = request.SmartResize;
+            dynamicResolution = request.DynamicResolution;
             parent = request.Parent;
             this.onClosed = onClosed;
             if (mode == SurfaceMode.Window)
@@ -99,6 +102,7 @@ namespace Terminus.RdpHost
                 updateTimer.Stop();
                 updatePending = false;
                 Trace("updateTimeout", remoteWidth + "x" + remoteHeight);
+                if (reconnecting) Resizing(false);
                 if (!MatchesRemote()) { resizeTimer.Stop(); resizeTimer.Start(); }
             };
             if (mode != SurfaceMode.Window)
@@ -254,14 +258,18 @@ namespace Terminus.RdpHost
             catch (COMException error)
             {
                 // Right after login the control may still reject updates; later E_UNEXPECTED means no display control channel.
-                bool justLoggedIn = unchecked(Environment.TickCount - loginTick) < 10000;
-                if (error.ErrorCode == EUnexpected && justLoggedIn && ++resizeRetries <= 5) { resizeTimer.Interval = 1000; resizeTimer.Start(); return; }
+                bool justLoggedIn = unchecked(Environment.TickCount - loginTick) < 3000;
+                if (error.ErrorCode == EUnexpected && justLoggedIn && ++resizeRetries <= 3) { resizeTimer.Interval = 1000; resizeTimer.Start(); return; }
                 resizeRetries = 0;
                 Trace("updateDisplayFailed", error.Message);
                 if (error.ErrorCode == EUnexpected)
                 {
                     dynamicResolution = false;
                     Trace("dynamicResolution", "unsupported, using reconnect");
+                    var capability = Protocol.Message("capability");
+                    capability["sessionId"] = id;
+                    capability["dynamicResolution"] = false;
+                    Protocol.Send(capability);
                     ReconnectWithSize(width, height);
                     return;
                 }
@@ -296,10 +304,20 @@ namespace Terminus.RdpHost
                 SetSmartSizing(true);
                 return;
             }
+            // Terminus hides the surface meanwhile; the control's own reconnect screens stay invisible.
+            Resizing(true);
             SetSmartSizing(false);
             updatePending = true;
             updateTimer.Interval = UpdateTimeout * 3;
             updateTimer.Stop(); updateTimer.Start();
+        }
+
+        private void Resizing(bool active)
+        {
+            var payload = Protocol.Message("resizing");
+            payload["sessionId"] = id;
+            payload["active"] = active;
+            Protocol.Send(payload);
         }
 
         public void Close()
@@ -380,6 +398,7 @@ namespace Terminus.RdpHost
                 // Resize by reconnect finished; the tab stays connected.
                 reconnecting = false;
                 Trace("reconnected", remoteWidth + "x" + remoteHeight);
+                Resizing(false);
                 SyncDisplaySize();
                 return;
             }

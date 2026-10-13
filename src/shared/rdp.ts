@@ -14,4 +14,7 @@ export type RdpAction = typeof RDP_ACTIONS[number];
 export interface RdpActionRequest extends RdpSessionRequest { action: RdpAction }
 
 export type RdpStatus = 'connecting' | 'connected' | 'closed' | 'error';
-export type RdpEvent = { type: 'status'; sessionId: string; status: RdpStatus; message?: string };
+export type RdpEvent =
+  | { type: 'status'; sessionId: string; status: RdpStatus; message?: string }
+  /** The remote resolution is being changed by a reconnect; the surface is hidden meanwhile. */
+  | { type: 'resizing'; sessionId: string; active: boolean };
