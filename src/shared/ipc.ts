@@ -74,6 +74,11 @@ export const IPC_CHANNELS = {
   workspaceOpenWindows: 'workspace:open-windows',
   workspaceRestore: 'workspace:restore',
   closeSecondaryWindows: 'window:close-secondaries',
+  vaultLaunchFile: 'vault:launch-file',
+  vaultOpenFile: 'vault:open-file',
+  fileTypeStatus: 'app:file-type-status',
+  fileTypeRegister: 'app:file-type-register',
+  fileTypeUnregister: 'app:file-type-unregister',
 } as const;
 
 export type SelectVaultFileResult =
@@ -185,6 +190,13 @@ export interface DesktopApi {
   openWorkspaceWindows: (windows: WorkspaceWindowState[]) => Promise<void>;
   onWorkspaceRestore: (listener: (saved: NonNullable<WindowLayoutReport>) => void) => () => void;
   closeSecondaryWindows: () => Promise<void>;
+  /** Vault file Terminus was started with from Explorer; returned once. */
+  vaultLaunchFile: () => Promise<string | null>;
+  /** A vault file opened from Explorer while Terminus was running. */
+  onVaultOpenFile: (listener: (filePath: string) => void) => () => void;
+  fileTypeStatus: () => Promise<boolean>;
+  fileTypeRegister: () => Promise<void>;
+  fileTypeUnregister: () => Promise<void>;
   getVersion: () => Promise<string>;
   selectVaultFile: () => Promise<SelectVaultFileResult>;
   selectPrivateKeyFile: () => Promise<SelectVaultFileResult>;

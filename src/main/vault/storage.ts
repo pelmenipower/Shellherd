@@ -19,12 +19,13 @@ import { EncryptedVaultFileSchema } from '../../shared/vault/schema';
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import type { Vault } from '../../shared/vault/types';
 
-const FILE_EXTENSION = '.terminus';
+/** New vaults are `.term` files; `.terminus` files of earlier versions keep their name. */
+const FILE_EXTENSION = '.term';
 
 export function ensureVaultFileExtension(
   filePath: string,
 ): string {
-  return filePath.toLowerCase().endsWith(FILE_EXTENSION)
+  return /\.(term|terminus)$/i.test(filePath)
     ? filePath
     : `${filePath}${FILE_EXTENSION}`;
 }
@@ -71,11 +72,12 @@ export async function backupVaultFile(
   filePath: string,
   label: string,
 ): Promise<string> {
-  const base = filePath.replace(/\.terminus$/i, '');
+  const extension = /\.terminus$/i.test(filePath) ? '.terminus' : FILE_EXTENSION;
+  const base = filePath.replace(/\.(term|terminus)$/i, '');
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const target = `${base}.${label}-backup-${stamp}${attempt ? `-${attempt}` : ''}${FILE_EXTENSION}`;
+    const target = `${base}.${label}-backup-${stamp}${attempt ? `-${attempt}` : ''}${extension}`;
 
     try {
       await copyFile(filePath, target, constants.COPYFILE_EXCL);

@@ -11,6 +11,7 @@ import type { RdpSessionManager } from './rdp/host';
 import { windowRegistry } from './windows';
 import type { WindowRole } from './windows';
 import { registerWindowIpcHandlers } from './window-ipc';
+import { FileAssociation, vaultFileFromArgs } from './file-association';
 
 import { IPC_CHANNELS } from '../shared/ipc';
 import {
@@ -124,10 +125,35 @@ function guardSecondaryWindowClose(window: BrowserWindow, ownerId: number): void
   });
 }
 
+// One Terminus per user: a vault opened from Explorer goes to the running window.
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) app.quit();
+let launchFile = vaultFileFromArgs(process.argv);
+app.on('second-instance', (_event, argv) => {
+  const main = windowRegistry.main();
+  if (!main) return;
+  if (main.isMinimized()) main.restore();
+  main.focus();
+  const file = vaultFileFromArgs(argv);
+  if (file) main.webContents.send(IPC_CHANNELS.vaultOpenFile, file);
+});
+
 // Experimental variant A only: child windows from the helper are invisible under DirectComposition.
 if (rdpSurfaceMode() === 'child') app.commandLine.appendSwitch('disable-direct-composition');
 
 app.whenReady().then(() => {
+  if (!singleInstance) return;
+  const association = new FileAssociation(process.execPath, process.defaultApp ? app.getAppPath() : null);
+  ipcMain.handle(IPC_CHANNELS.vaultLaunchFile, event => {
+    windowRegistry.requireMain(event);
+    const file = launchFile;
+    launchFile = null;
+    return file;
+  });
+  ipcMain.handle(IPC_CHANNELS.fileTypeStatus, event => { windowRegistry.requireMain(event); return association.registered(); });
+  ipcMain.handle(IPC_CHANNELS.fileTypeRegister, async event => { windowRegistry.requireMain(event); await association.register(); });
+  ipcMain.handle(IPC_CHANNELS.fileTypeUnregister, async event => { windowRegistry.requireMain(event); await association.unregister(); });
+
   ipcMain.handle(
     IPC_CHANNELS.getVersion,
     () => app.getVersion(),

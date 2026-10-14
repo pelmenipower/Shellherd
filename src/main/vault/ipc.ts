@@ -65,7 +65,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
       const suggestedName =
         typeof request.suggestedName === 'string'
           ? basename(request.suggestedName)
-          : 'vault.terminus';
+          : 'vault.term';
 
       const options = {
         title: 'Terminus-Vault speichern',
@@ -73,7 +73,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         filters: [
           {
             name: 'Terminus Vault',
-            extensions: ['terminus'],
+            extensions: ['term', 'terminus'],
           },
         ],
       };
@@ -117,7 +117,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         filters: [
           {
             name: 'Terminus Vault',
-            extensions: ['terminus'],
+            extensions: ['term', 'terminus'],
           },
         ],
       };
