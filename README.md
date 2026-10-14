@@ -108,7 +108,8 @@ Containern `Starten`, `Stoppen` und `Neu starten` sowie bei Proxmox `Starten`,
 `Herunterfahren` und `Stoppen`. Ein hartes Stoppen einer VM fragt vorher nach.
 
 `Dieser Computer` zeigt lokales Docker Desktop oder Podman, sofern es antwortet.
-Das wird einmal nach dem Entsperren des Vaults geprüft.
+Das wird nach dem Entsperren des Vaults geprüft und lässt sich über das Kontextmenü
+der freien Fläche im Verbindungsbaum (`Lokale Container suchen`) wiederholen.
 
 Der SSH-Benutzer braucht Zugriff auf Docker über die Gruppe `docker`; für Proxmox
 muss er die Befehle als root ausführen können. Alternativ aktiviert die Option
@@ -116,8 +117,8 @@ muss er die Befehle als root ausführen können. Alternativ aktiviert die Option
 NOPASSWD-Regel für diesen Benutzer nötig.
 
 Container-Tabs von SSH-Hosts werden in Workspaces gespeichert, lokale Container-Tabs
-nicht. Diese Version bietet keinen Datei-Browser in Containern, keine Proxmox-API
-und keine Cluster-Ansicht und kein Kubernetes.
+nicht. Diese Version bietet keinen Datei-Browser in Containern, keine Proxmox-API,
+keine Cluster-Ansicht und kein Kubernetes.
 
 ## Server-Schlüssel
 
