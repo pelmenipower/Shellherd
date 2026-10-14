@@ -191,7 +191,13 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     onMkdir={path => run(() => side === 'local' ? window.desktopApi.localMkdir({ path }) : window.desktopApi.sftpMkdir({ sessionId: sessionId!, path }), side)}
     onRename={(from, to) => run(() => side === 'local' ? window.desktopApi.localRename({ from, to }) : window.desktopApi.sftpRename({ sessionId: sessionId!, from, to }), side)}
     onDelete={(paths, names) => setPendingDelete({ side, paths, names })}
-    onEdit={side === 'remote' ? path => { if (sessionId) void run(() => window.desktopApi.sftpEdit({ sessionId, path })); } : undefined}
+    onEdit={(path, editor) => void run(() => side === 'local' ? window.desktopApi.localOpen({ path, editor })
+      : window.desktopApi.sftpEdit({ sessionId: sessionId!, path, editor }))}
+    onCreateFile={path => run(async () => {
+      if (side === 'local') { await window.desktopApi.localCreateFile({ path }); await window.desktopApi.localOpen({ path, editor: 'default' }); return; }
+      await window.desktopApi.sftpCreateFile({ sessionId: sessionId!, path });
+      await window.desktopApi.sftpEdit({ sessionId: sessionId!, path, editor: 'default' });
+    }, side)}
     onPermissions={side === 'remote' ? (paths, entries) => setPendingPermissions({ paths, entries }) : undefined}
     onCopy={(sources, move) => { if (remoteReady) transfer(side, sources, move); }}
     onDrop={(drag, targetDir, move) => {

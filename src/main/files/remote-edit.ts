@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import type { EditedFile } from '../../shared/sftp';
+import type { EditedFile, EditorChoice } from '../../shared/sftp';
 import { FileError, fileErrorText } from './file-system';
 import type { RemoteFileSystem } from './sftp-file-system';
 
@@ -15,7 +15,7 @@ const SETTLE_DELAY = 500;
 
 export interface EditDependencies {
   /** Opens the local copy in an editor. */
-  openFile: (path: string) => Promise<void>;
+  openFile: (path: string, editor: EditorChoice) => Promise<void>;
   emit: (edit: EditedFile, closed?: boolean) => void;
   pollInterval?: number;
 }
@@ -24,6 +24,7 @@ interface Edit {
   info: EditedFile;
   dir: string;
   localPath: string;
+  editor: EditorChoice;
   /** Server time of the version the local copy is based on. */
   remoteModified: number;
   uploading: boolean;
@@ -39,9 +40,13 @@ export class RemoteEdits {
 
   list(): EditedFile[] { return [...this.edits.values()].map(edit => ({ ...edit.info })); }
 
-  async open(remotePath: string): Promise<{ editId: string }> {
+  async open(remotePath: string, editor: EditorChoice = 'default'): Promise<{ editId: string }> {
     const existing = [...this.edits.values()].find(edit => edit.info.remotePath === remotePath);
-    if (existing) { await this.dependencies.openFile(existing.localPath); return { editId: existing.info.id }; }
+    if (existing) {
+      existing.editor = editor;
+      await this.dependencies.openFile(existing.localPath, editor);
+      return { editId: existing.info.id };
+    }
     const entry = await this.fs.stat(remotePath);
     if (!entry) throw new FileError('Die Datei wurde nicht gefunden.');
     if (entry.type === 'directory') throw new FileError('Ordner können nicht bearbeitet werden.');
@@ -52,7 +57,7 @@ export class RemoteEdits {
     try {
       await pipeline(this.fs.read(remotePath), createWriteStream(localPath));
     } catch (error) { await rm(dir, { recursive: true, force: true }); throw error; }
-    const edit: Edit = { info: { id: randomUUID(), name, remotePath, state: 'open' }, dir, localPath, remoteModified: entry.modified,
+    const edit: Edit = { info: { id: randomUUID(), name, remotePath, state: 'open' }, dir, localPath, editor, remoteModified: entry.modified,
       uploading: false, pending: false, listener: (current, previous) => {
         // A missing file (mid-save rename) reports time 0; the next change uploads.
         if (current.mtimeMs === 0 || (current.mtimeMs === previous.mtimeMs && current.size === previous.size)) return;
@@ -62,11 +67,11 @@ export class RemoteEdits {
     this.edits.set(edit.info.id, edit);
     watchFile(localPath, { interval: this.dependencies.pollInterval ?? 1000, persistent: false }, edit.listener);
     this.emit(edit);
-    await this.dependencies.openFile(localPath);
+    await this.dependencies.openFile(localPath, editor);
     return { editId: edit.info.id };
   }
 
-  async reopen(id: string): Promise<void> { await this.dependencies.openFile(this.get(id).localPath); }
+  async reopen(id: string): Promise<void> { const edit = this.get(id); await this.dependencies.openFile(edit.localPath, edit.editor); }
 
   /** Uploads the local copy; without `force` a newer server version stops the upload. */
   async upload(id: string, force: boolean): Promise<void> {

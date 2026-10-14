@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { posix } from 'node:path';
 import { Client } from 'ssh2';
 import type { SFTPWrapper } from 'ssh2';
 import type { ConnectionNode } from '../../shared/vault/types';
 import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
+import type { EditorChoice } from '../../shared/sftp';
 import type { ConflictChoice, DirectoryListing, SftpEvent, SftpSessionState, SftpStatus, SftpTransferRequest, TransferConflict, TransferJob } from '../../shared/sftp';
 import { sshConnectConfig } from '../ssh/client-config';
 import { publicError } from '../ssh/session';
@@ -23,7 +26,7 @@ export interface SftpDependencies {
   emit: (ownerId: number, event: SftpEvent) => void;
   local: FileSystem;
   /** Opens a local copy of a server file in an editor. */
-  openFile: (path: string) => Promise<void>;
+  openFile: (path: string, editor: EditorChoice) => Promise<void>;
   /** How often edited copies are checked for changes; tests use less. */
   editPollInterval?: number;
   /** Injected so tests never open network connections. */
@@ -149,7 +152,14 @@ export class SftpSessionManager {
     return this.sessions.get(id)!.edits!;
   }
   /** Downloads a server file into a temporary folder, opens it and uploads every saved change. */
-  edit(ownerId: number, id: string, path: string): Promise<{ editId: string }> { return this.editor(ownerId, id).open(path); }
+  edit(ownerId: number, id: string, path: string, editor: EditorChoice = 'default'): Promise<{ editId: string }> { return this.editor(ownerId, id).open(path, editor); }
+
+  /** Creates an empty file; an existing file is never replaced. */
+  async createFile(ownerId: number, id: string, path: string): Promise<void> {
+    const fs = this.remote(ownerId, id);
+    if (await fs.lstat(path)) throw new FileError('Ein Eintrag mit diesem Namen existiert bereits.');
+    await pipeline(Readable.from([]), fs.write(path));
+  }
   editOpen(ownerId: number, id: string, editId: string): Promise<void> { return this.editor(ownerId, id).reopen(editId); }
   /** Uploads even if the server copy changed meanwhile. */
   editUpload(ownerId: number, id: string, editId: string): Promise<void> { return this.editor(ownerId, id).upload(editId, true); }

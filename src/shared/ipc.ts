@@ -1,7 +1,7 @@
 import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
 import type { Vault, WorkspaceLayout } from './vault/types';
 import type { ConnectionCatalog, ExternalDragHover, IncomingTab, IncomingView, TabTransferRequest, ViewTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
-import type { SftpChmodRequest, SftpEditRequest } from './sftp';
+import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditRequest } from './sftp';
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
@@ -45,6 +45,9 @@ export const IPC_CHANNELS = {
   sftpClose: 'sftp:close',
   sftpChmod: 'sftp:chmod',
   sftpEdit: 'sftp:edit',
+  sftpCreateFile: 'sftp:create-file',
+  localCreateFile: 'local:create-file',
+  localOpen: 'local:open',
   sftpEditOpen: 'sftp:edit-open',
   sftpEditUpload: 'sftp:edit-upload',
   sftpEditClose: 'sftp:edit-close',
@@ -148,7 +151,11 @@ export interface DesktopApi {
   sftpState: (request: SftpSessionRequest) => Promise<SftpSessionState>;
   sftpClose: (request: SftpSessionRequest) => Promise<void>;
   sftpChmod: (request: SftpChmodRequest) => Promise<void>;
-  sftpEdit: (request: SftpPathRequest) => Promise<{ editId: string }>;
+  sftpEdit: (request: SftpEditFileRequest) => Promise<{ editId: string }>;
+  sftpCreateFile: (request: SftpPathRequest) => Promise<void>;
+  localCreateFile: (request: LocalPathRequest) => Promise<void>;
+  /** Opens a local file for editing; programs and scripts open in Notepad instead of running. */
+  localOpen: (request: LocalOpenRequest) => Promise<void>;
   sftpEditOpen: (request: SftpEditRequest) => Promise<void>;
   sftpEditUpload: (request: SftpEditRequest) => Promise<void>;
   sftpEditClose: (request: SftpEditRequest) => Promise<void>;

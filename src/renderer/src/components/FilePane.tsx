@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent, MouseEvent } from 'react';
-import type { FileEntry } from '../../../shared/sftp';
+import type { EditorChoice, FileEntry } from '../../../shared/sftp';
 import type { FileSide, SortKey, SortOrder } from '../file-browser';
 import { ContextMenu } from './ContextMenu';
 import { formatDate, formatSize, isDirectory, joinPath, nameError, nextSelection, parentPath, pathSegments, sortEntries } from '../file-browser';
@@ -31,19 +31,21 @@ interface FilePaneProps {
   /** Copy or move to the current folder of the other side. */
   onCopy: (paths: string[], move: boolean) => void;
   /** Server side: open a file in a local editor; saving uploads it. */
-  onEdit?: (path: string) => void;
+  onEdit: (path: string, editor: EditorChoice) => void;
+  /** Creates an empty file and opens it for editing. */
+  onCreateFile: (path: string) => Promise<boolean>;
   /** Server side: change permission bits. */
   onPermissions?: (paths: string[], entries: FileEntry[]) => void;
   /** Files dragged in: from the other side or, for the server side, from Explorer. */
   onDrop: (drag: FileDrag | { external: string[] }, targetDir: string, move: boolean) => void;
 }
 
-type Prompt = { kind: 'mkdir'; value: string; error?: string } | { kind: 'rename'; original: string; value: string; error?: string };
+type Prompt = { kind: 'mkdir'; value: string; error?: string } | { kind: 'file'; value: string; error?: string } | { kind: 'rename'; original: string; value: string; error?: string };
 
 const columns: { key: SortKey; label: string }[] = [{ key: 'name', label: 'Name' }, { key: 'size', label: 'Größe' }, { key: 'modified', label: 'Geändert' }];
 
 export function FilePane({ tabId, side, title, listing, active, disabled, notice, home, drives, onActivate, onNavigate, onRefresh,
-  onMkdir, onRename, onDelete, onCopy, onDrop, onEdit, onPermissions }: FilePaneProps) {
+  onMkdir, onRename, onDelete, onCopy, onDrop, onEdit, onCreateFile, onPermissions }: FilePaneProps) {
   const [sort, setSort] = useState<SortOrder>({ key: 'name', ascending: true });
   const [selected, setSelected] = useState<string[]>([]);
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -77,7 +79,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
   const open = (entry: FileEntry): void => {
     if (!path) return;
     if (isDirectory(entry)) onNavigate(joinPath(side, path, entry.name));
-    else if (entry.type === 'file' || entry.linkTarget === 'file') onEdit?.(joinPath(side, path, entry.name));
+    else if (entry.type === 'file' || entry.linkTarget === 'file') onEdit(joinPath(side, path, entry.name), 'default');
   };
   const permissions = (list: string[]): void => {
     const chosen = entries.filter(entry => list.includes(entry.name));
@@ -96,6 +98,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
     if (prompt.kind === 'rename' && name === prompt.original) { setPrompt(null); return; }
     if (names.includes(name)) { setPrompt({ ...prompt, error: 'Ein Eintrag mit diesem Namen existiert bereits.' }); return; }
     const done = prompt.kind === 'mkdir' ? await onMkdir(joinPath(side, path, name))
+      : prompt.kind === 'file' ? await onCreateFile(joinPath(side, path, name))
       : await onRename(joinPath(side, path, prompt.original), joinPath(side, path, name));
     if (done) { setPrompt(null); setSelected([name]); setCursor(name); setAnchor(name); listRef.current?.focus(); }
   };
@@ -119,7 +122,8 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
     else if (event.key === 'Backspace') { handled(); if (parent) onNavigate(parent); }
     else if (event.key === 'F5' || event.key === 'F6') { handled(); const list = targets(); if (list.length) onCopy(fullPaths(list), event.key === 'F6'); }
     else if (event.key === 'F2') { handled(); beginRename(); }
-    else if (event.key === 'F4' && onEdit) { handled(); const entry = entries[index]; if (entry && !isDirectory(entry)) onEdit(joinPath(side, path, entry.name)); }
+    else if (event.key === 'F4' && event.shiftKey) { handled(); setPrompt({ kind: 'file', value: '' }); }
+    else if (event.key === 'F4') { handled(); const entry = entries[index]; if (entry && !isDirectory(entry)) onEdit(joinPath(side, path, entry.name), 'default'); }
     else if (event.key === 'F9' && onPermissions) { handled(); permissions(targets()); }
     else if (event.key === 'F7') { handled(); setPrompt({ kind: 'mkdir', value: '' }); }
     else if (event.key === 'Delete') { handled(); const list = targets(); if (list.length) onDelete(fullPaths(list), list); }
@@ -194,6 +198,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
           <button type="button" title="Übergeordneter Ordner (Rücktaste)" aria-label="Übergeordneter Ordner" disabled={disabled || !parent} onClick={() => parent && onNavigate(parent)}>↑</button>
           <button type="button" title="Basisordner" aria-label="Basisordner" disabled={disabled || !home} onClick={() => home && onNavigate(home)}>⌂</button>
           <button type="button" title="Aktualisieren (Strg+R)" aria-label="Aktualisieren" disabled={disabled || !path} onClick={onRefresh}>⟳</button>
+          <button type="button" title="Neue Datei (Umschalt+F4)" disabled={disabled || !path} onClick={() => setPrompt({ kind: 'file', value: '' })}>Neue Datei</button>
           <button type="button" title="Neuer Ordner (F7)" disabled={disabled || !path} onClick={() => setPrompt({ kind: 'mkdir', value: '' })}>Neuer Ordner</button>
         </div>
       </header>
@@ -209,12 +214,12 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
         </nav>}
       </div>
       {prompt && <form className="file-prompt" onSubmit={event => { event.preventDefault(); void submitPrompt(); }}>
-        <label>{prompt.kind === 'mkdir' ? 'Neuer Ordner' : `„${prompt.original}“ umbenennen`}
+        <label>{prompt.kind === 'mkdir' ? 'Neuer Ordner' : prompt.kind === 'file' ? `Neue Datei${side === 'remote' ? ' (öffnet sich danach im Editor, Speichern lädt hoch)' : ''}` : `„${prompt.original}“ umbenennen`}
           <input autoFocus value={prompt.value} spellCheck={false} aria-invalid={!!prompt.error || undefined}
             onFocus={event => { if (prompt.kind === 'rename') { const dot = prompt.original.lastIndexOf('.'); event.target.setSelectionRange(0, dot > 0 ? dot : prompt.original.length); } }}
             onChange={event => setPrompt({ ...prompt, value: event.target.value, error: undefined })}
             onKeyDown={event => { if (event.key === 'Escape') { setPrompt(null); listRef.current?.focus(); } }} /></label>
-        <button type="submit" className="primary-button" disabled={disabled}>{prompt.kind === 'mkdir' ? 'Anlegen' : 'Umbenennen'}</button>
+        <button type="submit" className="primary-button" disabled={disabled}>{prompt.kind === 'rename' ? 'Umbenennen' : 'Anlegen'}</button>
         <button type="button" className="secondary-button" onClick={() => setPrompt(null)}>Abbrechen</button>
         {prompt.error && <p className="field-error" role="alert">{prompt.error}</p>}
       </form>}
@@ -257,7 +262,10 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
       </div>}
       {menu && <ContextMenu x={menu.x} y={menu.y} label={`Dateiaktionen: ${title}`} onClose={() => setMenu(null)} entries={[
         ...(menuFolder ? [{ kind: 'item' as const, label: 'Öffnen', hint: 'Eingabe', onSelect: () => open(menuFolder) }] : []),
-        ...(onEdit && menuTargets.length === 1 && !menuFolder ? [{ kind: 'item' as const, label: 'Bearbeiten', hint: 'F4', onSelect: () => onEdit(fullPaths(menuTargets)[0]) }] : []),
+        ...(menuTargets.length === 1 && !menuFolder ? [
+          { kind: 'item' as const, label: 'Bearbeiten', hint: 'F4', onSelect: () => onEdit(fullPaths(menuTargets)[0], 'default') },
+          { kind: 'item' as const, label: 'Mit Editor (Notepad) bearbeiten', onSelect: () => onEdit(fullPaths(menuTargets)[0], 'notepad') },
+        ] : []),
         ...(menuTargets.length ? [
           { kind: 'item' as const, label: side === 'local' ? 'Hochladen' : 'Herunterladen', hint: 'F5', onSelect: () => onCopy(fullPaths(menuTargets), false) },
           { kind: 'item' as const, label: side === 'local' ? 'Hochladen und lokal löschen' : 'Herunterladen und vom Server löschen', hint: 'F6', onSelect: () => onCopy(fullPaths(menuTargets), true) },
@@ -267,6 +275,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
           ...(onPermissions ? [{ kind: 'item' as const, label: 'Rechte …', hint: 'F9', onSelect: () => permissions(menuTargets) }] : []),
           { kind: 'separator' as const },
         ] : []),
+        { kind: 'item', label: 'Neue Datei', hint: 'Umschalt+F4', onSelect: () => setPrompt({ kind: 'file', value: '' }) },
         { kind: 'item', label: 'Neuer Ordner', hint: 'F7', onSelect: () => setPrompt({ kind: 'mkdir', value: '' }) },
         { kind: 'item', label: 'Aktualisieren', hint: 'Strg+R', onSelect: onRefresh },
         { kind: 'item', label: 'Pfad kopieren', onSelect: () => { void window.desktopApi.writeClipboardText(menuTargets.length === 1 ? fullPaths(menuTargets)[0] : path ?? '').catch(() => {}); } },

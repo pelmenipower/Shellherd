@@ -83,7 +83,11 @@ export interface SftpJobRequest extends SftpSessionRequest { jobId: string }
 export interface SftpConflictAnswer extends SftpSessionRequest { conflictId: string; choice: ConflictChoice; applyToAll: boolean }
 /** Running and finished jobs plus an open question; used when a tab is opened in another window. */
 export interface SftpSessionState { status: SftpStatus; jobs: TransferJob[]; conflict?: TransferConflict; edits: EditedFile[] }
+/** `default`: the program Windows associates with the file; `notepad`: always the built-in Notepad. */
+export type EditorChoice = 'default' | 'notepad';
 export interface SftpEditRequest extends SftpSessionRequest { editId: string }
+export interface SftpEditFileRequest extends SftpPathRequest { editor: EditorChoice }
+export interface LocalOpenRequest extends LocalPathRequest { editor: EditorChoice }
 export interface SftpChmodRequest extends SftpSessionRequest { paths: string[]; mode: number; recursive: boolean }
 
 export interface LocalPathRequest { path: string }

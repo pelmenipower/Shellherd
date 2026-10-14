@@ -4,6 +4,8 @@ import { spawn } from 'node:child_process';
 import { extname, win32 } from 'node:path';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/ipc';
+import type { EditorChoice } from '../../shared/sftp';
+import { writeFile } from 'node:fs/promises';
 import type { KnownHosts } from '../ssh/known-hosts';
 import { requireSshSender } from '../ssh/ipc';
 import { findConnection } from '../ssh/session';
@@ -30,6 +32,9 @@ const LocalPathSchema = z.object({ path: localPath }).strict();
 const LocalRenameSchema = z.object({ from: localPath, to: localPath }).strict();
 const LocalDeleteSchema = z.object({ paths: z.array(localPath).min(1).max(1000) }).strict();
 
+const editor = z.enum(['default', 'notepad']);
+const EditFileSchema = z.object({ ...session, path: remotePath, editor }).strict();
+const LocalOpenSchema = z.object({ path: localPath, editor }).strict();
 const EditSchema = z.object({ ...session, editId: z.string().uuid() }).strict();
 const ChmodSchema = z.object({ ...session, paths: z.array(remotePath).min(1).max(1000), mode: z.number().int().min(0).max(0o7777), recursive: z.boolean() }).strict();
 
@@ -41,9 +46,9 @@ function openInNotepad(path: string): void {
 }
 
 /** Opens an edited copy with the program Windows associates with it, never by running it. */
-export async function openForEditing(path: string): Promise<void> {
+export async function openForEditing(path: string, editor: EditorChoice = 'default'): Promise<void> {
   const extension = extname(path);
-  if (!extension || RUNNABLE.test(extension)) { openInNotepad(path); return; }
+  if (editor === 'notepad' || !extension || RUNNABLE.test(extension)) { openInNotepad(path); return; }
   if (await shell.openPath(path)) openInNotepad(path);
 }
 
@@ -91,7 +96,8 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
   handle(IPC_CHANNELS.sftpClearFinished, SessionSchema, (ownerId, request) => manager.clearFinished(ownerId, request.sessionId));
   handle(IPC_CHANNELS.sftpState, SessionSchema, (ownerId, request) => manager.state(ownerId, request.sessionId));
   handle(IPC_CHANNELS.sftpChmod, ChmodSchema, (ownerId, request) => manager.chmod(ownerId, request.sessionId, request.paths, request.mode, request.recursive));
-  handle(IPC_CHANNELS.sftpEdit, RemotePathSchema, (ownerId, request) => manager.edit(ownerId, request.sessionId, request.path));
+  handle(IPC_CHANNELS.sftpEdit, EditFileSchema, (ownerId, request) => manager.edit(ownerId, request.sessionId, request.path, request.editor));
+  handle(IPC_CHANNELS.sftpCreateFile, RemotePathSchema, (ownerId, request) => manager.createFile(ownerId, request.sessionId, request.path));
   handle(IPC_CHANNELS.sftpEditOpen, EditSchema, (ownerId, request) => manager.editOpen(ownerId, request.sessionId, request.editId));
   handle(IPC_CHANNELS.sftpEditUpload, EditSchema, (ownerId, request) => manager.editUpload(ownerId, request.sessionId, request.editId));
   handle(IPC_CHANNELS.sftpEditClose, EditSchema, (ownerId, request) => manager.editClose(ownerId, request.sessionId, request.editId));
@@ -103,6 +109,8 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
     return { path, entries: await localFileSystem.list(path) };
   });
   handle(IPC_CHANNELS.localMkdir, LocalPathSchema, (_ownerId, request) => localFileSystem.mkdir(request.path));
+  handle(IPC_CHANNELS.localCreateFile, LocalPathSchema, (_ownerId, request) => writeFile(request.path, '', { flag: 'wx' }));
+  handle(IPC_CHANNELS.localOpen, LocalOpenSchema, (_ownerId, request) => openForEditing(request.path, request.editor));
   handle(IPC_CHANNELS.localRename, LocalRenameSchema, (_ownerId, request) => localFileSystem.rename(request.from, request.to));
   // Local deletes go to the recycle bin and can be undone there.
   handle(IPC_CHANNELS.localDelete, LocalDeleteSchema, async (_ownerId, request) => {

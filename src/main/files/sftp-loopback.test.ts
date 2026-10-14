@@ -70,6 +70,7 @@ describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', 
   const events: SftpEvent[] = [];
   let sessionId: string;
   const opened: string[] = [];
+  const openedWith: string[] = [];
 
   const waitFor = async <T>(find: () => T | undefined): Promise<T> => {
     for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -92,7 +93,7 @@ describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', 
     const node: ConnectionNode = { id: 'files', type: 'connection', protocol: 'sftp', name: 'Loopback', host: '127.0.0.1', port: started.port,
       username: 'synthetic-user', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [] };
     manager = new SftpSessionManager({ getConnection: () => node, verifyHost: async () => true, emit: (_owner, event) => events.push(event), local: localFileSystem,
-      openFile: async path => { opened.push(path); }, editPollInterval: 50 });
+      openFile: async (path, editor) => { opened.push(path); openedWith.push(editor); }, editPollInterval: 50 });
     sessionId = manager.open(1, 'files').sessionId;
     await waitFor(() => events.find(event => event.type === 'status' && event.status === 'connected') ? true : undefined);
   });
@@ -138,11 +139,22 @@ describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', 
     await waitFor(() => { try { statSync(opened[0]); return undefined; } catch { return true; } });
   });
 
+  it('creates a new empty file but never replaces an existing one', async () => {
+    await manager.createFile(1, sessionId, '/project/notes.md');
+    expect(readFileSync(join(remoteRoot, 'project', 'notes.md'), 'utf8')).toBe('');
+    writeFileSync(join(remoteRoot, 'project', 'notes.md'), 'keep');
+    await expect(manager.createFile(1, sessionId, '/project/notes.md')).rejects.toThrow('existiert bereits');
+    expect(readFileSync(join(remoteRoot, 'project', 'notes.md'), 'utf8')).toBe('keep');
+    const { editId } = await manager.edit(1, sessionId, '/project/notes.md', 'notepad');
+    expect(openedWith.at(-1)).toBe('notepad');
+    await manager.editClose(1, sessionId, editId);
+  });
+
   it('downloads, renames and deletes on the server', async () => {
     const target = join(base, 'download');
     mkdirSync(target);
     const { jobId } = manager.transfer(1, { sessionId, direction: 'download', sources: ['/project'], targetDir: target, move: false });
-    expect(await finished(jobId)).toMatchObject({ state: 'done', doneFiles: 2 });
+    expect(await finished(jobId)).toMatchObject({ state: 'done', doneFiles: 3 });
     expect(readFileSync(join(target, 'project', 'docs', 'big.bin')).equals(Buffer.alloc(700_000, 7))).toBe(true);
     await manager.rename(1, sessionId, '/project', '/renamed');
     await manager.delete(1, sessionId, ['/renamed']);
