@@ -53,6 +53,13 @@ export const SshConnectionNodeSchema = z.object({
     authentication: AuthenticationSchema,
 });
 
+export const SftpConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.literal('sftp'),
+    ...remoteTarget,
+    authentication: AuthenticationSchema,
+});
+
 export const RdpConnectionNodeSchema = z.object({
     ...connectionBase,
     protocol: z.literal('rdp'),
@@ -72,6 +79,7 @@ export const LocalShellConnectionNodeSchema = z.object({
 
 export const ConnectionNodeSchema = z.discriminatedUnion('protocol', [
     SshConnectionNodeSchema,
+    SftpConnectionNodeSchema,
     RdpConnectionNodeSchema,
     LocalShellConnectionNodeSchema,
 ]);

@@ -38,10 +38,10 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     tags: connection?.tags.join(', ') ?? '', color: connection?.color ?? '',
     icon: connection?.icon ?? PROTOCOLS[protocol].defaultIcon,
   };
-  if (connection?.protocol === 'ssh' || connection?.protocol === 'rdp') {
+  if (connection?.protocol === 'ssh' || connection?.protocol === 'sftp' || connection?.protocol === 'rdp') {
     Object.assign(fields, { host: connection.host, port: String(connection.port), username: connection.username ?? '' });
   }
-  if (connection?.protocol === 'ssh') {
+  if (connection?.protocol === 'ssh' || connection?.protocol === 'sftp') {
     const auth = connection.authentication;
     Object.assign(fields, {
       method: auth.method,
@@ -75,7 +75,7 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
     icon: fields.icon,
   };
   let node: object;
-  if (protocol === 'ssh') {
+  if (protocol === 'ssh' || protocol === 'sftp') {
     const target = remoteTarget(fields);
     if (fields.method === 'privateKey' && !fields.keyPath.trim()) throw new ConnectionFieldError('keyPath', 'Bitte gib den Pfad zum privaten Schlüssel ein.');
     const authentication: Authentication = fields.method === 'agent' ? { method: 'agent' }

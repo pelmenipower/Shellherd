@@ -6,7 +6,7 @@ export type WindowRole = 'main' | 'secondary';
 /** Tab metadata shared between windows; never credentials. */
 export interface TabConnection { id: string; name: string; protocol: ConnectionProtocol; address: string }
 
-export interface TransferSession { kind: 'terminal' | 'rdp'; sessionId: string }
+export interface TransferSession { kind: 'terminal' | 'rdp' | 'sftp'; sessionId: string }
 
 export type TransferTarget =
   | { kind: 'main' }

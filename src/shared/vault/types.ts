@@ -15,7 +15,7 @@ export type Authentication =
     };
 
 /** Connection kinds. Remote kinds connect to a host; local kinds start a shell on this computer. */
-export type ConnectionProtocol = 'ssh' | 'rdp' | 'powershell' | 'cmd';
+export type ConnectionProtocol = 'ssh' | 'sftp' | 'rdp' | 'powershell' | 'cmd';
 export type LocalShellProtocol = 'powershell' | 'cmd';
 
 interface ConnectionBase {
@@ -31,6 +31,15 @@ interface ConnectionBase {
 
 export interface SshConnectionNode extends ConnectionBase {
   protocol: 'ssh';
+  host: string;
+  port: number;
+  username?: string;
+  authentication: Authentication;
+}
+
+/** File transfer over SSH; same target and authentication as an SSH connection. */
+export interface SftpConnectionNode extends ConnectionBase {
+  protocol: 'sftp';
   host: string;
   port: number;
   username?: string;
@@ -60,7 +69,7 @@ export interface LocalShellConnectionNode extends ConnectionBase {
   workingDirectory?: string;
 }
 
-export type RemoteConnectionNode = SshConnectionNode | RdpConnectionNode;
+export type RemoteConnectionNode = SshConnectionNode | SftpConnectionNode | RdpConnectionNode;
 export type ConnectionNode = RemoteConnectionNode | LocalShellConnectionNode;
 
 export interface FolderNode {

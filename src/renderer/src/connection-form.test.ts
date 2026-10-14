@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ConnectionFieldError, connectionFromFields, folderOptions, parentFolderId } from './connection-form';
+import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folderOptions, parentFolderId } from './connection-form';
+import { redactSecrets } from '../../shared/vault/connections';
 import type { ConnectionFields } from './connection-form';
 import type { VaultNode } from '../../shared/vault/types';
 
@@ -25,6 +26,12 @@ describe('connection form per protocol', () => {
     expect(connectionFromFields('id', { ...fields, password: '' }, 'rdp')).not.toHaveProperty('password');
     expect(() => connectionFromFields('id', { ...fields, username: 'D\\user', domain: 'D' }, 'rdp')).toThrow(ConnectionFieldError);
     expect(() => connectionFromFields('id', { ...fields, username: 'user@d.test', domain: 'D' }, 'rdp')).toThrow('Domäne');
+  });
+  it('builds SFTP connections with SSH authentication and redacts them for other windows', () => {
+    const sftp = connectionFromFields('id', { ...fields, method: 'password', password: 'synthetic-only', icon: 'files' }, 'sftp');
+    expect(sftp).toMatchObject({ protocol: 'sftp', host: 'api.example.test', port: 22, username: 'deploy', authentication: { method: 'password', password: 'synthetic-only' } });
+    expect(fieldsFromConnection('sftp', sftp)).toMatchObject({ host: 'api.example.test', method: 'password', password: 'synthetic-only' });
+    expect(JSON.stringify(redactSecrets([sftp]))).not.toContain('synthetic-only');
   });
   it('builds local shells without host or credentials', () => {
     const shell = connectionFromFields('id', { ...fields, host: '', port: '', workingDirectory: ' C:\\Temp ' }, 'powershell');

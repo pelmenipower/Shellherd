@@ -9,10 +9,10 @@ import { ConnectionIcon, connectionIconLabels } from './ConnectionIcon';
 import { PROTOCOLS } from '../../../shared/vault/connections';
 
 const newTitles: Record<ConnectionProtocol, string> = {
-  ssh: 'Neue SSH-Verbindung', rdp: 'Neue Remotedesktop-Verbindung (RDP)',
+  ssh: 'Neue SSH-Verbindung', sftp: 'Neue SFTP-Verbindung (Dateien)', rdp: 'Neue Remotedesktop-Verbindung (RDP)',
   powershell: 'Neue lokale PowerShell', cmd: 'Neue lokale Eingabeaufforderung (CMD)',
 };
-const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten' };
+const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', sftp: 'Dateien öffnen', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten' };
 
 interface ConnectionFormProps {
   connection?: ConnectionNode;
@@ -36,7 +36,8 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const submittingRef = useRef(false);
   const protocol = connection?.protocol ?? requestedProtocol ?? 'ssh';
-  const remote = protocol === 'ssh' || protocol === 'rdp';
+  const remote = protocol !== 'powershell' && protocol !== 'cmd';
+  const sshAuth = protocol === 'ssh' || protocol === 'sftp';
   const [fields, setFields] = useState<ConnectionFields>(() => fieldsFromConnection(protocol, connection));
   const [parentId, setParentId] = useState(initialParentId);
   const [savedSignature, setSavedSignature] = useState(() => JSON.stringify({ fields, parentId }));
@@ -118,7 +119,8 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
           {textField('Startordner (leer: Benutzerprofil)', 'workingDirectory')}
           <p className="editor-hint">Startet {PROTOCOLS[protocol].short} auf diesem Computer.</p>
         </>}
-        {protocol === 'ssh' && <><div className="editor-auth-row">
+        {protocol === 'sftp' && <p className="editor-hint">Öffnet einen Dateibrowser: links dieser Computer, rechts der Server. Anmeldung wie bei SSH.</p>}
+        {sshAuth && <><div className="editor-auth-row">
           {textField('Benutzername', 'username')}
           <label>Authentifizierung
             <select value={fields.method} disabled={busy} onChange={event => {
@@ -129,7 +131,7 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
             </select>
           </label>
         </div>
-        {fields.method === 'password' && textField('SSH-Passwort', 'password', true)}
+        {fields.method === 'password' && textField(protocol === 'sftp' ? 'Passwort' : 'SSH-Passwort', 'password', true)}
         {fields.method === 'privateKey' && <>
           {textField('Pfad zum privaten Schlüssel', 'keyPath')}
           {textField('Schlüssel-Passphrase', 'passphrase', true)}

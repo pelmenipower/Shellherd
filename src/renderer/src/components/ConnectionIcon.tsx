@@ -1,7 +1,7 @@
 import type { ConnectionIconName } from '../../../shared/vault/appearance';
 
 export const connectionIconLabels: Record<ConnectionIconName, string> = {
-  terminal: 'Terminal', server: 'Server', database: 'Datenbank', desktop: 'Desktop', cloud: 'Cloud', network: 'Netzwerk',
+  terminal: 'Terminal', server: 'Server', database: 'Datenbank', desktop: 'Desktop', cloud: 'Cloud', network: 'Netzwerk', files: 'Dateien',
 };
 const paths: Record<ConnectionIconName, string> = {
   terminal: 'm4 6 6 6-6 6m9 0h7',
@@ -10,6 +10,7 @@ const paths: Record<ConnectionIconName, string> = {
   desktop: 'M3 4h18v13H3zM12 17v4m-5 0h10',
   cloud: 'M6 18a5 5 0 0 1-1-10 7 7 0 0 1 13-1 5.5 5.5 0 0 1 0 11H6Z',
   network: 'M9 3h6v5H9zM2 16h6v5H2zM16 16h6v5h-6zM12 8v4m-7 4v-4h14v4',
+  files: 'M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM12 10v6m-3-3 3 3 3-3',
 };
 export function ConnectionIcon({ icon = 'terminal', color }: { icon?: ConnectionIconName; color?: string }) {
   return <svg className="connection-icon" data-icon={icon} width="16" height="16" viewBox="0 0 24 24" fill="none"
