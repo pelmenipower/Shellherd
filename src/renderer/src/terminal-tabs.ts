@@ -10,9 +10,14 @@ export type TerminalConnection = TabConnection;
 /** A running session taken over from another window instead of opening a new one. */
 export interface AdoptedSession { session?: TransferSession; snapshot?: string }
 
-export function toTerminalConnection(node: ConnectionNode): TerminalConnection {
+/** `asFiles` opens an SSH connection as file browser (SFTP over the same login). */
+export function toTerminalConnection(node: ConnectionNode, asFiles = false): TerminalConnection {
+  if (asFiles && node.protocol === 'ssh') return { id: node.id, name: `${node.name} · Dateien`, protocol: 'sftp', address: connectionAddress(node), view: 'files' };
   return { id: node.id, name: node.name, protocol: node.protocol, address: connectionAddress(node) };
 }
+
+/** Tabs of the same saved connection opened the same way share ordinals. */
+export function sameTarget(a: TerminalConnection, b: TerminalConnection): boolean { return a.id === b.id && a.view === b.view; }
 export interface TerminalTab {
   id: string;
   connection: TerminalConnection;
@@ -40,15 +45,15 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
   switch (action.type) {
     case 'open': {
       if (state.tabs.length >= MAX_SSH_SESSIONS || state.tabs.some(tab => tab.id === action.id)) return state;
-      const { id, name, protocol, address } = action.connection;
-      const ordinal = Math.max(0, ...state.tabs.filter(tab => tab.connection.id === id).map(tab => tab.ordinal)) + 1;
-      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address }, ordinal, status: 'connecting' }], activeTabId: action.id };
+      const { id, name, protocol, address, view } = action.connection;
+      const ordinal = Math.max(0, ...state.tabs.filter(tab => sameTarget(tab.connection, action.connection)).map(tab => tab.ordinal)) + 1;
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}) }, ordinal, status: 'connecting' }], activeTabId: action.id };
     }
     case 'adopt': {
       if (state.tabs.some(tab => tab.id === action.id)) return state;
-      const { id, name, protocol, address } = action.connection;
-      const ordinal = Math.max(0, ...state.tabs.filter(tab => tab.connection.id === id).map(tab => tab.ordinal)) + 1;
-      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
+      const { id, name, protocol, address, view } = action.connection;
+      const ordinal = Math.max(0, ...state.tabs.filter(tab => sameTarget(tab.connection, action.connection)).map(tab => tab.ordinal)) + 1;
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}) }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
     }
     case 'select':
       return action.id === null || state.tabs.some(tab => tab.id === action.id) ? { ...state, activeTabId: action.id } : state;
@@ -73,6 +78,6 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
 }
 
 export function tabLabel(tab: TerminalTab, tabs: TerminalTab[]): string {
-  return tabs.filter(other => other.connection.id === tab.connection.id).length > 1 || tab.ordinal > 1
+  return tabs.filter(other => sameTarget(other.connection, tab.connection)).length > 1 || tab.ordinal > 1
     ? `${tab.connection.name} (${tab.ordinal})` : tab.connection.name;
 }

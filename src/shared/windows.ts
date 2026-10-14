@@ -4,7 +4,11 @@ import type { SshStatus } from './ssh';
 export type WindowRole = 'main' | 'secondary';
 
 /** Tab metadata shared between windows; never credentials. */
-export interface TabConnection { id: string; name: string; protocol: ConnectionProtocol; address: string }
+export interface TabConnection {
+  id: string; name: string; protocol: ConnectionProtocol; address: string;
+  /** File browser opened for an SSH connection. */
+  view?: 'files';
+}
 
 export interface TransferSession { kind: 'terminal' | 'rdp' | 'sftp'; sessionId: string }
 

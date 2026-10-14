@@ -127,6 +127,8 @@ export interface WorkspacePane {
   type: 'pane';
   connectionIds: string[];
   activeConnectionId?: string;
+  /** Positions in `connectionIds` of SSH connections opened as file browser instead of terminal. */
+  fileBrowsers?: number[];
 }
 
 export interface WorkspaceSplit {

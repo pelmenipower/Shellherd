@@ -23,7 +23,7 @@ import { searchVaultNodes } from '../vault-search';
 import '../terminal-ui.css';
 
 interface Props {
-  nodes: VaultNode[]; onConnect: (connectionId: string, paneId: string) => void;
+  nodes: VaultNode[]; onConnect: (connectionId: string, paneId: string, asFiles?: boolean) => void;
   tabs: TerminalTab[]; selected: string | null; layout: LiveLayout; focused: string; busy: boolean;
   onLayout: (layout: LiveLayout) => void; onFocus: (id: string) => void; onSelect: (id: string | null) => void;
   onStatus: (id: string, status: SshStatus) => void; onClose: (id: string) => void;
@@ -336,6 +336,11 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           <ConnectionPicker nodes={nodes} disabled={busy} limitReached={tabs.length >= MAX_SSH_SESSIONS} paneNumber={index + 1}
             onConnect={id => onConnect(id, region.pane.id)} />
           <span className="pane-header-spacer" />
+          {tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'ssh' && <button type="button" className="pane-action" disabled={busy || tabs.length >= MAX_SSH_SESSIONS}
+            aria-label={`Dateien dieser SSH-Verbindung in Bereich ${index + 1} öffnen`} title="Dateien öffnen (SFTP)"
+            onClick={() => onConnect(tabs.find(tab => tab.id === region.pane.activeTabId)!.connection.id, region.pane.id, true)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM12 10v6m-3-3 3 3 3-3"/></svg>
+          </button>}
           {tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'rdp' && <button type="button" className="pane-action" disabled={busy}
             aria-label={`Tastenkombination an Remotedesktop in Bereich ${index + 1} senden`} title="Tastenkombinationen senden" aria-haspopup="menu"
             onClick={event => {

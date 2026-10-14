@@ -76,12 +76,12 @@ export function SecondaryWindow() {
     }
   }), []);
 
-  const connect = useCallback((id: string, paneId: string) => {
+  const connect = useCallback((id: string, paneId: string, asFiles = false) => {
     const node = catalog && findNode(catalog.nodes, id);
     if (!node || node.type !== 'connection') return;
     if (state.current.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
     terminalLayout.setFocused(paneId);
-    terminals.open(toTerminalConnection(node));
+    terminals.open(toTerminalConnection(node, asFiles));
   }, [catalog, terminalLayout, terminals]);
 
   const requestClose = (tabId: string): void => {

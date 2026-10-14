@@ -18,13 +18,15 @@ interface VaultTreeProps {
   onRename?: (nodeId: string, name: string) => Promise<boolean>;
   /** parentId '' means the vault root. */
   onNewConnection?: (protocol: ConnectionProtocol, parentId: string) => void;
+  /** Opens an SSH connection as file browser. */
+  onOpenFiles?: (id: string) => void;
   onNewFolder?: (parentId: string) => void;
 }
 function Icon({ kind }: { kind: 'folder' | 'terminal' | 'connect' | 'edit' | 'chevron' | 'rename' }) {
   const paths = { folder: 'M3 7V5h7l2 2h9v13H3V7Z', terminal: 'm4 6 6 6-6 6m9 0h7', connect: 'm9 5 10 7-10 7V5Z', edit: 'm14 5 5 5M4 20l5-1L21 7l-5-5L4 14v6Z', chevron: 'm9 5 7 7-7 7', rename: 'M4 6h16M12 6v14M8 20h8' };
   return <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={paths[kind]} /></svg>;
 }
-export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder }: VaultTreeProps) {
+export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder, onOpenFiles }: VaultTreeProps) {
   const [menu, setMenu] = useState<{ x: number; y: number; node: VaultNode | null } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const [query, setQuery] = useState('');
@@ -68,7 +70,8 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
       { kind: 'item', label: 'Umbenennen', hint: 'F2', disabled: !onRename, onSelect: () => beginRename(node) },
     ];
     if (node.type === 'folder') return [...createEntries(node.id, `Neue Verbindung in „${node.name}“`), { kind: 'separator' }, ...edit];
-    return [{ kind: 'item', label: 'Verbinden', hint: 'Enter', disabled: !onConnect, onSelect: () => onConnect?.(node.id) }, ...edit,
+    return [{ kind: 'item', label: 'Verbinden', hint: 'Enter', disabled: !onConnect, onSelect: () => onConnect?.(node.id) },
+      ...(node.protocol === 'ssh' && onOpenFiles ? [{ kind: 'item' as const, label: 'Dateien öffnen (SFTP)', onSelect: () => onOpenFiles(node.id) }] : []), ...edit,
       { kind: 'separator' }, ...createEntries(parentFolderId(nodes, node.id) ?? '', 'Neue Verbindung daneben')];
   };
   const openMenu = (x: number, y: number, node: VaultNode | null) => { if (!disabled) setMenu({ x, y, node }); };

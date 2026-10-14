@@ -1,6 +1,6 @@
 import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
 import type { TerminalTab } from './terminal-tabs';
-import { toTerminalConnection } from './terminal-tabs';
+import { sameTarget, toTerminalConnection } from './terminal-tabs';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
 export interface LivePane { type: 'pane'; id: string; tabIds: string[]; activeTabId: string | null }
@@ -152,20 +152,23 @@ export function resizeBounds(split: LiveSplit, pixels: number): { min: number; m
 }
 export function savedLayout(layout: LiveLayout, tabs: TerminalTab[]): WorkspaceLayout {
   if (layout.type === 'split') return { type: 'split', direction: layout.direction, ratio: layout.ratio, first: savedLayout(layout.first, tabs), second: savedLayout(layout.second, tabs) };
-  const connectionId = (id: string) => tabs.find(tab => tab.id === id)?.connection.id;
-  const active = layout.activeTabId ? connectionId(layout.activeTabId) : undefined;
-  return { type: 'pane', connectionIds: layout.tabIds.flatMap(id => connectionId(id) ? [connectionId(id)!] : []), ...(active ? { activeConnectionId: active } : {}) };
+  const saved = layout.tabIds.flatMap(id => tabs.find(tab => tab.id === id) ?? []);
+  const active = layout.activeTabId ? tabs.find(tab => tab.id === layout.activeTabId)?.connection.id : undefined;
+  const fileBrowsers = saved.flatMap((tab, index) => tab.connection.view === 'files' ? [index] : []);
+  return { type: 'pane', connectionIds: saved.map(tab => tab.connection.id), ...(active ? { activeConnectionId: active } : {}),
+    ...(fileBrowsers.length ? { fileBrowsers } : {}) };
 }
 export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => ConnectionNode | undefined, uuid: () => string): { layout: LiveLayout; tabs: TerminalTab[]; activeTabId: string | null } {
   const tabs: TerminalTab[] = [];
   const restore = (node: WorkspaceLayout): LiveLayout => {
     if (node.type === 'split') return { ...node, id: uuid(), first: restore(node.first), second: restore(node.second) };
-    const tabIds = node.connectionIds.map(id => {
+    const tabIds = node.connectionIds.map((id, index) => {
       const connection = lookup(id);
       if (!connection) throw new Error('Der Workspace verweist auf eine fehlende Verbindung.');
       if (tabs.length >= MAX_SSH_SESSIONS) throw new Error(`Ein Workspace darf höchstens ${MAX_SSH_SESSIONS} Sessions starten.`);
       const tabId = uuid();
-      tabs.push({ id: tabId, connection: toTerminalConnection(connection), ordinal: tabs.filter(tab => tab.connection.id === id).length + 1, status: 'connecting' });
+      const target = toTerminalConnection(connection, node.fileBrowsers?.includes(index));
+      tabs.push({ id: tabId, connection: target, ordinal: tabs.filter(tab => sameTarget(tab.connection, target)).length + 1, status: 'connecting' });
       return tabId;
     });
     const activeTabId = tabIds.find(id => tabs.find(tab => tab.id === id)?.connection.id === node.activeConnectionId) ?? tabIds[0] ?? null;

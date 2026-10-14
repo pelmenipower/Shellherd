@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ConnectionNode } from '../../shared/vault/types';
 import type { TerminalTab } from './terminal-tabs';
+import { toTerminalConnection } from './terminal-tabs';
 import { panes, splitPane } from './terminal-layout';
 import { activeView, addView, closeView, fromWorkspaceViews, initialViews, insertView, moveTabToView, moveView, paneToView, remapLayout, removeView, renameView, restoreViews, savedViews, syncViews, toWorkspaceViews } from './terminal-views';
 
@@ -96,6 +97,20 @@ describe('terminal views', () => {
     const restored = fromWorkspaceViews(saved, () => node, () => `id-${++next}`);
     expect(restored.tabs).toHaveLength(3);
     expect(restored.state.views.map(item => panes(item.layout).length)).toEqual([2, 1]);
+    expect(toWorkspaceViews(restored.state, restored.tabs)).toEqual(saved);
+  });
+
+  it('keeps SSH file browsers apart from terminals of the same connection in workspaces', () => {
+    const node: ConnectionNode = { id: 'server', type: 'connection', protocol: 'ssh', name: 'Server', host: 'h', port: 22, authentication: { method: 'agent' }, tags: [] };
+    const terminal = { ...tab('a') };
+    const files: TerminalTab = { id: 'b', connection: toTerminalConnection(node, true), ordinal: 1, status: 'connected' };
+    const state = syncViews(initialViews(), [terminal, files], 'b', 'root');
+    const saved = toWorkspaceViews(state, [terminal, files]);
+    expect(saved.layout).toMatchObject({ connectionIds: ['server', 'server'], fileBrowsers: [1] });
+    let next = 0;
+    const restored = fromWorkspaceViews(saved, () => node, () => `id-${++next}`);
+    expect(restored.tabs.map(item => [item.connection.protocol, item.ordinal])).toEqual([['ssh', 1], ['sftp', 1]]);
+    expect(restored.tabs[1].connection).toMatchObject({ name: 'Server · Dateien', view: 'files' });
     expect(toWorkspaceViews(restored.state, restored.tabs)).toEqual(saved);
   });
 });

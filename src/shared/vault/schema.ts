@@ -100,6 +100,7 @@ export const WorkspacePaneSchema: z.ZodType<WorkspacePane> = z.object({
   type: z.literal('pane'),
   connectionIds: z.array(z.string().min(1)),
   activeConnectionId: z.string().min(1).optional(),
+  fileBrowsers: z.array(z.number().int().min(0).max(63)).max(64).optional(),
 });
 
 export const WorkspaceLayoutSchema: z.ZodType<WorkspaceLayout> = z.lazy(() =>

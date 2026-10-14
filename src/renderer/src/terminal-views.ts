@@ -1,6 +1,7 @@
 import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import type { TerminalTab } from './terminal-tabs';
+import { sameTarget } from './terminal-tabs';
 import { detachPane, emptyLayout, mapPane, panes, removeTab, restoreLayout, savedLayout, syncLayout } from './terminal-layout';
 import type { LiveLayout } from './terminal-layout';
 
@@ -105,7 +106,7 @@ export function restoreViews(saved: SavedView[], lookup: (id: string) => Connect
     return { id: uuid(), name: item.name, layout: restored.layout };
   });
   if (tabs.length > MAX_SSH_SESSIONS) throw new Error(`Ein Workspace darf höchstens ${MAX_SSH_SESSIONS} Sessions starten.`);
-  for (const tab of tabs) tab.ordinal = tabs.filter(other => other.connection.id === tab.connection.id && tabs.indexOf(other) <= tabs.indexOf(tab)).length;
+  for (const tab of tabs) tab.ordinal = tabs.filter(other => sameTarget(other.connection, tab.connection) && tabs.indexOf(other) <= tabs.indexOf(tab)).length;
   const state = views.length ? { views, activeViewId: views[0].id } : initialViews();
   return { state, tabs, activeTabId: panes(activeView(state).layout).find(pane => pane.activeTabId)?.activeTabId ?? null };
 }

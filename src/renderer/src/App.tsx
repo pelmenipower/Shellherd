@@ -504,13 +504,13 @@ export default function App() {
     });
   }
 
-  function connectNode(id: string, paneId?: string): void {
+  function connectNode(id: string, paneId?: string, asFiles = false): void {
     const node = vault && findNode(vault.nodes, id);
     if (!node || node.type !== 'connection') return;
     navigateEditor(() => {
       if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
       if (paneId) terminalLayout.setFocused(paneId);
-      terminals.open(toTerminalConnection(node)); setEditorOpen(false); setEditorDirty(false); setError(null);
+      terminals.open(toTerminalConnection(node, asFiles)); setEditorOpen(false); setEditorDirty(false); setError(null);
     });
   }
 
@@ -592,7 +592,7 @@ export default function App() {
           </form>}
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); setError(null); })}
-            onConnect={connectNode} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
+            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
           {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu. Über „Neu“ oder Rechtsklick wählst du die Verbindungsart.</p><button type="button" className="secondary-button" onClick={() => newConnection()}>Neue SSH-Verbindung</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}${!terminals.tabs.length ? ' no-terminals' : ''}`}>
