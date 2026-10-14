@@ -7,9 +7,10 @@ import { Server } from 'ssh2';
 import type { Connection, ServerChannel, PseudoTtyOptions } from 'ssh2';
 import type { SshConnectionNode } from '../../shared/vault/types';
 import type { SshEvent } from '../../shared/ssh';
-import { agentSocket, SshSessionManager } from './session';
+import { agentSocket, SshSessionManager, targetExitMessage } from './session';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
+import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 
 const hostKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
 let server: Server;
@@ -20,6 +21,7 @@ let events: SshEvent[];
 let peers: Connection[];
 let shell: ServerChannel | undefined;
 let shells: ServerChannel[];
+let execCommands: string[];
 let size: PseudoTtyOptions | undefined;
 let autoAck: boolean;
 const directories: string[] = [];
@@ -36,7 +38,7 @@ function output(): string { return Buffer.concat(events.filter(event => event.ty
 function prepare() { return manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24 }).sessionId; }
 
 beforeEach(async () => {
-  events = []; peers = []; shell = undefined; shells = []; size = undefined; autoAck = true;
+  events = []; peers = []; shell = undefined; shells = []; execCommands = []; size = undefined; autoAck = true;
   server = new Server({ hostKeys: [hostKey] }, peer => {
     peers.push(peer);
     peer.on('error', () => {});
@@ -54,6 +56,14 @@ beforeEach(async () => {
         shell = stream; shells.push(stream);
         stream.on('error', () => {});
         stream.write('synthetic-ready\r\n');
+        stream.on('data', (data: Buffer) => { stream.write(data); });
+      });
+      session.on('exec', (acceptExec, _reject, info) => {
+        execCommands.push(info.command);
+        const stream = acceptExec();
+        stream.on('error', () => {});
+        if (info.command.includes('missing')) { stream.stderr.write('Error response from daemon: No such container: missing\r\n'); stream.exit(1); stream.end(); return; }
+        stream.write('exec-ready\r\n');
         stream.on('data', (data: Buffer) => { stream.write(data); });
       });
     }));
@@ -203,6 +213,68 @@ describe('SSH session manager with a real local SSH server', () => {
     await new Promise(resolve => setTimeout(resolve, 50));
     expect(hasStatus('connected')).toBe(false);
     expect(manager.hasOwner(1)).toBe(false);
+  });
+
+  const web = { kind: 'container' as const, runtime: 'docker' as const, ref: 'web-1', name: 'web-1' };
+
+  it('opens a container shell through exec with a pseudo terminal', async () => {
+    const id = manager.prepare(1, { connectionId: connection.id, cols: 90, rows: 30, target: { item: web, mode: 'shell' } }).sessionId;
+    await manager.connect(1, id);
+    await waitFor(() => output().includes('exec-ready'));
+    expect(execCommands).toEqual([`PATH="$PATH:/usr/sbin:/sbin" docker exec -it web-1 sh -c 'command -v bash >/dev/null 2>&1 && exec bash || exec sh'`]);
+    expect(size).toMatchObject({ cols: 90, rows: 30, term: 'xterm-256color' });
+    await manager.input(1, id, 'ls\r');
+    await waitFor(() => output().includes('ls'));
+    expect(shells).toHaveLength(0);
+  });
+
+  it('uses sudo -n when the connection asks for it', async () => {
+    connection = { ...connection, containers: { sudo: true } };
+    const id = manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { kind: 'lxc', vmid: 101, name: 'ct' }, mode: 'shell' } }).sessionId;
+    await manager.connect(1, id);
+    await waitFor(() => execCommands.length === 1);
+    expect(execCommands[0]).toBe('PATH="$PATH:/usr/sbin:/sbin" sudo -n pct enter 101');
+  });
+
+  it('reports a missing container when the command fails', async () => {
+    const id = manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { ...web, ref: 'missing', name: 'missing' }, mode: 'shell' } }).sessionId;
+    await manager.connect(1, id);
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', message: 'Container „missing“ wurde nicht gefunden.' }));
+  });
+
+  it('rejects invalid targets before connecting', () => {
+    expect(() => manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { ...web, ref: '$(id)' }, mode: 'shell' } })).toThrow('Ungültige Container-Angabe.');
+    expect(() => manager.prepare(1, { connectionId: LOCAL_CONTAINER_HOST, cols: 80, rows: 24 })).toThrow();
+  });
+});
+
+describe('targetExitMessage', () => {
+  const web = { kind: 'container' as const, runtime: 'docker' as const, ref: 'web-1', name: 'web-1' };
+  it('explains failed container commands', () => {
+    expect(targetExitMessage({ item: web, mode: 'shell' }, 0, '')).toBeUndefined();
+    expect(targetExitMessage({ item: web, mode: 'shell' }, 127, '')).toBe('Keine Shell im Container gefunden.');
+    expect(targetExitMessage({ item: web, mode: 'logs' }, 1, 'No such container: web-1')).toBe('Container „web-1“ wurde nicht gefunden.');
+    expect(targetExitMessage({ item: { kind: 'vm', vmid: 100, name: 'w' }, mode: 'shell' }, 255, 'unable to find a serial interface')).toContain('Serielle Schnittstelle');
+    expect(targetExitMessage({ item: web, mode: 'shell' }, 130, '')).toBeUndefined();
+  });
+});
+
+describe.runIf(process.platform === 'win32')('local container tabs', () => {
+  it('starts docker exec through node-pty with an argument array', async () => {
+    const spawned: { file: string; args: string[] | string }[] = [];
+    const localEvents: SshEvent[] = [];
+    let exit: ((event: { exitCode: number }) => void) | undefined;
+    const pty = { onData: () => ({ dispose() {} }), onExit: (listener: typeof exit) => { exit = listener; return { dispose() {} }; },
+      write() {}, resize() {}, kill() {}, pause() {}, resume() {} };
+    const local = new SshSessionManager({ getConnection: () => { throw new Error('no vault lookups'); },
+      verifyHost: async () => true, locate: async command => `C:\\bin\\${command}.exe`, emit: (_owner, event) => localEvents.push(event),
+      spawnShell: (file, args) => { spawned.push({ file, args }); return pty as never; } });
+    const id = local.prepare(1, { connectionId: LOCAL_CONTAINER_HOST, cols: 80, rows: 24, target: { item: { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' }, mode: 'shell' } }).sessionId;
+    await local.connect(1, id);
+    expect(spawned).toEqual([{ file: 'C:\\bin\\docker.exe', args: ['exec', '-it', 'web-1', 'sh', '-c', 'command -v bash >/dev/null 2>&1 && exec bash || exec sh'] }]);
+    exit?.({ exitCode: 127 });
+    expect(localEvents).toContainEqual(expect.objectContaining({ status: 'error', message: 'Keine Shell im Container gefunden.' }));
   });
 });
 
