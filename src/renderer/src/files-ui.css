@@ -93,3 +93,18 @@
 .conflict-dialog .editor-checkbox { margin-bottom: 16px; font-size: 13px; }
 .conflict-dialog .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin: 0; }
 .conflict-dialog button { min-height: 32px; padding: 6px 10px; font-size: 13px; }
+
+.edit-list { max-height: 26%; }
+.edit-list header span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edit-list .transfer-job.is-edit-saved small { color: #4ade80; }
+.edit-list .transfer-job.is-edit-conflict small, .edit-list .transfer-job.is-edit-error small { color: var(--ui-danger); }
+.permissions-grid { width: 100%; margin: 0 0 12px; border-collapse: collapse; font-size: 13px; }
+.permissions-grid th, .permissions-grid td { padding: 6px 4px; text-align: center; border-bottom: 1px solid var(--ui-border); }
+.permissions-grid th[scope='row'] { text-align: left; font-weight: 500; }
+.permissions-grid thead th { color: var(--ui-muted); font-weight: 500; font-size: 12px; }
+.permissions-grid input { width: 16px; height: 16px; }
+.permissions-octal { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13px; }
+.permissions-octal input { width: 80px; height: 30px; min-height: 30px; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; }
+.permissions-dialog .editor-hint { margin: 0 0 10px; }
+.permissions-dialog .field-error { margin: -4px 0 12px; }
+.permissions-grid .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

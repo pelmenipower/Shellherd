@@ -2,12 +2,13 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import type { SshStatus } from '../../../shared/ssh';
-import type { ConflictChoice, SftpStatus, TransferConflict, TransferJob } from '../../../shared/sftp';
+import type { ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob } from '../../../shared/sftp';
 import type { FileSide } from '../file-browser';
 import { formatDate, formatSize, ipcErrorText, isFinished, jobPercent, joinPath } from '../file-browser';
 import { liveSessions } from '../session-registry';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { ConfirmDialog } from './ConfirmDialog';
+import { PermissionsDialog } from './PermissionsDialog';
 import { FilePane } from './FilePane';
 import type { FileListing } from './FilePane';
 import '../files-ui.css';
@@ -46,6 +47,8 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const [drives, setDrives] = useState<string[]>([]);
   const [activeSide, setActiveSide] = useState<FileSide>('remote');
   const [jobs, setJobs] = useState<TransferJob[]>([]);
+  const [edits, setEdits] = useState<EditedFile[]>([]);
+  const [pendingPermissions, setPendingPermissions] = useState<{ paths: string[]; entries: FileEntry[] } | null>(null);
   const [conflict, setConflict] = useState<TransferConflict | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ side: FileSide; paths: string[]; names: string[] } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -104,6 +107,12 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
       if (event.sessionId !== id || disposed) return;
       if (event.type === 'status') { if (event.status === 'connected') connected(); else report(event.status, event.message); }
       else if (event.type === 'conflict') setConflict(event.conflict);
+      else if (event.type === 'edit') {
+        const { edit, closed } = event;
+        setEdits(current => closed ? current.filter(item => item.id !== edit.id)
+          : current.some(item => item.id === edit.id) ? current.map(item => item.id === edit.id ? edit : item) : [...current, edit]);
+        if (edit.state === 'saved') refresh('remote');
+      }
       else {
         setJobs(current => current.some(job => job.id === event.job.id)
           ? current.map(job => job.id === event.job.id ? event.job : job) : [...current, event.job]);
@@ -129,6 +138,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
         void window.desktopApi.sftpState({ sessionId: adoptedId }).then(state => {
           if (disposed) return;
           setJobs(state.jobs);
+          setEdits(state.edits);
           setConflict(state.conflict ?? null);
           if (state.status === 'connected') connected(); else report(state.status);
         }).catch((error: Error) => report('error', ipcErrorText(error)));
@@ -181,6 +191,8 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     onMkdir={path => run(() => side === 'local' ? window.desktopApi.localMkdir({ path }) : window.desktopApi.sftpMkdir({ sessionId: sessionId!, path }), side)}
     onRename={(from, to) => run(() => side === 'local' ? window.desktopApi.localRename({ from, to }) : window.desktopApi.sftpRename({ sessionId: sessionId!, from, to }), side)}
     onDelete={(paths, names) => setPendingDelete({ side, paths, names })}
+    onEdit={side === 'remote' ? path => { if (sessionId) void run(() => window.desktopApi.sftpEdit({ sessionId, path })); } : undefined}
+    onPermissions={side === 'remote' ? (paths, entries) => setPendingPermissions({ paths, entries }) : undefined}
     onCopy={(sources, move) => { if (remoteReady) transfer(side, sources, move); }}
     onDrop={(drag, targetDir, move) => {
       if (!remoteReady) return;
@@ -194,6 +206,13 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
       <span className="terminal-live-status" role="status">{status === 'connected' ? 'SFTP verbunden' : status === 'connecting' ? 'SFTP verbindet ...' : message ?? 'SFTP getrennt'}</span>
       {actionError && <p className="file-error file-action-error" role="alert">{actionError}<button type="button" aria-label="Meldung schließen" onClick={() => setActionError(null)}>×</button></p>}
       <div className="files-commander">{pane('local')}{pane('remote')}</div>
+      {edits.length > 0 && sessionId && <EditList edits={edits}
+        onOpen={editId => void window.desktopApi.sftpEditOpen({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}
+        onUpload={editId => void window.desktopApi.sftpEditUpload({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}
+        onClose={editId => void window.desktopApi.sftpEditClose({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))} />}
+      {pendingPermissions && <PermissionsDialog entries={pendingPermissions.entries} busy={busy} onCancel={() => setPendingPermissions(null)}
+        onApply={(mode, recursive) => void run(() => window.desktopApi.sftpChmod({ sessionId: sessionId!, paths: pendingPermissions.paths, mode, recursive }), 'remote')
+          .then(done => { if (done) setPendingPermissions(null); })} />}
       {jobs.length > 0 && <TransferQueue jobs={jobs} activeCount={active.length}
         onCancel={jobId => sessionId && void window.desktopApi.sftpCancel({ sessionId, jobId }).catch(() => {})}
         onClear={() => { setJobs(current => current.filter(job => !isFinished(job))); if (sessionId) void window.desktopApi.sftpClearFinished({ sessionId }).catch(() => {}); }} />}
@@ -231,6 +250,33 @@ function TransferQueue({ jobs, activeCount, onCancel, onClear }: { jobs: Transfe
               {job.message && ` · ${job.message}`}</small>
           </div>
           {!isFinished(job) && <button type="button" className="secondary-button" onClick={() => onCancel(job.id)}>Abbrechen</button>}
+        </li>)}
+      </ul>
+    </section>
+  );
+}
+
+const editLabels: Record<EditedFile['state'], string> = {
+  open: 'Im Editor geöffnet – Speichern lädt hoch', uploading: 'Wird hochgeladen …', saved: 'Hochgeladen', conflict: 'Auf dem Server geändert', error: 'Hochladen fehlgeschlagen',
+};
+const timeFormat = new Intl.DateTimeFormat('de-DE', { timeStyle: 'medium' });
+
+function EditList({ edits, onOpen, onUpload, onClose }: { edits: EditedFile[]; onOpen: (id: string) => void; onUpload: (id: string) => void; onClose: (id: string) => void }) {
+  return (
+    <section className="transfer-queue edit-list" aria-label="Bearbeitete Dateien">
+      <header><strong>Bearbeitete Dateien</strong><span>Speichern im Editor lädt die Datei automatisch hoch.</span></header>
+      <ul>
+        {edits.map(edit => <li key={edit.id} className={`transfer-job is-edit-${edit.state}`}>
+          <span className="transfer-direction" aria-hidden="true">✎</span>
+          <div className="transfer-main">
+            <div className="transfer-title"><strong>{edit.name}</strong><span className="transfer-target" title={edit.remotePath}>{edit.remotePath}</span></div>
+            <small role="status">{editLabels[edit.state]}{edit.state === 'saved' && edit.savedAt ? ` um ${timeFormat.format(edit.savedAt)}` : ''}
+              {edit.message && ` · ${edit.message}`}</small>
+          </div>
+          {edit.state === 'conflict' && <button type="button" className="secondary-button" title="Die Serverversion wird durch deine Fassung ersetzt" onClick={() => onUpload(edit.id)}>Trotzdem hochladen</button>}
+          {edit.state === 'error' && <button type="button" className="secondary-button" onClick={() => onUpload(edit.id)}>Erneut hochladen</button>}
+          <button type="button" className="secondary-button" onClick={() => onOpen(edit.id)}>Im Editor öffnen</button>
+          <button type="button" className="secondary-button" title="Nicht mehr überwachen; die lokale Kopie wird gelöscht" onClick={() => onClose(edit.id)}>Schließen</button>
         </li>)}
       </ul>
     </section>

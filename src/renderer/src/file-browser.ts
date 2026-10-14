@@ -100,3 +100,11 @@ export function isFinished(job: TransferJob): boolean { return job.state !== 'qu
 export function ipcErrorText(error: unknown, fallback = 'Die Dateiaktion ist fehlgeschlagen.'): string {
   return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : fallback;
 }
+
+/** Octal text (`644`, `0755`) to permission bits; null when invalid. */
+export function parseMode(text: string): number | null {
+  const trimmed = text.trim();
+  return /^0?[0-7]{3,4}$/.test(trimmed) ? parseInt(trimmed, 8) : null;
+}
+
+export function modeText(mode: number): string { return (mode & 0o7777).toString(8).padStart(3, '0'); }

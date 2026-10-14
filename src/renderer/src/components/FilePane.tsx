@@ -30,6 +30,10 @@ interface FilePaneProps {
   onDelete: (paths: string[], names: string[]) => void;
   /** Copy or move to the current folder of the other side. */
   onCopy: (paths: string[], move: boolean) => void;
+  /** Server side: open a file in a local editor; saving uploads it. */
+  onEdit?: (path: string) => void;
+  /** Server side: change permission bits. */
+  onPermissions?: (paths: string[], entries: FileEntry[]) => void;
   /** Files dragged in: from the other side or, for the server side, from Explorer. */
   onDrop: (drag: FileDrag | { external: string[] }, targetDir: string, move: boolean) => void;
 }
@@ -39,7 +43,7 @@ type Prompt = { kind: 'mkdir'; value: string; error?: string } | { kind: 'rename
 const columns: { key: SortKey; label: string }[] = [{ key: 'name', label: 'Name' }, { key: 'size', label: 'Größe' }, { key: 'modified', label: 'Geändert' }];
 
 export function FilePane({ tabId, side, title, listing, active, disabled, notice, home, drives, onActivate, onNavigate, onRefresh,
-  onMkdir, onRename, onDelete, onCopy, onDrop }: FilePaneProps) {
+  onMkdir, onRename, onDelete, onCopy, onDrop, onEdit, onPermissions }: FilePaneProps) {
   const [sort, setSort] = useState<SortOrder>({ key: 'name', ascending: true });
   const [selected, setSelected] = useState<string[]>([]);
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -70,7 +74,15 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
     return chosen.filter(name => names.includes(name));
   };
   const fullPaths = (list: string[]): string[] => path ? list.map(name => joinPath(side, path, name)) : [];
-  const open = (entry: FileEntry): void => { if (path && isDirectory(entry)) onNavigate(joinPath(side, path, entry.name)); };
+  const open = (entry: FileEntry): void => {
+    if (!path) return;
+    if (isDirectory(entry)) onNavigate(joinPath(side, path, entry.name));
+    else if (entry.type === 'file' || entry.linkTarget === 'file') onEdit?.(joinPath(side, path, entry.name));
+  };
+  const permissions = (list: string[]): void => {
+    const chosen = entries.filter(entry => list.includes(entry.name));
+    if (chosen.length && onPermissions) onPermissions(fullPaths(list), chosen);
+  };
   const select = (name: string, event: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): void => {
     const next = nextSelection(names, selected, anchor, name, { ctrl: event.ctrlKey || event.metaKey, shift: event.shiftKey });
     setSelected(next.selected); setAnchor(next.anchor); setCursor(name);
@@ -107,6 +119,8 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
     else if (event.key === 'Backspace') { handled(); if (parent) onNavigate(parent); }
     else if (event.key === 'F5' || event.key === 'F6') { handled(); const list = targets(); if (list.length) onCopy(fullPaths(list), event.key === 'F6'); }
     else if (event.key === 'F2') { handled(); beginRename(); }
+    else if (event.key === 'F4' && onEdit) { handled(); const entry = entries[index]; if (entry && !isDirectory(entry)) onEdit(joinPath(side, path, entry.name)); }
+    else if (event.key === 'F9' && onPermissions) { handled(); permissions(targets()); }
     else if (event.key === 'F7') { handled(); setPrompt({ kind: 'mkdir', value: '' }); }
     else if (event.key === 'Delete') { handled(); const list = targets(); if (list.length) onDelete(fullPaths(list), list); }
     else if (event.key.toLowerCase() === 'a' && (event.ctrlKey || event.metaKey)) { handled(); setSelected(names); }
@@ -243,12 +257,14 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
       </div>}
       {menu && <ContextMenu x={menu.x} y={menu.y} label={`Dateiaktionen: ${title}`} onClose={() => setMenu(null)} entries={[
         ...(menuFolder ? [{ kind: 'item' as const, label: 'Öffnen', hint: 'Eingabe', onSelect: () => open(menuFolder) }] : []),
+        ...(onEdit && menuTargets.length === 1 && !menuFolder ? [{ kind: 'item' as const, label: 'Bearbeiten', hint: 'F4', onSelect: () => onEdit(fullPaths(menuTargets)[0]) }] : []),
         ...(menuTargets.length ? [
           { kind: 'item' as const, label: side === 'local' ? 'Hochladen' : 'Herunterladen', hint: 'F5', onSelect: () => onCopy(fullPaths(menuTargets), false) },
           { kind: 'item' as const, label: side === 'local' ? 'Hochladen und lokal löschen' : 'Herunterladen und vom Server löschen', hint: 'F6', onSelect: () => onCopy(fullPaths(menuTargets), true) },
           { kind: 'separator' as const },
           { kind: 'item' as const, label: 'Umbenennen', hint: 'F2', disabled: menuTargets.length !== 1, onSelect: beginRename },
           { kind: 'item' as const, label: 'Löschen', hint: 'Entf', onSelect: () => onDelete(fullPaths(menuTargets), menuTargets) },
+          ...(onPermissions ? [{ kind: 'item' as const, label: 'Rechte …', hint: 'F9', onSelect: () => permissions(menuTargets) }] : []),
           { kind: 'separator' as const },
         ] : []),
         { kind: 'item', label: 'Neuer Ordner', hint: 'F7', onSelect: () => setPrompt({ kind: 'mkdir', value: '' }) },

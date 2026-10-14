@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FileEntry } from '../../shared/sftp';
-import { formatSize, ipcErrorText, joinPath, nameError, nextSelection, parentPath, pathSegments, sortEntries } from './file-browser';
+import { formatSize, ipcErrorText, modeText, parseMode, joinPath, nameError, nextSelection, parentPath, pathSegments, sortEntries } from './file-browser';
 
 const file = (name: string, size = 0, modified = 0): FileEntry => ({ name, type: 'file', size, modified });
 const folder = (name: string): FileEntry => ({ name, type: 'directory', size: 0, modified: 0 });
@@ -47,5 +47,15 @@ describe('file browser', () => {
     expect(formatSize(1536)).toBe('1,5 KB');
     expect(formatSize(50 * 1024 * 1024)).toBe('50 MB');
     expect(ipcErrorText(new Error("Error invoking remote method 'sftp:list': Error: Zugriff verweigert."))).toBe('Zugriff verweigert.');
+  });
+
+  it('converts permission bits to and from octal text', () => {
+    expect(parseMode('644')).toBe(0o644);
+    expect(parseMode('0755')).toBe(0o755);
+    expect(parseMode('2775')).toBe(0o2775);
+    expect(parseMode('8')).toBeNull();
+    expect(parseMode('rwx')).toBeNull();
+    expect(modeText(0o100644)).toBe('644');
+    expect(modeText(0o4755)).toBe('4755');
   });
 });
