@@ -36,6 +36,7 @@ import { useTabTransfer } from './hooks/useTabTransfer';
 import { useViewControls } from './hooks/useViewControls';
 import { fromWorkspaceViews, toWorkspaceViews } from './terminal-views';
 import { FileTypeSetting, WelcomePage } from './components/WelcomePage';
+import { ReleaseNotesDialog } from './components/ReleaseNotes';
 import { ConnectionForm } from './components/ConnectionForm';
 import { parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
@@ -91,6 +92,7 @@ function getErrorMessage(error: unknown): string {
 export default function App() {
   const [version, setVersion] = useState('…');
   const [screen, setScreen] = useState<Screen>('home');
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
 
   const [vault, setVault] = useState<Vault | null>(null);
   const [vaultPath, setVaultPath] = useState<string | null>(
@@ -645,7 +647,7 @@ export default function App() {
               externalHover={transfer.externalHover} pendingDock={transfer.pendingDock} onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff}
               viewControls={viewControls} />
           </div>
-          {!terminals.tabs.length && !editorOpen && !transfer.externalHover && <WelcomePage vaultName={vault.name} connectionCount={connectionCount}
+          {!terminals.tabs.length && !editorOpen && !transfer.externalHover && <WelcomePage vaultName={vault.name} version={version} onShowReleaseNotes={() => setShowReleaseNotes(true)} connectionCount={connectionCount}
             workspaces={vault.workspaces} busy={busy} onNewConnection={protocol => newConnection(protocol)}
             onOpenWorkspace={id => navigateEditor(() => openWorkspace(id))} />}
           {editorOpen && <aside className="properties-panel" aria-label="Eigenschaften">
@@ -669,7 +671,9 @@ export default function App() {
       </div>
       {error && <div className="app-error" role="alert"><span>{error}</span><button type="button" aria-label="Fehlermeldung schließen" onClick={() => setError(null)}>Schließen</button></div>}
       <footer className="app-status"><span role="status">{busy ? 'Speichert …' : error ? 'Aktion fehlgeschlagen' : savedNotice || 'Vault geöffnet'}</span>
-        <span>{runningCount} {runningCount === 1 ? 'aktive Session' : 'aktive Sessions'}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span><span>v{version}</span></footer>
+        <span>{runningCount} {runningCount === 1 ? 'aktive Session' : 'aktive Sessions'}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>
+        <button type="button" className="version-button" title="Neuerungen anzeigen" onClick={() => setShowReleaseNotes(true)}>v{version}</button></footer>
+      {showReleaseNotes && <ReleaseNotesDialog version={version} onClose={() => setShowReleaseNotes(false)} />}
     </main>;
   }
 

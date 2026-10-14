@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react';
 import type { ConnectionProtocol, Workspace } from '../../../shared/vault/types';
 import { NEW_CONNECTION_KINDS } from '../../../shared/vault/connections';
 import { workspaceSummary } from '../terminal-views';
+import { WhatsNew } from './ReleaseNotes';
 
 interface WelcomePageProps {
   vaultName: string;
+  version: string;
+  onShowReleaseNotes: () => void;
   connectionCount: number;
   workspaces: Workspace[];
   busy: boolean;
@@ -13,7 +16,7 @@ interface WelcomePageProps {
 }
 
 /** Shown while no tab is open: quick starts instead of an empty connection form. */
-export function WelcomePage({ vaultName, connectionCount, workspaces, busy, onNewConnection, onOpenWorkspace }: WelcomePageProps) {
+export function WelcomePage({ vaultName, version, onShowReleaseNotes, connectionCount, workspaces, busy, onNewConnection, onOpenWorkspace }: WelcomePageProps) {
   return (
     <div className="welcome-page">
       <header>
@@ -21,6 +24,7 @@ export function WelcomePage({ vaultName, connectionCount, workspaces, busy, onNe
         <p>{connectionCount === 0 ? 'Noch keine Verbindungen gespeichert. Leg die erste an.'
           : `${connectionCount} ${connectionCount === 1 ? 'Verbindung' : 'Verbindungen'} gespeichert. Doppelklick in der Liste links verbindet.`}</p>
       </header>
+      {/^\d+\.\d+\.\d+$/.test(version) && <WhatsNew version={version} onShowAll={onShowReleaseNotes} />}
       <div className="welcome-grid">
         {workspaces.length > 0 && <section aria-labelledby="welcome-workspaces">
           <h2 id="welcome-workspaces">Workspaces</h2>
