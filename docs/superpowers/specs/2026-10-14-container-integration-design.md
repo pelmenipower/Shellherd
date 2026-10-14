@@ -104,10 +104,12 @@ Ein Fehler erscheint als kurze Meldung am Eintrag.
 
 ```ts
 export type ContainerRuntime = 'docker' | 'podman';
-export type ContainerHost = { kind: 'ssh'; connectionId: string } | { kind: 'local' };
+/** An SSH connection id from the vault, or LOCAL_CONTAINER_HOST for this computer. */
+export type ContainerHostId = string;
+export const LOCAL_CONTAINER_HOST = 'local-containers';
 
 export type DiscoveredItem =
-  | { kind: 'container'; runtime: ContainerRuntime; id: string; name: string; image: string; state: 'running' | 'paused' | 'stopped' }
+  | { kind: 'container'; runtime: ContainerRuntime; id: string; ref: string; name: string; image: string; state: 'running' | 'paused' | 'stopped' }
   | { kind: 'lxc' | 'vm'; vmid: number; name: string; state: 'running' | 'stopped' | 'paused' };
 
 export interface DiscoveryResult {
@@ -118,7 +120,8 @@ export interface DiscoveryResult {
 }
 
 export type ContainerTarget =
-  | { kind: 'container'; runtime: ContainerRuntime; id: string; name: string }
+  /** `ref` is the container name when it is a valid reference, otherwise the ID; commands use it. */
+  | { kind: 'container'; runtime: ContainerRuntime; ref: string; name: string }
   | { kind: 'lxc' | 'vm'; vmid: number; name: string };
 
 export type TerminalTargetMode = 'shell' | 'logs';
@@ -146,7 +149,7 @@ Lokal (Windows):
 - Es wird `execFile('docker'|'podman', ['ps', …])` verwendet, ohne Probe-Shell. „Nicht im PATH“ (`ENOENT`) bedeutet: keine Laufzeit.
 - Proxmox gibt es lokal nicht.
 
-Jeder Befehl hat ein **Timeout von 15 s**. Danach wird er abgebrochen und als Problem gemeldet.
+Erkennungs- und Listen-Befehle haben ein **Timeout von 15 s**, Aktionen (Start/Stop, `qm shutdown` kann dauern) **120 s**. Danach wird er abgebrochen und als Problem gemeldet.
 
 ### Host-Verbindungen
 
@@ -160,10 +163,8 @@ Jeder Befehl hat ein **Timeout von 15 s**. Danach wird er abgebrochen und als Pr
 
 Das ist die zentrale Änderung an bestehendem Code.
 
-- `SshPrepareRequest` (`src/shared/ipc.ts`) bekommt ein optionales Feld `target?: { host: ContainerHost; target: ContainerTarget; mode: TerminalTargetMode }`.
-- `SshSessionManager.prepare` erlaubt `target` nur bei `protocol: 'ssh'` oder `host.kind === 'local'`.
-  - Bei `local` gibt es keine `connectionId`.
-  - Die Session merkt sich stattdessen den Host. Dafür wird `Session.connectionId` optional, und lokale Container-Sessions bekommen eine eigene Kennung.
+- `SshPrepareRequest` (`src/shared/ssh.ts`) bekommt ein optionales Feld `target?: TerminalTarget` (`{ item: ContainerTarget; mode: TerminalTargetMode }`). Der Host ist die `connectionId`, bei lokalen Containern `LOCAL_CONTAINER_HOST`.
+- `SshSessionManager.prepare` erlaubt `target` nur bei `protocol: 'ssh'` oder `connectionId === LOCAL_CONTAINER_HOST`. Ohne `target` ist `LOCAL_CONTAINER_HOST` ungültig.
 - `SshSessionManager.connect` hat zwei Fälle:
   - **SSH mit Ziel:** Nach `ready` wird `client.exec(command, { pty: { term: 'xterm-256color', cols, rows } }, …)` statt `client.shell` aufgerufen. Der Stream wird genauso verdrahtet wie bei `shell` (Daten, stderr, Flow-Control, close). Resize läuft über `stream.setWindow`, wie heute.
   - **Lokal mit Ziel:** `spawnShell('docker'|'podman', ['exec', '-it', id, 'sh', '-c', SHELL_CHOICE], …)` mit ConPTY.
@@ -184,7 +185,7 @@ Das ist die zentrale Änderung an bestehendem Code.
   - `TerminalPanel` reicht es beim `prepare` durch.
 - **Workspaces:**
   - `WorkspacePane` bekommt `containerTabs?: { index: number; target: ContainerTarget; mode: TerminalTargetMode }[]`. Das funktioniert wie das vorhandene `fileBrowsers`: `index` ist die Position in `connectionIds`, und der Eintrag dort ist die SSH-Verbindung des Hosts.
-  - Beim Wiederherstellen wird der Container über **`exec` mit der gespeicherten ID** geöffnet, bei Docker und Podman wird hilfsweise der **Name** verwendet, da sich IDs bei Neuanlage ändern. Gibt es ihn nicht mehr, zeigt der Tab: „Container ‚web-1‘ wurde nicht gefunden.“
+  - Beim Wiederherstellen wird der Container über die gespeicherte `ref` geöffnet. Das ist bei Docker und Podman der Name, der auch eine Neuanlage überlebt. Gibt es ihn nicht mehr, zeigt der Tab: „Container ‚web-1‘ wurde nicht gefunden.“
   - Tabs lokaler Container („Dieser Computer“) werden in Phase 1 **nicht** in Workspaces gespeichert, weil es dafür keine Vault-Verbindung gibt.
 - **Verbindungsformular:** Im Bereich SSH kommt das Häkchen „Container-Befehle mit sudo ausführen“ hinzu.
 
@@ -199,15 +200,16 @@ Das ist die zentrale Änderung an bestehendem Code.
 
 | Kanal | Richtung | Inhalt |
 |---|---|---|
-| `containers:list` | invoke | `{ host: ContainerHost; refresh?: boolean }` → `DiscoveryResult` |
-| `containers:action` | invoke | `{ host; target; action: ContainerAction }` → `void` (wirft eine deutsche Fehlermeldung) |
+| `containers:list` | invoke | `{ hostId: ContainerHostId }` → `DiscoveryResult` (immer frisch, Cache nur im Renderer) |
+| `containers:action` | invoke | `{ hostId; target; action: ContainerAction }` → `void` (wirft eine deutsche Fehlermeldung) |
 
 Die Verträge stehen in `src/shared/ipc.ts`, die Freigabe in `src/preload/index.ts`. Der Main-Prozess prüft jeden Request mit zod.
 
 ## Sicherheit
 
-- **Keine Freitext-Einbettung:** Container-IDs müssen `^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$` entsprechen, VMIDs sind Ganzzahlen von 100 bis 999999999. Alles andere wird in `commands.ts` mit einem Fehler abgewiesen.
-  - Namen werden nur angezeigt und nie in Befehle eingesetzt.
+- **Keine Freitext-Einbettung:** Container-Referenzen (`ref`) müssen `^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$` entsprechen, VMIDs sind Ganzzahlen von 100 bis 999999999. Alles andere wird in `commands.ts` mit einem Fehler abgewiesen.
+  - Als `ref` dient der Container-Name, wenn er diesem Muster entspricht. Docker und Podman erzwingen das für Namen, sonst wird die ID verwendet. Proxmox-Namen werden nur angezeigt.
+  - Remote-Befehle werden zusätzlich aus Argumenten gebaut, die in einfache Anführungszeichen gesetzt sind (`shellJoin`).
 - Der Renderer kann **keine** beliebigen Befehle schicken. `containers:action` nimmt nur das Enum `ContainerAction`, und die Befehle baut ausschließlich der Main-Prozess.
 - Remote-Befehle werden aus festen Teilen und geprüften Werten zusammengesetzt. Lokal wird `execFile`/`spawn` mit einem Argument-Array benutzt, nie eine Shell-Zeichenkette.
 - Die Host-Key-Prüfung ist dieselbe wie bei Terminal-Sessions. Schlüssel und Passwörter werden nach dem Verbindungsaufbau wie bisher genullt (`clearKey`).
