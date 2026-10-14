@@ -10,6 +10,8 @@ export interface RunResult {
   notFound?: boolean;
   /** sudo asked again after the stored password was sent. */
   sudoRejected?: boolean;
+  /** Timed out in prompt mode before sudo asked or reported readiness. */
+  sudoNoPrompt?: boolean;
 }
 
 type ProbeTool = 'docker' | 'podman' | 'pct' | 'qm';
@@ -70,6 +72,7 @@ export const SUDO_REJECTED = 'Das sudo-Passwort wurde abgelehnt.';
 
 export function describeFailure(kind: RuntimeKind, result: RunResult): string {
   if (result.sudoRejected) return SUDO_REJECTED;
+  if (result.sudoNoPrompt) return 'sudo hat nicht wie erwartet nach dem Passwort gefragt.';
   if (result.timedOut) return 'Der Host hat nicht rechtzeitig geantwortet.';
   const text = `${result.stderr}\n${result.stdout}`;
   if (/sudo: (a password is required|a terminal is required)/i.test(text)) return SUDO_PASSWORD;

@@ -84,6 +84,7 @@ describe('describeFailure', () => {
     expect(describeFailure('podman', failed('sudo: a terminal is required to read the password'))).toBe(missing);
     expect(describeFailure('proxmox', { code: null, stdout: '', stderr: '', sudoRejected: true })).toBe('Das sudo-Passwort wurde abgelehnt.');
     expect(describeFailure('docker', { code: null, stdout: '', stderr: 'Sorry, try again.', sudoRejected: true })).toBe('Das sudo-Passwort wurde abgelehnt.');
+    expect(describeFailure('docker', { code: null, stdout: '', stderr: '', timedOut: true, sudoNoPrompt: true })).toBe('sudo hat nicht wie erwartet nach dem Passwort gefragt.');
   });
   it('does not send Podman users to the docker group', () => {
     expect(describeFailure('podman', failed('Error: permission denied on /run/podman/podman.sock'))).toBe('Keine Berechtigung für Podman. sudo aktivieren oder Podman rootless einrichten.');

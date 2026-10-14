@@ -1,6 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { actionArgv, ContainerInputError, listArgv, PROBE_COMMAND, remoteCommand, shellJoin, SHELL_CHOICE, terminalArgv } from './commands';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { actionArgv, ContainerInputError, listArgv, PROBE_COMMAND, remoteCommand, shellJoin, SHELL_CHOICE, sudoSetting, terminalArgv } from './commands';
+import type { SshConnectionNode } from '../../shared/vault/types';
 
 function hasSh(): boolean {
   try {
@@ -45,16 +49,30 @@ describe('remoteCommand', () => {
     expect(remoteCommand(['pct', 'list'], { kind: 'none' })).toBe('PATH="$PATH:/usr/sbin:/sbin" pct list');
     expect(remoteCommand(['pct', 'list'], { kind: 'noninteractive' })).toBe('PATH="$PATH:/usr/sbin:/sbin" sudo -n pct list');
   });
-  it('asks sudo for a password with a quoted marker prompt', () => {
+  it('authenticates first, then signals readiness, then runs the command with cached credentials', () => {
     const marker = '[terminus-sudo-0123456789abcdef]';
-    expect(remoteCommand(['pct', 'list'], { kind: 'prompt', marker, stdin: true }))
-      .toBe(`PATH="$PATH:/usr/sbin:/sbin" sudo -S -p '${marker}' pct list`);
-    expect(remoteCommand(['pct', 'enter', '101'], { kind: 'prompt', marker, stdin: false }))
-      .toBe(`PATH="$PATH:/usr/sbin:/sbin" sudo -p '${marker}' pct enter 101`);
+    const ready = '[terminus-ready-0123456789abcdef]';
+    expect(remoteCommand(['pct', 'list'], { kind: 'prompt', marker, ready, stdin: true })).toBe(
+      `sh -c 'PATH="$PATH:/usr/sbin:/sbin"; sudo -S -p '\\''${marker}'\\'' -v && printf %s '\\''${ready}'\\'' && sudo -n pct list; exit $?'`);
+    expect(remoteCommand(['docker', 'exec', '-it', 'web-1', 'sh', '-c', SHELL_CHOICE], { kind: 'prompt', marker, ready, stdin: false })).toBe(
+      `sh -c 'PATH="$PATH:/usr/sbin:/sbin"; sudo -p '\\''${marker}'\\'' -v && printf %s '\\''${ready}'\\'' && sudo -n docker exec -it web-1 sh -c '\\''command -v bash >/dev/null 2>&1 && exec bash || exec sh'\\''; exit $?'`);
   });
   it('refuses markers sudo would expand or the shell could misread', () => {
-    expect(() => remoteCommand(['pct', 'list'], { kind: 'prompt', marker: '%u', stdin: true })).toThrow();
-    expect(() => remoteCommand(['pct', 'list'], { kind: 'prompt', marker: '', stdin: true })).toThrow();
+    const ready = '[terminus-ready-0123456789abcdef]';
+    expect(() => remoteCommand(['pct', 'list'], { kind: 'prompt', marker: '%u', ready, stdin: true })).toThrow();
+    expect(() => remoteCommand(['pct', 'list'], { kind: 'prompt', marker: '', ready, stdin: true })).toThrow();
+    expect(() => remoteCommand(['pct', 'list'], { kind: 'prompt', marker: '[terminus-sudo-0123456789abcdef]', ready: "x'y", stdin: true })).toThrow();
+  });
+  it.runIf(hasSh())('runs the prompt script through sh with every argument intact', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'terminus-fake-sudo-'));
+    try {
+      // Fake sudo: -v succeeds silently, -n runs the remaining arguments.
+      writeFileSync(join(directory, 'sudo'), '#!/bin/sh\nwhile [ $# -gt 0 ]; do case "$1" in -v) exit 0;; -n|-S) shift;; -p) shift 2;; *) break;; esac; done\nexec "$@"\n', { mode: 0o755 });
+      const ready = '[terminus-ready-0123456789abcdef]';
+      const command = remoteCommand(['printf', '%s|', "it's", 'two words', '$(id)'], { kind: 'prompt', marker: '[terminus-sudo-0123456789abcdef]', ready, stdin: true });
+      const out = execFileSync('sh', ['-c', command], { encoding: 'utf8', env: { ...process.env, PATH: `${directory}:${process.env.PATH}` } });
+      expect(out).toBe(`${ready}it's|two words|$(id)|`);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
   it.runIf(hasSh())('keeps a quoted argument intact through sh', () => {
     const arg = "a'; echo pwned; '";
@@ -99,5 +117,20 @@ describe('actionArgv', () => {
   it('rejects actions a kind does not have', () => {
     expect(() => actionArgv(web, 'shutdown')).toThrow(ContainerInputError);
     expect(() => actionArgv(vm, 'restart')).toThrow(ContainerInputError);
+  });
+});
+
+describe('sudoSetting', () => {
+  const base: SshConnectionNode = { id: 'h1', type: 'connection', protocol: 'ssh', name: 'h', host: 'h', port: 22, username: 'u',
+    authentication: { method: 'password', password: 'synthetic-password' }, tags: [] };
+  it('prompts only with sudo enabled and a stored password', () => {
+    expect(sudoSetting(base)).toEqual({ kind: 'none' });
+    expect(sudoSetting({ ...base, containers: { sudo: true } })).toEqual({ kind: 'prompt', password: 'synthetic-password' });
+    expect(sudoSetting({ ...base, containers: { sudo: true }, authentication: { method: 'agent' } })).toEqual({ kind: 'noninteractive' });
+    expect(sudoSetting({ ...base, containers: { sudo: true }, authentication: { method: 'password', password: '' } })).toEqual({ kind: 'noninteractive' });
+  });
+  it.each(['a\nb', 'a\rb'])('refuses a password with a line break (%j)', password => {
+    expect(() => sudoSetting({ ...base, containers: { sudo: true }, authentication: { method: 'password', password } }))
+      .toThrow(new ContainerInputError('Das Passwort enthält einen Zeilenumbruch und kann nicht für sudo verwendet werden.'));
   });
 });

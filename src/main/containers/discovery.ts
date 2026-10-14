@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import type { ContainerAction, ContainerHostId, ContainerTarget, DiscoveredItem, DiscoveryResult, RuntimeKind } from '../../shared/containers';
 import type { ConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import { publicError } from '../ssh/session';
-import { actionArgv, ContainerInputError, listArgv, PROBE_COMMAND, remoteCommand } from './commands';
+import { actionArgv, ContainerInputError, listArgv, PROBE_COMMAND, remoteCommand, sudoSetting } from './commands';
 import { describeFailure, parseContainerList, parsePctList, parseProbe, parseQmList } from './parsers';
 import type { RunResult } from './parsers';
 import { HostAccessError } from './runner';
@@ -21,8 +22,9 @@ export interface DiscoveryDependencies {
 
 interface CachedHost { fingerprint: string; host: Promise<RemoteHost>; timer?: ReturnType<typeof setTimeout>; inFlight: number }
 
-const fingerprint = (connection: SshConnectionNode): string =>
-  JSON.stringify([connection.host, connection.port, connection.username, connection.authentication]);
+/** Hashed, so cache keys never hold the stored password. */
+const fingerprint = (connection: SshConnectionNode): string => createHash('sha256')
+  .update(JSON.stringify([connection.host, connection.port, connection.username, connection.authentication])).digest('hex');
 
 function readable(error: unknown): Error {
   if (error instanceof HostAccessError || error instanceof ContainerInputError) return error;
@@ -39,37 +41,31 @@ function probeOutput(result: RunResult): string {
   return result.stdout;
 }
 
-/** sudo -S with the stored password when there is one, else sudo -n; a fresh prompt marker per command. */
-function runSudo(host: RemoteHost, connection: SshConnectionNode, argv: string[], timeoutMs: number): Promise<RunResult> {
-  if (connection.containers?.sudo !== true) return host.run(remoteCommand(argv, { kind: 'none' }), timeoutMs);
-  const auth = connection.authentication;
-  if (auth.method !== 'password' || !auth.password) return host.run(remoteCommand(argv, { kind: 'noninteractive' }), timeoutMs);
-  const marker = createSudoMarker();
-  return host.run(remoteCommand(argv, { kind: 'prompt', marker, stdin: true }), timeoutMs, { marker, password: auth.password });
-}
-
 const kindOf = (target: ContainerTarget): RuntimeKind => target.kind === 'container' ? target.runtime : 'proxmox';
 
 export class ContainerDiscovery {
   private hosts = new Map<string, CachedHost>();
+  /** Connection fingerprints whose stored password sudo refused; not sent again until the settings change. */
+  private sudoRejected = new Map<string, string>();
   constructor(private readonly dependencies: DiscoveryDependencies) {}
 
   async list(hostId: ContainerHostId): Promise<DiscoveryResult> {
     try {
       if (hostId === LOCAL_CONTAINER_HOST) return await this.listLocal();
       const connection = this.sshConnection(hostId);
+      sudoSetting(connection);
       return await this.withHost(connection, async host => {
         const tools = parseProbe(probeOutput(await host.run(PROBE_COMMAND, LIST_TIMEOUT)));
         const result: DiscoveryResult = { runtimes: [], items: [], problems: {} };
         for (const runtime of ['docker', 'podman'] as const) {
           if (!tools.has(runtime)) continue;
           result.runtimes.push(runtime);
-          this.collect(result, runtime, await runSudo(host, connection, listArgv(runtime), LIST_TIMEOUT), text => parseContainerList(runtime, text));
+          this.collect(result, runtime, await this.runSudo(host, connection, listArgv(runtime), LIST_TIMEOUT), text => parseContainerList(runtime, text));
         }
         if (tools.has('pct') || tools.has('qm')) {
           result.runtimes.push('proxmox');
-          if (tools.has('pct')) this.collect(result, 'proxmox', await runSudo(host, connection, listArgv('lxc'), LIST_TIMEOUT), parsePctList);
-          if (tools.has('qm')) this.collect(result, 'proxmox', await runSudo(host, connection, listArgv('vm'), LIST_TIMEOUT), parseQmList);
+          if (tools.has('pct')) this.collect(result, 'proxmox', await this.runSudo(host, connection, listArgv('lxc'), LIST_TIMEOUT), parsePctList);
+          if (tools.has('qm')) this.collect(result, 'proxmox', await this.runSudo(host, connection, listArgv('vm'), LIST_TIMEOUT), parseQmList);
         }
         return result;
       });
@@ -86,15 +82,33 @@ export class ContainerDiscovery {
         result = await this.dependencies.runLocal(argv[0], argv.slice(1), ACTION_TIMEOUT);
       } else {
         const connection = this.sshConnection(hostId);
-        const actionArgs = argv;
-        result = await this.withHost(connection, host => runSudo(host, connection, actionArgs, ACTION_TIMEOUT));
+        const command = argv;
+        sudoSetting(connection);
+        result = await this.withHost(connection, host => this.runSudo(host, connection, command, ACTION_TIMEOUT));
       }
     } catch (error) { throw readable(error); }
     if (result.code !== 0) throw new Error(result.notFound ? `${argv[0]} ist nicht installiert.` : describeFailure(kindOf(target), result));
   }
 
   closeAll(): void {
+    this.sudoRejected.clear();
     for (const [id, cached] of [...this.hosts]) this.drop(id, cached);
+  }
+
+  /**
+   * With a stored password: authenticate with `sudo -S -v` first, fresh markers per command. After a
+   * rejection the password is not sent again (account lockout), until the connection settings change.
+   */
+  private async runSudo(host: RemoteHost, connection: SshConnectionNode, argv: string[], timeoutMs: number): Promise<RunResult> {
+    const setting = sudoSetting(connection);
+    if (setting.kind !== 'prompt') return host.run(remoteCommand(argv, setting), timeoutMs);
+    const print = fingerprint(connection);
+    if (this.sudoRejected.get(connection.id) === print) return { code: null, stdout: '', stderr: '', sudoRejected: true };
+    const marker = createSudoMarker('sudo');
+    const ready = createSudoMarker('ready');
+    const result = await host.run(remoteCommand(argv, { kind: 'prompt', marker, ready, stdin: true }), timeoutMs, { marker, ready, password: setting.password });
+    if (result.sudoRejected) this.sudoRejected.set(connection.id, print);
+    return result;
   }
 
   private async listLocal(): Promise<DiscoveryResult> {

@@ -117,7 +117,8 @@ muss er die Befehle als root ausführen können. Alternativ führt die Option
 Meldet sich die Verbindung per Passwort an, beantwortet Terminus die sudo-Abfrage
 einmal mit dem gespeicherten Passwort, aber nur, wenn sudo tatsächlich fragt. Bei
 Anmeldung per Schlüssel oder Agent läuft `sudo -n`; dafür ist eine NOPASSWD-Regel
-für diesen Benutzer nötig.
+für diesen Benutzer nötig. Lehnt sudo das Passwort ab, sendet Terminus es erst
+wieder, wenn die Verbindungseinstellungen geändert wurden.
 
 Container-Tabs von SSH-Hosts werden in Workspaces gespeichert, lokale Container-Tabs
 nicht. Diese Version bietet keinen Datei-Browser in Containern, keine Proxmox-API,

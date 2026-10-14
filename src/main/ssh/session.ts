@@ -14,10 +14,10 @@ import { HostKeyError } from './known-hosts';
 import { sshConnectConfig } from './client-config';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import type { TerminalTarget } from '../../shared/containers';
-import { ContainerInputError, remoteCommand, terminalArgv } from '../containers/commands';
+import { ContainerInputError, remoteCommand, sudoSetting, terminalArgv } from '../containers/commands';
 import type { SudoMode } from '../containers/commands';
 import { SUDO_REJECTED } from '../containers/parsers';
-import { createSudoMarker, SudoPromptWatcher } from '../containers/sudo';
+import { createSudoMarker, SudoWatcher } from '../containers/sudo';
 
 export { agentSocket } from './client-config';
 
@@ -25,8 +25,6 @@ const OUTPUT_HIGH = 128 * 1024;
 const OUTPUT_LOW = 32 * 1024;
 const OUTPUT_LIMIT = 512 * 1024;
 const INPUT_LIMIT = 64 * 1024;
-/** Held bytes that might start a sudo marker are shown after this delay at the latest. */
-const SUDO_HOLD_MS = 50;
 
 /** `args` as a string is passed to Windows unchanged (cmd.exe /k <command line>). */
 export type SpawnShell = (file: string, args: string[] | string, options: IPtyForkOptions | IWindowsPtyForkOptions) => IPty;
@@ -64,8 +62,8 @@ interface Session {
   tail?: string;
   /** Set once the user sent input; later exits are the user's own. */
   typed?: boolean;
-  /** Container tab whose sudo prompt is answered with the stored password; the password is dropped once sent. */
-  sudo?: { watcher: SudoPromptWatcher; password?: string; timer?: ReturnType<typeof setTimeout> };
+  /** Container tab authenticating sudo with the stored password; removed at the ready marker. */
+  sudo?: { watcher: SudoWatcher; password?: string };
 }
 
 export function findConnection(nodes: VaultNode[], id: string): ConnectionNode | undefined {
@@ -168,6 +166,8 @@ export class SshSessionManager {
       if (connection.protocol === 'powershell' || connection.protocol === 'cmd' || connection.protocol === 'aicli') { await this.startLocalShell(session, connection); return; }
       if (connection.protocol !== 'ssh' || !session.client) throw new Error('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
       const client = session.client;
+      // Decided before connecting, so an unusable password fails without contacting the host.
+      const sudo = session.target ? this.sudoMode(session, connection) : undefined;
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
           .then(valid => {
@@ -184,7 +184,7 @@ export class SshSessionManager {
         this.clearKey(session);
         const pty = { term: 'xterm-256color', cols: session.size.cols, rows: session.size.rows };
         const attach = (error: Error | undefined, stream: ClientChannel) => this.attachStream(session, error, stream);
-        if (session.target) client.exec(remoteCommand(terminalArgv(session.target), this.sudoMode(session, connection)), { pty }, attach);
+        if (session.target && sudo) client.exec(remoteCommand(terminalArgv(session.target), sudo), { pty }, attach);
         else client.shell(pty, attach);
       });
       client.connect(config);
@@ -205,37 +205,34 @@ export class SshSessionManager {
     this.status(session, 'connected');
   }
 
-  /** With a stored password, sudo prompts on the tty with a marker that Terminus answers; otherwise sudo -n. */
+  /** With a stored password, `sudo -v` prompts on the tty with a marker that Terminus answers; otherwise sudo -n. */
   private sudoMode(session: Session, connection: SshConnectionNode): SudoMode {
-    if (connection.containers?.sudo !== true) return { kind: 'none' };
-    const auth = connection.authentication;
-    if (auth.method !== 'password' || !auth.password) return { kind: 'noninteractive' };
-    const marker = createSudoMarker();
-    session.sudo = { watcher: new SudoPromptWatcher(marker), password: auth.password };
-    return { kind: 'prompt', marker, stdin: false };
+    const setting = sudoSetting(connection);
+    if (setting.kind !== 'prompt') return setting;
+    const marker = createSudoMarker('sudo');
+    const ready = createSudoMarker('ready');
+    session.sudo = { watcher: new SudoWatcher({ prompt: marker, ready }), password: setting.password };
+    return { kind: 'prompt', marker, ready, stdin: false };
   }
 
+  /** Before the ready marker only sudo writes; after it the watcher and password are gone and output is untouched. */
   private sudoOutput(session: Session, chunk: Buffer): void {
     const sudo = session.sudo!;
-    clearTimeout(sudo.timer);
-    sudo.timer = undefined;
-    const { output, prompts } = sudo.watcher.feed(chunk);
-    this.output(session, output);
-    if (prompts) {
-      // A second prompt means sudo refused the password; never send it twice.
-      if (sudo.watcher.count > 1 || !sudo.password) { this.finish(session, 'error', SUDO_REJECTED); return; }
-      const password = sudo.password;
-      sudo.password = undefined;
-      session.stream?.write(`${password}\n`);
-    }
-    if (sudo.watcher.holding) sudo.timer = setTimeout(() => this.releaseSudoHold(session), SUDO_HOLD_MS);
+    const result = sudo.watcher.feed(chunk);
+    if (result.ready) session.sudo = undefined;
+    this.output(session, result.output);
+    if (result.ready || !result.prompts) return;
+    // A second prompt means sudo refused the password; never send it twice.
+    if (sudo.watcher.count > 1 || !sudo.password) { this.finish(session, 'error', SUDO_REJECTED); return; }
+    const password = sudo.password;
+    sudo.password = undefined;
+    session.stream?.write(`${password}\n`);
   }
 
   private releaseSudoHold(session: Session): void {
-    if (!session.sudo) return;
-    clearTimeout(session.sudo.timer);
-    session.sudo.timer = undefined;
-    this.output(session, session.sudo.watcher.flush());
+    const sudo = session.sudo;
+    session.sudo = undefined;
+    if (sudo) this.output(session, sudo.watcher.flush());
   }
 
   private ended(session: Session): void {
@@ -402,7 +399,7 @@ export class SshSessionManager {
     this.sessions.delete(session.id);
     clearTimeout(session.timer);
     this.clearKey(session);
-    if (session.sudo) { clearTimeout(session.sudo.timer); session.sudo.password = undefined; }
+    session.sudo = undefined;
     session.outstanding.clear();
     session.stream?.destroy();
     session.client?.destroy();
