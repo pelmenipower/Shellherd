@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an Terminus. Die Versionsnummer folgt [Semantic V
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.3.0] – 2026-10-14
+
+- Container und VMs unter SSH-Verbindungen: Docker, Podman und Proxmox (LXC/VMs) werden beim Aufklappen erkannt; auf dem Server muss nichts installiert werden.
+- Shell in Container und LXC per Doppelklick, Logs folgen, Starten/Stoppen/Neu starten; serielle Konsole für Proxmox-VMs.
+- Lokales Docker Desktop oder Podman unter „Dieser Computer“.
+- Option „Container-Befehle mit sudo ausführen“ (sudo -n) pro SSH-Verbindung.
+
 ## [0.2.0] – 2026-10-14
 
 - Remotedesktop (RDP) direkt im Tab, ohne zusätzliche Installation, mit Tastenkombinationen wie Strg+Alt+Entf.
