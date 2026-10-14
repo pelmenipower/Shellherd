@@ -35,6 +35,8 @@ export interface SshConnectionNode extends ConnectionBase {
   port: number;
   username?: string;
   authentication: Authentication;
+  /** Container discovery and tabs; see docs/superpowers/specs/2026-10-14-container-integration-design.md. */
+  containers?: { sudo?: boolean };
 }
 
 /** File transfer over SSH; same target and authentication as an SSH connection. */
