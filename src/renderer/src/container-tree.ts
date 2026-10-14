@@ -10,7 +10,7 @@ export interface ContainerTreeProps {
 
 export type HostDiscovery =
   | { status: 'loading' }
-  | { status: 'ready'; result: DiscoveryResult; busy: string[]; notice?: { key: string; message: string } }
+  | { status: 'ready'; result: DiscoveryResult; busy: string[]; notice?: { key: string; message: string }; refreshing?: boolean }
   | { status: 'error'; message: string };
 export type ContainerTreeState = Record<string, HostDiscovery>;
 export type ContainerTreeAction =
@@ -22,8 +22,16 @@ export type ContainerTreeAction =
 
 export function containerTreeReducer(state: ContainerTreeState, action: ContainerTreeAction): ContainerTreeState {
   switch (action.type) {
-    case 'loading': return { ...state, [action.hostId]: { status: 'loading' } };
-    case 'loaded': return { ...state, [action.hostId]: { status: 'ready', result: action.result, busy: [] } };
+    case 'loading': {
+      const host = state[action.hostId];
+      if (host?.status !== 'ready') return { ...state, [action.hostId]: { status: 'loading' } };
+      return { ...state, [action.hostId]: { ...host, refreshing: true } };
+    }
+    case 'loaded': {
+      const host = state[action.hostId];
+      const previous = host?.status === 'ready' ? host : undefined;
+      return { ...state, [action.hostId]: { status: 'ready', result: action.result, busy: previous?.busy ?? [], ...(previous?.notice ? { notice: previous.notice } : {}) } };
+    }
     case 'failed': return { ...state, [action.hostId]: { status: 'error', message: action.message } };
     case 'busy': case 'notice': {
       const host = state[action.hostId];

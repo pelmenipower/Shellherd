@@ -18,6 +18,25 @@ describe('container tree state', () => {
     state = containerTreeReducer(state, { type: 'failed', hostId: 'h1', message: 'weg' });
     expect(state.h1).toEqual({ status: 'error', message: 'weg' });
   });
+  it('keeps the result and busy flags while a ready host reloads', () => {
+    let state = containerTreeReducer({}, { type: 'loaded', hostId: 'h1', result });
+    state = containerTreeReducer(state, { type: 'busy', hostId: 'h1', key: 'container:docker:web-1', busy: true });
+    state = containerTreeReducer(state, { type: 'loading', hostId: 'h1' });
+    expect(state.h1).toMatchObject({ status: 'ready', result, busy: ['container:docker:web-1'], refreshing: true });
+  });
+  it('keeps busy flags and an existing notice when a reload finishes', () => {
+    let state = containerTreeReducer({}, { type: 'loaded', hostId: 'h1', result });
+    state = containerTreeReducer(state, { type: 'busy', hostId: 'h1', key: 'container:docker:web-1', busy: true });
+    state = containerTreeReducer(state, { type: 'busy', hostId: 'h1', key: 'vm:100', busy: true });
+    state = containerTreeReducer(state, { type: 'notice', hostId: 'h1', key: 'container:docker:web-1', message: 'kaputt' });
+    state = containerTreeReducer(state, { type: 'loading', hostId: 'h1' });
+    state = containerTreeReducer(state, { type: 'loaded', hostId: 'h1', result });
+    expect(state.h1).toMatchObject({ status: 'ready', busy: ['container:docker:web-1', 'vm:100'], notice: { key: 'container:docker:web-1', message: 'kaputt' } });
+    expect(state.h1).not.toHaveProperty('refreshing');
+  });
+  it('shows loading for a host that was never loaded', () => {
+    expect(containerTreeReducer({}, { type: 'loading', hostId: 'h1' })).toEqual({ h1: { status: 'loading' } });
+  });
   it('ignores busy and notice for hosts that are not ready', () => {
     expect(containerTreeReducer({}, { type: 'busy', hostId: 'h1', key: 'x', busy: true })).toEqual({});
   });
