@@ -112,9 +112,12 @@ Das wird nach dem Entsperren des Vaults geprüft und lässt sich über das Konte
 der freien Fläche im Verbindungsbaum (`Lokale Container suchen`) wiederholen.
 
 Der SSH-Benutzer braucht Zugriff auf Docker über die Gruppe `docker`; für Proxmox
-muss er die Befehle als root ausführen können. Alternativ aktiviert die Option
-`Container-Befehle mit sudo ausführen` pro SSH-Verbindung `sudo -n`. Dafür ist eine
-NOPASSWD-Regel für diesen Benutzer nötig.
+muss er die Befehle als root ausführen können. Alternativ führt die Option
+`Container-Befehle mit sudo ausführen` die Befehle pro SSH-Verbindung mit sudo aus.
+Meldet sich die Verbindung per Passwort an, beantwortet Terminus die sudo-Abfrage
+einmal mit dem gespeicherten Passwort, aber nur, wenn sudo tatsächlich fragt. Bei
+Anmeldung per Schlüssel oder Agent läuft `sudo -n`; dafür ist eine NOPASSWD-Regel
+für diesen Benutzer nötig.
 
 Container-Tabs von SSH-Hosts werden in Workspaces gespeichert, lokale Container-Tabs
 nicht. Diese Version bietet keinen Datei-Browser in Containern, keine Proxmox-API,
