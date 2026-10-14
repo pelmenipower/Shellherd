@@ -163,6 +163,15 @@ export const AiSettingsSchema = z.object({
   defaultProviderId: z.string().optional(),
 });
 
+export const WorkflowSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(120),
+  command: z.string().min(1).max(4000).refine(command => !/[\r\n]/.test(command), 'Ein Workflow ist eine Zeile.'),
+  description: z.string().max(2000).optional(),
+  tags: z.array(z.string().min(1).max(40)).max(20),
+  shell: z.enum(['ssh', 'powershell', 'cmd']).optional(),
+});
+
 export const VaultSchema: z.ZodType<Vault> = z.object({
   format: z.literal('terminus-vault'),
   version: z.literal(2),
@@ -178,6 +187,7 @@ export const VaultSchema: z.ZodType<Vault> = z.object({
   workspaces: z.array(WorkspaceSchema),
   settings: VaultSettingsSchema,
   ai: AiSettingsSchema.optional(),
+  workflows: z.array(WorkflowSchema).max(1000).optional(),
 });
 
 export const EncryptedVaultFileSchema: z.ZodType<EncryptedVaultFile> =

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiCatalog, AiTerminalContext } from '../../../shared/ai';
 import type { TerminalTab } from '../terminal-tabs';
-import { isRunning, tabLabel } from '../terminal-tabs';
+import { tabLabel } from '../terminal-tabs';
+import { typeIntoTerminal } from '../terminal-input';
 import { liveSessions } from '../session-registry';
 import { historyForRequest, insertableCommand, outputMessage, parseAnswer, questionMessage } from '../assistant-chat';
 import '../assistant-ui.css';
@@ -12,6 +13,8 @@ interface AssistantPanelProps {
   onClose: () => void;
   /** Main window only: opens the provider settings. */
   onManageProviders?: () => void;
+  /** Main window only: saves a suggested command as workflow. */
+  onSaveWorkflow?: (command: string) => void;
 }
 
 interface ChatEntry {
@@ -50,7 +53,7 @@ export function shellOf(tab: TerminalTab | undefined): AiTerminalContext['shell'
  * Terminal assistant: reads the focused terminal, explains, and types suggested commands into the
  * input line without pressing Enter. After the user runs a command, it can read and explain the output.
  */
-export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders }: AssistantPanelProps) {
+export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, onSaveWorkflow }: AssistantPanelProps) {
   const [catalog, setCatalog] = useState<AiCatalog | null>(null);
   const [providerId, setProviderId] = useState<string>(() => read(PROVIDER_KEY) ?? '');
   const [autoEvaluate, setAutoEvaluate] = useState(() => read(AUTO_KEY) !== 'off');
@@ -86,15 +89,8 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders }
 
   /** Types a command into the terminal; never adds Enter. */
   const typeCommand = useCallback((tabId: string, entryId: string, command: string): void => {
-    const live = liveSessions.get(tabId);
-    const target = tabsRef.current.find(item => item.id === tabId);
-    const text = insertableCommand(command);
-    if (!text) { updateEntry(tabId, entryId, { note: 'Mehrzeiliger Befehl: bitte Zeile für Zeile kopieren.' }); return; }
-    if (!live?.terminal || !target || !isRunning(target)) { updateEntry(tabId, entryId, { note: 'Das Terminal ist nicht verbunden; der Befehl wurde nicht eingetippt.' }); return; }
-    if (live.terminal.fullscreen()) { updateEntry(tabId, entryId, { note: 'Im Terminal läuft ein Vollbildprogramm; der Befehl wurde nicht eingetippt.' }); return; }
-    void window.desktopApi.sshInput({ sessionId: live.sessionId, data: text })
-      .then(() => updateEntry(tabId, entryId, { inserted: text, note: undefined }))
-      .catch(() => updateEntry(tabId, entryId, { note: 'Der Befehl konnte nicht eingetippt werden.' }));
+    void typeIntoTerminal(tabsRef.current.find(item => item.id === tabId), command).then(result =>
+      updateEntry(tabId, entryId, 'typed' in result ? { inserted: result.typed, note: undefined } : { note: result.reason }));
   }, [updateEntry]);
 
   const send = useCallback((tabId: string, shown: string, content: string): void => {
@@ -211,6 +207,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders }
                     <span>{entry.inserted === insertableCommand(segment.command) ? 'In die Eingabezeile geschrieben, nicht ausgeführt' : entry.note ?? 'Vorschlag'}</span>
                     <button type="button" disabled={!insertableCommand(segment.command)} onClick={() => typeCommand(tab.id, entry.id, segment.command)}>Eintippen</button>
                     <button type="button" onClick={() => void window.desktopApi.writeClipboardText(segment.command).catch(() => {})}>Kopieren</button>
+                    {onSaveWorkflow && <button type="button" title="Als Workflow speichern" onClick={() => onSaveWorkflow(segment.command)}>Als Workflow</button>}
                   </div>}
                 </div>)}
               {entry.pending && <span className="assistant-typing" aria-label="Antwort wird geschrieben">…</span>}

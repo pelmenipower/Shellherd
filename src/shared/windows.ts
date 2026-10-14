@@ -1,4 +1,4 @@
-import type { ConnectionProtocol, VaultNode, WorkspaceLayout, WorkspaceView } from './vault/types';
+import type { ConnectionProtocol, VaultNode, Workflow, WorkspaceLayout, WorkspaceView } from './vault/types';
 import type { SshStatus } from './ssh';
 
 export type WindowRole = 'main' | 'secondary';
@@ -60,7 +60,7 @@ export interface IncomingTab {
 export type ExternalDragHover = { x: number; y: number; label: string; kind?: 'tab' | 'view' } | null;
 
 /** What detached windows know about the vault: connection metadata without secrets. */
-export interface ConnectionCatalog { nodes: VaultNode[]; confirmBeforeClosingSession: boolean }
+export interface ConnectionCatalog { nodes: VaultNode[]; confirmBeforeClosingSession: boolean; workflows: Workflow[] }
 
 export interface WindowBounds { x: number; y: number; width: number; height: number }
 export interface WorkspaceWindowState { bounds: WindowBounds; layout: WorkspaceLayout; views?: WorkspaceView[] }

@@ -98,6 +98,19 @@ export interface Vault {
   settings: VaultSettings;
   /** AI providers for the terminal assistant; keys stay encrypted in the vault. */
   ai?: AiSettings;
+  /** Saved commands with {{placeholders}}, typed into a terminal on demand. */
+  workflows?: Workflow[];
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  /** One line; `{{name}}` marks a value asked for when the workflow is used. */
+  command: string;
+  description?: string;
+  tags: string[];
+  /** Shell the command is written for; absent means any. */
+  shell?: 'ssh' | 'powershell' | 'cmd';
 }
 
 export type AiProviderKind = 'openai' | 'azure' | 'anthropic' | 'gemini';

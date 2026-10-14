@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useCtrlShiftShortcut } from './useShortcut';
 
 const KEY = 'terminus.assistantOpen';
 
@@ -13,13 +14,6 @@ export function useAssistantToggle(): { open: boolean; setOpen: (open: boolean) 
     try { localStorage.setItem(KEY, current ? 'off' : 'on'); } catch { /* convenience only */ }
     return !current;
   }), []);
-  useEffect(() => {
-    // Capture phase: xterm would otherwise consume the keys.
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.ctrlKey && event.shiftKey && !event.altKey && event.code === 'KeyK') { event.preventDefault(); event.stopPropagation(); toggle(); }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [toggle]);
+  useCtrlShiftShortcut('KeyK', toggle);
   return { open, setOpen, toggle };
 }

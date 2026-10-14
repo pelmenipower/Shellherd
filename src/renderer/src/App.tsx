@@ -40,6 +40,10 @@ import { ReleaseNotesDialog } from './components/ReleaseNotes';
 import { AssistantPanel } from './components/AssistantPanel';
 import { AiSettingsDialog } from './components/AiSettingsDialog';
 import { useAssistantToggle } from './hooks/useAssistantToggle';
+import { useCtrlShiftShortcut } from './hooks/useShortcut';
+import { WorkflowPalette } from './components/WorkflowPalette';
+import { WorkflowsDialog } from './components/WorkflowsDialog';
+import type { Workflow } from '../../shared/vault/types';
 import { ConnectionForm } from './components/ConnectionForm';
 import { parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
@@ -101,6 +105,9 @@ export default function App() {
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const assistant = useAssistantToggle();
   const [showAiSettings, setShowAiSettings] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [workflowEditor, setWorkflowEditor] = useState<{ initial?: Partial<Workflow> } | null>(null);
+  useCtrlShiftShortcut('Space', () => { if (screenRef.current === 'vault') setPaletteOpen(open => !open); });
 
   const [vault, setVault] = useState<Vault | null>(null);
   const [vaultPath, setVaultPath] = useState<string | null>(
@@ -640,6 +647,7 @@ export default function App() {
           activeId={activeWorkspaceId} dirty={workspaceDirty} onSave={saveWorkspace}
           onOpen={id => navigateEditor(() => openWorkspace(id))} onRename={renameWorkspace} onDelete={deleteWorkspace}
           onClose={() => navigateEditor(() => closeWorkspace())} />
+        <button className="secondary-button" type="button" title="Workflows suchen und eintippen (Strg+Umschalt+Leertaste)" onClick={() => setPaletteOpen(true)}>Workflows</button>
         <button className="secondary-button assistant-toggle" type="button" aria-pressed={assistant.open} title="KI-Assistent ein- oder ausblenden (Strg+Umschalt+K)"
           onClick={assistant.toggle}>KI-Assistent</button>
         <button className="secondary-button lock-button" type="button" disabled={busy} onClick={() => navigateEditor(() => {
@@ -722,9 +730,13 @@ export default function App() {
                 onDirtyChange={setEditorDirty} onSave={saveFolder} onDelete={deleteSelectedNode} onCancel={closeEditor} /> : null}
           </aside>}
           {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)}
-            onManageProviders={() => setShowAiSettings(true)} />}
+            onManageProviders={() => setShowAiSettings(true)} onSaveWorkflow={command => setWorkflowEditor({ initial: { command } })} />}
         </section>
       </div>
+      {paletteOpen && <WorkflowPalette workflows={vault.workflows ?? []} tabs={terminals.tabs} activeTabId={terminals.activeTabId}
+        onClose={() => setPaletteOpen(false)} onManage={() => { setPaletteOpen(false); setWorkflowEditor({}); }} />}
+      {workflowEditor && <WorkflowsDialog workflows={vault.workflows ?? []} busy={busy} initial={workflowEditor.initial}
+        onClose={() => setWorkflowEditor(null)} onSave={workflows => persistVault({ ...vault, workflows })} />}
       {showAiSettings && <AiSettingsDialog settings={vault.ai} busy={busy} onClose={() => setShowAiSettings(false)}
         onSave={settings => persistVault({ ...vault, ai: settings })} />}
       {error && <div className="app-error" role="alert"><span>{error}</span><button type="button" aria-label="Fehlermeldung schließen" onClick={() => setError(null)}>Schließen</button></div>}

@@ -65,7 +65,7 @@ export interface WindowIpcDependencies {
 
 export function catalog(): ConnectionCatalog {
   const { vault } = vaultSessionManager.getSnapshot();
-  return { nodes: redactSecrets(vault.nodes), confirmBeforeClosingSession: vault.settings.confirmBeforeClosingSession };
+  return { nodes: redactSecrets(vault.nodes), confirmBeforeClosingSession: vault.settings.confirmBeforeClosingSession, workflows: vault.workflows ?? [] };
 }
 
 export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSecondary, closeOwnerSessions }: WindowIpcDependencies): {

@@ -11,6 +11,8 @@ import { fromWorkspaceViews, toWorkspaceViews } from './terminal-views';
 import { findNode } from './vault-selection';
 import { AssistantPanel } from './components/AssistantPanel';
 import { useAssistantToggle } from './hooks/useAssistantToggle';
+import { useCtrlShiftShortcut } from './hooks/useShortcut';
+import { WorkflowPalette } from './components/WorkflowPalette';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
 /** Detached window: tabs and split layout only; vault, sidebar and editor stay in the main window. */
@@ -86,6 +88,8 @@ export function SecondaryWindow() {
   };
   const closingTab = terminals.tabs.find(tab => tab.id === pendingClose);
   const assistant = useAssistantToggle();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useCtrlShiftShortcut('Space', () => setPaletteOpen(open => !open));
 
   return <main className="vault-shell secondary-shell">
     <div className="secondary-body"><div className="terminal-area">
@@ -97,6 +101,7 @@ export function SecondaryWindow() {
     </div>
     {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)} />}
     </div>
+    {paletteOpen && <WorkflowPalette workflows={catalog?.workflows ?? []} tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => setPaletteOpen(false)} />}
     {closingTab && <ConfirmDialog title={`Tab „${tabLabel(closingTab, terminals.tabs)}“ schließen?`}
       description="Diese Verbindung wird beendet. Laufende Programme in der Sitzung können dadurch beendet werden."
       confirmLabel="Verbindung trennen" busy={false} onCancel={() => setPendingClose(null)}
