@@ -3,7 +3,7 @@ import type { ConnectionNode } from '../../shared/vault/types';
 import type { TerminalTab } from './terminal-tabs';
 import { toTerminalConnection } from './terminal-tabs';
 import { panes, splitPane } from './terminal-layout';
-import { activeView, addView, closeView, fromWorkspaceViews, initialViews, insertView, moveTabToView, moveView, paneToView, remapLayout, removeView, renameView, restoreViews, savedViews, syncViews, toWorkspaceViews } from './terminal-views';
+import { activeView, addView, closeView, fromWorkspaceViews, initialViews, insertView, moveTabToView, moveView, paneToView, remapLayout, removeView, renameView, restoreViews, savedViews, syncViews, toWorkspaceViews, workspaceSummary } from './terminal-views';
 
 const connection = { id: 'server', name: 'Server', protocol: 'ssh' as const, address: 'h:22' };
 const tab = (id: string): TerminalTab => ({ id, connection, ordinal: 1, status: 'connected' });
@@ -112,5 +112,16 @@ describe('terminal views', () => {
     expect(restored.tabs.map(item => [item.connection.protocol, item.ordinal])).toEqual([['ssh', 1], ['sftp', 1]]);
     expect(restored.tabs[1].connection).toMatchObject({ name: 'Server · Dateien', view: 'files' });
     expect(toWorkspaceViews(restored.state, restored.tabs)).toEqual(saved);
+  });
+
+  it('keeps the name of a single renamed view and summarizes saved workspaces', () => {
+    const state = renameView(syncViews(initialViews(), [tab('a')], 'a', 'root'), 'view-1', 'Produktion');
+    const saved = toWorkspaceViews(state, [tab('a')]);
+    expect(saved.views?.map(view => view.name)).toEqual(['Produktion']);
+    expect(toWorkspaceViews(syncViews(initialViews(), [tab('a')], 'a', 'root'), [tab('a')])).not.toHaveProperty('views');
+    const pane = (count: number) => ({ type: 'pane' as const, connectionIds: Array(count).fill('server') });
+    expect(workspaceSummary({ id: 'w', name: 'W', layout: pane(2), views: [{ name: 'A', layout: pane(2) }, { name: 'B', layout: pane(3) }],
+      windows: [{ bounds: { x: 0, y: 0, width: 800, height: 600 }, layout: pane(1) }] })).toBe('3 Ansichten · 6 Tabs · 1 weiteres Fenster');
+    expect(workspaceSummary({ id: 'w', name: 'W', layout: pane(1) })).toBe('1 Ansicht · 1 Tab');
   });
 });

@@ -1,6 +1,7 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Workspace } from '../../../shared/vault/types';
 import { ConfirmDialog } from './ConfirmDialog';
+import { workspaceSummary } from '../terminal-views';
 import './navigation-ui.css';
 interface Props {
   workspaces: Workspace[]; busy: boolean; hasTabs: boolean;
@@ -92,6 +93,7 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
               <option value="">Workspace auswählen</option>{workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
             </select>
           </label>
+          {selected && <p className="workspace-menu-hint">Enthält {workspaceSummary(selected)}</p>}
           <div className="workspace-definition-actions">
             <button type="button" disabled={unavailable || !selected} onClick={() => { if (selected) { closeMenu(); onOpen(selected.id); } }}>Workspace öffnen</button>
             <button type="button" disabled={unavailable || !selected} onClick={() => beginName('rename')}>Umbenennen</button>

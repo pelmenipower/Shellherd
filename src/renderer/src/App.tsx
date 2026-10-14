@@ -34,6 +34,7 @@ import { useTerminalLayout } from './hooks/useTerminalLayout';
 import { useTabTransfer } from './hooks/useTabTransfer';
 import { useViewControls } from './hooks/useViewControls';
 import { fromWorkspaceViews, toWorkspaceViews } from './terminal-views';
+import { FileTypeSetting, WelcomePage } from './components/WelcomePage';
 import { ConnectionForm } from './components/ConnectionForm';
 import { parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
@@ -140,6 +141,22 @@ export default function App() {
     : undefined;
   const canCreateFolder = selectedNodeId === null || selectedNode?.type === 'folder';
 
+  // Vault files opened from Explorer: at start and while Terminus runs.
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+  useEffect(() => {
+    const openFromExplorer = (filePath: string): void => {
+      if (screenRef.current === 'vault') {
+        setError(`„${filePath.split(/[\/]/).pop()}“ wurde aus dem Explorer geöffnet. Sperre zuerst den aktuellen Vault, um ihn zu öffnen.`);
+        return;
+      }
+      navigateTo('open');
+      setSelectedVaultPath(filePath);
+    };
+    void window.desktopApi.vaultLaunchFile().then(filePath => { if (filePath) openFromExplorer(filePath); }).catch(() => {});
+    return window.desktopApi.onVaultOpenFile(openFromExplorer);
+  }, []);
+
   useEffect(() => {
     void window.desktopApi
       .getVersion()
@@ -205,7 +222,7 @@ export default function App() {
       const result = await window.desktopApi.saveVault({
         vault: newVault,
         password,
-        suggestedName: `${vaultName.trim()}.terminus`,
+        suggestedName: `${vaultName.trim()}.term`,
       });
 
       if (result.canceled) {
@@ -514,6 +531,21 @@ export default function App() {
     });
   }
 
+  /** Opens every connection inside a folder (and its subfolders) as tabs, up to the session limit. */
+  function connectFolder(folderId: string): void {
+    const folder = vault && findNode(vault.nodes, folderId);
+    if (!folder || folder.type !== 'folder') return;
+    const collect = (nodes: VaultNode[]): ConnectionNode[] => nodes.flatMap(node => node.type === 'folder' ? collect(node.children) : [node]);
+    const connections = collect(folder.children);
+    if (!connections.length) { setError(`Der Ordner „${folder.name}“ enthält keine Verbindungen.`); return; }
+    navigateEditor(() => {
+      const free = MAX_SSH_SESSIONS - terminals.tabs.length;
+      for (const connection of connections.slice(0, Math.max(0, free))) terminals.open(toTerminalConnection(connection));
+      setEditorOpen(false); setEditorDirty(false);
+      setError(connections.length > free ? `Es wurden nur ${Math.max(0, free)} von ${connections.length} Verbindungen geöffnet: Maximal ${MAX_SSH_SESSIONS} Sessions gleichzeitig.` : null);
+    });
+  }
+
   async function saveAndConnect(connection: ConnectionNode, parentId: string): Promise<boolean> {
     if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return false; }
     if (!await saveConnection(connection, parentId)) return false;
@@ -592,7 +624,7 @@ export default function App() {
           </form>}
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); setError(null); })}
-            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
+            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
           {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu. Über „Neu“ oder Rechtsklick wählst du die Verbindungsart.</p><button type="button" className="secondary-button" onClick={() => newConnection()}>Neue SSH-Verbindung</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}${!terminals.tabs.length ? ' no-terminals' : ''}`}>
@@ -604,10 +636,9 @@ export default function App() {
               externalHover={transfer.externalHover} pendingDock={transfer.pendingDock} onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff}
               viewControls={viewControls} />
           </div>
-          {!terminals.tabs.length && !editorOpen && <div className="workspace-placeholder">
-            <h1>Mit einem Server verbinden</h1><p>Doppelklicke eine Verbindung oder wähle sie aus und drücke Enter.</p>
-            <button className="primary-button" type="button" disabled={busy} onClick={() => newConnection()}>Neue SSH-Verbindung</button>
-          </div>}
+          {!terminals.tabs.length && !editorOpen && !transfer.externalHover && <WelcomePage vaultName={vault.name} connectionCount={connectionCount}
+            workspaces={vault.workspaces} busy={busy} onNewConnection={protocol => newConnection(protocol)}
+            onOpenWorkspace={id => navigateEditor(() => openWorkspace(id))} />}
           {editorOpen && <aside className="properties-panel" aria-label="Eigenschaften">
             <div className="properties-heading"><span>{editorDirty ? 'Ungespeicherte Änderungen' : 'Eigenschaften'}</span>
               <button type="button" className="icon-button" aria-label="Editor schließen" disabled={busy} onClick={closeEditor}>
@@ -673,6 +704,7 @@ export default function App() {
                 Argon2id und AES-256-GCM aktiv
               </span>
             </div>
+            <FileTypeSetting />
           </>
         )}
 
@@ -751,7 +783,7 @@ export default function App() {
             <h2>Vault öffnen</h2>
 
             <p className="form-description">
-              Wähle deine `.terminus`-Datei aus und gib anschließend
+              Wähle deine `.term`-Datei aus und gib anschließend
               das zugehörige Passwort ein.
             </p>
 

@@ -1,4 +1,4 @@
-import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
+import type { ConnectionNode, Workspace, WorkspaceLayout } from '../../shared/vault/types';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import type { TerminalTab } from './terminal-tabs';
 import { sameTarget } from './terminal-tabs';
@@ -111,10 +111,22 @@ export function restoreViews(saved: SavedView[], lookup: (id: string) => Connect
   return { state, tabs, activeTabId: panes(activeView(state).layout).find(pane => pane.activeTabId)?.activeTabId ?? null };
 }
 
-/** Workspace form: `layout` is the first view; `views` only when there are several. */
+/** Workspace form: `layout` is the first view; `views` when there are several or the only one was renamed. */
 export function toWorkspaceViews(state: ViewsState, tabs: TerminalTab[]): { layout: WorkspaceLayout; views?: SavedView[] } {
   const saved = savedViews(state, tabs);
-  return { layout: saved[0].layout, ...(saved.length > 1 ? { views: saved } : {}) };
+  return { layout: saved[0].layout, ...(saved.length > 1 || saved[0].name !== 'Ansicht 1' ? { views: saved } : {}) };
+}
+
+const countTabs = (layout: WorkspaceLayout): number => layout.type === 'split' ? countTabs(layout.first) + countTabs(layout.second) : layout.connectionIds.length;
+
+/** Short description of what a workspace restores, e.g. `3 Ansichten · 7 Tabs · 1 Fenster`. */
+export function workspaceSummary(workspace: Workspace): string {
+  const windows = workspace.windows ?? [];
+  const layouts = [workspace, ...windows].flatMap(item => item.views?.map(view => view.layout) ?? [item.layout]);
+  const views = layouts.length;
+  const tabs = layouts.reduce((total, layout) => total + countTabs(layout), 0);
+  return [`${views} ${views === 1 ? 'Ansicht' : 'Ansichten'}`, `${tabs} ${tabs === 1 ? 'Tab' : 'Tabs'}`,
+    ...(windows.length ? [`${windows.length} ${windows.length === 1 ? 'weiteres Fenster' : 'weitere Fenster'}`] : [])].join(' · ');
 }
 
 export function fromWorkspaceViews(saved: { layout: WorkspaceLayout; views?: SavedView[] }, lookup: (id: string) => ConnectionNode | undefined, uuid: () => string) {
