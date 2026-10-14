@@ -5,7 +5,6 @@ import { sshConnectConfig } from '../ssh/client-config';
 import type { RunResult } from './parsers';
 
 const OUTPUT_LIMIT = 1024 * 1024;
-const CONNECT_TIMEOUT = 15_000;
 
 /** Errors whose message is meant for the user. */
 export class HostAccessError extends Error {}
@@ -27,14 +26,14 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
       .then(valid => { rejectedKey = !valid; callback(valid); })
       .catch(() => { rejectedKey = true; callback(false); });
   });
-  config.readyTimeout = CONNECT_TIMEOUT;
+  // No shorter readyTimeout: it also spans the async host-key prompt the user may still be reading.
   try {
     await new Promise<void>((resolve, reject) => {
       client.once('ready', resolve);
       client.once('error', error => reject(rejectedKey ? new HostAccessError('Der Server-Schlüssel wurde nicht bestätigt.') : error));
       client.connect(config);
     });
-  } catch (error) { client.destroy(); throw error; }
+  } catch (error) { closed = true; client.destroy(); throw error; }
   finally { key?.fill(0); }
   client.on('error', () => { closed = true; });
   client.on('close', () => { closed = true; });
@@ -63,6 +62,7 @@ export function runLocal(file: string, args: string[], timeoutMs: number, exec: 
     exec(file, args, { timeout: timeoutMs, maxBuffer: 4 * OUTPUT_LIMIT, windowsHide: true, encoding: 'utf8' }, (error, stdout, stderr) => {
       const failure = error as (NodeJS.ErrnoException & { killed?: boolean; code?: string | number }) | null;
       if (failure?.code === 'ENOENT') { resolve({ code: null, stdout: '', stderr: '', notFound: true }); return; }
+      if (failure?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') { resolve({ code: null, stdout: String(stdout), stderr: 'Die Ausgabe ist zu groß.' }); return; }
       if (failure?.killed) { resolve({ code: null, stdout: String(stdout), stderr: String(stderr), timedOut: true }); return; }
       resolve({ code: failure ? (typeof failure.code === 'number' ? failure.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) });
     });

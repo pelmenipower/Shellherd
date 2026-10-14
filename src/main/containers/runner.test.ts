@@ -43,6 +43,7 @@ describe('openRemoteHost', () => {
     expect(await host.run('echo a', 5_000)).toEqual({ code: 0, stdout: 'ran:echo a\n', stderr: '' });
     expect(await host.run('fail', 5_000)).toEqual({ code: 3, stdout: '', stderr: 'boom\n' });
     expect(peers).toHaveLength(1);
+    expect(commands).toEqual(['echo a', 'fail']);
     host.close();
     expect(host.closed).toBe(true);
   });
@@ -58,6 +59,16 @@ describe('openRemoteHost', () => {
   });
 });
 
+describe('openRemoteHost failures', () => {
+  it('marks an abandoned attempt as inactive when the connection fails', async () => {
+    let isActive: (() => boolean) | undefined;
+    connection.authentication = { method: 'password', password: 'wrong' };
+    await expect(openRemoteHost(connection, async (_h, _p, _k, active) => { isActive = active; return true; })).rejects.toThrow();
+    expect(isActive).toBeDefined();
+    expect(isActive!()).toBe(false);
+  });
+});
+
 describe('runLocal', () => {
   it('reports a missing program as notFound', async () => {
     const exec = ((_file: string, _args: string[], _options: object, callback: (error: NodeJS.ErrnoException | null, stdout: string, stderr: string) => void) => {
@@ -70,5 +81,17 @@ describe('runLocal', () => {
       callback(Object.assign(new Error('failed'), { code: 2 }), 'out', 'err');
     }) as never;
     expect(await runLocal('docker', ['ps'], 1_000, exec)).toEqual({ code: 2, stdout: 'out', stderr: 'err' });
+  });
+  it('reports a killed process as timedOut', async () => {
+    const exec = ((_f: string, _a: string[], _o: object, callback: (error: object | null, stdout: string, stderr: string) => void) => {
+      callback(Object.assign(new Error('timeout'), { killed: true }), 'partial', '');
+    }) as never;
+    expect(await runLocal('docker', ['ps'], 1_000, exec)).toEqual({ code: null, stdout: 'partial', stderr: '', timedOut: true });
+  });
+  it('reports exceeded output as a failure, not a timeout', async () => {
+    const exec = ((_f: string, _a: string[], _o: object, callback: (error: object | null, stdout: string, stderr: string) => void) => {
+      callback(Object.assign(new Error('maxBuffer'), { killed: true, code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }), 'big', '');
+    }) as never;
+    expect(await runLocal('docker', ['ps'], 1_000, exec)).toEqual({ code: null, stdout: 'big', stderr: 'Die Ausgabe ist zu groß.' });
   });
 });
