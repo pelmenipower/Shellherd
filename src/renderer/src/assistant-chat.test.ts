@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { historyForRequest, insertableCommand, outputMessage, parseAnswer, questionMessage, tail } from './assistant-chat';
+import { compactMessage, historyForRequest, insertableCommand, isFinished, outputMessage, parseAnswer, questionMessage, tail } from './assistant-chat';
 
 describe('assistant chat', () => {
   it('splits answers into text and commands, also while streaming', () => {
@@ -18,12 +18,24 @@ describe('assistant chat', () => {
     expect(insertableCommand('   ')).toBeNull();
   });
 
-  it('frames terminal text as data and keeps the newest part', () => {
+  it('frames terminal text as data, keeps the newest part and skips an unchanged screen', () => {
     expect(tail('abcdef', 3)).toBe('…\ndef');
     const message = questionMessage('Warum?', 'line ``` x');
     expect(message).toContain("line ''' x");
-    expect(message.endsWith('Frage: Warum?')).toBe(true);
+    expect(message.endsWith('\nWarum?')).toBe(true);
+    expect(questionMessage('Und jetzt?', null)).toBe('Und jetzt?');
     expect(outputMessage('ls', '')).toContain('(keine Ausgabe)');
+    expect(outputMessage('kubectl get ns', 'default Active').endsWith('Nächster Schritt.')).toBe(true);
+    expect(outputMessage('kubectl get ns', 'default Active', 'Welche sind älter als 100 Tage?')).toMatch(/default Active\n```\nWelche/);
+  });
+
+  it('resends long earlier turns only in short form and recognizes a finished goal', () => {
+    expect(compactMessage('kurz')).toBe('kurz');
+    const long = compactMessage('x'.repeat(5000));
+    expect(long.length).toBeLessThan(700);
+    expect(long.endsWith('(gekürzt)')).toBe(true);
+    expect(isFinished('Fertig. Alle 33 Namespaces sind aktiv.')).toBe(true);
+    expect(isFinished('Noch nicht fertig: <command>ls</command>')).toBe(false);
   });
 
   it('sends recent history starting with a user message', () => {

@@ -24,6 +24,9 @@ export function parseAnswer(text: string): AnswerSegment[] {
   }
 }
 
+/** The answer says the goal is reached. */
+export const isFinished = (answer: string): boolean => /^\s*Fertig\b/i.test(answer);
+
 /**
  * The exact text typed into the terminal: one line, no control characters, so it can never be
  * submitted by itself. Null when it is empty or spans several lines.
@@ -41,18 +44,32 @@ export function tail(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : `…\n${text.slice(text.length - maxChars)}`;
 }
 
+/** Context budget per request; the terminal text is the largest part. */
+export const SCREEN_LINES = 80;
+const SCREEN_CHARS = 6_000;
+const OUTPUT_CHARS = 8_000;
+/** Older turns are resent in this size only. */
+const COMPACT_CHARS = 600;
+
 const fence = (text: string): string => `\`\`\`\n${text.replace(/```/g, "'''")}\n\`\`\``;
 
-export function questionMessage(question: string, screen: string): string {
-  return `Aktueller Terminalinhalt (letzte Zeilen):\n${fence(tail(screen, 12_000) || '(leer)')}\n\nFrage: ${question}`;
+/** A question, with the screen only when it changed since the last request. */
+export function questionMessage(question: string, screen: string | null): string {
+  return screen === null ? question : `Terminal:\n${fence(tail(screen, SCREEN_CHARS) || '(leer)')}\n${question}`;
 }
 
-export function outputMessage(command: string, output: string): string {
-  return `Ich habe den Befehl ausgeführt: ${command}\nAusgabe:\n${fence(tail(output, 16_000) || '(keine Ausgabe)')}\n\nWas bedeutet das, und was wäre ein sinnvoller nächster Schritt?`;
+/** Output of the command the user just ran; by default asking for the next step only. */
+export function outputMessage(command: string, output: string, question = 'Nächster Schritt.'): string {
+  return `Ausgabe von ${command}:\n${fence(tail(output, OUTPUT_CHARS) || '(keine Ausgabe)')}\n${question}`;
+}
+
+/** What an earlier turn costs in later requests: the question, or the start of a long output. */
+export function compactMessage(content: string): string {
+  return content.length <= COMPACT_CHARS ? content : `${content.slice(0, COMPACT_CHARS)}\n…(gekürzt)`;
 }
 
 /** Recent history for a request: at most `max` messages, starting with a user message. */
-export function historyForRequest(messages: AiChatMessage[], max = 20): AiChatMessage[] {
+export function historyForRequest(messages: AiChatMessage[], max = 12): AiChatMessage[] {
   const recent = messages.filter(message => message.content.trim()).slice(-max);
   const first = recent.findIndex(message => message.role === 'user');
   return first < 0 ? [] : recent.slice(first);
