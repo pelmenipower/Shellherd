@@ -77,6 +77,72 @@ describe('ContainerDiscovery over SSH', () => {
   });
 });
 
+describe('ContainerDiscovery connection lifecycle', () => {
+  const target = { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' } as const;
+
+  it('does not close the connection while a command is running', async () => {
+    vi.useFakeTimers();
+    const host = fakeHost({});
+    host.run = async () => { await new Promise(resolve => setTimeout(resolve, 90_000)); return ok(''); };
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn(), idleMs: 60_000 });
+    const pending = discovery.action('h1', target, 'stop');
+    await vi.advanceTimersByTimeAsync(80_000);
+    expect(host.closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(10_001);
+    await pending;
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(host.closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(host.closed).toBe(true);
+  });
+  it('evicts a failed opening and reconnects on the next call', async () => {
+    const host = fakeHost(answers);
+    const openRemote = vi.fn<() => Promise<RemoteHost>>()
+      .mockRejectedValueOnce(new Error('connect failed'))
+      .mockResolvedValue(host);
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote, runLocal: vi.fn() });
+    await expect(discovery.list('h1')).rejects.toBeInstanceOf(Error);
+    await expect(discovery.list('h1')).resolves.toMatchObject({ runtimes: ['docker', 'proxmox'] });
+    expect(openRemote).toHaveBeenCalledTimes(2);
+  });
+  it('reconnects when the cached host reports closed', async () => {
+    const first = fakeHost(answers);
+    const second = fakeHost(answers);
+    const openRemote = vi.fn<() => Promise<RemoteHost>>().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote, runLocal: vi.fn() });
+    await discovery.list('h1');
+    (first as { closed: boolean }).closed = true;
+    await discovery.list('h1');
+    expect(openRemote).toHaveBeenCalledTimes(2);
+    expect(second.commands.length).toBeGreaterThan(0);
+  });
+  it('does not let a replaced entry timer close the new host', async () => {
+    vi.useFakeTimers();
+    let current = ssh();
+    const hosts = [fakeHost(answers), fakeHost(answers)];
+    const openRemote = vi.fn(async () => hosts[openRemote.mock.calls.length - 1]);
+    const discovery = new ContainerDiscovery({ getConnection: () => current, openRemote, runLocal: vi.fn(), idleMs: 60_000 });
+    await discovery.list('h1');
+    await vi.advanceTimersByTimeAsync(30_000);
+    current = ssh({ host: 'server02' });
+    await discovery.list('h1');
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(hosts[1].closed).toBe(false);
+  });
+  it('turns raw rejections into readable errors and survives a throwing close', async () => {
+    const broken = new ContainerDiscovery({ getConnection: () => { throw new Error('boom'); }, openRemote: vi.fn(), runLocal: vi.fn() });
+    await expect(broken.list('h1')).rejects.toBeInstanceOf(Error);
+    const local = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal: vi.fn().mockRejectedValue('raw') });
+    await expect(local.list(LOCAL_CONTAINER_HOST)).rejects.toBeInstanceOf(Error);
+    const host = fakeHost(answers);
+    host.close = () => { throw new Error('close failed'); };
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
+    await discovery.list('h1');
+    discovery.closeAll();
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+});
+
 describe('ContainerDiscovery on this computer', () => {
   it('skips missing programs and lists the installed ones', async () => {
     const runLocal = vi.fn(async (file: string) => file === 'docker'

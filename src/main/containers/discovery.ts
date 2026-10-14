@@ -18,7 +18,7 @@ export interface DiscoveryDependencies {
   idleMs?: number;
 }
 
-interface CachedHost { fingerprint: string; host: Promise<RemoteHost>; timer?: ReturnType<typeof setTimeout> }
+interface CachedHost { fingerprint: string; host: Promise<RemoteHost>; timer?: ReturnType<typeof setTimeout>; inFlight: number }
 
 const fingerprint = (connection: SshConnectionNode): string =>
   JSON.stringify([connection.host, connection.port, connection.username, connection.authentication]);
@@ -35,43 +35,47 @@ export class ContainerDiscovery {
   constructor(private readonly dependencies: DiscoveryDependencies) {}
 
   async list(hostId: ContainerHostId): Promise<DiscoveryResult> {
-    if (hostId === LOCAL_CONTAINER_HOST) return this.listLocal();
-    const connection = this.sshConnection(hostId);
     try {
-      const host = await this.remote(connection);
+      if (hostId === LOCAL_CONTAINER_HOST) return await this.listLocal();
+      const connection = this.sshConnection(hostId);
       const sudo = connection.containers?.sudo === true;
-      const tools = parseProbe((await host.run(PROBE_SCRIPT, LIST_TIMEOUT)).stdout);
-      const result: DiscoveryResult = { runtimes: [], items: [], problems: {} };
-      for (const runtime of ['docker', 'podman'] as const) {
-        if (!tools.has(runtime)) continue;
-        result.runtimes.push(runtime);
-        this.collect(result, runtime, await host.run(remoteCommand(listArgv(runtime), sudo), LIST_TIMEOUT), text => parseContainerList(runtime, text));
-      }
-      if (tools.has('pct') || tools.has('qm')) {
-        result.runtimes.push('proxmox');
-        if (tools.has('pct')) this.collect(result, 'proxmox', await host.run(remoteCommand(listArgv('lxc'), sudo), LIST_TIMEOUT), parsePctList);
-        if (tools.has('qm')) this.collect(result, 'proxmox', await host.run(remoteCommand(listArgv('vm'), sudo), LIST_TIMEOUT), parseQmList);
-      }
-      return result;
+      return await this.withHost(connection, async host => {
+        const tools = parseProbe((await host.run(PROBE_SCRIPT, LIST_TIMEOUT)).stdout);
+        const result: DiscoveryResult = { runtimes: [], items: [], problems: {} };
+        for (const runtime of ['docker', 'podman'] as const) {
+          if (!tools.has(runtime)) continue;
+          result.runtimes.push(runtime);
+          this.collect(result, runtime, await host.run(remoteCommand(listArgv(runtime), sudo), LIST_TIMEOUT), text => parseContainerList(runtime, text));
+        }
+        if (tools.has('pct') || tools.has('qm')) {
+          result.runtimes.push('proxmox');
+          if (tools.has('pct')) this.collect(result, 'proxmox', await host.run(remoteCommand(listArgv('lxc'), sudo), LIST_TIMEOUT), parsePctList);
+          if (tools.has('qm')) this.collect(result, 'proxmox', await host.run(remoteCommand(listArgv('vm'), sudo), LIST_TIMEOUT), parseQmList);
+        }
+        return result;
+      });
     } catch (error) { throw readable(error); }
   }
 
   async action(hostId: ContainerHostId, target: ContainerTarget, action: ContainerAction): Promise<void> {
-    const argv = actionArgv(target, action);
+    let argv: string[];
     let result: RunResult;
-    if (hostId === LOCAL_CONTAINER_HOST) {
-      if (target.kind !== 'container') throw new ContainerInputError('Proxmox gibt es nur auf entfernten Hosts.');
-      result = await this.dependencies.runLocal(argv[0], argv.slice(1), ACTION_TIMEOUT);
-    } else {
-      const connection = this.sshConnection(hostId);
-      try { result = await (await this.remote(connection)).run(remoteCommand(argv, connection.containers?.sudo === true), ACTION_TIMEOUT); }
-      catch (error) { throw readable(error); }
-    }
+    try {
+      argv = actionArgv(target, action);
+      if (hostId === LOCAL_CONTAINER_HOST) {
+        if (target.kind !== 'container') throw new ContainerInputError('Proxmox gibt es nur auf entfernten Hosts.');
+        result = await this.dependencies.runLocal(argv[0], argv.slice(1), ACTION_TIMEOUT);
+      } else {
+        const connection = this.sshConnection(hostId);
+        const command = remoteCommand(argv, connection.containers?.sudo === true);
+        result = await this.withHost(connection, host => host.run(command, ACTION_TIMEOUT));
+      }
+    } catch (error) { throw readable(error); }
     if (result.code !== 0) throw new Error(result.notFound ? `${argv[0]} ist nicht installiert.` : describeFailure(kindOf(target), result));
   }
 
   closeAll(): void {
-    for (const [id, cached] of this.hosts) { clearTimeout(cached.timer); this.hosts.delete(id); void cached.host.then(host => host.close(), () => {}); }
+    for (const [id, cached] of [...this.hosts]) this.drop(id, cached);
   }
 
   private async listLocal(): Promise<DiscoveryResult> {
@@ -98,30 +102,48 @@ export class ContainerDiscovery {
     return connection;
   }
 
-  /** One cached connection per host; replaced when the saved connection changes, closed when idle. */
-  private async remote(connection: SshConnectionNode): Promise<RemoteHost> {
+  /** One cached connection per host; replaced when the saved connection changes, closed when no command ran for idleMs. */
+  private async withHost<T>(connection: SshConnectionNode, use: (host: RemoteHost) => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      const entry = this.claim(connection);
+      try {
+        const host = await entry.host;
+        if (host.closed && attempt === 0) { this.drop(connection.id, entry); continue; }
+        return await use(host);
+      } finally {
+        entry.inFlight--;
+        if (entry.inFlight === 0 && this.hosts.get(connection.id) === entry) this.arm(connection.id, entry);
+      }
+    }
+  }
+
+  /** Synchronously picks or creates the entry and marks it in use, so concurrent callers share one opening. */
+  private claim(connection: SshConnectionNode): CachedHost {
     const print = fingerprint(connection);
-    let cached = this.hosts.get(connection.id);
-    if (cached && cached.fingerprint !== print) { this.drop(connection.id, cached); cached = undefined; }
-    if (cached) {
-      const host = await cached.host.catch(() => undefined);
-      if (host?.closed) { this.drop(connection.id, cached); cached = undefined; }
+    let entry = this.hosts.get(connection.id);
+    if (entry && entry.fingerprint !== print) { this.drop(connection.id, entry); entry = undefined; }
+    if (!entry) {
+      const created: CachedHost = { fingerprint: print, host: this.dependencies.openRemote(connection), inFlight: 0 };
+      entry = created;
+      this.hosts.set(connection.id, created);
+      created.host.catch(() => {
+        clearTimeout(created.timer);
+        if (this.hosts.get(connection.id) === created) this.hosts.delete(connection.id);
+      });
     }
-    if (!cached) {
-      const opened = this.dependencies.openRemote(connection);
-      cached = { fingerprint: print, host: opened };
-      this.hosts.set(connection.id, cached);
-      opened.catch(() => { if (this.hosts.get(connection.id) === cached) this.hosts.delete(connection.id); });
-    }
-    const entry = cached;
+    entry.inFlight++;
     clearTimeout(entry.timer);
-    entry.timer = setTimeout(() => this.drop(connection.id, entry), this.dependencies.idleMs ?? 60_000);
-    return entry.host;
+    return entry;
+  }
+
+  private arm(id: string, entry: CachedHost): void {
+    clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => { if (entry.inFlight === 0) this.drop(id, entry); }, this.dependencies.idleMs ?? 60_000);
   }
 
   private drop(id: string, cached: CachedHost): void {
     clearTimeout(cached.timer);
     if (this.hosts.get(id) === cached) this.hosts.delete(id);
-    void cached.host.then(host => host.close(), () => {});
+    void cached.host.then(host => { try { host.close(); } catch { /* already gone */ } }, () => {});
   }
 }
