@@ -54,3 +54,4 @@
 .ai-ok { margin: 12px 0 0; color: #4ade80; font-size: 13px; overflow-wrap: anywhere; }
 .ai-settings-dialog .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .secondary-body { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.assistant-note { margin: 0; color: var(--ui-muted); font-size: 11px; text-align: right; }

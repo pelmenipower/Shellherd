@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compactMessage, historyForRequest, insertableCommand, isFinished, outputMessage, parseAnswer, questionMessage, tail } from './assistant-chat';
+import { AFTER_OUTPUT, compactMessage, historyForRequest, insertableCommand, isFinished, outputMessage, parseAnswer, questionMessage, tail } from './assistant-chat';
 
 describe('assistant chat', () => {
   it('splits answers into text and commands, also while streaming', () => {
@@ -23,9 +23,10 @@ describe('assistant chat', () => {
     const message = questionMessage('Warum?', 'line ``` x');
     expect(message).toContain("line ''' x");
     expect(message.endsWith('\nWarum?')).toBe(true);
-    expect(questionMessage('Und jetzt?', null)).toBe('Und jetzt?');
+    expect(questionMessage('Und jetzt?', 'root@cp1:/#')).toContain('root@cp1:/#');
     expect(outputMessage('ls', '')).toContain('(keine Ausgabe)');
-    expect(outputMessage('kubectl get ns', 'default Active').endsWith('Nächster Schritt.')).toBe(true);
+    expect(outputMessage('kubectl get ns', 'default Active').endsWith(AFTER_OUTPUT)).toBe(true);
+    expect(AFTER_OUTPUT).toContain('Nur wenn mein Ziel noch offen ist');
     expect(outputMessage('kubectl get ns', 'default Active', 'Welche sind älter als 100 Tage?')).toMatch(/default Active\n```\nWelche/);
   });
 

@@ -26,6 +26,8 @@ interface ChatEntry {
   compact: string;
   /** Shown in the panel. */
   shown: string;
+  /** Sent by Terminus after Enter (command output); shown as a quiet note, not as the user's words. */
+  automatic?: boolean;
   pending?: boolean;
   error?: string;
   /** Command typed into the terminal from this answer. */
@@ -38,8 +40,6 @@ interface Conversation {
   /** A typed command waits for Enter; output after `line` belongs to it. */
   awaiting?: { line: number; command: string };
   output?: { command: string; text: string };
-  /** Screen sent with the last request; an unchanged screen is not sent again. */
-  lastScreen?: string;
 }
 
 const PROVIDER_KEY = 'terminus.aiProvider';
@@ -98,19 +98,18 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
       updateEntry(tabId, entryId, 'typed' in result ? { inserted: result.typed, note: undefined } : { note: result.reason }));
   }, [updateEntry]);
 
-  const send = useCallback((tabId: string, shown: string, content: string, compact: string, screen?: string): void => {
+  const send = useCallback((tabId: string, shown: string, content: string, compact: string, automatic = false): void => {
     const target = tabsRef.current.find(item => item.id === tabId);
     const targetShell = shellOf(target);
     if (!target || !targetShell) return;
     const requestId = crypto.randomUUID();
-    const user: ChatEntry = { id: crypto.randomUUID(), role: 'user', content, compact, shown };
+    const user: ChatEntry = { id: crypto.randomUUID(), role: 'user', content, compact, shown, ...(automatic ? { automatic } : {}) };
     const answer: ChatEntry = { id: crypto.randomUUID(), role: 'assistant', content: '', compact: '', shown: '', pending: true };
     const previous = conversationsRef.current[tabId] ?? { entries: [] };
     // Earlier turns go out in their short form; only this turn carries the full terminal text.
     const history = historyForRequest([...previous.entries.filter(entry => !entry.pending && !entry.error)
       .map(entry => ({ role: entry.role, content: entry.role === 'user' ? entry.compact : entry.content })), { role: 'user' as const, content }]);
-    update(tabId, current => ({ ...current, awaiting: undefined, output: undefined, ...(screen !== undefined ? { lastScreen: screen } : {}),
-      entries: [...current.entries, user, answer] }));
+    update(tabId, current => ({ ...current, awaiting: undefined, output: undefined, entries: [...current.entries, user, answer] }));
     requests.current.set(requestId, { tabId, entryId: answer.id, text: '' });
     void window.desktopApi.aiAsk({ requestId, ...(provider ? { providerId: provider.id } : {}), messages: history,
       context: { shell: targetShell, target: `${target.connection.name}, ${target.connection.address}` } })
@@ -160,7 +159,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
         if (autoRef.current) {
           update(tabId, current => ({ ...current, awaiting: undefined }));
           const message = outputMessage(command, text);
-          sendRef.current(tabId, `${command} ausgeführt, nächster Schritt`, message, compactMessage(message), access.screen(SCREEN_LINES));
+          sendRef.current(tabId, `Ausgabe von ${command} gelesen`, message, compactMessage(message), true);
         } else update(tabId, current => ({ ...current, awaiting: undefined, output: { command, text } }));
       }
     }, 500);
@@ -175,8 +174,8 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
     setDraft('');
     // A finished command's output goes along with the next question; an unchanged screen does not.
     const content = pending ? outputMessage(pending.command, pending.text, question)
-      : questionMessage(question, screen === conversation.lastScreen ? null : screen);
-    send(tab.id, question, content, question, screen);
+      : questionMessage(question, screen);
+    send(tab.id, question, content, question);
   };
   const stop = (): void => {
     for (const [requestId, request] of requests.current) if (request.tabId === tab?.id) void window.desktopApi.aiCancel({ requestId }).catch(() => {});
@@ -205,11 +204,12 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
       </div> : <>
         <div className="assistant-messages" ref={listRef} aria-live="polite">
           {!entries.length && <div className="assistant-hint">
-            <p>Sag, was du erreichen willst, z. B. „Ich will die Pods im Namespace monitoring neu starten.“ Der Assistent führt dich Befehl für Befehl dorthin; nach jedem Enter liest er die Ausgabe.</p>
+            <p>Sag, was du erreichen willst, z. B. „Ich will die Pods im Namespace monitoring neu starten.“ Der Assistent tippt den passenden Befehl ein. Nach deinem Enter liest er die Ausgabe, ordnet sie in einem Satz ein und geht nur weiter, solange dein Ziel offen ist.</p>
             <p>Erklärungen gibt es nur auf Nachfrage („erkläre …“). Die letzten Terminalzeilen gehen mit deiner Frage an <strong>{provider?.name}</strong>. Befehle werden eingetippt, ausgeführt erst mit deinem Enter.</p>
           </div>}
           {entries.map(entry => entry.role === 'user'
-            ? <div key={entry.id} className="assistant-message is-user">{entry.shown}</div>
+            ? entry.automatic ? <p key={entry.id} className="assistant-note">{entry.shown}</p>
+              : <div key={entry.id} className="assistant-message is-user">{entry.shown}</div>
             : <div key={entry.id} className="assistant-message is-assistant">
               {parseAnswer(entry.shown).map((segment, index) => segment.type === 'text'
                 ? <p key={index}>{segment.text.trim()}</p>
@@ -225,14 +225,14 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
               {entry.pending && <span className="assistant-typing" aria-label="Antwort wird geschrieben">…</span>}
               {entry.error && <p className="assistant-error" role="alert">{entry.error}</p>}
             </div>)}
-          {conversation.awaiting && <p className="assistant-status">Prüfe den Befehl und drücke im Terminal Enter.{autoEvaluate ? ' Danach liest der Assistent die Ausgabe und schlägt den nächsten Schritt vor.' : ''}</p>}
+          {conversation.awaiting && <p className="assistant-status">Prüfe den Befehl und drücke im Terminal Enter.{autoEvaluate ? ' Danach liest der Assistent die Ausgabe und ordnet sie kurz ein.' : ''}</p>}
           {conversation.output && tab && <div className="assistant-status">
             <span>Ausgabe von „{conversation.output.command}“ liegt vor und geht mit deiner nächsten Frage mit.</span>
             <button type="button" className="secondary-button" disabled={busy} onClick={() => {
               const output = conversation.output!;
               const message = outputMessage(output.command, output.text);
-              send(tab.id, `${output.command} ausgeführt, nächster Schritt`, message, compactMessage(message), liveSessions.get(tab.id)?.terminal?.screen(SCREEN_LINES));
-            }}>Nächster Schritt</button>
+              send(tab.id, `Ausgabe von ${output.command} gelesen`, message, compactMessage(message), true);
+            }}>Ausgabe einordnen</button>
           </div>}
         </div>
         <form className="assistant-input" onSubmit={event => { event.preventDefault(); submit(); }}>
@@ -241,7 +241,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
             onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} />
           <div className="assistant-input-actions">
             <label><input type="checkbox" checked={autoEvaluate} onChange={event => { setAutoEvaluate(event.target.checked); write(AUTO_KEY, event.target.checked ? 'on' : 'off'); }} />
-              Schritt für Schritt: nach Enter automatisch weiter</label>
+              Ausgabe nach Enter automatisch einordnen</label>
             {tab && entries.length > 0 && !busy && <button type="button" className="secondary-button" onClick={() => setConversations(current => { const next = { ...current }; delete next[tab.id]; return next; })}>Verlauf leeren</button>}
             {busy ? <button type="button" className="secondary-button" onClick={stop}>Stopp</button>
               : <button type="submit" className="primary-button" disabled={!draft.trim() || !shell || !provider}>Fragen</button>}

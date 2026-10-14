@@ -53,13 +53,16 @@ const COMPACT_CHARS = 600;
 
 const fence = (text: string): string => `\`\`\`\n${text.replace(/```/g, "'''")}\n\`\`\``;
 
-/** A question, with the screen only when it changed since the last request. */
-export function questionMessage(question: string, screen: string | null): string {
-  return screen === null ? question : `Terminal:\n${fence(tail(screen, SCREEN_CHARS) || '(leer)')}\n${question}`;
+/** A question with the current screen, so the model always knows the state of the terminal. */
+export function questionMessage(question: string, screen: string): string {
+  return `Terminal:\n${fence(tail(screen, SCREEN_CHARS) || '(leer)')}\n${question}`;
 }
 
-/** Output of the command the user just ran; by default asking for the next step only. */
-export function outputMessage(command: string, output: string, question = 'Nächster Schritt.'): string {
+/** Sent by Terminus itself after Enter: classify the output; continue only towards an open goal. */
+export const AFTER_OUTPUT = 'Ordne die Ausgabe kurz ein. Nur wenn mein Ziel noch offen ist: nächster Befehl.';
+
+/** Output of the command the user just ran. */
+export function outputMessage(command: string, output: string, question = AFTER_OUTPUT): string {
   return `Ausgabe von ${command}:\n${fence(tail(output, OUTPUT_CHARS) || '(keine Ausgabe)')}\n${question}`;
 }
 
