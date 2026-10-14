@@ -17,6 +17,9 @@ export interface ConnectionFields {
   domain: string;
   clipboard: 'on' | 'off';
   workingDirectory: string;
+  /** AI CLI: preset tool or `custom` with `command`. */
+  tool: 'claude' | 'codex' | 'gemini' | 'custom';
+  command: string;
   tags: string;
   color: string;
   icon: string;
@@ -34,7 +37,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     name: connection?.name ?? '', comment: connection?.comment ?? '',
     host: '', port: String(PROTOCOLS[protocol].defaultPort ?? ''), username: '',
     method: 'agent', password: '', keyPath: '', passphrase: '',
-    domain: '', clipboard: 'on', workingDirectory: '',
+    domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
     tags: connection?.tags.join(', ') ?? '', color: connection?.color ?? '',
     icon: connection?.icon ?? PROTOCOLS[protocol].defaultIcon,
   };
@@ -54,6 +57,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     Object.assign(fields, { password: connection.password ?? '', domain: connection.rdp.domain ?? '', clipboard: connection.rdp.clipboard ? 'on' : 'off' });
   }
   if (connection?.protocol === 'powershell' || connection?.protocol === 'cmd') fields.workingDirectory = connection.workingDirectory ?? '';
+  if (connection?.protocol === 'aicli') Object.assign(fields, { workingDirectory: connection.workingDirectory ?? '', tool: connection.tool, command: connection.command ?? '' });
   return fields;
 }
 
@@ -90,6 +94,12 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
     }
     node = { ...base, protocol, ...target, ...(fields.password ? { password: fields.password } : {}),
       rdp: { ...(domain ? { domain } : {}), clipboard: fields.clipboard === 'on' } };
+  } else if (protocol === 'aicli') {
+    const command = fields.command.trim();
+    if (fields.tool === 'custom' && !command) throw new ConnectionFieldError('command', 'Bitte gib den Befehl an, z. B. aider --model sonnet.');
+    if (/[\r\n]/.test(command)) throw new ConnectionFieldError('command', 'Der Befehl muss eine Zeile sein.');
+    node = { ...base, protocol, tool: fields.tool, ...(fields.tool === 'custom' ? { command } : {}),
+      ...(fields.workingDirectory.trim() ? { workingDirectory: fields.workingDirectory.trim() } : {}) };
   } else {
     node = { ...base, protocol, ...(fields.workingDirectory.trim() ? { workingDirectory: fields.workingDirectory.trim() } : {}) };
   }

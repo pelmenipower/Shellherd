@@ -5,7 +5,9 @@ import { win32 } from 'node:path';
 import { Client } from 'ssh2';
 import type { ClientChannel } from 'ssh2';
 import type { IPty, IPtyForkOptions, IWindowsPtyForkOptions } from 'node-pty';
-import type { ConnectionNode, LocalShellConnectionNode, LocalShellProtocol, VaultNode } from '../../shared/vault/types';
+import type { ConnectionNode, LocalConnectionNode, LocalShellProtocol, VaultNode } from '../../shared/vault/types';
+import { AI_CLI_TOOLS, aiCliCommandLine } from '../../shared/ai-cli';
+import { locateCommand } from './locate';
 import type { SshEvent, SshPrepareRequest, SshStatus, TerminalSize } from '../../shared/ssh';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
@@ -18,12 +20,15 @@ const OUTPUT_LOW = 32 * 1024;
 const OUTPUT_LIMIT = 512 * 1024;
 const INPUT_LIMIT = 64 * 1024;
 
-export type SpawnShell = (file: string, args: string[], options: IPtyForkOptions | IWindowsPtyForkOptions) => IPty;
+/** `args` as a string is passed to Windows unchanged (cmd.exe /k <command line>). */
+export type SpawnShell = (file: string, args: string[] | string, options: IPtyForkOptions | IWindowsPtyForkOptions) => IPty;
 
 export interface SshDependencies {
   getConnection: (id: string) => ConnectionNode;
   /** node-pty's spawn; injected so tests never start real processes. */
   spawnShell: SpawnShell;
+  /** Finds an installed program; injected for tests. */
+  locate?: (command: string) => Promise<string | null>;
   verifyHost: (host: string, port: number, key: Buffer, isActive: () => boolean) => Promise<boolean>;
   emit: (ownerId: number, event: SshEvent) => void;
 }
@@ -129,7 +134,7 @@ export class SshSessionManager {
     this.status(session, 'connecting');
     try {
       const connection = this.dependencies.getConnection(session.connectionId);
-      if (connection.protocol === 'powershell' || connection.protocol === 'cmd') { await this.startLocalShell(session, connection); return; }
+      if (connection.protocol === 'powershell' || connection.protocol === 'cmd' || connection.protocol === 'aicli') { await this.startLocalShell(session, connection); return; }
       if (connection.protocol !== 'ssh' || !session.client) throw new Error('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
       const client = session.client;
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
@@ -163,13 +168,27 @@ export class SshSessionManager {
     } catch (error) { this.finish(session, 'error', publicError(error)); }
   }
 
-  private async startLocalShell(session: Session, connection: LocalShellConnectionNode): Promise<void> {
+  private async startLocalShell(session: Session, connection: LocalConnectionNode): Promise<void> {
     if (process.platform !== 'win32') throw new LocalShellError('Lokale PowerShell- und CMD-Sitzungen sind nur unter Windows verfügbar.');
     const cwd = connection.workingDirectory?.trim() || homedir();
     const folder = await stat(cwd).catch(() => undefined);
     if (!folder?.isDirectory()) throw new LocalShellError(`Der Startordner „${cwd}“ existiert nicht.`);
     if (!this.active(session)) return;
-    const { file, args } = localShellCommand(connection.protocol);
+    let file: string;
+    let args: string[] | string;
+    if (connection.protocol === 'aicli') {
+      // Preset tools are checked first so a missing install gives a clear hint instead of a cmd error.
+      if (connection.tool !== 'custom') {
+        const tool = AI_CLI_TOOLS[connection.tool];
+        if (!await (this.dependencies.locate ?? locateCommand)(tool.command)) {
+          throw new LocalShellError(`${tool.label} ist nicht installiert oder nicht im PATH. Installation: ${tool.install}`);
+        }
+        if (!this.active(session)) return;
+      }
+      file = localShellCommand('cmd').file;
+      // cmd /k: after the tool exits, the tab stays a prompt in the project folder.
+      args = `/d /k ${aiCliCommandLine(connection)}`;
+    } else ({ file, args } = localShellCommand(connection.protocol));
     let pty: IPty;
     try {
       pty = this.dependencies.spawnShell(file, args, { name: 'xterm-256color', cols: session.size.cols, rows: session.size.rows,

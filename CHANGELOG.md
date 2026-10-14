@@ -16,6 +16,7 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 - KI-Assistent neben SSH-, PowerShell- und CMD-Tabs (Strg+Umschalt+K): liest das Terminal, erklärt, tippt Befehle in die Eingabezeile ohne sie auszuführen und deutet danach die Ausgabe.
 - KI-Anbieter frei wählbar: OpenAI-kompatibel (auch Ollama, LM Studio, interne Gateways), Azure AI Foundry, Anthropic und Google Gemini; Schlüssel verschlüsselt im Vault.
 - Workflows: gespeicherte Befehle mit Platzhaltern, per Palette (Strg+Umschalt+Leertaste) suchen und eintippen, ohne sie auszuführen.
+- KI-CLIs als Tab: Claude Code, Codex CLI, Gemini CLI oder ein eigener Befehl, gestartet im gewählten Projektordner.
 - Verbindung testen, bevor sie gespeichert wird.
 - Verbindungen und Ordner per Drag & Drop verschieben; Rechtsklick auf einen Ordner → „Alle verbinden“.
 - Willkommensseite statt leerem Formular beim Start.

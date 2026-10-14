@@ -77,11 +77,20 @@ export const LocalShellConnectionNodeSchema = z.object({
     workingDirectory: z.string().optional(),
 });
 
+export const AiCliConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.literal('aicli'),
+    tool: z.enum(['claude', 'codex', 'gemini', 'custom']),
+    command: z.string().max(1000).refine(command => !/[\r\n]/.test(command)).optional(),
+    workingDirectory: z.string().optional(),
+}).refine(node => node.tool !== 'custom' || Boolean(node.command?.trim()), { message: 'Bitte gib den Befehl an.', path: ['command'] });
+
 export const ConnectionNodeSchema = z.discriminatedUnion('protocol', [
     SshConnectionNodeSchema,
     SftpConnectionNodeSchema,
     RdpConnectionNodeSchema,
     LocalShellConnectionNodeSchema,
+    AiCliConnectionNodeSchema,
 ]);
 
 export const VaultNodeSchema: z.ZodType<VaultNode> = z.lazy(() =>

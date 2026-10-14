@@ -8,6 +8,8 @@ import type { ConnectionTestResult, ConnectionTestStep } from '../shared/connect
 import { isRemoteConnection } from '../shared/vault/connections';
 import { sshConnectConfig } from './ssh/client-config';
 import { localShellCommand, publicError } from './ssh/session';
+import { locateCommand } from './ssh/locate';
+import { AI_CLI_TOOLS } from '../shared/ai-cli';
 
 const TIMEOUT = 15_000;
 
@@ -17,6 +19,7 @@ export interface ConnectionTestDependencies {
   createClient?: () => Client;
   resolve?: (host: string) => Promise<string>;
   probePort?: (host: string, port: number) => Promise<void>;
+  locate?: (command: string) => Promise<string | null>;
 }
 
 function probe(host: string, port: number): Promise<void> {
@@ -46,6 +49,13 @@ export async function testConnection(node: ConnectionNode, dependencies: Connect
     const cwd = node.workingDirectory?.trim() || homedir();
     const folder = await stat(cwd).catch(() => null);
     steps.push(folder?.isDirectory() ? { label: 'Startordner vorhanden', ok: true, detail: cwd } : { label: 'Startordner vorhanden', ok: false, detail: `„${cwd}“ existiert nicht.` });
+    if (node.protocol === 'aicli') {
+      if (node.tool === 'custom') { steps.push({ label: 'Befehl', ok: true, detail: 'Eigene Befehle werden erst beim Start geprüft.' }); return done(); }
+      const tool = AI_CLI_TOOLS[node.tool];
+      const found = await (dependencies.locate ?? locateCommand)(tool.command);
+      steps.push(found ? { label: `${tool.label} gefunden`, ok: true, detail: found } : { label: `${tool.label} gefunden`, ok: false, detail: `Nicht installiert. Installation: ${tool.install}` });
+      return done();
+    }
     const { file } = localShellCommand(node.protocol);
     const program = await stat(file).catch(() => null);
     steps.push({ label: 'Programm gefunden', ok: Boolean(program?.isFile()), detail: file });

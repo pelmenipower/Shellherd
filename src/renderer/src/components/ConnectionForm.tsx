@@ -7,13 +7,14 @@ import './editor-ui.css';
 import { CONNECTION_ICONS } from '../../../shared/vault/appearance';
 import { ConnectionIcon, connectionIconLabels } from './ConnectionIcon';
 import { PROTOCOLS } from '../../../shared/vault/connections';
+import { AI_CLI_TOOLS } from '../../../shared/ai-cli';
 import type { ConnectionTestResult } from '../../../shared/connection-test';
 
 const newTitles: Record<ConnectionProtocol, string> = {
   ssh: 'Neue SSH-Verbindung', sftp: 'Neue SFTP-Verbindung (Dateien)', rdp: 'Neue Remotedesktop-Verbindung (RDP)',
-  powershell: 'Neue lokale PowerShell', cmd: 'Neue lokale Eingabeaufforderung (CMD)',
+  powershell: 'Neue lokale PowerShell', cmd: 'Neue lokale Eingabeaufforderung (CMD)', aicli: 'Neue KI-CLI (Claude Code, Codex, Gemini)',
 };
-const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', sftp: 'Dateien öffnen', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten' };
+const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', sftp: 'Dateien öffnen', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten', aicli: 'CLI starten' };
 
 interface ConnectionFormProps {
   connection?: ConnectionNode;
@@ -39,7 +40,7 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const submittingRef = useRef(false);
   const protocol = connection?.protocol ?? requestedProtocol ?? 'ssh';
-  const remote = protocol !== 'powershell' && protocol !== 'cmd';
+  const remote = protocol !== 'powershell' && protocol !== 'cmd' && protocol !== 'aicli';
   const sshAuth = protocol === 'ssh' || protocol === 'sftp';
   const [fields, setFields] = useState<ConnectionFields>(() => fieldsFromConnection(protocol, connection));
   const [parentId, setParentId] = useState(initialParentId);
@@ -133,6 +134,16 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
           {textField('Passwort (leer: beim Verbinden fragen)', 'password', true)}
           <label className="editor-checkbox"><input type="checkbox" checked={fields.clipboard === 'on'} disabled={busy}
             onChange={event => setField('clipboard', event.target.checked ? 'on' : 'off')} />Zwischenablage mit dem Remotedesktop teilen</label>
+        </>}
+        {protocol === 'aicli' && <>
+          <label>Werkzeug<select value={fields.tool} disabled={busy} onChange={event => setField('tool', event.target.value)}>
+            {(Object.keys(AI_CLI_TOOLS) as (keyof typeof AI_CLI_TOOLS)[]).map(tool => <option key={tool} value={tool}>{AI_CLI_TOOLS[tool].label}</option>)}
+            <option value="custom">Eigener Befehl</option>
+          </select></label>
+          {fields.tool === 'custom' ? textField('Befehl (z. B. aider oder ollama run llama3)', 'command')
+            : <p className="editor-hint">Startet <code>{AI_CLI_TOOLS[fields.tool].command}</code> mit der eigenen Anmeldung des Werkzeugs. Nicht installiert? <code>{AI_CLI_TOOLS[fields.tool].install}</code></p>}
+          {textField('Projektordner (leer: Benutzerprofil)', 'workingDirectory')}
+          <p className="editor-hint">Nach dem Beenden bleibt der Tab eine Eingabeaufforderung in diesem Ordner.</p>
         </>}
         {(protocol === 'powershell' || protocol === 'cmd') && <>
           {textField('Startordner (leer: Benutzerprofil)', 'workingDirectory')}

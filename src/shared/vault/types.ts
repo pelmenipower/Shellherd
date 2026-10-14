@@ -15,7 +15,7 @@ export type Authentication =
     };
 
 /** Connection kinds. Remote kinds connect to a host; local kinds start a shell on this computer. */
-export type ConnectionProtocol = 'ssh' | 'sftp' | 'rdp' | 'powershell' | 'cmd';
+export type ConnectionProtocol = 'ssh' | 'sftp' | 'rdp' | 'powershell' | 'cmd' | 'aicli';
 export type LocalShellProtocol = 'powershell' | 'cmd';
 
 interface ConnectionBase {
@@ -70,7 +70,20 @@ export interface LocalShellConnectionNode extends ConnectionBase {
 }
 
 export type RemoteConnectionNode = SshConnectionNode | SftpConnectionNode | RdpConnectionNode;
-export type ConnectionNode = RemoteConnectionNode | LocalShellConnectionNode;
+export type AiCliTool = 'claude' | 'codex' | 'gemini' | 'custom';
+
+/** An AI command line tool (Claude Code, Codex …) started in a local terminal. */
+export interface AiCliConnectionNode extends ConnectionBase {
+  protocol: 'aicli';
+  tool: AiCliTool;
+  /** Custom tools only: the command line to run. */
+  command?: string;
+  /** Project folder; defaults to the user profile. */
+  workingDirectory?: string;
+}
+
+export type LocalConnectionNode = LocalShellConnectionNode | AiCliConnectionNode;
+export type ConnectionNode = RemoteConnectionNode | LocalConnectionNode;
 
 export interface FolderNode {
   id: string;

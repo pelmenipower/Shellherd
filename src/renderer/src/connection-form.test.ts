@@ -7,7 +7,7 @@ import type { VaultNode } from '../../shared/vault/types';
 const fields: ConnectionFields = {
   name: ' API ', comment: ' comment ', host: ' api.example.test ', port: '22', username: ' deploy ',
   method: 'agent', password: 'synthetic-only', keyPath: '/synthetic/key', passphrase: 'synthetic-only',
-  domain: '', clipboard: 'on', workingDirectory: '',
+  domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
   tags: 'prod, linux, prod, ,', color: '', icon: 'terminal',
 };
 
@@ -32,6 +32,15 @@ describe('connection form per protocol', () => {
     expect(sftp).toMatchObject({ protocol: 'sftp', host: 'api.example.test', port: 22, username: 'deploy', authentication: { method: 'password', password: 'synthetic-only' } });
     expect(fieldsFromConnection('sftp', sftp)).toMatchObject({ host: 'api.example.test', method: 'password', password: 'synthetic-only' });
     expect(JSON.stringify(redactSecrets([sftp]))).not.toContain('synthetic-only');
+  });
+  it('builds AI CLI tabs: preset tools without a command, custom ones with exactly one line', () => {
+    const claude = connectionFromFields('id', { ...fields, tool: 'codex', command: 'ignored', workingDirectory: ' C:\\Projekte\\x ' }, 'aicli');
+    expect(claude).toMatchObject({ protocol: 'aicli', tool: 'codex', workingDirectory: 'C:\\Projekte\\x' });
+    expect(claude).not.toHaveProperty('command');
+    expect(connectionFromFields('id', { ...fields, tool: 'custom', command: ' aider --model sonnet ' }, 'aicli')).toMatchObject({ tool: 'custom', command: 'aider --model sonnet' });
+    expect(() => connectionFromFields('id', { ...fields, tool: 'custom', command: ' ' }, 'aicli')).toThrow(ConnectionFieldError);
+    expect(() => connectionFromFields('id', { ...fields, tool: 'custom', command: 'a\nb' }, 'aicli')).toThrow('eine Zeile');
+    expect(fieldsFromConnection('aicli', claude)).toMatchObject({ tool: 'codex', workingDirectory: 'C:\\Projekte\\x' });
   });
   it('builds local shells without host or credentials', () => {
     const shell = connectionFromFields('id', { ...fields, host: '', port: '', workingDirectory: ' C:\\Temp ' }, 'powershell');

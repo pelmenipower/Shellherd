@@ -72,6 +72,25 @@ describe('local shell sessions', () => {
     expect(events.at(-1)).toMatchObject({ status: 'error', message: expect.stringContaining('Startordner') });
   });
 
+  it.runIf(process.platform === 'win32')('starts an installed AI CLI in cmd /k and explains a missing one', async () => {
+    const cli: ConnectionNode = { id: 'ai', type: 'connection', protocol: 'aicli', name: 'Claude', tool: 'claude', workingDirectory: tmpdir(), tags: [] };
+    const events: SshEvent[] = [];
+    const shell = fakePty();
+    const spawnShell = vi.fn<SpawnShell>(() => shell.pty);
+    let installed = true;
+    const manager = new SshSessionManager({ getConnection: () => cli, spawnShell, locate: async () => installed ? 'C:\\tools\\claude.cmd' : null,
+      verifyHost: async () => true, emit: (_owner, event) => events.push(event) });
+    const first = manager.prepare(1, { connectionId: 'ai', cols: 80, rows: 24 });
+    await manager.connect(1, first.sessionId);
+    expect(spawnShell).toHaveBeenCalledWith(expect.stringMatching(/cmd\.exe$/i), '/d /k claude', expect.objectContaining({ cwd: tmpdir() }));
+    installed = false;
+    const second = manager.prepare(1, { connectionId: 'ai', cols: 80, rows: 24 });
+    await manager.connect(1, second.sessionId);
+    expect(events.at(-1)).toMatchObject({ sessionId: second.sessionId, status: 'error', message: expect.stringContaining('npm install -g @anthropic-ai/claude-code') });
+    expect(spawnShell).toHaveBeenCalledTimes(1);
+    manager.closeAll();
+  });
+
   it('refuses RDP connections as terminal sessions', () => {
     const { manager } = setup({ id: 'r', type: 'connection', protocol: 'rdp', name: 'R', host: 'h', port: 3389, rdp: { clipboard: true }, tags: [] });
     expect(() => manager.prepare(1, { connectionId: 'r', cols: 80, rows: 24 })).toThrow(/keine Terminalverbindung/);

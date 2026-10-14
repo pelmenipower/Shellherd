@@ -1,4 +1,5 @@
 import type { ConnectionIconName } from './appearance';
+import { aiCliLabel } from '../ai-cli';
 import type { ConnectionNode, ConnectionProtocol, RemoteConnectionNode, VaultNode } from './types';
 
 export interface ProtocolInfo {
@@ -15,6 +16,7 @@ export const PROTOCOLS: Record<ConnectionProtocol, ProtocolInfo> = {
   rdp: { label: 'Remotedesktop (RDP)', short: 'RDP', defaultPort: 3389, defaultIcon: 'desktop' },
   powershell: { label: 'PowerShell (lokal)', short: 'PowerShell', defaultIcon: 'terminal' },
   cmd: { label: 'Eingabeaufforderung CMD (lokal)', short: 'CMD', defaultIcon: 'terminal' },
+  aicli: { label: 'KI-CLI (Claude Code, Codex, Gemini)', short: 'KI-CLI', defaultIcon: 'terminal' },
 };
 
 /** Order of the "new connection" menus; planned kinds are shown but disabled. */
@@ -23,6 +25,7 @@ export const NEW_CONNECTION_KINDS: { protocol: ConnectionProtocol | 'ftp'; label
   { protocol: 'rdp', label: PROTOCOLS.rdp.label },
   { protocol: 'powershell', label: PROTOCOLS.powershell.label },
   { protocol: 'cmd', label: PROTOCOLS.cmd.label },
+  { protocol: 'aicli', label: PROTOCOLS.aicli.label },
   { protocol: 'sftp', label: PROTOCOLS.sftp.label },
   { protocol: 'ftp', label: 'FTP', planned: true },
 ];
@@ -43,6 +46,7 @@ export function isRemoteConnection(node: ConnectionNode): node is RemoteConnecti
 
 /** Display address without secrets, e.g. `user@host:22` or `Lokal · PowerShell`. */
 export function connectionAddress(node: ConnectionNode): string {
+  if (node.protocol === 'aicli') return `Lokal · ${aiCliLabel(node)}`;
   if (!isRemoteConnection(node)) return `Lokal · ${PROTOCOLS[node.protocol].short}`;
   return `${node.username ? `${node.username}@` : ''}${node.host}:${node.port}`;
 }

@@ -18,7 +18,7 @@ import type { WindowRegistry } from './windows';
 const finite = z.number().finite().min(-1_000_000).max(1_000_000);
 const TabConnectionSchema = z.object({
   id: z.string().min(1).max(256), name: z.string().max(500),
-  protocol: z.enum(['ssh', 'sftp', 'rdp', 'powershell', 'cmd']), address: z.string().max(1000), view: z.literal('files').optional(),
+  protocol: z.enum(['ssh', 'sftp', 'rdp', 'powershell', 'cmd', 'aicli']), address: z.string().max(1000), view: z.literal('files').optional(),
 }).strict();
 const TargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('main') }).strict(),
