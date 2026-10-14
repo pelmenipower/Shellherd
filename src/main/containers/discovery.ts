@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import type { ContainerAction, ContainerHostId, ContainerTarget, DiscoveredItem, DiscoveryResult, RuntimeKind } from '../../shared/containers';
 import type { ConnectionNode, SshConnectionNode } from '../../shared/vault/types';
@@ -8,6 +7,7 @@ import { describeFailure, parseContainerList, parsePctList, parseProbe, parseQmL
 import type { RunResult } from './parsers';
 import { HostAccessError } from './runner';
 import { createSudoMarker } from './sudo';
+import { connectionFingerprint, SudoRejections } from './sudo-rejections';
 import type { RemoteHost } from './runner';
 
 const LIST_TIMEOUT = 15_000;
@@ -18,13 +18,12 @@ export interface DiscoveryDependencies {
   openRemote: (connection: SshConnectionNode) => Promise<RemoteHost>;
   runLocal: (file: string, args: string[], timeoutMs: number) => Promise<RunResult>;
   idleMs?: number;
+  /** Shared with terminal tabs; a private instance when not given. */
+  sudoRejections?: SudoRejections;
 }
 
 interface CachedHost { fingerprint: string; host: Promise<RemoteHost>; timer?: ReturnType<typeof setTimeout>; inFlight: number }
 
-/** Hashed, so cache keys never hold the stored password. */
-const fingerprint = (connection: SshConnectionNode): string => createHash('sha256')
-  .update(JSON.stringify([connection.host, connection.port, connection.username, connection.authentication])).digest('hex');
 
 function readable(error: unknown): Error {
   if (error instanceof HostAccessError || error instanceof ContainerInputError) return error;
@@ -45,9 +44,10 @@ const kindOf = (target: ContainerTarget): RuntimeKind => target.kind === 'contai
 
 export class ContainerDiscovery {
   private hosts = new Map<string, CachedHost>();
-  /** Connection fingerprints whose stored password sudo refused; not sent again until the settings change. */
-  private sudoRejected = new Map<string, string>();
-  constructor(private readonly dependencies: DiscoveryDependencies) {}
+  private readonly sudoRejections: SudoRejections;
+  constructor(private readonly dependencies: DiscoveryDependencies) {
+    this.sudoRejections = dependencies.sudoRejections ?? new SudoRejections();
+  }
 
   async list(hostId: ContainerHostId): Promise<DiscoveryResult> {
     try {
@@ -91,7 +91,7 @@ export class ContainerDiscovery {
   }
 
   closeAll(): void {
-    this.sudoRejected.clear();
+    this.sudoRejections.clearAll();
     for (const [id, cached] of [...this.hosts]) this.drop(id, cached);
   }
 
@@ -102,12 +102,12 @@ export class ContainerDiscovery {
   private async runSudo(host: RemoteHost, connection: SshConnectionNode, argv: string[], timeoutMs: number): Promise<RunResult> {
     const setting = sudoSetting(connection);
     if (setting.kind !== 'prompt') return host.run(remoteCommand(argv, setting), timeoutMs);
-    const print = fingerprint(connection);
-    if (this.sudoRejected.get(connection.id) === print) return { code: null, stdout: '', stderr: '', sudoRejected: true };
+    const print = connectionFingerprint(connection);
+    if (this.sudoRejections.isRejected(connection.id, print)) return { code: null, stdout: '', stderr: '', sudoRejected: true };
     const marker = createSudoMarker('sudo');
     const ready = createSudoMarker('ready');
     const result = await host.run(remoteCommand(argv, { kind: 'prompt', marker, ready, stdin: true }), timeoutMs, { marker, ready, password: setting.password });
-    if (result.sudoRejected) this.sudoRejected.set(connection.id, print);
+    if (result.sudoRejected) this.sudoRejections.markRejected(connection.id, print);
     return result;
   }
 
@@ -152,7 +152,7 @@ export class ContainerDiscovery {
 
   /** Synchronously picks or creates the entry and marks it in use, so concurrent callers share one opening. */
   private claim(connection: SshConnectionNode): CachedHost {
-    const print = fingerprint(connection);
+    const print = connectionFingerprint(connection);
     let entry = this.hosts.get(connection.id);
     if (entry && entry.fingerprint !== print) { this.drop(connection.id, entry); entry = undefined; }
     if (!entry) {

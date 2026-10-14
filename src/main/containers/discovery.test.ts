@@ -4,6 +4,7 @@ import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import { ContainerDiscovery } from './discovery';
 import type { RemoteHost, SudoPrompt } from './runner';
 import { listArgv, remoteCommand } from './commands';
+import { connectionFingerprint, SudoRejections } from './sudo-rejections';
 import type { RunResult } from './parsers';
 
 const ok = (stdout: string): RunResult => ({ code: 0, stdout, stderr: '' });
@@ -130,6 +131,22 @@ describe('ContainerDiscovery over SSH', () => {
     await discovery.list('h1');
     expect(host.sudo.filter(Boolean)).toHaveLength(2);
     expect(host.sudo.filter(Boolean)[1]!.password).toBe('synthetic-password-2');
+  });
+  it('shares the rejection memory with terminal tabs', async () => {
+    const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
+    const sudoRejections = new SudoRejections();
+    sudoRejections.markRejected('h1', connectionFingerprint(connection));
+    const host = fakeHost({ [PROBE]: ok('has:docker\n') });
+    const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn(), sudoRejections });
+    expect((await discovery.list('h1')).problems.docker).toBe('Das sudo-Passwort wurde abgelehnt.');
+    expect(host.sudo.filter(Boolean)).toHaveLength(0);
+    sudoRejections.clear('h1');
+    host.run = async (command, _timeout, prompt) => {
+      host.sudo.push(prompt);
+      return command === PROBE ? ok('has:docker\n') : { code: null, stdout: '', stderr: '', sudoRejected: true };
+    };
+    await discovery.list('h1');
+    expect(sudoRejections.isRejected('h1', connectionFingerprint(connection))).toBe(true);
   });
   it('shares one connection between concurrent requests', async () => {
     const host = fakeHost(answers);

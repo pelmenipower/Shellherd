@@ -11,6 +11,7 @@ import { agentSocket, SshSessionManager, targetExitMessage } from './session';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
+import { connectionFingerprint, SudoRejections } from '../containers/sudo-rejections';
 
 const hostKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
 let server: Server;
@@ -25,6 +26,7 @@ let execCommands: string[];
 let sudoInput: string[];
 let size: PseudoTtyOptions | undefined;
 let autoAck: boolean;
+let sudoRejections: SudoRejections;
 const directories: string[] = [];
 
 async function waitFor(predicate: () => boolean): Promise<void> {
@@ -60,17 +62,26 @@ function simulateTtySudo(stream: ServerChannel, command: string): void {
     if (end === -1) return;
     const attempt = line.slice(0, end);
     line = '';
+    if (attempt === expected && command.includes('sudo-nocache')) {
+      stream.write(`\r\n${ready}sudo: a password is required\r\n`); stream.exit(1); stream.end(); return;
+    }
     if (attempt === expected) { answered = true; stream.write('\r\n'); stream.write(`${ready}sudo-ok\r\n`); return; }
     stream.write(`\r\nSorry, try again.\r\n${marker}`);
   });
   if (answered) { stream.write(ready); stream.write('exec-ready\r\n'); return; }
-  // Two writes, so detection has to work across chunks.
-  stream.write(`notice\r\n${marker.slice(0, 9)}`);
-  stream.write(marker.slice(9));
+  const prompt = () => {
+    // Two writes, so detection has to work across chunks.
+    stream.write(`notice\r\n${marker.slice(0, 9)}`);
+    stream.write(marker.slice(9));
+  };
+  if (command.includes('sudo-quiet')) { stream.write('starting\r\n'); quietPrompt = prompt; return; }
+  prompt();
 }
+let quietPrompt: (() => void) | undefined;
 
 beforeEach(async () => {
-  events = []; peers = []; shell = undefined; shells = []; execCommands = []; sudoInput = []; size = undefined; autoAck = true;
+  events = []; peers = []; shell = undefined; shells = []; execCommands = []; sudoInput = []; size = undefined; autoAck = true; quietPrompt = undefined;
+  sudoRejections = new SudoRejections();
   server = new Server({ hostKeys: [hostKey] }, peer => {
     peers.push(peer);
     peer.on('error', () => {});
@@ -115,7 +126,7 @@ beforeEach(async () => {
   manager = new SshSessionManager({ getConnection: id => {
     if (id !== connection.id) throw new Error('Unknown saved connection');
     return structuredClone(connection);
-  }, verifyHost: async () => true, spawnShell: noShell, emit: (owner, event) => {
+  }, verifyHost: async () => true, spawnShell: noShell, sudoRejections, emit: (owner, event) => {
     events.push(event);
     if (autoAck && event.type === 'data') manager.acknowledge(owner, event.sessionId, event.sequence);
   } });
@@ -331,6 +342,46 @@ describe('SSH session manager with a real local SSH server', () => {
     expect(events).toContainEqual(expect.objectContaining({ status: 'error', message: 'Das Passwort enthält einen Zeilenumbruch und kann nicht für sudo verwendet werden.' }));
     expect(execCommands).toEqual([]);
     expect(peers).toHaveLength(0);
+  });
+
+  it('remembers a rejection so further tabs fail without sending the password again', async () => {
+    await manager.connect(1, sudoTab('sudo-wrong'));
+    await waitFor(() => hasStatus('error'));
+    expect(sudoRejections.isRejected(connection.id, connectionFingerprint(connection))).toBe(true);
+    events = [];
+    await manager.connect(1, sudoTab('web-1'));
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', message: 'Das sudo-Passwort wurde abgelehnt.' }));
+    expect(execCommands).toHaveLength(1);
+    expect(peers).toHaveLength(1);
+    expect(sudoInput.join('')).toBe('synthetic-password\n');
+  });
+
+  it('honours a rejection recorded by the container list', async () => {
+    sudoRejections.markRejected(connection.id, connectionFingerprint(connection));
+    await manager.connect(1, sudoTab('web-1'));
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', message: 'Das sudo-Passwort wurde abgelehnt.' }));
+    expect(peers).toHaveLength(0);
+  });
+
+  it('explains a server that does not cache sudo credentials', async () => {
+    await manager.connect(1, sudoTab('sudo-nocache'));
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', message: 'sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein.' }));
+  });
+
+  it('ignores typing while sudo is still authenticating', async () => {
+    const id = sudoTab('sudo-quiet');
+    await manager.connect(1, id);
+    await waitFor(() => output().includes('starting') && Boolean(quietPrompt));
+    await manager.input(1, id, 'early\r');
+    quietPrompt!();
+    await waitFor(() => output().includes('sudo-ok'));
+    await manager.input(1, id, 'late\r');
+    await waitFor(() => output().includes('late'));
+    expect(sudoInput.join('')).toBe('synthetic-password\nlate\r');
+    expect(hasStatus('error')).toBe(false);
   });
 
   it('reports a missing container when the command fails', async () => {

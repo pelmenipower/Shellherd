@@ -6,6 +6,7 @@ import { IPC_CHANNELS } from '../../shared/ipc';
 import { vaultSessionManager } from '../vault/ipc';
 import { KnownHosts } from './known-hosts';
 import { findConnection, SshSessionManager } from './session';
+import { SudoRejections } from '../containers/sudo-rejections';
 import { AckSchema, InputSchema, PrepareSchema, ResizeSchema, SessionSchema, parseRequest } from './validation';
 
 export function requireSshSender(event: IpcMainInvokeEvent): number {
@@ -32,8 +33,9 @@ export function createKnownHosts(): KnownHosts {
   });
 }
 
-export function registerSshIpcHandlers(knownHosts: KnownHosts): SshSessionManager {
+export function registerSshIpcHandlers(knownHosts: KnownHosts, sudoRejections = new SudoRejections()): SshSessionManager {
   const manager = new SshSessionManager({
+    sudoRejections,
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
       if (!connection) throw new Error('Die Verbindung wurde nicht gefunden.');

@@ -7,10 +7,12 @@ import { findConnection } from '../ssh/session';
 import { parseRequest } from '../ssh/validation';
 import { ContainerDiscovery } from './discovery';
 import { openRemoteHost, runLocal } from './runner';
+import { SudoRejections } from './sudo-rejections';
 import { ActionRequestSchema, ListRequestSchema } from './validation';
 
-export function registerContainerIpcHandlers(knownHosts: KnownHosts): ContainerDiscovery {
+export function registerContainerIpcHandlers(knownHosts: KnownHosts, sudoRejections = new SudoRejections()): ContainerDiscovery {
   const discovery = new ContainerDiscovery({
+    sudoRejections,
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
       if (!connection) throw new Error('Die Verbindung wurde nicht gefunden.');

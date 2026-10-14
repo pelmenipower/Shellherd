@@ -4,6 +4,7 @@ import { Server } from 'ssh2';
 import type { Connection, ServerChannel } from 'ssh2';
 import type { SshConnectionNode } from '../../shared/vault/types';
 import { remoteCommand } from './commands';
+import { describeFailure } from './parsers';
 import { HostAccessError, openRemoteHost, runLocal } from './runner';
 
 const hostKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
@@ -47,6 +48,7 @@ function simulateSudo(stream: ServerChannel, command: string): void {
     stream.exit(0); stream.end();
     return;
   }
+  if (command.includes('nocache')) { stream.write(ready); stream.stderr.write('sudo: a password is required\n'); stream.exit(1); stream.end(); return; }
   if (command.includes('nopasswd')) { finishCommand(); return; }
   // Two writes, so detection has to work across chunks.
   stream.stderr.write(`notice\n${marker.slice(0, 7)}`);
@@ -105,7 +107,7 @@ describe('openRemoteHost sudo prompts', () => {
   it('answers the prompt once, waits for readiness and keeps both markers out of the output', async () => {
     const host = await openRemoteHost(connection, async () => true);
     const result = await host.run(sudoCommand('pct', 'list'), 5_000, prompt());
-    expect(result).toEqual({ code: 0, stdout: 'ran\n', stderr: 'notice\n' });
+    expect(result).toEqual({ code: 0, stdout: 'ran\n', stderr: 'notice\n', sudoReady: true });
     expect(stdinSeen.join('')).toBe(`${SUDO_PASSWORD}\n`);
     expect(JSON.stringify(result)).not.toContain(SUDO_PASSWORD);
     host.close();
@@ -113,14 +115,14 @@ describe('openRemoteHost sudo prompts', () => {
   it('sends nothing when sudo does not ask', async () => {
     const host = await openRemoteHost(connection, async () => true);
     const result = await host.run(sudoCommand('nopasswd'), 5_000, prompt());
-    expect(result).toEqual({ code: 0, stdout: 'ran\n', stderr: '' });
+    expect(result).toEqual({ code: 0, stdout: 'ran\n', stderr: '', sudoReady: true });
     expect(stdinSeen).toEqual([]);
     host.close();
   });
   it('treats a prompt marker after readiness as plain text', async () => {
     const host = await openRemoteHost(connection, async () => true);
     const result = await host.run(sudoCommand('nopasswd-leak'), 5_000, prompt());
-    expect(result).toEqual({ code: 0, stdout: `out ${MARKER}\n`, stderr: `late ${MARKER}\n` });
+    expect(result).toEqual({ code: 0, stdout: `out ${MARKER}\n`, stderr: `late ${MARKER}\n`, sudoReady: true });
     expect(stdinSeen).toEqual([]);
     host.close();
   });
@@ -135,6 +137,13 @@ describe('openRemoteHost sudo prompts', () => {
     expect(result.stderr).not.toContain(MARKER);
     expect(JSON.stringify(result)).not.toContain('wrong-synthetic');
     expect((await host.run('echo c', 5_000)).code).toBe(0);
+    host.close();
+  });
+  it('marks results that failed after readiness', async () => {
+    const host = await openRemoteHost(connection, async () => true);
+    const result = await host.run(sudoCommand('nocache'), 5_000, prompt());
+    expect(result).toEqual({ code: 1, stdout: '', stderr: 'sudo: a password is required\n', sudoReady: true });
+    expect(describeFailure('docker', result)).toBe('sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein.');
     host.close();
   });
   it('reports a missing prompt on timeout and never sends the password', async () => {

@@ -16,7 +16,8 @@ import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import type { TerminalTarget } from '../../shared/containers';
 import { ContainerInputError, remoteCommand, sudoSetting, terminalArgv } from '../containers/commands';
 import type { SudoMode } from '../containers/commands';
-import { SUDO_REJECTED } from '../containers/parsers';
+import { SUDO_NOT_CACHED, SUDO_REJECTED } from '../containers/parsers';
+import { connectionFingerprint, SudoRejections } from '../containers/sudo-rejections';
 import { createSudoMarker, SudoWatcher } from '../containers/sudo';
 
 export { agentSocket } from './client-config';
@@ -31,6 +32,8 @@ export type SpawnShell = (file: string, args: string[] | string, options: IPtyFo
 
 export interface SshDependencies {
   getConnection: (id: string) => ConnectionNode;
+  /** Shared with container lists; a private instance when not given. */
+  sudoRejections?: SudoRejections;
   /** node-pty's spawn; injected so tests never start real processes. */
   spawnShell: SpawnShell;
   /** Finds an installed program; injected for tests. */
@@ -63,7 +66,9 @@ interface Session {
   /** Set once the user sent input; later exits are the user's own. */
   typed?: boolean;
   /** Container tab authenticating sudo with the stored password; removed at the ready marker. */
-  sudo?: { watcher: SudoWatcher; password?: string };
+  sudo?: { watcher: SudoWatcher; password?: string; fingerprint: string };
+  /** sudo authenticated and the ready marker was seen. */
+  sudoReady?: boolean;
 }
 
 export function findConnection(nodes: VaultNode[], id: string): ConnectionNode | undefined {
@@ -114,7 +119,10 @@ export function targetExitMessage(target: TerminalTarget, code: number | null | 
 
 export class SshSessionManager {
   private sessions = new Map<string, Session>();
-  constructor(private readonly dependencies: SshDependencies) {}
+  private readonly sudoRejections: SudoRejections;
+  constructor(private readonly dependencies: SshDependencies) {
+    this.sudoRejections = dependencies.sudoRejections ?? new SudoRejections();
+  }
 
   prepare(ownerId: number, request: SshPrepareRequest): { sessionId: string } {
     if (this.sessions.size >= MAX_SSH_SESSIONS) throw new Error(`Maximal ${MAX_SSH_SESSIONS} Terminal-Sessions gleichzeitig. Schließe zuerst einen Tab.`);
@@ -209,9 +217,12 @@ export class SshSessionManager {
   private sudoMode(session: Session, connection: SshConnectionNode): SudoMode {
     const setting = sudoSetting(connection);
     if (setting.kind !== 'prompt') return setting;
+    const fingerprint = connectionFingerprint(connection);
+    // A refused password is not tried again (account lockout) until the connection changes.
+    if (this.sudoRejections.isRejected(connection.id, fingerprint)) throw new ContainerInputError(SUDO_REJECTED);
     const marker = createSudoMarker('sudo');
     const ready = createSudoMarker('ready');
-    session.sudo = { watcher: new SudoWatcher({ prompt: marker, ready }), password: setting.password };
+    session.sudo = { watcher: new SudoWatcher({ prompt: marker, ready }), password: setting.password, fingerprint };
     return { kind: 'prompt', marker, ready, stdin: false };
   }
 
@@ -219,11 +230,15 @@ export class SshSessionManager {
   private sudoOutput(session: Session, chunk: Buffer): void {
     const sudo = session.sudo!;
     const result = sudo.watcher.feed(chunk);
-    if (result.ready) session.sudo = undefined;
+    if (result.ready) { session.sudo = undefined; session.sudoReady = true; }
     this.output(session, result.output);
     if (result.ready || !result.prompts) return;
     // A second prompt means sudo refused the password; never send it twice.
-    if (sudo.watcher.count > 1 || !sudo.password) { this.finish(session, 'error', SUDO_REJECTED); return; }
+    if (sudo.watcher.count > 1 || !sudo.password) {
+      this.sudoRejections.markRejected(session.connectionId, sudo.fingerprint);
+      this.finish(session, 'error', SUDO_REJECTED);
+      return;
+    }
     const password = sudo.password;
     sudo.password = undefined;
     session.stream?.write(`${password}\n`);
@@ -236,7 +251,8 @@ export class SshSessionManager {
   }
 
   private ended(session: Session): void {
-    const message = session.target ? targetExitMessage(session.target, session.exitCode, session.tail ?? '', session.typed === true) : undefined;
+    const notCached = session.sudoReady && !session.typed && session.exitCode && /sudo: a password is required/i.test(session.tail ?? '');
+    const message = notCached ? SUDO_NOT_CACHED : session.target ? targetExitMessage(session.target, session.exitCode, session.tail ?? '', session.typed === true) : undefined;
     this.finish(session, message ? 'error' : 'closed', message);
   }
 
@@ -336,6 +352,8 @@ export class SshSessionManager {
   async input(ownerId: number, id: string, data: string): Promise<void> {
     const session = this.owned(ownerId, id);
     if (session.phase !== 'connected' || (!session.stream && !session.pty)) throw new Error('Das Terminal ist noch nicht verbunden.');
+    // While sudo authenticates, keystrokes would end up in its password line.
+    if (session.sudo) return;
     const bytes = Buffer.byteLength(data);
     if (bytes > 16_384 || session.inputBytes + bytes > INPUT_LIMIT) throw new Error('Zu viele Terminaleingaben. Bitte warte kurz.');
     if (!bytes) return;

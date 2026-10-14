@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
 import { registerFileIpcHandlers } from './files/ipc';
 import { registerContainerIpcHandlers } from './containers/ipc';
+import { SudoRejections } from './containers/sudo-rejections';
 import type { ContainerDiscovery } from './containers/discovery';
 import type { SftpSessionManager } from './files/sftp-session';
 import type { SshSessionManager } from './ssh/session';
@@ -176,8 +177,10 @@ app.whenReady().then(() => {
   );
 
   const knownHosts = createKnownHosts();
-  sshSessionManager = registerSshIpcHandlers(knownHosts);
-  containerDiscovery = registerContainerIpcHandlers(knownHosts);
+  // One memory of refused sudo passwords for container lists and container tabs.
+  const sudoRejections = new SudoRejections();
+  sshSessionManager = registerSshIpcHandlers(knownHosts, sudoRejections);
+  containerDiscovery = registerContainerIpcHandlers(knownHosts, sudoRejections);
   rdpSessionManager = registerRdpIpcHandlers();
   sftpSessionManager = registerFileIpcHandlers(knownHosts);
   const ai = registerAiIpcHandlers(windowRegistry);

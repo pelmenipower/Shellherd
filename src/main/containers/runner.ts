@@ -51,6 +51,7 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
           let stdout = '', stderr = '', code: number | null = null, done = false;
           // Until the ready marker: prompts arrive on stderr, the ready marker on stdout.
           let password = sudo?.password;
+          let authenticated = false;
           let prompts = sudo ? new SudoWatcher({ prompt: sudo.marker }) : undefined;
           let ready = sudo ? new SudoWatcher({ ready: sudo.ready }) : undefined;
           const addStdout = (chunk: Buffer): void => { if (stdout.length < OUTPUT_LIMIT) stdout += chunk.toString('utf8'); };
@@ -62,7 +63,7 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
           };
           const finish = (result: RunResult): void => {
             if (done) return;
-            done = true; password = undefined; clearTimeout(timer); resolve(result);
+            done = true; password = undefined; clearTimeout(timer); resolve(authenticated ? { ...result, sudoReady: true } : result);
           };
           const timer = setTimeout(() => {
             const noPrompt = prompts !== undefined && prompts.count === 0;
@@ -73,7 +74,7 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
             if (!ready) { addStdout(chunk); return; }
             const result = ready.feed(chunk);
             addStdout(result.output);
-            if (result.ready) disarm();
+            if (result.ready) { authenticated = true; disarm(); }
           });
           stream.stderr.on('data', (chunk: Buffer) => {
             if (!prompts) { addStderr(chunk); return; }

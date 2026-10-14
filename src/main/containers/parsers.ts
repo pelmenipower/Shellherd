@@ -12,6 +12,8 @@ export interface RunResult {
   sudoRejected?: boolean;
   /** Timed out in prompt mode before sudo asked or reported readiness. */
   sudoNoPrompt?: boolean;
+  /** Prompt mode: sudo authenticated and the ready marker was seen. */
+  sudoReady?: boolean;
 }
 
 type ProbeTool = 'docker' | 'podman' | 'pct' | 'qm';
@@ -69,12 +71,15 @@ export function parseQmList(text: string): DiscoveredItem[] {
 
 const SUDO_PASSWORD = 'sudo verlangt ein Passwort, für diese Verbindung ist keins hinterlegt. Richte NOPASSWD ein oder melde dich per Passwort an.';
 export const SUDO_REJECTED = 'Das sudo-Passwort wurde abgelehnt.';
+/** `sudo -v` succeeded, yet the following `sudo -n` still wanted a password. */
+export const SUDO_NOT_CACHED = 'sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein.';
 
 export function describeFailure(kind: RuntimeKind, result: RunResult): string {
   if (result.sudoRejected) return SUDO_REJECTED;
   if (result.sudoNoPrompt) return 'sudo hat nicht wie erwartet nach dem Passwort gefragt.';
   if (result.timedOut) return 'Der Host hat nicht rechtzeitig geantwortet.';
   const text = `${result.stderr}\n${result.stdout}`;
+  if (result.sudoReady && /sudo: a password is required/i.test(text)) return SUDO_NOT_CACHED;
   if (/sudo: (a password is required|a terminal is required)/i.test(text)) return SUDO_PASSWORD;
   if (kind !== 'proxmox' && /permission denied[^\n]*\.sock/i.test(text)) {
     return kind === 'docker' ? 'Keine Berechtigung für Docker. Benutzer zur Gruppe docker hinzufügen oder sudo aktivieren.'
