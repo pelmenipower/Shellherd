@@ -1,6 +1,8 @@
 import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
 import type { TerminalTab } from './terminal-tabs';
-import { sameTarget, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, sameTarget, toTerminalConnection } from './terminal-tabs';
+import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
+import { connectionAddress } from '../../shared/vault/connections';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
 export interface LivePane { type: 'pane'; id: string; tabIds: string[]; activeTabId: string | null }
@@ -152,11 +154,13 @@ export function resizeBounds(split: LiveSplit, pixels: number): { min: number; m
 }
 export function savedLayout(layout: LiveLayout, tabs: TerminalTab[]): WorkspaceLayout {
   if (layout.type === 'split') return { type: 'split', direction: layout.direction, ratio: layout.ratio, first: savedLayout(layout.first, tabs), second: savedLayout(layout.second, tabs) };
-  const saved = layout.tabIds.flatMap(id => tabs.find(tab => tab.id === id) ?? []);
-  const active = layout.activeTabId ? tabs.find(tab => tab.id === layout.activeTabId)?.connection.id : undefined;
+  // Local container tabs have no vault connection to come back to.
+  const saved = layout.tabIds.flatMap(id => tabs.find(tab => tab.id === id) ?? []).filter(tab => tab.connection.id !== LOCAL_CONTAINER_HOST);
+  const active = layout.activeTabId ? saved.find(tab => tab.id === layout.activeTabId)?.connection.id : undefined;
   const fileBrowsers = saved.flatMap((tab, index) => tab.connection.view === 'files' ? [index] : []);
+  const containerTabs = saved.flatMap((tab, index) => tab.connection.target ? [{ index, target: tab.connection.target.item, mode: tab.connection.target.mode }] : []);
   return { type: 'pane', connectionIds: saved.map(tab => tab.connection.id), ...(active ? { activeConnectionId: active } : {}),
-    ...(fileBrowsers.length ? { fileBrowsers } : {}) };
+    ...(fileBrowsers.length ? { fileBrowsers } : {}), ...(containerTabs.length ? { containerTabs } : {}) };
 }
 export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => ConnectionNode | undefined, uuid: () => string): { layout: LiveLayout; tabs: TerminalTab[]; activeTabId: string | null } {
   const tabs: TerminalTab[] = [];
@@ -167,7 +171,10 @@ export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => Co
       if (!connection) throw new Error('Der Workspace verweist auf eine fehlende Verbindung.');
       if (tabs.length >= MAX_SSH_SESSIONS) throw new Error(`Ein Workspace darf höchstens ${MAX_SSH_SESSIONS} Sessions starten.`);
       const tabId = uuid();
-      const target = toTerminalConnection(connection, node.fileBrowsers?.includes(index));
+      const container = node.containerTabs?.find(entry => entry.index === index);
+      const target = container && connection.protocol === 'ssh'
+        ? containerConnection(connection.id, connection.name, connectionAddress(connection), { item: container.target, mode: container.mode })
+        : toTerminalConnection(connection, node.fileBrowsers?.includes(index));
       tabs.push({ id: tabId, connection: target, ordinal: tabs.filter(tab => sameTarget(tab.connection, target)).length + 1, status: 'connecting' });
       return tabId;
     });

@@ -147,7 +147,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       }
       void (async () => {
         try {
-          const result = await window.desktopApi.sshPrepare({ connectionId: connection.id,
+          const result = await window.desktopApi.sshPrepare({ connectionId: connection.id, ...(connection.target ? { target: connection.target } : {}),
             cols: Math.max(2, Math.min(500, term.cols)), rows: Math.max(1, Math.min(300, term.rows)) });
           if (disposed) { await window.desktopApi.sshClose({ sessionId: result.sessionId }); return; }
           register(result.sessionId);

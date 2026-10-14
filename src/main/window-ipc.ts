@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../shared/ipc';
 import { WorkspaceLayoutSchema, WorkspaceViewsSchema } from '../shared/vault/schema';
+import { TerminalTargetSchema } from '../shared/containers-schema';
 import { redactSecrets } from '../shared/vault/connections';
 import type { ConnectionCatalog, IncomingTab, IncomingView, TransferLayout, WindowLayoutReport, WorkspaceWindowState } from '../shared/windows';
 import { requireSshSender } from './ssh/ipc';
@@ -19,6 +20,7 @@ const finite = z.number().finite().min(-1_000_000).max(1_000_000);
 const TabConnectionSchema = z.object({
   id: z.string().min(1).max(256), name: z.string().max(500),
   protocol: z.enum(['ssh', 'sftp', 'rdp', 'powershell', 'cmd', 'aicli']), address: z.string().max(1000), view: z.literal('files').optional(),
+  target: TerminalTargetSchema.optional(),
 }).strict();
 const TargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('main') }).strict(),

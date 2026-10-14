@@ -10,6 +10,7 @@ import type {
   WorkspacePane,
   WorkspaceSplit,
 } from './types';
+import { ContainerTargetSchema } from '../containers-schema';
 import type { EncryptedVaultFile } from './file-format';
 
 export const AuthenticationSchema = z.discriminatedUnion('method', [
@@ -111,6 +112,7 @@ export const WorkspacePaneSchema: z.ZodType<WorkspacePane> = z.object({
   connectionIds: z.array(z.string().min(1)),
   activeConnectionId: z.string().min(1).optional(),
   fileBrowsers: z.array(z.number().int().min(0).max(63)).max(64).optional(),
+  containerTabs: z.array(z.object({ index: z.number().int().min(0).max(63), target: ContainerTargetSchema, mode: z.enum(['shell', 'logs']) }).strict()).max(64).optional(),
 });
 
 export const WorkspaceLayoutSchema: z.ZodType<WorkspaceLayout> = z.lazy(() =>

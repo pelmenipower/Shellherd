@@ -1,5 +1,6 @@
 import type { ConnectionProtocol, VaultNode, Workflow, WorkspaceLayout, WorkspaceView } from './vault/types';
 import type { SshStatus } from './ssh';
+import type { TerminalTarget } from './containers';
 
 export type WindowRole = 'main' | 'secondary';
 
@@ -8,6 +9,8 @@ export interface TabConnection {
   id: string; name: string; protocol: ConnectionProtocol; address: string;
   /** File browser opened for an SSH connection. */
   view?: 'files';
+  /** Container or Proxmox guest on the host `id`. */
+  target?: TerminalTarget;
 }
 
 export interface TransferSession { kind: 'terminal' | 'rdp' | 'sftp'; sessionId: string }

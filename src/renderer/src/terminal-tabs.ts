@@ -3,6 +3,8 @@ import type { TabConnection, TransferSession } from '../../shared/windows';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import type { SshStatus } from '../../shared/ssh';
 import { connectionAddress } from '../../shared/vault/connections';
+import { LOCAL_CONTAINER_HOST, targetKey } from '../../shared/containers';
+import type { TerminalTarget } from '../../shared/containers';
 
 /** Tab metadata only; never credentials. */
 export type TerminalConnection = TabConnection;
@@ -17,7 +19,20 @@ export function toTerminalConnection(node: ConnectionNode, asFiles = false): Ter
 }
 
 /** Tabs of the same saved connection opened the same way share ordinals. */
-export function sameTarget(a: TerminalConnection, b: TerminalConnection): boolean { return a.id === b.id && a.view === b.view; }
+export function containerTabName(target: TerminalTarget, hostName: string): string {
+  const item = target.item;
+  const label = item.kind === 'container' ? item.name : `${item.kind === 'lxc' ? 'CT' : 'VM'} ${item.vmid} ${item.name}`;
+  return `${target.mode === 'logs' ? 'Logs: ' : ''}${label} @ ${hostName}`;
+}
+
+/** Tab for a container or guest; `hostId` is the SSH connection or LOCAL_CONTAINER_HOST. */
+export function containerConnection(hostId: string, hostName: string, address: string, target: TerminalTarget): TerminalConnection {
+  return { id: hostId, name: containerTabName(target, hostName), protocol: hostId === LOCAL_CONTAINER_HOST ? 'cmd' : 'ssh', address, target };
+}
+
+export function sameTarget(a: TerminalConnection, b: TerminalConnection): boolean {
+  return a.id === b.id && a.view === b.view && (a.target ? targetKey(a.target) : '') === (b.target ? targetKey(b.target) : '');
+}
 export interface TerminalTab {
   id: string;
   connection: TerminalConnection;
@@ -45,15 +60,15 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
   switch (action.type) {
     case 'open': {
       if (state.tabs.length >= MAX_SSH_SESSIONS || state.tabs.some(tab => tab.id === action.id)) return state;
-      const { id, name, protocol, address, view } = action.connection;
+      const { id, name, protocol, address, view, target } = action.connection;
       const ordinal = Math.max(0, ...state.tabs.filter(tab => sameTarget(tab.connection, action.connection)).map(tab => tab.ordinal)) + 1;
-      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}) }, ordinal, status: 'connecting' }], activeTabId: action.id };
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(target ? { target } : {}) }, ordinal, status: 'connecting' }], activeTabId: action.id };
     }
     case 'adopt': {
       if (state.tabs.some(tab => tab.id === action.id)) return state;
-      const { id, name, protocol, address, view } = action.connection;
+      const { id, name, protocol, address, view, target } = action.connection;
       const ordinal = Math.max(0, ...state.tabs.filter(tab => sameTarget(tab.connection, action.connection)).map(tab => tab.ordinal)) + 1;
-      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}) }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(target ? { target } : {}) }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
     }
     case 'select':
       return action.id === null || state.tabs.some(tab => tab.id === action.id) ? { ...state, activeTabId: action.id } : state;
@@ -68,7 +83,7 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
     }
     case 'retainConnections': {
       const ids = new Set(action.connectionIds);
-      const tabs = state.tabs.filter(tab => ids.has(tab.connection.id));
+      const tabs = state.tabs.filter(tab => tab.connection.id === LOCAL_CONTAINER_HOST || ids.has(tab.connection.id));
       return tabs.length === state.tabs.length ? state : { tabs,
         activeTabId: state.activeTabId === null || tabs.some(tab => tab.id === state.activeTabId) ? state.activeTabId : tabs[0]?.id ?? null };
     }

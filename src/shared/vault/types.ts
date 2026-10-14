@@ -1,4 +1,5 @@
 import type { ConnectionIconName } from './appearance';
+import type { ContainerTarget, TerminalTargetMode } from '../containers';
 
 export type Authentication =
   | {
@@ -173,12 +174,16 @@ export interface WorkspaceWindow {
 
 export type WorkspaceLayout = WorkspacePane | WorkspaceSplit;
 
+/** A container tab in a workspace; `index` is its position in `connectionIds` (the host's SSH connection). */
+export interface WorkspaceContainerTab { index: number; target: ContainerTarget; mode: TerminalTargetMode }
+
 export interface WorkspacePane {
   type: 'pane';
   connectionIds: string[];
   activeConnectionId?: string;
   /** Positions in `connectionIds` of SSH connections opened as file browser instead of terminal. */
   fileBrowsers?: number[];
+  containerTabs?: WorkspaceContainerTab[];
 }
 
 export interface WorkspaceSplit {
