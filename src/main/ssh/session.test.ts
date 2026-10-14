@@ -400,6 +400,9 @@ describe('SSH session manager with a real local SSH server', () => {
     const next = sudoTab('web-1');
     const connecting = [manager.connect(1, holder), manager.connect(1, closed), manager.connect(1, next)];
     await waitFor(() => Boolean(quietPrompt));
+    // The gate is taken after the SSH handshake, so waiting tabs are already connected to the host.
+    await waitFor(() => peers.length === 3);
+    expect(execCommands).toHaveLength(1);
     manager.close(1, closed);
     quietPrompt!();
     await Promise.all(connecting);
@@ -432,6 +435,29 @@ describe('SSH session manager with a real local SSH server', () => {
     await manager.connect(1, sudoTab('sudo-nocache'));
     await waitFor(() => hasStatus('error'));
     expect(events).toContainEqual(expect.objectContaining({ status: 'error', message: 'sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein.' }));
+  });
+
+  it('gives control back to the user when sudo does not answer in time', async () => {
+    manager = new SshSessionManager({ getConnection: () => structuredClone(connection), verifyHost: async () => true, spawnShell: noShell,
+      sudoRejections, sudoReadyTimeoutMs: 150, emit: (owner, event) => {
+        events.push(event);
+        if (event.type === 'data') manager.acknowledge(owner, event.sessionId, event.sequence);
+      } });
+    const stuck = sudoTab('sudo-quiet');
+    await manager.connect(1, stuck);
+    await waitFor(() => output().includes('[Terminus] sudo hat nicht wie erwartet geantwortet'));
+    expect(output()).toContain('\r\n[Terminus] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben.\r\n');
+    // The gate is free again: another tab authenticates while the first one is still open.
+    const next = sudoTab('web-1');
+    await manager.connect(1, next);
+    await waitFor(() => output().includes('sudo-ok'));
+    await manager.input(1, stuck, 'typed\r');
+    await waitFor(() => sudoInput.join('').includes('typed\r'));
+    quietPrompt!();
+    await waitFor(() => /notice\r\n\[terminus-sudo-[0-9a-f]{16}\]/.test(output()));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(sudoInput.join('').split('synthetic-password').length).toBe(2);
+    expect(hasStatus('error')).toBe(false);
   });
 
   it('ignores typing while sudo is still authenticating', async () => {

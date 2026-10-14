@@ -151,6 +151,24 @@ describe('ContainerDiscovery over SSH', () => {
     expect(host.sudo.filter(Boolean)).toHaveLength(1);
     expect(most).toBe(1);
   });
+  it('gives up waiting for the sudo gate within the command timeout and never sends the password', async () => {
+    vi.useFakeTimers();
+    const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
+    const sudoRejections = new SudoRejections();
+    const holder = await sudoRejections.acquire('h1');
+    const host = fakeHost({});
+    host.run = async (_command, _timeout, prompt) => { host.sudo.push(prompt); return ok(''); };
+    const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn(), sudoRejections });
+    const target = { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' } as const;
+    const waiting = discovery.action('h1', target, 'stop');
+    const outcome = expect(waiting).rejects.toThrow('Ein anderer Tab meldet sich gerade per sudo an. Bitte später erneut versuchen.');
+    await vi.advanceTimersByTimeAsync(120_001);
+    await outcome;
+    expect(host.sudo.filter(Boolean)).toHaveLength(0);
+    holder();
+    await discovery.action('h1', target, 'start');
+    expect(host.sudo.filter(Boolean)).toHaveLength(1);
+  });
   it('releases the sudo gate when a command fails', async () => {
     const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
     const host = fakeHost({});

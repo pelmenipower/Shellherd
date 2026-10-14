@@ -85,6 +85,8 @@ describe('describeFailure', () => {
     expect(describeFailure('proxmox', { code: null, stdout: '', stderr: '', sudoRejected: true })).toBe('Das sudo-Passwort wurde abgelehnt.');
     expect(describeFailure('docker', { code: null, stdout: '', stderr: 'Sorry, try again.', sudoRejected: true })).toBe('Das sudo-Passwort wurde abgelehnt.');
     expect(describeFailure('docker', { code: null, stdout: '', stderr: '', timedOut: true, sudoNoPrompt: true })).toBe('sudo hat nicht wie erwartet nach dem Passwort gefragt.');
+    expect(describeFailure('docker', { code: null, stdout: '', stderr: '', sudoBusy: true }))
+      .toBe('Ein anderer Tab meldet sich gerade per sudo an. Bitte später erneut versuchen.');
     expect(describeFailure('proxmox', { code: 1, stdout: '', stderr: 'sudo: a password is required\n', sudoReady: true }))
       .toBe('sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein.');
   });

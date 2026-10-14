@@ -26,6 +26,7 @@ const OUTPUT_HIGH = 128 * 1024;
 const OUTPUT_LOW = 32 * 1024;
 const OUTPUT_LIMIT = 512 * 1024;
 const INPUT_LIMIT = 64 * 1024;
+const SUDO_READY_TIMEOUT = 20_000;
 
 /** `args` as a string is passed to Windows unchanged (cmd.exe /k <command line>). */
 export type SpawnShell = (file: string, args: string[] | string, options: IPtyForkOptions | IWindowsPtyForkOptions) => IPty;
@@ -34,6 +35,8 @@ export interface SshDependencies {
   getConnection: (id: string) => ConnectionNode;
   /** Shared with container lists; a private instance when not given. */
   sudoRejections?: SudoRejections;
+  /** How long a container tab waits for sudo to authenticate before handing control to the user. */
+  sudoReadyTimeoutMs?: number;
   /** node-pty's spawn; injected so tests never start real processes. */
   spawnShell: SpawnShell;
   /** Finds an installed program; injected for tests. */
@@ -66,7 +69,7 @@ interface Session {
   /** Set once the user sent input; later exits are the user's own. */
   typed?: boolean;
   /** Container tab authenticating sudo with the stored password; removed at the ready marker. */
-  sudo?: { watcher: SudoWatcher; password?: string; fingerprint: string; release?: () => void };
+  sudo?: { watcher: SudoWatcher; password?: string; fingerprint: string; release?: () => void; timer?: ReturnType<typeof setTimeout> };
   /** sudo authenticated and the ready marker was seen. */
   sudoReady?: boolean;
 }
@@ -176,14 +179,6 @@ export class SshSessionManager {
       const client = session.client;
       // Decided before connecting, so an unusable password fails without contacting the host.
       const sudo = session.target ? this.sudoMode(session, connection) : undefined;
-      if (session.sudo) {
-        // One sudo authentication per connection at a time, so parallel tabs cannot multiply a wrong password.
-        const pending = session.sudo;
-        const release = await this.sudoRejections.acquire(session.connectionId);
-        if (!this.active(session) || session.sudo !== pending) { release(); return; }
-        pending.release = release;
-        if (this.sudoRejections.isRejected(session.connectionId, pending.fingerprint)) throw new ContainerInputError(SUDO_REJECTED);
-      }
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
           .then(valid => {
@@ -198,13 +193,30 @@ export class SshSessionManager {
       if (!this.active(session)) { this.clearKey(session); return; }
       client.once('ready', () => {
         this.clearKey(session);
-        const pty = { term: 'xterm-256color', cols: session.size.cols, rows: session.size.rows };
-        const attach = (error: Error | undefined, stream: ClientChannel) => this.attachStream(session, error, stream);
-        if (session.target && sudo) client.exec(remoteCommand(terminalArgv(session.target), sudo), { pty }, attach);
-        else client.shell(pty, attach);
+        void this.awaitSudoTurn(session).then(proceed => {
+          if (!proceed) return;
+          const pty = { term: 'xterm-256color', cols: session.size.cols, rows: session.size.rows };
+          const attach = (error: Error | undefined, stream: ClientChannel) => this.attachStream(session, error, stream);
+          if (session.target && sudo) client.exec(remoteCommand(terminalArgv(session.target), sudo), { pty }, attach);
+          else client.shell(pty, attach);
+        }, error => this.finish(session, 'error', publicError(error)));
       });
       client.connect(config);
     } catch (error) { this.finish(session, 'error', publicError(error)); }
+  }
+
+  /**
+   * One sudo authentication per connection at a time, so parallel tabs cannot multiply a wrong
+   * password. Taken after the SSH handshake to keep the wait short; false when the tab went away.
+   */
+  private async awaitSudoTurn(session: Session): Promise<boolean> {
+    const pending = session.sudo;
+    if (!pending) return true;
+    const release = await this.sudoRejections.acquire(session.connectionId);
+    if (!this.active(session) || session.sudo !== pending) { release(); return false; }
+    pending.release = release;
+    if (this.sudoRejections.isRejected(session.connectionId, pending.fingerprint)) throw new ContainerInputError(SUDO_REJECTED);
+    return true;
   }
 
   private attachStream(session: Session, error: Error | undefined, stream: ClientChannel | undefined): void {
@@ -218,6 +230,7 @@ export class SshSessionManager {
     stream.stderr.on('error', (error: Error) => this.finish(session, 'error', publicError(error)));
     if (session.target) stream.on('exit', (code: number | null) => { session.exitCode = code; });
     stream.on('close', () => { this.releaseSudoHold(session); this.ended(session); });
+    if (session.sudo) session.sudo.timer = setTimeout(() => this.sudoGaveUp(session), this.dependencies.sudoReadyTimeoutMs ?? SUDO_READY_TIMEOUT);
     this.status(session, 'connected');
   }
 
@@ -252,6 +265,13 @@ export class SshSessionManager {
     session.stream?.write(`${password}\n`);
   }
 
+  /** sudo neither finished nor failed in time: stop watching, free the gate and let the user answer by hand. */
+  private sudoGaveUp(session: Session): void {
+    if (!this.active(session) || !session.sudo) return;
+    this.releaseSudoHold(session);
+    this.output(session, Buffer.from('\r\n[Terminus] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben.\r\n', 'utf8'));
+  }
+
   private releaseSudoHold(session: Session): void {
     const sudo = session.sudo;
     this.dropSudo(session);
@@ -260,9 +280,11 @@ export class SshSessionManager {
 
   /** Forgets the password and opens the connection's sudo gate for the next tab or command. */
   private dropSudo(session: Session): void {
-    const release = session.sudo?.release;
+    const sudo = session.sudo;
     session.sudo = undefined;
-    release?.();
+    if (!sudo) return;
+    clearTimeout(sudo.timer);
+    sudo.release?.();
   }
 
   private ended(session: Session): void {

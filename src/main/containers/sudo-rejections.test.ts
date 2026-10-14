@@ -32,6 +32,15 @@ describe('SudoRejections gate', () => {
     expect(order).toEqual(['second', 'third']);
     (await rejections.acquire('h1'))();
   });
+  it('gives up waiting after a timeout without holding the gate later', async () => {
+    const rejections = new SudoRejections();
+    const holder = await rejections.acquire('h1');
+    expect(await rejections.acquire('h1', 30)).toBeUndefined();
+    holder();
+    const release = await Promise.race([rejections.acquire('h1'), new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 100))]);
+    expect(release).toBeTypeOf('function');
+    release!();
+  });
   it('is released by a holder that fails', async () => {
     const rejections = new SudoRejections();
     const failing = async () => {

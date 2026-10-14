@@ -104,12 +104,16 @@ export class ContainerDiscovery {
     const setting = sudoSetting(connection);
     if (setting.kind !== 'prompt') return host.run(remoteCommand(argv, setting), timeoutMs);
     const print = connectionFingerprint(connection);
-    const release = await this.sudoRejections.acquire(connection.id);
+    const started = Date.now();
+    // Waiting for another tab or command counts against this command's timeout.
+    const release = await this.sudoRejections.acquire(connection.id, timeoutMs);
+    if (!release) return { code: null, stdout: '', stderr: '', sudoBusy: true };
     try {
       if (this.sudoRejections.isRejected(connection.id, print)) return { code: null, stdout: '', stderr: '', sudoRejected: true };
       const marker = createSudoMarker('sudo');
       const ready = createSudoMarker('ready');
-      const result = await host.run(remoteCommand(argv, { kind: 'prompt', marker, ready, stdin: true }), timeoutMs,
+      const remaining = Math.max(1, timeoutMs - (Date.now() - started));
+      const result = await host.run(remoteCommand(argv, { kind: 'prompt', marker, ready, stdin: true }), remaining,
         { marker, ready, password: setting.password, onReady: release });
       if (result.sudoRejected) this.sudoRejections.markRejected(connection.id, print);
       return result;

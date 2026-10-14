@@ -14,6 +14,8 @@ export interface RunResult {
   sudoNoPrompt?: boolean;
   /** Prompt mode: sudo authenticated and the ready marker was seen. */
   sudoReady?: boolean;
+  /** Not run: another sudo authentication for this connection did not finish in time. */
+  sudoBusy?: boolean;
 }
 
 type ProbeTool = 'docker' | 'podman' | 'pct' | 'qm';
@@ -76,6 +78,7 @@ export const SUDO_NOT_CACHED = 'sudo speichert die Anmeldung nicht zwischen (tim
 
 export function describeFailure(kind: RuntimeKind, result: RunResult): string {
   if (result.sudoRejected) return SUDO_REJECTED;
+  if (result.sudoBusy) return 'Ein anderer Tab meldet sich gerade per sudo an. Bitte später erneut versuchen.';
   if (result.sudoNoPrompt) return 'sudo hat nicht wie erwartet nach dem Passwort gefragt.';
   if (result.timedOut) return 'Der Host hat nicht rechtzeitig geantwortet.';
   const text = `${result.stderr}\n${result.stdout}`;
