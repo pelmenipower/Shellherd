@@ -42,14 +42,6 @@ export function SecondaryWindow() {
     void window.desktopApi.windowReady();
   }, [catalog]);
 
-  // Closing this window moves every tab back to the main window.
-  useEffect(() => window.desktopApi.onWindowEvacuate(() => {
-    void (async () => {
-      for (const tab of [...state.current.tabs]) await transfer.transfer(tab, { kind: 'main' });
-      await window.desktopApi.windowCloseReady();
-    })();
-  }), [transfer.transfer]);
-
   // The last tab left: the window has no purpose anymore.
   const hadTabs = useRef(false);
   useEffect(() => {

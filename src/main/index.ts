@@ -108,20 +108,27 @@ function guardMainWindowClose(window: BrowserWindow, ownerId: number): void {
   });
 }
 
-/** A detached window first moves its tabs to the main window; a timeout guarantees it closes anyway. */
+/** Closing a detached window ends its connections; with the vault setting on, after a confirmation. */
 function guardSecondaryWindowClose(window: BrowserWindow, ownerId: number): void {
-  let evacuating = false;
+  let confirming = false;
+  const closeNow = (): void => {
+    closeOwnerSessions(ownerId);
+    windowRegistry.allowClose(ownerId);
+    if (!window.isDestroyed()) window.close();
+  };
   window.on('close', event => {
-    if (windowRegistry.closeAllowed(ownerId) || !hasOwnerSessions(ownerId) || !windowRegistry.main()) return;
+    if (windowRegistry.closeAllowed(ownerId) || !hasOwnerSessions(ownerId)) { closeOwnerSessions(ownerId); return; }
+    let confirm = true;
+    try { confirm = vaultSessionManager.getSnapshot().vault.settings.confirmBeforeClosingSession; } catch { /* locked */ }
+    if (!confirm) { closeOwnerSessions(ownerId); return; }
     event.preventDefault();
-    if (evacuating) return;
-    evacuating = true;
-    window.webContents.send(IPC_CHANNELS.windowEvacuate);
-    setTimeout(() => {
-      if (window.isDestroyed()) return;
-      windowRegistry.allowClose(ownerId);
-      window.close();
-    }, 5_000).unref();
+    if (confirming) return;
+    confirming = true;
+    void dialog.showMessageBox(window, {
+      type: 'question', title: 'Fenster schließen', message: 'Alle Verbindungen in diesem Fenster trennen und das Fenster schließen?',
+      detail: 'Tabs, die du behalten willst, ziehst du vorher in ein anderes Fenster.',
+      buttons: ['Abbrechen', 'Trennen und schließen'], defaultId: 0, cancelId: 0, noLink: true,
+    }).then(result => { if (result.response === 1) closeNow(); }).catch(() => {}).finally(() => { confirming = false; });
   });
 }
 

@@ -52,7 +52,7 @@ export interface IncomingTab {
   status: SshStatus;
   session?: TransferSession;
   snapshot?: string;
-  /** Viewport point of the drop in the receiving window; absent for new windows and evacuation. */
+  /** Viewport point of the drop in the receiving window; absent for new windows. */
   drop?: { x: number; y: number };
 }
 

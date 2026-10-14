@@ -59,7 +59,6 @@ export const IPC_CHANNELS = {
   localDelete: 'local:delete',
   windowReady: 'window:ready',
   windowCloseReady: 'window:close-ready',
-  windowEvacuate: 'window:evacuate',
   connectionCatalog: 'window:connection-catalog',
   connectionCatalogChanged: 'window:connection-catalog-changed',
   tabTransfer: 'tabs:transfer',
@@ -174,7 +173,6 @@ export interface DesktopApi {
   pathForFile: (file: File) => string;
   windowReady: () => Promise<{ role: WindowRole }>;
   windowCloseReady: () => Promise<void>;
-  onWindowEvacuate: (listener: () => void) => () => void;
   connectionCatalog: () => Promise<ConnectionCatalog>;
   onConnectionCatalog: (listener: (catalog: ConnectionCatalog) => void) => () => void;
   transferTab: (request: TabTransferRequest) => Promise<void>;

@@ -18,7 +18,6 @@ function subscribe<T>(channel: string, listener: (value: T) => void): () => void
 const desktopApi: DesktopApi = {
   windowReady: () => ipcRenderer.invoke('window:ready'),
   windowCloseReady: () => ipcRenderer.invoke('window:close-ready'),
-  onWindowEvacuate: listener => subscribe('window:evacuate', listener),
   connectionCatalog: () => ipcRenderer.invoke('window:connection-catalog'),
   onConnectionCatalog: listener => subscribe('window:connection-catalog-changed', listener),
   transferTab: request => ipcRenderer.invoke('tabs:transfer', request),
