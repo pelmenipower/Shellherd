@@ -411,3 +411,39 @@ function removeConnectionsFromLayout(
     activeConnectionId,
   };
 }
+
+/** Where a dragged node lands: inside a folder (null: top level) or next to another node. */
+export type NodeDropTarget =
+  | { kind: 'into'; folderId: string | null }
+  | { kind: 'before' | 'after'; nodeId: string };
+
+function contains(node: VaultNode, id: string): boolean {
+  return node.id === id || (node.type === 'folder' && node.children.some(child => contains(child, id)));
+}
+
+function insertNext(nodes: VaultNode[], targetId: string, node: VaultNode, after: boolean): { nodes: VaultNode[]; found: boolean } {
+  const index = nodes.findIndex(item => item.id === targetId);
+  if (index >= 0) return { nodes: [...nodes.slice(0, index + (after ? 1 : 0)), node, ...nodes.slice(index + (after ? 1 : 0))], found: true };
+  let found = false;
+  const updated = nodes.map(item => {
+    if (found || item.type !== 'folder') return item;
+    const result = insertNext(item.children, targetId, node, after);
+    found = result.found;
+    return result.found ? { ...item, children: result.nodes } : item;
+  });
+  return { nodes: updated, found };
+}
+
+/** Moves a connection or folder; a folder can never move into itself or its own subfolders. */
+export function moveNode(nodes: VaultNode[], nodeId: string, target: NodeDropTarget): VaultNode[] {
+  const node = findNode(nodes, nodeId);
+  if (!node) throw new Error(`Der Knoten "${nodeId}" wurde nicht gefunden.`);
+  const anchor = target.kind === 'into' ? target.folderId : target.nodeId;
+  if (anchor === nodeId) return nodes;
+  if (anchor && contains(node, anchor)) throw new Error('Ein Ordner kann nicht in sich selbst verschoben werden.');
+  const remaining = removeNode(nodes, nodeId);
+  if (target.kind === 'into') return addNode(remaining, node, target.folderId ?? undefined);
+  const result = insertNext(remaining, target.nodeId, node, target.kind === 'after');
+  if (!result.found) throw new Error(`Der Knoten "${target.nodeId}" wurde nicht gefunden.`);
+  return result.nodes;
+}

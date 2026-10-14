@@ -1,4 +1,6 @@
 import { useCallback, useState } from 'react';
+import type { DragEvent } from 'react';
+import type { NodeDropTarget } from '../../../shared/vault/mutations';
 import type { ConnectionProtocol, VaultNode } from '../../../shared/vault/types';
 import { searchVaultNodes } from '../vault-search';
 import './navigation-ui.css';
@@ -23,12 +25,26 @@ interface VaultTreeProps {
   /** Opens every connection in a folder. */
   onConnectAll?: (folderId: string) => void;
   onNewFolder?: (parentId: string) => void;
+  /** Drag and drop: moves a connection or folder. */
+  onMove?: (nodeId: string, target: NodeDropTarget) => void;
 }
+
+const NODE_MIME = 'application/x-terminus-node';
+type DropHint = { id: string | null; kind: 'before' | 'after' | 'into' };
+
+function findTreeNode(nodes: VaultNode[], id: string): VaultNode | undefined {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    if (node.type === 'folder') { const found = findTreeNode(node.children, id); if (found) return found; }
+  }
+  return undefined;
+}
+const within = (node: VaultNode, id: string): boolean => node.id === id || (node.type === 'folder' && node.children.some(child => within(child, id)));
 function Icon({ kind }: { kind: 'folder' | 'terminal' | 'connect' | 'edit' | 'chevron' | 'rename' }) {
   const paths = { folder: 'M3 7V5h7l2 2h9v13H3V7Z', terminal: 'm4 6 6 6-6 6m9 0h7', connect: 'm9 5 10 7-10 7V5Z', edit: 'm14 5 5 5M4 20l5-1L21 7l-5-5L4 14v6Z', chevron: 'm9 5 7 7-7 7', rename: 'M4 6h16M12 6v14M8 20h8' };
   return <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={paths[kind]} /></svg>;
 }
-export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder, onOpenFiles, onConnectAll }: VaultTreeProps) {
+export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder, onOpenFiles, onConnectAll, onMove }: VaultTreeProps) {
   const [menu, setMenu] = useState<{ x: number; y: number; node: VaultNode | null } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const [query, setQuery] = useState('');
@@ -38,6 +54,38 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const searching = query.trim().length > 0;
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropHint, setDropHint] = useState<DropHint | null>(null);
+  const endDrag = (): void => { setDragging(null); setDropHint(null); };
+  /** Folders take drops in their middle; the upper and lower edge of any row places before or after it. */
+  const hintFor = (event: DragEvent, node: VaultNode): DropHint | null => {
+    const moving = dragging ? findTreeNode(nodes, dragging) : undefined;
+    if (!moving || within(moving, node.id)) return null;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = (event.clientY - rect.top) / rect.height;
+    if (node.type === 'folder' && position > 0.25 && position < 0.75) return { id: node.id, kind: 'into' };
+    return { id: node.id, kind: position < 0.5 ? 'before' : 'after' };
+  };
+  const dropOn = (hint: DropHint | null): void => {
+    const moving = dragging;
+    endDrag();
+    if (!moving || !hint || !onMove) return;
+    onMove(moving, hint.kind === 'into' ? { kind: 'into', folderId: hint.id } : { kind: hint.kind, nodeId: hint.id! });
+  };
+  const rowDrag = (node: VaultNode) => onMove && !disabled && renaming !== node.id ? {
+    draggable: true,
+    onDragStart: (event: DragEvent) => { event.dataTransfer.setData(NODE_MIME, node.id); event.dataTransfer.effectAllowed = 'move'; setDragging(node.id); setMenu(null); },
+    onDragEnd: endDrag,
+    onDragOver: (event: DragEvent) => {
+      if (!dragging) return;
+      event.stopPropagation();
+      const hint = hintFor(event, node);
+      setDropHint(hint);
+      if (hint) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }
+    },
+    onDrop: (event: DragEvent) => { event.preventDefault(); event.stopPropagation(); dropOn(hintFor(event, node)); },
+  } : {};
+  const hintClass = (node: VaultNode): string => dropHint?.id === node.id ? ` is-drop-${dropHint.kind}` : dragging === node.id ? ' is-dragging' : '';
   const toggle = (id: string) => setCollapsed(current => {
     const next = new Set(current);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -80,7 +128,7 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
   };
   const openMenu = (x: number, y: number, node: VaultNode | null) => { if (!disabled) setMenu({ x, y, node }); };
   const renderNode = (node: VaultNode, depth: number, path?: string): React.ReactNode => <li key={node.id}>
-    <div className={`vault-tree-row${selectedNodeId === node.id ? ' is-selected' : ''}`} style={{ paddingLeft: `${depth * 14}px` }}
+    <div className={`vault-tree-row${selectedNodeId === node.id ? ' is-selected' : ''}${hintClass(node)}`} style={{ paddingLeft: `${depth * 14}px` }} {...rowDrag(node)}
       onContextMenu={event => { event.preventDefault(); event.stopPropagation(); openMenu(event.clientX, event.clientY, node); }}>
       {node.type === 'folder' && !searching ? <button className={`tree-toggle${collapsed.has(node.id) ? '' : ' is-expanded'}`} type="button"
         aria-label={`${node.name} ${collapsed.has(node.id) ? 'aufklappen' : 'zuklappen'}`} aria-expanded={!collapsed.has(node.id)} disabled={disabled}
@@ -121,7 +169,10 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
     {node.type === 'folder' && !searching && !collapsed.has(node.id) && node.children.length > 0 && <ul>{node.children.map(child => renderNode(child, depth + 1))}</ul>}
   </li>;
   const results = searching ? searchVaultNodes(nodes, query) : [];
-  return <nav className="vault-tree" aria-label="Verbindungen und Ordner"
+  return <nav className={`vault-tree${dropHint?.id === null ? ' is-drop-root' : ''}`} aria-label="Verbindungen und Ordner"
+    onDragOver={event => { if (!dragging || !onMove) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropHint({ id: null, kind: 'into' }); }}
+    onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropHint(null); }}
+    onDrop={event => { event.preventDefault(); dropOn({ id: null, kind: 'into' }); }}
     onContextMenu={event => { if ((event.target as HTMLElement).closest('input')) return; event.preventDefault(); openMenu(event.clientX, event.clientY, null); }}>
     {menu && <ContextMenu x={menu.x} y={menu.y} label={menu.node ? `Aktionen für ${menu.node.name}` : 'Neu anlegen'}
       entries={menuEntries(menu.node)} onClose={closeMenu} />}

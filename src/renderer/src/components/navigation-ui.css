@@ -44,3 +44,10 @@
 .context-menu [role="menuitem"] small { color: var(--ui-muted); font-size: 11px; }
 .context-menu-heading { padding: 6px 10px 3px; color: var(--ui-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .context-menu-separator { height: 1px; margin: 4px 2px; background: var(--ui-border); }
+/* Drag and drop in the connection tree. */
+.vault-tree-row[draggable='true'] { cursor: grab; }
+.vault-tree-row.is-dragging { opacity: .45; }
+.vault-tree-row.is-drop-into { background: rgb(103 232 249 / 18%); box-shadow: inset 0 0 0 1px var(--ui-accent); }
+.vault-tree-row.is-drop-before { box-shadow: inset 0 2px 0 var(--ui-accent); }
+.vault-tree-row.is-drop-after { box-shadow: inset 0 -2px 0 var(--ui-accent); }
+.vault-tree.is-drop-root { box-shadow: inset 0 0 0 1px rgb(103 232 249 / 45%); border-radius: 4px; }

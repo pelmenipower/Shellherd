@@ -17,7 +17,8 @@ import type {
   VaultNode,
 } from '../../shared/vault/types';
 
-import { addNode, updateNode, removeNode, removeNodeFromVault, upsertWorkspace, removeWorkspace } from '../../shared/vault/mutations';
+import { addNode, moveNode, removeNode, removeNodeFromVault, removeWorkspace, updateNode, upsertWorkspace } from '../../shared/vault/mutations';
+import type { NodeDropTarget } from '../../shared/vault/mutations';
 import { VaultTree } from './components/VaultTree';
 import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuEntry } from './components/ContextMenu';
@@ -552,6 +553,14 @@ export default function App() {
     terminals.open(toTerminalConnection(connection)); setEditorOpen(false); setEditorDirty(false); return true;
   }
 
+  async function moveTreeNode(id: string, target: NodeDropTarget): Promise<void> {
+    if (!vault || busy) return;
+    let nodes: VaultNode[];
+    try { nodes = moveNode(vault.nodes, id, target); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Verschieben fehlgeschlagen.'); return; }
+    if (nodes !== vault.nodes) await persistVault({ ...vault, nodes });
+  }
+
   async function renameNode(id: string, name: string): Promise<boolean> {
     if (!vault || busy || !name.trim()) return false;
     return persistVault({ ...vault, nodes: updateNode(vault.nodes, id, node => ({ ...node, name: name.trim() })) });
@@ -624,7 +633,7 @@ export default function App() {
           </form>}
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); setError(null); })}
-            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
+            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
           {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu. Über „Neu“ oder Rechtsklick wählst du die Verbindungsart.</p><button type="button" className="secondary-button" onClick={() => newConnection()}>Neue SSH-Verbindung</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}${!terminals.tabs.length ? ' no-terminals' : ''}`}>

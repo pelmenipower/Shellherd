@@ -6,6 +6,7 @@ import {
 
 import {
   addNode,
+  moveNode,
   removeNode,
   removeNodeFromVault,
   updateNode,
@@ -443,5 +444,26 @@ describe('removeNodeFromVault', () => {
 
     // Der ursprüngliche Vault bleibt unverändert.
     expect(vault.nodes).toHaveLength(2);
+  });
+});
+
+describe('moveNode', () => {
+  const connection = (id: string): VaultNode => ({ id, type: 'connection', protocol: 'ssh', name: id, host: 'h', port: 22, authentication: { method: 'agent' }, tags: [] });
+  const folder = (id: string, children: VaultNode[]): VaultNode => ({ id, type: 'folder', name: id, children });
+  const tree = (): VaultNode[] => [connection('a'), folder('f', [connection('b'), folder('g', [connection('c')])]), connection('d')];
+  const shape = (nodes: VaultNode[]): unknown => nodes.map(node => node.type === 'folder' ? { [node.id]: shape(node.children) } : node.id);
+
+  it('moves into a folder, to the top level and next to other nodes', () => {
+    expect(shape(moveNode(tree(), 'a', { kind: 'into', folderId: 'g' }))).toEqual([{ f: ['b', { g: ['c', 'a'] }] }, 'd']);
+    expect(shape(moveNode(tree(), 'c', { kind: 'into', folderId: null }))).toEqual(['a', { f: ['b', { g: [] }] }, 'd', 'c']);
+    expect(shape(moveNode(tree(), 'd', { kind: 'before', nodeId: 'b' }))).toEqual(['a', { f: ['d', 'b', { g: ['c'] }] }]);
+    expect(shape(moveNode(tree(), 'a', { kind: 'after', nodeId: 'd' }))).toEqual([{ f: ['b', { g: ['c'] }] }, 'd', 'a']);
+  });
+
+  it('never moves a folder into itself and ignores drops onto the node itself', () => {
+    expect(() => moveNode(tree(), 'f', { kind: 'into', folderId: 'g' })).toThrow('in sich selbst');
+    expect(() => moveNode(tree(), 'f', { kind: 'before', nodeId: 'c' })).toThrow('in sich selbst');
+    const nodes = tree();
+    expect(moveNode(nodes, 'a', { kind: 'before', nodeId: 'a' })).toBe(nodes);
   });
 });
