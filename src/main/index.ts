@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
 import { registerFileIpcHandlers } from './files/ipc';
+import { registerContainerIpcHandlers } from './containers/ipc';
+import type { ContainerDiscovery } from './containers/discovery';
 import type { SftpSessionManager } from './files/sftp-session';
 import type { SshSessionManager } from './ssh/session';
 import { rdpSurfaceMode, registerRdpIpcHandlers } from './rdp/ipc';
@@ -25,6 +27,7 @@ import {
 
 
 let sshSessionManager: SshSessionManager;
+let containerDiscovery: ContainerDiscovery | undefined;
 let rdpSessionManager: RdpSessionManager;
 let sftpSessionManager: SftpSessionManager;
 let assistant: AssistantService | undefined;
@@ -34,7 +37,7 @@ const closeOwnerSessions = (ownerId: number): void => {
   sshSessionManager.closeOwner(ownerId); rdpSessionManager.closeOwner(ownerId); sftpSessionManager.closeOwner(ownerId);
   assistant?.cancelOwner(ownerId);
 };
-const closeAllSessions = (): void => { sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); assistant?.cancelAll(); };
+const closeAllSessions = (): void => { sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); assistant?.cancelAll(); containerDiscovery?.closeAll(); };
 const hasOwnerSessions = (ownerId: number): boolean =>
   sshSessionManager.hasOwner(ownerId) || rdpSessionManager.hasOwner(ownerId) || sftpSessionManager.hasOwner(ownerId);
 const hasAnySessions = (): boolean => BrowserWindow.getAllWindows().some(window => !window.isDestroyed() && hasOwnerSessions(window.webContents.id));
@@ -174,6 +177,7 @@ app.whenReady().then(() => {
 
   const knownHosts = createKnownHosts();
   sshSessionManager = registerSshIpcHandlers(knownHosts);
+  containerDiscovery = registerContainerIpcHandlers(knownHosts);
   rdpSessionManager = registerRdpIpcHandlers();
   sftpSessionManager = registerFileIpcHandlers(knownHosts);
   const ai = registerAiIpcHandlers(windowRegistry);
