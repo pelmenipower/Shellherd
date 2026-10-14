@@ -15,8 +15,24 @@ export function shellJoin(argv: string[]): string {
 }
 /** The probe runs in sh so fish, csh and other login shells do not break it. */
 export const PROBE_COMMAND = shellJoin(['sh', '-c', PROBE_SCRIPT]);
-export function remoteCommand(argv: string[], sudo: boolean): string {
-  return `${PATH_PREFIX} ${shellJoin(sudo ? ['sudo', '-n', ...argv] : argv)}`;
+/**
+ * none: no sudo. noninteractive: `sudo -n`, fails if a password is needed.
+ * prompt: sudo asks with `marker` as prompt; stdin reads it from stdin (-S), otherwise from the tty.
+ */
+export type SudoMode = { kind: 'none' } | { kind: 'noninteractive' } | { kind: 'prompt'; marker: string; stdin: boolean };
+
+/** No `%` (sudo expands prompt escapes) and nothing a terminal could reinterpret. */
+const SUDO_MARKER = /^[A-Za-z0-9_[\]-]{8,64}$/;
+
+function sudoArgv(sudo: SudoMode): string[] {
+  if (sudo.kind === 'none') return [];
+  if (sudo.kind === 'noninteractive') return ['sudo', '-n'];
+  if (!SUDO_MARKER.test(sudo.marker)) throw new Error('Invalid sudo marker');
+  return sudo.stdin ? ['sudo', '-S', '-p', sudo.marker] : ['sudo', '-p', sudo.marker];
+}
+
+export function remoteCommand(argv: string[], sudo: SudoMode): string {
+  return `${PATH_PREFIX} ${shellJoin([...sudoArgv(sudo), ...argv])}`;
 }
 
 function ref(value: string): string {

@@ -42,8 +42,19 @@ describe('PROBE_COMMAND', () => {
 
 describe('remoteCommand', () => {
   it('extends PATH for Proxmox tools and adds sudo -n only on request', () => {
-    expect(remoteCommand(['pct', 'list'], false)).toBe('PATH="$PATH:/usr/sbin:/sbin" pct list');
-    expect(remoteCommand(['pct', 'list'], true)).toBe('PATH="$PATH:/usr/sbin:/sbin" sudo -n pct list');
+    expect(remoteCommand(['pct', 'list'], { kind: 'none' })).toBe('PATH="$PATH:/usr/sbin:/sbin" pct list');
+    expect(remoteCommand(['pct', 'list'], { kind: 'noninteractive' })).toBe('PATH="$PATH:/usr/sbin:/sbin" sudo -n pct list');
+  });
+  it('asks sudo for a password with a quoted marker prompt', () => {
+    const marker = '[terminus-sudo-0123456789abcdef]';
+    expect(remoteCommand(['pct', 'list'], { kind: 'prompt', marker, stdin: true }))
+      .toBe(`PATH="$PATH:/usr/sbin:/sbin" sudo -S -p '${marker}' pct list`);
+    expect(remoteCommand(['pct', 'enter', '101'], { kind: 'prompt', marker, stdin: false }))
+      .toBe(`PATH="$PATH:/usr/sbin:/sbin" sudo -p '${marker}' pct enter 101`);
+  });
+  it('refuses markers sudo would expand or the shell could misread', () => {
+    expect(() => remoteCommand(['pct', 'list'], { kind: 'prompt', marker: '%u', stdin: true })).toThrow();
+    expect(() => remoteCommand(['pct', 'list'], { kind: 'prompt', marker: '', stdin: true })).toThrow();
   });
   it.runIf(hasSh())('keeps a quoted argument intact through sh', () => {
     const arg = "a'; echo pwned; '";

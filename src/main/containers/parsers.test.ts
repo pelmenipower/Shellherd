@@ -78,6 +78,13 @@ describe('describeFailure', () => {
     expect(describeFailure('proxmox', failed('only root can run this command'))).toContain('brauchen root');
     expect(describeFailure('proxmox', failed('permission denied'))).toContain('brauchen root');
   });
+  it('explains sudo password problems without naming a runtime', () => {
+    const missing = 'sudo verlangt ein Passwort, für diese Verbindung ist keins hinterlegt. Richte NOPASSWD ein oder melde dich per Passwort an.';
+    expect(describeFailure('docker', failed('sudo: a password is required'))).toBe(missing);
+    expect(describeFailure('podman', failed('sudo: a terminal is required to read the password'))).toBe(missing);
+    expect(describeFailure('proxmox', { code: null, stdout: '', stderr: '', sudoRejected: true })).toBe('Das sudo-Passwort wurde abgelehnt.');
+    expect(describeFailure('docker', { code: null, stdout: '', stderr: 'Sorry, try again.', sudoRejected: true })).toBe('Das sudo-Passwort wurde abgelehnt.');
+  });
   it('does not send Podman users to the docker group', () => {
     expect(describeFailure('podman', failed('Error: permission denied on /run/podman/podman.sock'))).toBe('Keine Berechtigung für Podman. sudo aktivieren oder Podman rootless einrichten.');
   });

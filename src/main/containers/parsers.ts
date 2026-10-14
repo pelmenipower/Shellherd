@@ -8,6 +8,8 @@ export interface RunResult {
   timedOut?: boolean;
   /** Local only: the program is not installed. */
   notFound?: boolean;
+  /** sudo asked again after the stored password was sent. */
+  sudoRejected?: boolean;
 }
 
 type ProbeTool = 'docker' | 'podman' | 'pct' | 'qm';
@@ -63,9 +65,11 @@ export function parseQmList(text: string): DiscoveredItem[] {
     .map(parts => ({ kind: 'vm' as const, vmid: Number(parts[0]), name: parts.slice(1, parts.length - 4).join(' '), state: state(parts[parts.length - 4]) }));
 }
 
-const SUDO_PASSWORD = 'sudo verlangt ein Passwort. Richte NOPASSWD für docker/pct ein oder füge den Benutzer der Gruppe docker hinzu.';
+const SUDO_PASSWORD = 'sudo verlangt ein Passwort, für diese Verbindung ist keins hinterlegt. Richte NOPASSWD ein oder melde dich per Passwort an.';
+export const SUDO_REJECTED = 'Das sudo-Passwort wurde abgelehnt.';
 
 export function describeFailure(kind: RuntimeKind, result: RunResult): string {
+  if (result.sudoRejected) return SUDO_REJECTED;
   if (result.timedOut) return 'Der Host hat nicht rechtzeitig geantwortet.';
   const text = `${result.stderr}\n${result.stdout}`;
   if (/sudo: (a password is required|a terminal is required)/i.test(text)) return SUDO_PASSWORD;

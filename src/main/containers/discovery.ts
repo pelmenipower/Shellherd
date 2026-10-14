@@ -6,6 +6,7 @@ import { actionArgv, ContainerInputError, listArgv, PROBE_COMMAND, remoteCommand
 import { describeFailure, parseContainerList, parsePctList, parseProbe, parseQmList } from './parsers';
 import type { RunResult } from './parsers';
 import { HostAccessError } from './runner';
+import { createSudoMarker } from './sudo';
 import type { RemoteHost } from './runner';
 
 const LIST_TIMEOUT = 15_000;
@@ -38,6 +39,15 @@ function probeOutput(result: RunResult): string {
   return result.stdout;
 }
 
+/** sudo -S with the stored password when there is one, else sudo -n; a fresh prompt marker per command. */
+function runSudo(host: RemoteHost, connection: SshConnectionNode, argv: string[], timeoutMs: number): Promise<RunResult> {
+  if (connection.containers?.sudo !== true) return host.run(remoteCommand(argv, { kind: 'none' }), timeoutMs);
+  const auth = connection.authentication;
+  if (auth.method !== 'password' || !auth.password) return host.run(remoteCommand(argv, { kind: 'noninteractive' }), timeoutMs);
+  const marker = createSudoMarker();
+  return host.run(remoteCommand(argv, { kind: 'prompt', marker, stdin: true }), timeoutMs, { marker, password: auth.password });
+}
+
 const kindOf = (target: ContainerTarget): RuntimeKind => target.kind === 'container' ? target.runtime : 'proxmox';
 
 export class ContainerDiscovery {
@@ -48,19 +58,18 @@ export class ContainerDiscovery {
     try {
       if (hostId === LOCAL_CONTAINER_HOST) return await this.listLocal();
       const connection = this.sshConnection(hostId);
-      const sudo = connection.containers?.sudo === true;
       return await this.withHost(connection, async host => {
         const tools = parseProbe(probeOutput(await host.run(PROBE_COMMAND, LIST_TIMEOUT)));
         const result: DiscoveryResult = { runtimes: [], items: [], problems: {} };
         for (const runtime of ['docker', 'podman'] as const) {
           if (!tools.has(runtime)) continue;
           result.runtimes.push(runtime);
-          this.collect(result, runtime, await host.run(remoteCommand(listArgv(runtime), sudo), LIST_TIMEOUT), text => parseContainerList(runtime, text));
+          this.collect(result, runtime, await runSudo(host, connection, listArgv(runtime), LIST_TIMEOUT), text => parseContainerList(runtime, text));
         }
         if (tools.has('pct') || tools.has('qm')) {
           result.runtimes.push('proxmox');
-          if (tools.has('pct')) this.collect(result, 'proxmox', await host.run(remoteCommand(listArgv('lxc'), sudo), LIST_TIMEOUT), parsePctList);
-          if (tools.has('qm')) this.collect(result, 'proxmox', await host.run(remoteCommand(listArgv('vm'), sudo), LIST_TIMEOUT), parseQmList);
+          if (tools.has('pct')) this.collect(result, 'proxmox', await runSudo(host, connection, listArgv('lxc'), LIST_TIMEOUT), parsePctList);
+          if (tools.has('qm')) this.collect(result, 'proxmox', await runSudo(host, connection, listArgv('vm'), LIST_TIMEOUT), parseQmList);
         }
         return result;
       });
@@ -77,8 +86,8 @@ export class ContainerDiscovery {
         result = await this.dependencies.runLocal(argv[0], argv.slice(1), ACTION_TIMEOUT);
       } else {
         const connection = this.sshConnection(hostId);
-        const command = remoteCommand(argv, connection.containers?.sudo === true);
-        result = await this.withHost(connection, host => host.run(command, ACTION_TIMEOUT));
+        const actionArgs = argv;
+        result = await this.withHost(connection, host => runSudo(host, connection, actionArgs, ACTION_TIMEOUT));
       }
     } catch (error) { throw readable(error); }
     if (result.code !== 0) throw new Error(result.notFound ? `${argv[0]} ist nicht installiert.` : describeFailure(kindOf(target), result));

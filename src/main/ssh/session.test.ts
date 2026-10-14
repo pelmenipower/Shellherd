@@ -22,6 +22,7 @@ let peers: Connection[];
 let shell: ServerChannel | undefined;
 let shells: ServerChannel[];
 let execCommands: string[];
+let sudoInput: string[];
 let size: PseudoTtyOptions | undefined;
 let autoAck: boolean;
 const directories: string[] = [];
@@ -37,8 +38,30 @@ function hasStatus(status: string): boolean { return events.some(event => event.
 function output(): string { return Buffer.concat(events.filter(event => event.type === 'data').map(event => Buffer.from(event.data))).toString('utf8'); }
 function prepare() { return manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24 }).sessionId; }
 
+/** Behaves like `sudo -p MARKER` on a tty: prompt in the output, password line from the terminal, a new prompt after a wrong one. */
+function simulateTtySudo(stream: ServerChannel, command: string): void {
+  const marker = /sudo -p '([^']+)'/.exec(command)![1];
+  const expected = command.includes('sudo-wrong') ? 'other-synthetic-password' : 'synthetic-password';
+  let answered = command.includes('nopasswd');
+  let line = '';
+  stream.on('data', (data: Buffer) => {
+    sudoInput.push(data.toString('utf8'));
+    if (answered) { stream.write(data); return; }
+    line += data.toString('utf8');
+    const end = line.indexOf('\n');
+    if (end === -1) return;
+    const attempt = line.slice(0, end);
+    line = '';
+    if (attempt === expected) { answered = true; stream.write('\r\nsudo-ok\r\n'); return; }
+    stream.write(`\r\nSorry, try again.\r\n${marker}`);
+  });
+  if (answered) { stream.write('exec-ready\r\n'); return; }
+  stream.write(`notice\r\n${marker.slice(0, 9)}`);
+  setTimeout(() => stream.write(marker.slice(9)), 20);
+}
+
 beforeEach(async () => {
-  events = []; peers = []; shell = undefined; shells = []; execCommands = []; size = undefined; autoAck = true;
+  events = []; peers = []; shell = undefined; shells = []; execCommands = []; sudoInput = []; size = undefined; autoAck = true;
   server = new Server({ hostKeys: [hostKey] }, peer => {
     peers.push(peer);
     peer.on('error', () => {});
@@ -62,6 +85,7 @@ beforeEach(async () => {
         execCommands.push(info.command);
         const stream = acceptExec();
         stream.on('error', () => {});
+        if (info.command.includes('sudo -p ')) { simulateTtySudo(stream, info.command); return; }
         if (info.command.includes('missing')) { stream.stderr.write('Error response from daemon: No such container: missing\r\n'); stream.exit(1); stream.end(); return; }
         if (info.command.includes('exits-ok')) { stream.write('bye\r\n'); stream.exit(0); stream.end(); return; }
         if (info.command.includes('exits-on-input')) {
@@ -234,12 +258,56 @@ describe('SSH session manager with a real local SSH server', () => {
     expect(shells).toHaveLength(0);
   });
 
-  it('uses sudo -n when the connection asks for it', async () => {
-    connection = { ...connection, containers: { sudo: true } };
+  it('uses sudo -n when the connection asks for it but has no stored password', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'terminus-ssh-key-test-')); directories.push(directory);
+    const keyPath = join(directory, 'synthetic.pem');
+    await writeFile(keyPath, generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' }));
+    connection = { ...connection, containers: { sudo: true }, authentication: { method: 'privateKey', keyPath } };
     const id = manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { kind: 'lxc', vmid: 101, name: 'ct' }, mode: 'shell' } }).sessionId;
     await manager.connect(1, id);
     await waitFor(() => execCommands.length === 1);
     expect(execCommands[0]).toBe('PATH="$PATH:/usr/sbin:/sbin" sudo -n pct enter 101');
+  });
+
+  const sudoTab = (ref: string) => {
+    connection = { ...connection, containers: { sudo: true } };
+    return manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { ...web, ref, name: ref }, mode: 'shell' } }).sessionId;
+  };
+
+  it('answers the sudo prompt of a container tab once with the stored password', async () => {
+    const id = sudoTab('web-1');
+    await manager.connect(1, id);
+    await waitFor(() => output().includes('sudo-ok'));
+    expect(execCommands[0]).toMatch(/^PATH="\$PATH:\/usr\/sbin:\/sbin" sudo -p '\[terminus-sudo-[0-9a-f]{16}\]' docker exec -it web-1 /);
+    expect(execCommands[0]).not.toContain('synthetic-password');
+    expect(sudoInput.join('')).toBe('synthetic-password\n');
+    await manager.input(1, id, 'ls\r');
+    await waitFor(() => output().includes('ls'));
+    expect(sudoInput.join('')).toBe('synthetic-password\nls\r');
+    expect(output()).toContain('notice\r\n');
+    expect(output()).not.toContain('terminus-sudo');
+    expect(JSON.stringify(events)).not.toContain('synthetic-password');
+    expect(hasStatus('error')).toBe(false);
+  });
+
+  it('ends a container tab when sudo rejects the stored password', async () => {
+    await manager.connect(1, sudoTab('sudo-wrong'));
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', message: 'Das sudo-Passwort wurde abgelehnt.' }));
+    expect(sudoInput.join('')).toBe('synthetic-password\n');
+    expect(output()).not.toContain('terminus-sudo');
+    expect(JSON.stringify(events)).not.toContain('synthetic-password');
+  });
+
+  it('sends nothing when sudo does not ask and still shows a held prefix', async () => {
+    const id = sudoTab('nopasswd');
+    await manager.connect(1, id);
+    await waitFor(() => output().includes('exec-ready'));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(sudoInput).toEqual([]);
+    await manager.input(1, id, 'a[');
+    await waitFor(() => output().includes('a['));
+    expect(sudoInput.join('')).toBe('a[');
   });
 
   it('reports a missing container when the command fails', async () => {

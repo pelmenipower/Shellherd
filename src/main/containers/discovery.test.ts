@@ -11,8 +11,9 @@ const ssh = (overrides: Partial<SshConnectionNode> = {}): SshConnectionNode => (
 
 function fakeHost(answers: Record<string, RunResult>) {
   const commands: string[] = [];
-  const host: RemoteHost & { commands: string[] } = { commands, closed: false,
-    async run(command) { commands.push(command); return answers[command] ?? { code: 127, stdout: '', stderr: 'not found' }; },
+  const sudo: ({ marker: string; password: string } | undefined)[] = [];
+  const host: RemoteHost & { commands: string[]; sudo: typeof sudo } = { commands, sudo, closed: false,
+    async run(command, _timeout, prompt) { commands.push(command); sudo.push(prompt); return answers[command] ?? { code: 127, stdout: '', stderr: 'not found' }; },
     close() { (host as { closed: boolean }).closed = true; } };
   return host;
 }
@@ -53,6 +54,49 @@ describe('ContainerDiscovery over SSH', () => {
     const discovery = new ContainerDiscovery({ getConnection: () => ssh({ containers: { sudo: true } }), openRemote: async () => host, runLocal: vi.fn() });
     await discovery.action('h1', { kind: 'lxc', vmid: 101, name: 'ct' }, 'start').catch(() => {});
     expect(host.commands).toContain(`${P} sudo -n pct start 101`);
+  });
+  it('answers sudo prompts with the stored password and a fresh marker per command', async () => {
+    const host = fakeHost({ [PROBE]: ok('has:docker\nhas:pct\n') });
+    const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
+    const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn() });
+    await discovery.list('h1');
+    await discovery.action('h1', { kind: 'lxc', vmid: 101, name: 'ct' }, 'start').catch(() => {});
+    expect(host.commands[0]).toBe(PROBE);
+    expect(host.sudo[0]).toBeUndefined();
+    const sudoCommands = host.commands.slice(1);
+    expect(sudoCommands).toHaveLength(3);
+    const markers = host.sudo.slice(1).map(entry => entry?.marker);
+    expect(new Set(markers).size).toBe(3);
+    sudoCommands.forEach((command, index) => {
+      expect(command).toContain(`sudo -S -p '${markers[index]}' `);
+      expect(command).not.toContain('synthetic-password');
+      expect(host.sudo[index + 1]?.password).toBe('synthetic-password');
+    });
+    expect(sudoCommands[2]).toMatch(/ pct start 101$/);
+  });
+  it('keeps sudo -n without a stored password', async () => {
+    for (const authentication of [{ method: 'agent' as const }, { method: 'password' as const, password: '' }]) {
+      const host = fakeHost({ [PROBE]: ok('has:docker\n') });
+      const discovery = new ContainerDiscovery({ getConnection: () => ssh({ containers: { sudo: true }, authentication }), openRemote: async () => host, runLocal: vi.fn() });
+      await discovery.list('h1');
+      expect(host.commands[1]).toBe(`${P} sudo -n docker ps -a --no-trunc --format '{{json .}}'`);
+      expect(host.sudo[1]).toBeUndefined();
+    }
+  });
+  it('does not use sudo with a stored password unless the connection asks for it', async () => {
+    const host = fakeHost({ [PROBE]: ok('has:docker\n') });
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh({ authentication: { method: 'password', password: 'synthetic-password' } }), openRemote: async () => host, runLocal: vi.fn() });
+    await discovery.list('h1');
+    expect(host.commands[1]).toBe(`${P} docker ps -a --no-trunc --format '{{json .}}'`);
+    expect(host.sudo[1]).toBeUndefined();
+  });
+  it('reports a rejected sudo password per runtime', async () => {
+    const host = fakeHost({ [PROBE]: ok('has:docker\n') });
+    host.run = async command => command === PROBE ? ok('has:docker\n') : { code: null, stdout: '', stderr: '', sudoRejected: true };
+    const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
+    const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn() });
+    expect((await discovery.list('h1')).problems.docker).toBe('Das sudo-Passwort wurde abgelehnt.');
+    await expect(discovery.action('h1', { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' }, 'stop')).rejects.toThrow('Das sudo-Passwort wurde abgelehnt.');
   });
   it('shares one connection between concurrent requests', async () => {
     const host = fakeHost(answers);

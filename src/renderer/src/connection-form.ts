@@ -23,7 +23,7 @@ export interface ConnectionFields {
   tags: string;
   color: string;
   icon: string;
-  /** SSH only: run container commands with sudo -n. */
+  /** SSH only: run container commands with sudo (stored password or sudo -n). */
   containerSudo: 'on' | 'off';
 }
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
 import { Server } from 'ssh2';
-import type { Connection } from 'ssh2';
+import type { Connection, ServerChannel } from 'ssh2';
 import type { SshConnectionNode } from '../../shared/vault/types';
 import { HostAccessError, openRemoteHost, runLocal } from './runner';
 
@@ -9,10 +9,36 @@ const hostKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.e
 let server: Server;
 let peers: Connection[];
 let commands: string[];
+let stdinSeen: string[];
 let connection: SshConnectionNode;
 
+const SUDO_PASSWORD = 'synthetic-sudo-secret';
+const MARKER = '[terminus-sudo-0123456789abcdef]';
+const sudoCommand = (rest: string) => `PATH="$PATH:/usr/sbin:/sbin" sudo -S -p '${MARKER}' ${rest}`;
+
+/** Behaves like `sudo -S -p MARKER`: prompt on stderr, password line from stdin, a new prompt after a wrong one. */
+function simulateSudo(stream: ServerChannel, command: string): void {
+  const marker = /sudo -S -p '([^']+)'/.exec(command)![1];
+  let received = '';
+  stream.on('data', (data: Buffer) => {
+    received += data.toString('utf8');
+    stdinSeen.push(data.toString('utf8'));
+    const end = received.indexOf('\n');
+    if (end === -1) return;
+    const line = received.slice(0, end);
+    received = received.slice(end + 1);
+    if (line === SUDO_PASSWORD) { stream.write('ran\n'); stream.exit(0); stream.end(); return; }
+    stream.stderr.write(`Sorry, try again.\n${marker}`);
+    setTimeout(() => { stream.exit(1); stream.end(); }, 3_000).unref();
+  });
+  if (command.includes('nopasswd')) { setTimeout(() => { stream.write('ran\n'); stream.exit(0); stream.end(); }, 100); return; }
+  // Split the prompt so detection has to work across chunks.
+  stream.stderr.write(`notice\n${marker.slice(0, 7)}`);
+  setTimeout(() => stream.stderr.write(marker.slice(7)), 20);
+}
+
 beforeEach(async () => {
-  peers = []; commands = [];
+  peers = []; commands = []; stdinSeen = [];
   server = new Server({ hostKeys: [hostKey] }, peer => {
     peers.push(peer);
     peer.on('error', () => {});
@@ -21,6 +47,7 @@ beforeEach(async () => {
       commands.push(info.command);
       const stream = acceptExec();
       if (info.command === 'hang') return;
+      if (info.command.includes('sudo -S -p')) { simulateSudo(stream, info.command); return; }
       if (info.command === 'fail') { stream.stderr.write('boom\n'); stream.exit(3); stream.end(); return; }
       stream.write(`ran:${info.command}\n`); stream.exit(0); stream.end();
     })));
@@ -56,6 +83,37 @@ describe('openRemoteHost', () => {
   it('refuses an unconfirmed host key with a readable error', async () => {
     await expect(openRemoteHost(connection, async () => false)).rejects.toThrow(HostAccessError);
     await expect(openRemoteHost(connection, async () => false)).rejects.toThrow('Der Server-Schlüssel wurde nicht bestätigt.');
+  });
+});
+
+describe('openRemoteHost sudo prompts', () => {
+  it('answers the prompt once and keeps the marker out of the output', async () => {
+    const host = await openRemoteHost(connection, async () => true);
+    const result = await host.run(sudoCommand('pct list'), 5_000, { marker: MARKER, password: SUDO_PASSWORD });
+    expect(result).toEqual({ code: 0, stdout: 'ran\n', stderr: 'notice\n' });
+    expect(stdinSeen.join('')).toBe(`${SUDO_PASSWORD}\n`);
+    expect(JSON.stringify(result)).not.toContain(SUDO_PASSWORD);
+    host.close();
+  });
+  it('sends nothing when sudo does not ask', async () => {
+    const host = await openRemoteHost(connection, async () => true);
+    const result = await host.run(sudoCommand('nopasswd'), 5_000, { marker: MARKER, password: SUDO_PASSWORD });
+    expect(result).toEqual({ code: 0, stdout: 'ran\n', stderr: '' });
+    expect(stdinSeen).toEqual([]);
+    host.close();
+  });
+  it('stops at the second prompt and reports the rejection', async () => {
+    const host = await openRemoteHost(connection, async () => true);
+    const started = Date.now();
+    const result = await host.run(sudoCommand('pct list'), 5_000, { marker: MARKER, password: 'wrong-synthetic' });
+    expect(result.sudoRejected).toBe(true);
+    expect(result.timedOut).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(2_500);
+    expect(stdinSeen.join('')).toBe('wrong-synthetic\n');
+    expect(result.stderr).not.toContain(MARKER);
+    expect(JSON.stringify(result)).not.toContain('wrong-synthetic');
+    expect((await host.run('echo c', 5_000)).code).toBe(0);
+    host.close();
   });
 });
 

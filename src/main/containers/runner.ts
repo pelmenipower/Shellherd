@@ -3,6 +3,7 @@ import { Client } from 'ssh2';
 import type { SshConnectionNode } from '../../shared/vault/types';
 import { sshConnectConfig } from '../ssh/client-config';
 import type { RunResult } from './parsers';
+import { SudoPromptWatcher } from './sudo';
 
 const OUTPUT_LIMIT = 1024 * 1024;
 
@@ -11,8 +12,11 @@ export class HostAccessError extends Error {}
 
 export type VerifyHost = (host: string, port: number, key: Buffer, isActive: () => boolean) => Promise<boolean>;
 
+/** Answers a `sudo -S -p marker` prompt on stderr with the password, at most once. */
+export interface SudoPrompt { marker: string; password: string }
+
 export interface RemoteHost {
-  run(command: string, timeoutMs: number): Promise<RunResult>;
+  run(command: string, timeoutMs: number, sudo?: SudoPrompt): Promise<RunResult>;
   close(): void;
   readonly closed: boolean;
 }
@@ -40,17 +44,32 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
   return {
     get closed() { return closed; },
     close() { closed = true; client.end(); },
-    run(command, timeoutMs) {
+    run(command, timeoutMs, sudo) {
       return new Promise((resolve, reject) => {
         client.exec(command, (error, stream) => {
           if (error) { reject(error); return; }
           let stdout = '', stderr = '', code: number | null = null, done = false;
-          const finish = (result: RunResult): void => { if (!done) { done = true; clearTimeout(timer); resolve(result); } };
+          let password = sudo?.password;
+          const watcher = sudo ? new SudoPromptWatcher(sudo.marker) : undefined;
+          const addStderr = (chunk: Buffer): void => { if (stderr.length < OUTPUT_LIMIT) stderr += chunk.toString('utf8'); };
+          const finish = (result: RunResult): void => {
+            if (done) return;
+            done = true; password = undefined; clearTimeout(timer); resolve(result);
+          };
           const timer = setTimeout(() => { stream.close(); finish({ code: null, stdout, stderr, timedOut: true }); }, timeoutMs);
           stream.on('data', (chunk: Buffer) => { if (stdout.length < OUTPUT_LIMIT) stdout += chunk.toString('utf8'); });
-          stream.stderr.on('data', (chunk: Buffer) => { if (stderr.length < OUTPUT_LIMIT) stderr += chunk.toString('utf8'); });
+          stream.stderr.on('data', (chunk: Buffer) => {
+            if (!watcher) { addStderr(chunk); return; }
+            const { output, prompts } = watcher.feed(chunk);
+            addStderr(output);
+            if (!prompts) return;
+            // A second prompt means sudo refused the password; never send it twice.
+            if (watcher.count > 1 || !password) { stream.close(); finish({ code: null, stdout, stderr, sudoRejected: true }); return; }
+            stream.write(`${password}\n`);
+            password = undefined;
+          });
           stream.on('exit', (exitCode: number | null) => { code = exitCode; });
-          stream.on('close', () => finish({ code, stdout, stderr }));
+          stream.on('close', () => { if (watcher) addStderr(watcher.flush()); finish({ code, stdout, stderr }); });
         });
       });
     },
