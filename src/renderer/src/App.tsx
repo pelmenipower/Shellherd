@@ -26,8 +26,13 @@ import { FolderEditor } from './components/FolderEditor';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
-import { isRunning, tabLabel, toTerminalConnection } from './terminal-tabs';
-import { NEW_CONNECTION_KINDS } from '../../shared/vault/connections';
+import { containerConnection, isRunning, tabLabel, toTerminalConnection } from './terminal-tabs';
+import { connectionAddress, NEW_CONNECTION_KINDS } from '../../shared/vault/connections';
+import { LOCAL_CONTAINER_HOST, toTarget } from '../../shared/containers';
+import type { ContainerAction, DiscoveredItem, TerminalTargetMode } from '../../shared/containers';
+import type { ContainerTreeProps } from './container-tree';
+import { useContainerDiscovery } from './hooks/useContainerDiscovery';
+import { LocalContainers } from './components/LocalContainers';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { SplitTerminalArea } from './components/SplitTerminalArea';
 import { WorkspaceControls } from './components/WorkspaceControls';
@@ -145,6 +150,11 @@ export default function App() {
   const viewControls = useViewControls(terminalLayout, terminals.select, transfer.transferView);
   // Announce readiness after the transfer listeners above are registered.
   useEffect(() => { void window.desktopApi.windowReady(); }, []);
+  const containerDiscovery = useContainerDiscovery();
+  const vaultId = vault?.id;
+  const { load: loadContainers } = containerDiscovery;
+  // Local discovery once per unlocked vault.
+  useEffect(() => { if (vaultId) void loadContainers(LOCAL_CONTAINER_HOST); }, [vaultId, loadContainers]);
   const [pendingSshAction, setPendingSshAction] = useState<
     { type: 'closeTab'; tabId: string } | { type: 'lockVault' } | { type: 'openWorkspace'; workspaceId: string } | { type: 'closeWorkspace' } | null
   >(null);
@@ -592,6 +602,25 @@ export default function App() {
     });
   }
 
+  function openContainer(hostId: string, item: DiscoveredItem, mode: TerminalTargetMode): void {
+    const host = hostId === LOCAL_CONTAINER_HOST ? undefined : vault && findNode(vault.nodes, hostId);
+    if (hostId !== LOCAL_CONTAINER_HOST && host?.type !== 'connection') return;
+    navigateEditor(() => {
+      if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
+      const name = host?.type === 'connection' ? host.name : 'Dieser Computer';
+      const address = host?.type === 'connection' ? connectionAddress(host) : 'lokal';
+      terminals.open(containerConnection(hostId, name, address, { item: toTarget(item), mode }));
+      setEditorOpen(false); setEditorDirty(false); setError(null);
+    });
+  }
+
+  const containerTree: ContainerTreeProps = {
+    state: containerDiscovery.state,
+    onExpand: id => void containerDiscovery.load(id),
+    onOpen: openContainer,
+    onAction: (id: string, item: DiscoveredItem, action: ContainerAction, confirm?: string) => { if (!confirm || window.confirm(confirm)) void containerDiscovery.act(id, item, action); },
+  };
+
   /** Opens every connection inside a folder (and its subfolders) as tabs, up to the session limit. */
   function connectFolder(folderId: string): void {
     const folder = vault && findNode(vault.nodes, folderId);
@@ -695,7 +724,8 @@ export default function App() {
             <div className="sidebar-form-actions"><button type="button" onClick={() => setShowFolderForm(false)} disabled={busy}>Abbrechen</button>
               <button type="submit" disabled={busy || !canCreateFolder || !folderName.trim()}>Anlegen</button></div>
           </form>}
-          <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy}
+          <LocalContainers containers={containerTree} disabled={busy} />
+          <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy} containers={containerTree}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); setError(null); })}
             onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
           {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu. Über „Neu“ oder Rechtsklick wählst du die Verbindungsart.</p><button type="button" className="secondary-button" onClick={() => newConnection()}>Neue SSH-Verbindung</button></div>}

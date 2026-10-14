@@ -9,6 +9,8 @@ import { connectionAddress, NEW_CONNECTION_KINDS } from '../../../shared/vault/c
 import { ContextMenu } from './ContextMenu';
 import type { ContextMenuEntry } from './ContextMenu';
 import { parentFolderId } from '../connection-form';
+import type { ContainerTreeProps } from '../container-tree';
+import { ContainerChildren } from './ContainerChildren';
 
 interface VaultTreeProps {
   nodes: VaultNode[];
@@ -27,6 +29,8 @@ interface VaultTreeProps {
   onNewFolder?: (parentId: string) => void;
   /** Drag and drop: moves a connection or folder. */
   onMove?: (nodeId: string, target: NodeDropTarget) => void;
+  /** Containers below SSH connections; omitted hides them. */
+  containers?: ContainerTreeProps;
 }
 
 const NODE_MIME = 'application/x-terminus-node';
@@ -44,7 +48,7 @@ function Icon({ kind }: { kind: 'folder' | 'terminal' | 'connect' | 'edit' | 'ch
   const paths = { folder: 'M3 7V5h7l2 2h9v13H3V7Z', terminal: 'm4 6 6 6-6 6m9 0h7', connect: 'm9 5 10 7-10 7V5Z', edit: 'm14 5 5 5M4 20l5-1L21 7l-5-5L4 14v6Z', chevron: 'm9 5 7 7-7 7', rename: 'M4 6h16M12 6v14M8 20h8' };
   return <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={paths[kind]} /></svg>;
 }
-export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder, onOpenFiles, onConnectAll, onMove }: VaultTreeProps) {
+export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder, onOpenFiles, onConnectAll, onMove, containers }: VaultTreeProps) {
   const [menu, setMenu] = useState<{ x: number; y: number; node: VaultNode | null } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const [query, setQuery] = useState('');
@@ -54,6 +58,18 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const searching = query.trim().length > 0;
+  const [expandedHosts, setExpandedHosts] = useState<Set<string>>(new Set());
+  const isHost = (node: VaultNode): boolean => Boolean(containers) && node.type === 'connection' && node.protocol === 'ssh' && !searching;
+  // Discovery starts outside the state updater: updaters may run during render or twice.
+  const toggleHost = (id: string) => {
+    const expanding = !expandedHosts.has(id);
+    setExpandedHosts(current => {
+      const next = new Set(current);
+      if (expanding) next.add(id); else next.delete(id);
+      return next;
+    });
+    if (expanding && !containers?.state[id]) containers?.onExpand(id);
+  };
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const endDrag = (): void => { setDragging(null); setDropHint(null); };
@@ -123,7 +139,8 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
       { kind: 'item', label: 'Alle verbinden', hint: 'öffnet jede Verbindung als Tab', disabled: !onConnectAll, onSelect: () => onConnectAll?.(node.id) },
       { kind: 'separator' }, ...createEntries(node.id, `Neue Verbindung in „${node.name}“`), { kind: 'separator' }, ...edit];
     return [{ kind: 'item', label: 'Verbinden', hint: 'Enter', disabled: !onConnect, onSelect: () => onConnect?.(node.id) },
-      ...(node.protocol === 'ssh' && onOpenFiles ? [{ kind: 'item' as const, label: 'Dateien öffnen (SFTP)', onSelect: () => onOpenFiles(node.id) }] : []), ...edit,
+      ...(node.protocol === 'ssh' && onOpenFiles ? [{ kind: 'item' as const, label: 'Dateien öffnen (SFTP)', onSelect: () => onOpenFiles(node.id) }] : []),
+      ...(node.protocol === 'ssh' && containers ? [{ kind: 'item' as const, label: 'Container anzeigen', onSelect: () => { if (!expandedHosts.has(node.id)) toggleHost(node.id); else containers.onExpand(node.id); } }] : []), ...edit,
       { kind: 'separator' }, ...createEntries(parentFolderId(nodes, node.id) ?? '', 'Neue Verbindung daneben')];
   };
   const openMenu = (x: number, y: number, node: VaultNode | null) => { if (!disabled) setMenu({ x, y, node }); };
@@ -132,7 +149,10 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
       onContextMenu={event => { event.preventDefault(); event.stopPropagation(); openMenu(event.clientX, event.clientY, node); }}>
       {node.type === 'folder' && !searching ? <button className={`tree-toggle${collapsed.has(node.id) ? '' : ' is-expanded'}`} type="button"
         aria-label={`${node.name} ${collapsed.has(node.id) ? 'aufklappen' : 'zuklappen'}`} aria-expanded={!collapsed.has(node.id)} disabled={disabled}
-        onClick={() => toggle(node.id)}><Icon kind="chevron" /></button> : <span className="tree-toggle-spacer" />}
+        onClick={() => toggle(node.id)}><Icon kind="chevron" /></button>
+        : isHost(node) ? <button className={`tree-toggle${expandedHosts.has(node.id) ? ' is-expanded' : ''}`} type="button"
+          aria-label={`Container von ${node.name} ${expandedHosts.has(node.id) ? 'zuklappen' : 'anzeigen'}`} aria-expanded={expandedHosts.has(node.id)} disabled={disabled}
+          onClick={() => toggleHost(node.id)}><Icon kind="chevron" /></button> : <span className="tree-toggle-spacer" />}
       {renaming === node.id ? <form className="tree-rename" onSubmit={event => { event.preventDefault(); void submitRename(); }}>
         <input aria-label={`${node.type === 'folder' ? 'Ordner' : 'Verbindung'} umbenennen`} autoFocus value={name} disabled={disabled || saving} aria-invalid={Boolean(error)}
           onFocus={event => event.target.select()} onChange={event => setName(event.target.value)}
@@ -155,6 +175,10 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
               event.preventDefault();
               if ((event.key === 'ArrowLeft') !== collapsed.has(node.id)) toggle(node.id);
             }
+            if (isHost(node) && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+              event.preventDefault();
+              if ((event.key === 'ArrowRight') !== expandedHosts.has(node.id)) toggleHost(node.id);
+            }
           }}>
           <span className="tree-node-icon">{node.type === 'folder' ? <Icon kind="folder" /> : <ConnectionIcon icon={node.icon} color={node.color} />}</span>
           <span className="tree-node-text"><span>{node.name}</span>{path && <small>{path}</small>}</span>
@@ -167,6 +191,8 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
       </>}
     </div>
     {node.type === 'folder' && !searching && !collapsed.has(node.id) && node.children.length > 0 && <ul>{node.children.map(child => renderNode(child, depth + 1))}</ul>}
+    {isHost(node) && expandedHosts.has(node.id) && containers && <ContainerChildren hostId={node.id} discovery={containers.state[node.id]} depth={depth + 1}
+      disabled={disabled} onOpen={containers.onOpen} onAction={containers.onAction} onRefresh={() => containers.onExpand(node.id)} />}
   </li>;
   const results = searching ? searchVaultNodes(nodes, query) : [];
   return <nav className={`vault-tree${dropHint?.id === null ? ' is-drop-root' : ''}`} aria-label="Verbindungen und Ordner"
