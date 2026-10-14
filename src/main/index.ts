@@ -12,6 +12,8 @@ import { windowRegistry } from './windows';
 import type { WindowRole } from './windows';
 import { registerWindowIpcHandlers } from './window-ipc';
 import { FileAssociation, vaultFileFromArgs } from './file-association';
+import { testConnection } from './connection-test';
+import { ConnectionNodeSchema } from '../shared/vault/schema';
 
 import { IPC_CHANNELS } from '../shared/ipc';
 import {
@@ -170,6 +172,14 @@ app.whenReady().then(() => {
   sshSessionManager = registerSshIpcHandlers(knownHosts);
   rdpSessionManager = registerRdpIpcHandlers();
   sftpSessionManager = registerFileIpcHandlers(knownHosts);
+  // Dry run with the form's current values; only the main window may test, nothing is stored or logged.
+  ipcMain.handle(IPC_CHANNELS.connectionTest, (event, request: unknown) => {
+    windowRegistry.requireMain(event);
+    vaultSessionManager.getSnapshot();
+    const parsed = ConnectionNodeSchema.safeParse(request);
+    if (!parsed.success) throw new Error('Bitte prüfe die Verbindungsdaten.');
+    return testConnection(parsed.data, { verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive) });
+  });
   ipcMain.handle(IPC_CHANNELS.readClipboardText, event => {
     requireSshSender(event);
     vaultSessionManager.getSnapshot();

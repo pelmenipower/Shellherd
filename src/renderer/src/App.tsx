@@ -660,6 +660,7 @@ export default function App() {
               initialParentId={showConnectionForm ? newConnectionTarget.parentId ?? (selectedNode?.type === 'folder' ? selectedNode.id : '') : parentFolderId(vault.nodes, selectedNodeId ?? '') ?? ''}
               busy={busy} onDirtyChange={setEditorDirty} onConnect={() => { if (selectedNode?.type === 'connection') connectNode(selectedNode.id); }}
               onSave={saveConnection} onSaveAndConnect={saveAndConnect} onCancel={closeEditor} onDelete={deleteSelectedNode}
+              onTest={connection => window.desktopApi.connectionTest(connection)}
               onPickKey={async () => { const result = await window.desktopApi.selectPrivateKeyFile(); return result.canceled ? null : result.filePath; }} />
               : selectedNode?.type === 'folder' ? <FolderEditor key={`${selectedNode.id}-${editorRevision}`} folder={selectedNode} busy={busy}
                 onDirtyChange={setEditorDirty} onSave={saveFolder} onDelete={deleteSelectedNode} onCancel={closeEditor} /> : null}

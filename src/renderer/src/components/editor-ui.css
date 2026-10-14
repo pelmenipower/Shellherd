@@ -45,3 +45,12 @@
 }
 .compact-editor .editor-hint { margin: -4px 0 0; color: var(--ui-muted, #a7b7cb); font-size: 12px; line-height: 1.5; }
 .compact-editor .editor-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.connection-test { display: grid; gap: 8px; margin: 4px 0 12px; padding: 10px 12px; border: 1px solid var(--ui-border); border-left-width: 3px; border-radius: 5px; font-size: 13px; }
+.connection-test.is-ok { border-left-color: #4ade80; }
+.connection-test.is-failed { border-left-color: var(--ui-danger); }
+.connection-test ol { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.connection-test li { display: flex; gap: 8px; align-items: baseline; }
+.connection-test li > span:first-child { flex: 0 0 14px; font-weight: 700; }
+.connection-test li.is-ok > span:first-child { color: #4ade80; }
+.connection-test li.is-failed > span:first-child { color: var(--ui-danger); }
+.connection-test small { display: block; color: var(--ui-muted); font-size: 12px; overflow-wrap: anywhere; }

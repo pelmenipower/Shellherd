@@ -1,5 +1,6 @@
 import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
-import type { Vault, WorkspaceLayout } from './vault/types';
+import type { ConnectionNode, Vault, WorkspaceLayout } from './vault/types';
+import type { ConnectionTestResult } from './connection-test';
 import type { ConnectionCatalog, ExternalDragHover, IncomingTab, IncomingView, TabTransferRequest, ViewTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
 import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditRequest } from './sftp';
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
@@ -74,6 +75,7 @@ export const IPC_CHANNELS = {
   workspaceRestore: 'workspace:restore',
   closeSecondaryWindows: 'window:close-secondaries',
   vaultLaunchFile: 'vault:launch-file',
+  connectionTest: 'connection:test',
   vaultOpenFile: 'vault:open-file',
   fileTypeStatus: 'app:file-type-status',
   fileTypeRegister: 'app:file-type-register',
@@ -190,6 +192,8 @@ export interface DesktopApi {
   closeSecondaryWindows: () => Promise<void>;
   /** Vault file Terminus was started with from Explorer; returned once. */
   vaultLaunchFile: () => Promise<string | null>;
+  /** Dry run of a possibly unsaved connection. */
+  connectionTest: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
   /** A vault file opened from Explorer while Terminus was running. */
   onVaultOpenFile: (listener: (filePath: string) => void) => () => void;
   fileTypeStatus: () => Promise<boolean>;

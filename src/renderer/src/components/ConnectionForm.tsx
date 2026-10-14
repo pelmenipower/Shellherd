@@ -7,6 +7,7 @@ import './editor-ui.css';
 import { CONNECTION_ICONS } from '../../../shared/vault/appearance';
 import { ConnectionIcon, connectionIconLabels } from './ConnectionIcon';
 import { PROTOCOLS } from '../../../shared/vault/connections';
+import type { ConnectionTestResult } from '../../../shared/connection-test';
 
 const newTitles: Record<ConnectionProtocol, string> = {
   ssh: 'Neue SSH-Verbindung', sftp: 'Neue SFTP-Verbindung (Dateien)', rdp: 'Neue Remotedesktop-Verbindung (RDP)',
@@ -28,10 +29,12 @@ interface ConnectionFormProps {
   onDirtyChange?: (dirty: boolean) => void;
   onSaveAndConnect?: (connection: ConnectionNode, parentId: string) => Promise<boolean>;
   onPickKey?: () => Promise<string | null>;
+  /** Dry run with the current, possibly unsaved values. */
+  onTest?: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
 }
 
 export function ConnectionForm({ connection, protocol: requestedProtocol, nodes, initialParentId, busy, onSave, onCancel, onDelete, onConnect,
-  onDirtyChange, onSaveAndConnect, onPickKey }: ConnectionFormProps) {
+  onDirtyChange, onSaveAndConnect, onPickKey, onTest }: ConnectionFormProps) {
   const prefix = useId();
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const submittingRef = useRef(false);
@@ -45,6 +48,22 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
   const [error, setError] = useState<{ field?: keyof ConnectionFields; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [visibleSecret, setVisibleSecret] = useState(false);
+  const [test, setTest] = useState<{ running: boolean; result?: ConnectionTestResult; error?: string } | null>(null);
+  // A result belongs to the values it was run with.
+  useEffect(() => { setTest(current => current?.running ? current : null); }, [fields]);
+  async function runTest(): Promise<void> {
+    if (!onTest || test?.running) return;
+    let node: ConnectionNode;
+    try { node = connectionFromFields(connection?.id ?? 'test', fields, protocol); }
+    catch (caught) {
+      const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
+      setError({ field, message: caught instanceof Error ? caught.message : 'Bitte prüfe die Verbindungsdaten.' });
+      return;
+    }
+    setTest({ running: true });
+    try { setTest({ running: false, result: await onTest(node) }); }
+    catch (caught) { setTest({ running: false, error: caught instanceof Error ? caught.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Der Test ist fehlgeschlagen.' }); }
+  }
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   function setField(field: keyof ConnectionFields, value: string): void {
@@ -149,8 +168,16 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
           </div>
         </details>
         {error && !error.field && <p className="field-error" role="alert">{error.message}</p>}
+        {test && !test.running && <div className={`connection-test ${test.result?.ok ? 'is-ok' : 'is-failed'}`} role="status">
+          <strong>{test.error ?? (test.result?.ok ? 'Verbindungstest erfolgreich' : 'Verbindungstest fehlgeschlagen')}</strong>
+          {test.result && <ol>{test.result.steps.map(step => <li key={step.label} className={step.ok ? 'is-ok' : 'is-failed'}>
+            <span aria-hidden="true">{step.ok ? '✓' : '✕'}</span><span>{step.label}{step.detail && <small>{step.detail}</small>}</span>
+          </li>)}</ol>}
+        </div>}
         <div className="form-actions editor-action-bar">
           <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>Abbrechen</button>
+          {onTest && <button className="secondary-button" type="button" disabled={busy || test?.running} title="Prüft die eingegebenen Daten, ohne zu speichern"
+            onClick={() => { void runTest(); }}>{test?.running ? 'Teste …' : 'Verbindung testen'}</button>}
           <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !dirty)}>{busy ? 'Speichert ...' : 'Verbindung speichern'}</button>
           {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>{connectLabels[protocol]}</button>
             : onSaveAndConnect && <button className="primary-button" type="button" disabled={busy} onClick={() => { void submit(true); }}>Speichern und verbinden</button>}
