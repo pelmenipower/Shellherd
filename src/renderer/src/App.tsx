@@ -66,6 +66,9 @@ function createEmptyVault(name: string): Vault {
   };
 }
 
+const fileName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
+const isVaultFileName = (name: string): boolean => /\.(term|terminus)$/i.test(name);
+
 function countConnections(nodes: VaultNode[]): number {
   return nodes.reduce((count, node) => {
     if (node.type === 'connection') {
@@ -147,18 +150,61 @@ export default function App() {
   // Vault files opened from Explorer: at start and while Terminus runs.
   const screenRef = useRef(screen);
   screenRef.current = screen;
+  // Explorer and drag and drop: an open vault is locked first, after a confirmation.
+  const [pendingVaultFile, setPendingVaultFile] = useState<string | null>(null);
+  const [fileDragActive, setFileDragActive] = useState(false);
+  const openVaultFile = (filePath: string): void => {
+    if (screenRef.current === 'vault') { setPendingVaultFile(filePath); return; }
+    navigateTo('open');
+    setSelectedVaultPath(filePath);
+  };
+  const openVaultFileRef = useRef(openVaultFile);
+  openVaultFileRef.current = openVaultFile;
   useEffect(() => {
-    const openFromExplorer = (filePath: string): void => {
-      if (screenRef.current === 'vault') {
-        setError(`„${filePath.split(/[\/]/).pop()}“ wurde aus dem Explorer geöffnet. Sperre zuerst den aktuellen Vault, um ihn zu öffnen.`);
-        return;
-      }
-      navigateTo('open');
-      setSelectedVaultPath(filePath);
-    };
-    void window.desktopApi.vaultLaunchFile().then(filePath => { if (filePath) openFromExplorer(filePath); }).catch(() => {});
-    return window.desktopApi.onVaultOpenFile(openFromExplorer);
+    const open = (filePath: string): void => openVaultFileRef.current(filePath);
+    void window.desktopApi.vaultLaunchFile().then(filePath => { if (filePath) open(filePath); }).catch(() => {});
+    return window.desktopApi.onVaultOpenFile(open);
   }, []);
+  // Files dropped anywhere the page does not handle them itself (the SFTP server side does).
+  useEffect(() => {
+    const hasFiles = (event: DragEvent): boolean => Boolean(event.dataTransfer?.types.includes('Files'));
+    const over = (event: DragEvent): void => {
+      if (!hasFiles(event)) return;
+      setFileDragActive(true);
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = 'copy';
+    };
+    const leave = (event: DragEvent): void => { if (!event.relatedTarget) setFileDragActive(false); };
+    const drop = (event: DragEvent): void => {
+      setFileDragActive(false);
+      if (!hasFiles(event) || event.defaultPrevented) return;
+      event.preventDefault();
+      const file = [...event.dataTransfer!.files].find(item => isVaultFileName(item.name));
+      const path = file ? window.desktopApi.pathForFile(file) : '';
+      if (path) openVaultFileRef.current(path);
+      else setError('Hier lassen sich nur Vault-Dateien (.term) öffnen. Dateien für Server ziehst du in die Serverseite eines Dateibrowsers.');
+    };
+    window.addEventListener('dragover', over);
+    window.addEventListener('dragleave', leave);
+    window.addEventListener('drop', drop);
+    window.addEventListener('dragend', leave);
+    return () => {
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('dragleave', leave);
+      window.removeEventListener('drop', drop);
+      window.removeEventListener('dragend', leave);
+    };
+  }, []);
+  const vaultFileDialog = pendingVaultFile && <ConfirmDialog title={`Vault „${fileName(pendingVaultFile)}“ öffnen?`}
+    description={`Der aktuelle Vault wird dafür gesperrt${terminals.hasRunning ? ', alle Verbindungen in allen Fenstern werden getrennt' : ''}. Danach gibst du das Passwort des neuen Vaults ein.`}
+    confirmLabel="Sperren und öffnen" destructive={terminals.hasRunning} busy={busy}
+    onCancel={() => setPendingVaultFile(null)} onConfirm={() => {
+      const filePath = pendingVaultFile;
+      setPendingVaultFile(null);
+      void lockVault().then(() => { setScreen('open'); setSelectedVaultPath(filePath); });
+    }} />;
+  const fileDropHint = fileDragActive && <div className="file-drop-hint" aria-hidden="true">Eine .term-Datei hier loslassen öffnet den Vault</div>;
 
   useEffect(() => {
     void window.desktopApi
@@ -578,6 +624,7 @@ export default function App() {
     const runningCount = terminals.tabs.filter(isRunning).length;
     const closeEditor = () => navigateEditor(() => { setEditorOpen(false); setEditorDirty(false); });
     return <main className="vault-shell">
+      {vaultFileDialog}{fileDropHint}
       <header className="app-header">
         <button className="icon-button sidebar-toggle" type="button" aria-label={sidebarCollapsed ? 'Verbindungen einblenden' : 'Verbindungen ausblenden'}
           aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed(value => !value)}>
@@ -679,6 +726,7 @@ export default function App() {
 
   return (
     <main className="app-shell">
+      {fileDropHint}
       <section className="welcome-card">
         <div className="brand large-brand">
           <span className="brand-mark"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m4 6 6 6-6 6m9 0h7" /></svg></span>
