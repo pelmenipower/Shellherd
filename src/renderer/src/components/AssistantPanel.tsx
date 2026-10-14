@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AiCatalog, AiTerminalContext } from '../../../shared/ai';
+import type { AiCatalog } from '../../../shared/ai';
 import type { TerminalTab } from '../terminal-tabs';
-import { tabLabel } from '../terminal-tabs';
+import { shellOf, tabLabel } from '../terminal-tabs';
 import { typeIntoTerminal } from '../terminal-input';
 import { liveSessions } from '../session-registry';
 import { compactMessage, historyForRequest, insertableCommand, isFinished, outputMessage, parseAnswer, questionMessage, SCREEN_LINES } from '../assistant-chat';
@@ -46,12 +46,6 @@ const PROVIDER_KEY = 'terminus.aiProvider';
 const AUTO_KEY = 'terminus.aiStepByStep';
 const read = (key: string): string | null => { try { return localStorage.getItem(key); } catch { return null; } };
 const write = (key: string, value: string): void => { try { localStorage.setItem(key, value); } catch { /* per-window convenience only */ } };
-
-export function shellOf(tab: TerminalTab | undefined): AiTerminalContext['shell'] | null {
-  if (!tab || tab.connection.view === 'files') return null;
-  const { protocol } = tab.connection;
-  return protocol === 'ssh' || protocol === 'powershell' || protocol === 'cmd' ? protocol : null;
-}
 
 /**
  * Terminal assistant: reads the focused terminal and types suggested commands into the input line

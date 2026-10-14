@@ -11,6 +11,7 @@ import type { ContextMenuEntry } from './ContextMenu';
 import { parentFolderId } from '../connection-form';
 import type { ContainerTreeProps } from '../container-tree';
 import { ContainerChildren } from './ContainerChildren';
+import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
 
 interface VaultTreeProps {
   nodes: VaultNode[];
@@ -131,7 +132,8 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
     { kind: 'item', label: 'Neuer Ordner', disabled: !onNewFolder, onSelect: () => onNewFolder?.(parentId) },
   ];
   const menuEntries = (node: VaultNode | null): ContextMenuEntry[] => {
-    if (!node) return createEntries('', 'Neue Verbindung');
+    if (!node) return [...createEntries('', 'Neue Verbindung'), ...(containers ? [{ kind: 'separator' as const },
+      { kind: 'item' as const, label: 'Lokale Container suchen', onSelect: () => containers.onExpand(LOCAL_CONTAINER_HOST) }] : [])];
     const edit: ContextMenuEntry[] = [
       { kind: 'item', label: 'Bearbeiten', disabled: !onEdit, onSelect: () => onEdit?.(node.id) },
       { kind: 'item', label: 'Umbenennen', hint: 'F2', disabled: !onRename, onSelect: () => beginRename(node) },

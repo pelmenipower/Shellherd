@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
-import { containerConnection, containerTabName, emptyTerminalTabs, isRunning, sameTarget, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
-import type { TerminalTabsState } from './terminal-tabs';
+import { containerConnection, containerTabName, emptyTerminalTabs, isRunning, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
+import type { TerminalTab, TerminalTabsState } from './terminal-tabs';
 const connection = { id: 'ssh', name: 'Server', protocol: 'ssh' as const, address: 'synthetic@example.test:22' };
 function opened(): TerminalTabsState {
   return reduce(reduce(emptyTerminalTabs, { type: 'open', id: 'first', connection }), { type: 'open', id: 'second', connection });
@@ -87,5 +87,14 @@ describe('container tabs', () => {
     let state = reduce(emptyTerminalTabs, { type: 'open', id: 't1', connection: local });
     state = reduce(state, { type: 'retainConnections', connectionIds: [] });
     expect(state.tabs).toHaveLength(1);
+  });
+  it('treats container tabs as POSIX shells, also on this computer', () => {
+    const tab = (connection: TerminalTab['connection']): TerminalTab => ({ id: 't', connection, ordinal: 1, status: 'connected' });
+    expect(shellOf(tab(containerConnection(LOCAL_CONTAINER_HOST, 'Dieser Computer', 'lokal', shell)))).toBe('ssh');
+    expect(shellOf(tab(containerConnection('h1', 'server01', 'admin@server01', shell)))).toBe('ssh');
+    expect(shellOf(tab({ id: 'c', name: 'CMD', protocol: 'cmd', address: 'lokal' }))).toBe('cmd');
+    expect(shellOf(tab({ id: 'p', name: 'PS', protocol: 'powershell', address: 'lokal' }))).toBe('powershell');
+    expect(shellOf(tab({ id: 's', name: 'Dateien', protocol: 'sftp', address: 'x', view: 'files' }))).toBeNull();
+    expect(shellOf(undefined)).toBeNull();
   });
 });

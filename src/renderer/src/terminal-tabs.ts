@@ -5,6 +5,7 @@ import type { SshStatus } from '../../shared/ssh';
 import { connectionAddress } from '../../shared/vault/connections';
 import { LOCAL_CONTAINER_HOST, targetKey } from '../../shared/containers';
 import type { TerminalTarget } from '../../shared/containers';
+import type { AiTerminalContext } from '../../shared/ai';
 
 /** Tab metadata only; never credentials. */
 export type TerminalConnection = TabConnection;
@@ -28,6 +29,17 @@ export function containerTabName(target: TerminalTarget, hostName: string): stri
 /** Tab for a container or guest; `hostId` is the SSH connection or LOCAL_CONTAINER_HOST. */
 export function containerConnection(hostId: string, hostName: string, address: string, target: TerminalTarget): TerminalConnection {
   return { id: hostId, name: containerTabName(target, hostName), protocol: hostId === LOCAL_CONTAINER_HOST ? 'cmd' : 'ssh', address, target };
+}
+
+/**
+ * Shell the assistant and workflow ranking assume. Container tabs run a POSIX shell inside the container,
+ * also on this computer, where the tab keeps protocol 'cmd' for the local terminal plumbing.
+ */
+export function shellOf(tab: TerminalTab | undefined): AiTerminalContext['shell'] | null {
+  if (!tab || tab.connection.view === 'files') return null;
+  if (tab.connection.target) return 'ssh';
+  const { protocol } = tab.connection;
+  return protocol === 'ssh' || protocol === 'powershell' || protocol === 'cmd' ? protocol : null;
 }
 
 export function sameTarget(a: TerminalConnection, b: TerminalConnection): boolean {

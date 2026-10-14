@@ -1,10 +1,9 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Workflow } from '../../../shared/vault/types';
 import type { TerminalTab } from '../terminal-tabs';
-import { tabLabel } from '../terminal-tabs';
+import { shellOf, tabLabel } from '../terminal-tabs';
 import { fillWorkflow, searchWorkflows, workflowParams } from '../workflows';
 import { typeIntoTerminal } from '../terminal-input';
-import { shellOf } from './AssistantPanel';
 import { useNativeSurfaceBlock } from '../native-surface';
 import '../workflows-ui.css';
 

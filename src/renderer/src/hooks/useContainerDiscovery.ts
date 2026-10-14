@@ -19,18 +19,17 @@ export function useContainerDiscovery() {
       if (isLatest()) dispatch({ type: 'failed', hostId, message: ipcMessage(error, 'Die Container konnten nicht geladen werden.') });
     }
   }, []);
-  /** Reloads the host after success; on failure the list stays and the item shows the message. */
+  /** Reloads the host afterwards; on failure the item keeps showing the message through the reload. */
   const act = useCallback(async (hostId: string, item: DiscoveredItem, action: ContainerAction) => {
     const key = itemKey(item);
     dispatch({ type: 'busy', hostId, key, busy: true });
     try {
       await window.desktopApi.containersAction({ hostId, target: toTarget(item), action });
+      dispatch({ type: 'busy', hostId, key, busy: false });
     } catch (error) {
       dispatch({ type: 'busy', hostId, key, busy: false });
       dispatch({ type: 'notice', hostId, key, message: ipcMessage(error, 'Die Aktion ist fehlgeschlagen.') });
-      return;
     }
-    dispatch({ type: 'busy', hostId, key, busy: false });
     await load(hostId);
   }, [load]);
   return { state, load, act };
