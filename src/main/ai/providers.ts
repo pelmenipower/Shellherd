@@ -15,32 +15,47 @@ const FALLBACK_MODELS = new Set(['claude-fable-5-1', 'claude-opus-5-5', 'claude-
 
 const trimSlash = (url: string): string => url.replace(/\/+$/, '');
 
-/** Request URL, headers and body of the HTTP-based providers. */
-export function httpRequest(provider: AiProvider, request: ChatRequest): { url: string; headers: Record<string, string>; body: unknown } {
+export interface HttpCall { label: string; url: string; headers: Record<string, string>; body: unknown }
+
+/**
+ * Azure: the three ways a deployment can be reached. Any Foundry or Azure OpenAI URL works, including
+ * a project URL (…/api/projects/<name>): explicit …/openai/v1 or …/models URLs are used as given,
+ * otherwise the resource is derived and all fitting ways are tried in order.
+ */
+function azureCalls(provider: AiProvider, chat: unknown[]): HttpCall[] {
+  if (!provider.baseUrl) throw new AiError('Bitte gib den Endpoint der Azure-Ressource an.');
+  const headers: Record<string, string> = provider.apiKey ? { 'api-key': provider.apiKey } : {};
+  const version = (fallback: string): string => encodeURIComponent(provider.apiVersion || fallback);
+  const v1 = (base: string): HttpCall => ({ label: 'openai/v1', url: `${base}/chat/completions`, headers, body: { model: provider.model, stream: true, messages: chat } });
+  const models = (base: string): HttpCall => ({ label: 'models', url: `${base}/chat/completions?api-version=${version('2024-05-01-preview')}`, headers,
+    body: { model: provider.model, stream: true, messages: chat } });
+  const deployment = (origin: string): HttpCall => ({ label: 'openai/deployments',
+    url: `${origin}/openai/deployments/${encodeURIComponent(provider.model)}/chat/completions?api-version=${version('2024-10-21')}`, headers, body: { stream: true, messages: chat } });
+  let url: URL;
+  try { url = new URL(provider.baseUrl); } catch { throw new AiError('Der Endpoint ist keine gültige URL.'); }
+  const endpoint = trimSlash(`${url.origin}${url.pathname}`);
+  if (/\/openai\/v1$/i.test(endpoint)) return [v1(endpoint)];
+  if (/\/models$/i.test(endpoint)) return [models(endpoint)];
+  const calls = [v1(`${url.origin}/openai/v1`)];
+  if (/\.services\.ai\.azure\.com$/i.test(url.hostname)) calls.push(models(`${url.origin}/models`));
+  calls.push(deployment(url.origin));
+  return calls;
+}
+
+/** Requests of the HTTP-based providers; several when the right way has to be found (Azure). */
+export function httpRequests(provider: AiProvider, request: ChatRequest): HttpCall[] {
   const chat = [{ role: 'system', content: request.system }, ...request.messages];
   if (provider.kind === 'openai') {
-    return { url: `${trimSlash(provider.baseUrl ?? 'https://api.openai.com/v1')}/chat/completions`,
+    return [{ label: 'chat/completions', url: `${trimSlash(provider.baseUrl ?? 'https://api.openai.com/v1')}/chat/completions`,
       headers: provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {},
-      body: { model: provider.model, stream: true, messages: chat } };
+      body: { model: provider.model, stream: true, messages: chat } }];
   }
-  if (provider.kind === 'azure') {
-    if (!provider.baseUrl) throw new AiError('Bitte gib den Endpoint der Azure-Ressource an.');
-    const endpoint = trimSlash(provider.baseUrl);
-    const headers: Record<string, string> = provider.apiKey ? { 'api-key': provider.apiKey } : {};
-    // Foundry model inference (…/models), the Azure OpenAI v1 API (…/openai/v1) or classic deployments.
-    if (/\/models$/i.test(endpoint)) {
-      return { url: `${endpoint}/chat/completions?api-version=${encodeURIComponent(provider.apiVersion || '2024-05-01-preview')}`, headers,
-        body: { model: provider.model, stream: true, messages: chat } };
-    }
-    if (/\/openai\/v1$/i.test(endpoint)) return { url: `${endpoint}/chat/completions`, headers, body: { model: provider.model, stream: true, messages: chat } };
-    return { url: `${endpoint}/openai/deployments/${encodeURIComponent(provider.model)}/chat/completions?api-version=${encodeURIComponent(provider.apiVersion || '2024-10-21')}`,
-      headers, body: { stream: true, messages: chat } };
-  }
+  if (provider.kind === 'azure') return azureCalls(provider, chat);
   if (provider.kind === 'gemini') {
-    return { url: `${trimSlash(provider.baseUrl ?? 'https://generativelanguage.googleapis.com/v1beta')}/models/${encodeURIComponent(provider.model)}:streamGenerateContent?alt=sse`,
+    return [{ label: 'streamGenerateContent', url: `${trimSlash(provider.baseUrl ?? 'https://generativelanguage.googleapis.com/v1beta')}/models/${encodeURIComponent(provider.model)}:streamGenerateContent?alt=sse`,
       headers: provider.apiKey ? { 'x-goog-api-key': provider.apiKey } : {},
       body: { systemInstruction: { parts: [{ text: request.system }] },
-        contents: request.messages.map(message => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.content }] })) } };
+        contents: request.messages.map(message => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.content }] })) } }];
   }
   throw new AiError('Dieser Anbieter nutzt keine HTTP-Schnittstelle.');
 }
@@ -78,19 +93,27 @@ function statusText(status: number): string {
   return `Der Anbieter hat die Anfrage abgelehnt (${status}).`;
 }
 
+/** Only "this way does not exist here" moves on to the next way; key or quota errors stop at once. */
+const tryNext = (status: number): boolean => status === 400 || status === 404;
+
 async function streamHttp(provider: AiProvider, request: ChatRequest, onText: TextSink, signal: AbortSignal, fetcher: Fetch): Promise<void> {
-  const { url, headers, body } = httpRequest(provider, request);
-  let response: Response;
-  try {
-    response = await fetcher(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal });
-  } catch (error) {
-    if (signal.aborted) throw error;
-    throw new AiError('Der Anbieter ist nicht erreichbar. Prüfe URL und Netzwerk.');
-  }
-  if (!response.ok || !response.body) {
+  const calls = httpRequests(provider, request);
+  const failures: string[] = [];
+  let response: Response | undefined;
+  for (const [index, call] of calls.entries()) {
+    try {
+      response = await fetcher(call.url, { method: 'POST', headers: { 'content-type': 'application/json', ...call.headers }, body: JSON.stringify(call.body), signal });
+    } catch (error) {
+      if (signal.aborted) throw error;
+      throw new AiError('Der Anbieter ist nicht erreichbar. Prüfe URL und Netzwerk.');
+    }
+    if (response.ok && response.body) break;
     const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300);
-    throw new AiError(`${statusText(response.status)}${detail ? ` Antwort: ${detail}` : ''}`);
+    if (index < calls.length - 1 && tryNext(response.status)) { failures.push(`${call.label}: ${response.status}${detail ? ` ${detail.slice(0, 120)}` : ''}`); continue; }
+    const tried = failures.length ? ` Vorher versucht: ${failures.join(' · ')}.` : '';
+    throw new AiError(`${statusText(response.status)}${detail ? ` Antwort (${call.label}): ${detail}` : ''}${tried}`);
   }
+  if (!response?.body) throw new AiError('Der Anbieter hat keine Antwort geliefert.');
   for await (const data of sseData(response.body)) {
     if (!data || data === '[DONE]') continue;
     let event: unknown;

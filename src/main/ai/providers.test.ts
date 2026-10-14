@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AiProvider } from '../../shared/vault/types';
 import type { AiEvent } from '../../shared/ai';
-import { AiError, httpRequest, sseData, streamChat } from './providers';
+import { AiError, httpRequests, sseData, streamChat } from './providers';
 import { AssistantService, aiCatalog, systemPrompt } from './assistant';
 
 const provider = (patch: Partial<AiProvider>): AiProvider => ({ id: 'p', name: 'P', kind: 'openai', model: 'm', apiKey: 'synthetic-key', ...patch });
@@ -14,18 +14,44 @@ function sse(chunks: string[]): Response {
 
 describe('AI providers', () => {
   it('builds the request of each HTTP provider', () => {
-    expect(httpRequest(provider({ baseUrl: 'http://localhost:11434/v1/' }), request)).toMatchObject({
+    expect(httpRequests(provider({ baseUrl: 'http://localhost:11434/v1/' }), request)[0]).toMatchObject({
       url: 'http://localhost:11434/v1/chat/completions', headers: { authorization: 'Bearer synthetic-key' },
       body: { model: 'm', stream: true, messages: [{ role: 'system', content: 'S' }, { role: 'user', content: 'Frage' }] } });
-    expect(httpRequest(provider({ kind: 'azure', model: 'minichat', baseUrl: 'https://res.openai.azure.com' }), request).url)
-      .toBe('https://res.openai.azure.com/openai/deployments/minichat/chat/completions?api-version=2024-10-21');
-    expect(httpRequest(provider({ kind: 'azure', model: 'minichat', baseUrl: 'https://res.services.ai.azure.com/models' }), request))
-      .toMatchObject({ url: 'https://res.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview', headers: { 'api-key': 'synthetic-key' }, body: { model: 'minichat' } });
-    expect(httpRequest(provider({ kind: 'azure', baseUrl: 'https://res.openai.azure.com/openai/v1' }), request).url).toBe('https://res.openai.azure.com/openai/v1/chat/completions');
-    expect(() => httpRequest(provider({ kind: 'azure' }), request)).toThrow('Endpoint');
-    expect(httpRequest(provider({ kind: 'gemini', model: 'gemini-2.5-flash' }), request)).toMatchObject({
+    expect(httpRequests(provider({ kind: 'gemini', model: 'gemini-2.5-flash' }), request)[0]).toMatchObject({
       url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse', headers: { 'x-goog-api-key': 'synthetic-key' },
       body: { systemInstruction: { parts: [{ text: 'S' }] }, contents: [{ role: 'user', parts: [{ text: 'Frage' }] }] } });
+  });
+
+  it('derives the Azure ways from any Foundry or Azure OpenAI URL, including a project URL', () => {
+    const urls = (baseUrl: string) => httpRequests(provider({ kind: 'azure', model: 'minichat', baseUrl }), request).map(call => call.url);
+    expect(urls('https://example-ai-project-resource.services.ai.azure.com/api/projects/example-ai-project')).toEqual([
+      'https://example-ai-project-resource.services.ai.azure.com/openai/v1/chat/completions',
+      'https://example-ai-project-resource.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview',
+      'https://example-ai-project-resource.services.ai.azure.com/openai/deployments/minichat/chat/completions?api-version=2024-10-21']);
+    expect(urls('https://res.openai.azure.com/')).toEqual(['https://res.openai.azure.com/openai/v1/chat/completions',
+      'https://res.openai.azure.com/openai/deployments/minichat/chat/completions?api-version=2024-10-21']);
+    expect(urls('https://res.services.ai.azure.com/models')).toEqual(['https://res.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview']);
+    expect(urls('https://res.openai.azure.com/openai/v1/')).toEqual(['https://res.openai.azure.com/openai/v1/chat/completions']);
+    const [v1] = httpRequests(provider({ kind: 'azure', model: 'minichat', baseUrl: 'https://res.openai.azure.com' }), request);
+    expect(v1).toMatchObject({ headers: { 'api-key': 'synthetic-key' }, body: { model: 'minichat', stream: true } });
+    expect(() => httpRequests(provider({ kind: 'azure' }), request)).toThrow('Endpoint');
+    expect(() => httpRequests(provider({ kind: 'azure', baseUrl: 'kein link' }), request)).toThrow('gültige URL');
+  });
+
+  it('tries the next Azure way only when a way does not exist, and says what was tried', async () => {
+    const answer = 'data: {"choices":[{"delta":{"content":"OK"}}]}\n\n';
+    const azure = provider({ kind: 'azure', model: 'minichat', baseUrl: 'https://res.services.ai.azure.com/api/projects/p' });
+    const second = vi.fn(async (url: string) => url.includes('/models/') ? sse([answer]) : new Response('{"error":"not found"}', { status: 404 }));
+    let text = '';
+    await streamChat(azure, request, delta => { text += delta; }, new AbortController().signal, second as unknown as typeof fetch);
+    expect(text).toBe('OK');
+    expect(second).toHaveBeenCalledTimes(2);
+    const denied = vi.fn(async () => new Response('denied', { status: 401 }));
+    await expect(streamChat(azure, request, () => {}, new AbortController().signal, denied as unknown as typeof fetch)).rejects.toThrow('API-Schlüssel');
+    expect(denied).toHaveBeenCalledTimes(1);
+    const none = vi.fn(async () => new Response('{"message":"API version not supported"}', { status: 400 }));
+    await expect(streamChat(azure, request, () => {}, new AbortController().signal, none as unknown as typeof fetch))
+      .rejects.toThrow(/openai\/deployments.*Vorher versucht: openai\/v1: 400.*models: 400/);
   });
 
   it('parses server-sent events split across chunks', async () => {

@@ -95,8 +95,8 @@ export function AiSettingsDialog({ settings, busy, onSave, onClose }: AiSettings
         {field('Anzeigename', 'name')}
         {field(draft.kind === 'azure' ? 'Deployment-Name' : 'Modell', 'model', draft.kind === 'azure' ? 'z. B. das kleine Chat-Modell „minichat“ oder gpt-4o-mini.' : undefined)}
         {(draft.kind === 'openai' || draft.kind === 'azure') && field(draft.kind === 'azure' ? 'Endpoint' : 'Basis-URL', 'baseUrl',
-          draft.kind === 'azure' ? 'https://<ressource>.openai.azure.com, …/openai/v1 oder https://<ressource>.services.ai.azure.com/models' : undefined)}
-        {draft.kind === 'azure' && field('API-Version (optional)', 'apiVersion', 'Leer: 2024-10-21 bzw. 2024-05-01-preview für …/models.')}
+          draft.kind === 'azure' ? 'Projekt- oder Ressourcen-URL aus dem Foundry-Portal, z. B. https://<ressource>.services.ai.azure.com/api/projects/<projekt>. Terminus findet den passenden Aufrufweg selbst.' : undefined)}
+        {draft.kind === 'azure' && field('API-Version (optional)', 'apiVersion', 'Meist leer lassen. Gilt nur für die Wege /models und /openai/deployments.')}
         {field(draft.kind === 'openai' ? 'API-Schlüssel (leer für lokale Modelle)' : 'API-Schlüssel', 'apiKey')}
         <div className="form-actions">
           <button type="button" className="secondary-button" disabled={busy || testing} onClick={() => setDraft(null)}>Zurück</button>
