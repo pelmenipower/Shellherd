@@ -68,7 +68,8 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
       if (expanding) next.add(id); else next.delete(id);
       return next;
     });
-    if (expanding && !containers?.state[id]) containers?.onExpand(id);
+    // Every expand reloads; a cached list stays visible while it refreshes.
+    if (expanding) containers?.onExpand(id);
   };
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
