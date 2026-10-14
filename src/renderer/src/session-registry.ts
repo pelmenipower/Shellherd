@@ -1,8 +1,11 @@
 import type { TransferSession } from '../../shared/windows';
+import type { TerminalAccess } from './terminal-access';
 
 interface LiveSession extends TransferSession {
   /** Serialized terminal screen and scrollback; terminals only. */
   snapshot?: () => string;
+  /** Terminals only: what the assistant may read. */
+  terminal?: TerminalAccess;
 }
 
 // Panels register their session per tab so pane controls and tab transfers can address it.

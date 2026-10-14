@@ -13,6 +13,8 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 - Neue Dateien und Ordner anlegen, Rechte ändern (chmod), Dateien einer SSH-Verbindung öffnen.
 - Tabs und ganze Ansichten in eigene Fenster abdocken und wieder andocken.
 - Ansichten bündeln mehrere Bereiche; Workspaces speichern alle Ansichten und Fenster.
+- KI-Assistent neben SSH-, PowerShell- und CMD-Tabs (Strg+Umschalt+K): liest das Terminal, erklärt, tippt Befehle in die Eingabezeile ohne sie auszuführen und deutet danach die Ausgabe.
+- KI-Anbieter frei wählbar: OpenAI-kompatibel (auch Ollama, LM Studio, interne Gateways), Azure AI Foundry, Anthropic und Google Gemini; Schlüssel verschlüsselt im Vault.
 - Verbindung testen, bevor sie gespeichert wird.
 - Verbindungen und Ordner per Drag & Drop verschieben; Rechtsklick auf einen Ordner → „Alle verbinden“.
 - Willkommensseite statt leerem Formular beim Start.

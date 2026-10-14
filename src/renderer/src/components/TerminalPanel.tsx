@@ -6,6 +6,7 @@ import { SerializeAddon } from '@xterm/addon-serialize';
 import '@xterm/xterm/css/xterm.css';
 import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import { liveSessions } from '../session-registry';
+import { terminalAccess } from '../terminal-access';
 import type { SshStatus } from '../../../shared/ssh';
 
 interface TerminalPanelProps {
@@ -52,9 +53,10 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     fitAddon.current = fit;
     term.loadAddon(fit);
     term.loadAddon(serialize);
+    const access = terminalAccess(term);
     const register = (id: string): void => {
       sessionId = id;
-      liveSessions.set(tabId, { kind: 'terminal', sessionId: id, snapshot: () => serialize.serialize({ scrollback: 5000 }) });
+      liveSessions.set(tabId, { kind: 'terminal', sessionId: id, snapshot: () => serialize.serialize({ scrollback: 5000 }), terminal: access });
     };
     term.open(container.current!);
     fit.fit();
@@ -171,6 +173,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       observer.disconnect();
       input.dispose();
       resize.dispose();
+      access.dispose();
       term.dispose();
       terminal.current = null;
       fitAddon.current = null;

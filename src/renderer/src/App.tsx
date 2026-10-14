@@ -37,6 +37,9 @@ import { useViewControls } from './hooks/useViewControls';
 import { fromWorkspaceViews, toWorkspaceViews } from './terminal-views';
 import { FileTypeSetting, WelcomePage } from './components/WelcomePage';
 import { ReleaseNotesDialog } from './components/ReleaseNotes';
+import { AssistantPanel } from './components/AssistantPanel';
+import { AiSettingsDialog } from './components/AiSettingsDialog';
+import { useAssistantToggle } from './hooks/useAssistantToggle';
 import { ConnectionForm } from './components/ConnectionForm';
 import { parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
@@ -96,6 +99,8 @@ export default function App() {
   const [version, setVersion] = useState('…');
   const [screen, setScreen] = useState<Screen>('home');
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
+  const assistant = useAssistantToggle();
+  const [showAiSettings, setShowAiSettings] = useState(false);
 
   const [vault, setVault] = useState<Vault | null>(null);
   const [vaultPath, setVaultPath] = useState<string | null>(
@@ -635,6 +640,8 @@ export default function App() {
           activeId={activeWorkspaceId} dirty={workspaceDirty} onSave={saveWorkspace}
           onOpen={id => navigateEditor(() => openWorkspace(id))} onRename={renameWorkspace} onDelete={deleteWorkspace}
           onClose={() => navigateEditor(() => closeWorkspace())} />
+        <button className="secondary-button assistant-toggle" type="button" aria-pressed={assistant.open} title="KI-Assistent ein- oder ausblenden (Strg+Umschalt+K)"
+          onClick={assistant.toggle}>KI-Assistent</button>
         <button className="secondary-button lock-button" type="button" disabled={busy} onClick={() => navigateEditor(() => {
           if (terminals.hasRunning && vault.settings.confirmBeforeClosingSession) setPendingSshAction({ type: 'lockVault' });
           else void lockVault();
@@ -714,8 +721,12 @@ export default function App() {
               : selectedNode?.type === 'folder' ? <FolderEditor key={`${selectedNode.id}-${editorRevision}`} folder={selectedNode} busy={busy}
                 onDirtyChange={setEditorDirty} onSave={saveFolder} onDelete={deleteSelectedNode} onCancel={closeEditor} /> : null}
           </aside>}
+          {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)}
+            onManageProviders={() => setShowAiSettings(true)} />}
         </section>
       </div>
+      {showAiSettings && <AiSettingsDialog settings={vault.ai} busy={busy} onClose={() => setShowAiSettings(false)}
+        onSave={settings => persistVault({ ...vault, ai: settings })} />}
       {error && <div className="app-error" role="alert"><span>{error}</span><button type="button" aria-label="Fehlermeldung schließen" onClick={() => setError(null)}>Schließen</button></div>}
       <footer className="app-status"><span role="status">{busy ? 'Speichert …' : error ? 'Aktion fehlgeschlagen' : savedNotice || 'Vault geöffnet'}</span>
         <span>{runningCount} {runningCount === 1 ? 'aktive Session' : 'aktive Sessions'}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>

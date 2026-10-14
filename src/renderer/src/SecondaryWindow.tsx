@@ -9,6 +9,8 @@ import { useViewControls } from './hooks/useViewControls';
 import { isRunning, tabLabel, toTerminalConnection } from './terminal-tabs';
 import { fromWorkspaceViews, toWorkspaceViews } from './terminal-views';
 import { findNode } from './vault-selection';
+import { AssistantPanel } from './components/AssistantPanel';
+import { useAssistantToggle } from './hooks/useAssistantToggle';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
 /** Detached window: tabs and split layout only; vault, sidebar and editor stay in the main window. */
@@ -83,14 +85,17 @@ export function SecondaryWindow() {
     else terminals.close(tabId);
   };
   const closingTab = terminals.tabs.find(tab => tab.id === pendingClose);
+  const assistant = useAssistantToggle();
 
   return <main className="vault-shell secondary-shell">
-    <div className="terminal-area">
+    <div className="secondary-body"><div className="terminal-area">
       <SplitTerminalArea nodes={catalog?.nodes ?? []} onConnect={connect} tabs={terminals.tabs} selected={terminals.activeTabId}
         layout={terminalLayout.layout} draggedTabId={draggedTabId} onDrag={setDraggedTabId} focused={terminalLayout.focused} busy={false}
         onLayout={terminalLayout.setLayout} onFocus={terminalLayout.setFocused} onSelect={terminals.select} onStatus={terminals.updateStatus}
         onClose={requestClose} externalHover={transfer.externalHover} pendingDock={transfer.pendingDock}
         onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff} viewControls={viewControls} />
+    </div>
+    {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)} />}
     </div>
     {closingTab && <ConfirmDialog title={`Tab „${tabLabel(closingTab, terminals.tabs)}“ schließen?`}
       description="Diese Verbindung wird beendet. Laufende Programme in der Sitzung können dadurch beendet werden."
