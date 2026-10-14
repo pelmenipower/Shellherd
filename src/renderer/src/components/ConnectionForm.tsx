@@ -165,7 +165,9 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
         {fields.method === 'privateKey' && <>
           {textField('Pfad zum privaten Schlüssel', 'keyPath')}
           {textField('Schlüssel-Passphrase', 'passphrase', true)}
-        </>}</>}
+        </>}
+        {protocol === 'ssh' && <label className="editor-checkbox"><input type="checkbox" checked={fields.containerSudo === 'on'} disabled={busy}
+          onChange={event => setField('containerSudo', event.target.checked ? 'on' : 'off')} />Container-Befehle mit sudo ausführen</label>}</>}
         <details className="editor-details" ref={detailsRef}>
           <summary>Weitere Angaben</summary>
           <div className="editor-details-content">

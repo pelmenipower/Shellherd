@@ -8,7 +8,7 @@ const fields: ConnectionFields = {
   name: ' API ', comment: ' comment ', host: ' api.example.test ', port: '22', username: ' deploy ',
   method: 'agent', password: 'synthetic-only', keyPath: '/synthetic/key', passphrase: 'synthetic-only',
   domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
-  tags: 'prod, linux, prod, ,', color: '', icon: 'terminal',
+  tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off',
 };
 
 /** SSH result narrowed for property assertions. */
@@ -32,6 +32,13 @@ describe('connection form per protocol', () => {
     expect(sftp).toMatchObject({ protocol: 'sftp', host: 'api.example.test', port: 22, username: 'deploy', authentication: { method: 'password', password: 'synthetic-only' } });
     expect(fieldsFromConnection('sftp', sftp)).toMatchObject({ host: 'api.example.test', method: 'password', password: 'synthetic-only' });
     expect(JSON.stringify(redactSecrets([sftp]))).not.toContain('synthetic-only');
+  });
+  it('keeps the container sudo option of SSH connections', () => {
+    const fields = { ...fieldsFromConnection('ssh'), name: 'srv', host: 'srv', username: 'root', containerSudo: 'on' as const };
+    const node = connectionFromFields('id1', fields, 'ssh');
+    expect(node).toMatchObject({ protocol: 'ssh', containers: { sudo: true } });
+    expect(fieldsFromConnection('ssh', node).containerSudo).toBe('on');
+    expect(connectionFromFields('id1', { ...fields, containerSudo: 'off' }, 'ssh')).not.toHaveProperty('containers');
   });
   it('builds AI CLI tabs: preset tools without a command, custom ones with exactly one line', () => {
     const claude = connectionFromFields('id', { ...fields, tool: 'codex', command: 'ignored', workingDirectory: ' C:\\Projekte\\x ' }, 'aicli');

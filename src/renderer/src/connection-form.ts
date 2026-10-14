@@ -23,6 +23,8 @@ export interface ConnectionFields {
   tags: string;
   color: string;
   icon: string;
+  /** SSH only: run container commands with sudo -n. */
+  containerSudo: 'on' | 'off';
 }
 
 export class ConnectionFieldError extends Error {
@@ -40,6 +42,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
     tags: connection?.tags.join(', ') ?? '', color: connection?.color ?? '',
     icon: connection?.icon ?? PROTOCOLS[protocol].defaultIcon,
+    containerSudo: 'off',
   };
   if (connection?.protocol === 'ssh' || connection?.protocol === 'sftp' || connection?.protocol === 'rdp') {
     Object.assign(fields, { host: connection.host, port: String(connection.port), username: connection.username ?? '' });
@@ -53,6 +56,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
       passphrase: auth.method === 'privateKey' ? auth.passphrase ?? '' : '',
     });
   }
+  if (connection?.protocol === 'ssh') fields.containerSudo = connection.containers?.sudo ? 'on' : 'off';
   if (connection?.protocol === 'rdp') {
     Object.assign(fields, { password: connection.password ?? '', domain: connection.rdp.domain ?? '', clipboard: connection.rdp.clipboard ? 'on' : 'off' });
   }
@@ -85,7 +89,7 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
     const authentication: Authentication = fields.method === 'agent' ? { method: 'agent' }
       : fields.method === 'password' ? { method: 'password', password: fields.password }
       : { method: 'privateKey', keyPath: fields.keyPath.trim(), ...(fields.passphrase ? { passphrase: fields.passphrase } : {}) };
-    node = { ...base, protocol, ...target, authentication };
+    node = { ...base, protocol, ...target, authentication, ...(protocol === 'ssh' && fields.containerSudo === 'on' ? { containers: { sudo: true } } : {}) };
   } else if (protocol === 'rdp') {
     const target = remoteTarget(fields);
     const domain = fields.domain.trim();

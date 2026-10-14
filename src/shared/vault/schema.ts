@@ -51,6 +51,7 @@ export const SshConnectionNodeSchema = z.object({
     protocol: z.literal('ssh'),
     ...remoteTarget,
     authentication: AuthenticationSchema,
+    containers: z.object({ sudo: z.boolean().optional() }).optional(),
 });
 
 export const SftpConnectionNodeSchema = z.object({
