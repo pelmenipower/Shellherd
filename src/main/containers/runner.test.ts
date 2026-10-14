@@ -106,8 +106,10 @@ describe('openRemoteHost', () => {
 describe('openRemoteHost sudo prompts', () => {
   it('answers the prompt once, waits for readiness and keeps both markers out of the output', async () => {
     const host = await openRemoteHost(connection, async () => true);
-    const result = await host.run(sudoCommand('pct', 'list'), 5_000, prompt());
+    let readyCalls = 0;
+    const result = await host.run(sudoCommand('pct', 'list'), 5_000, { ...prompt(), onReady: () => { readyCalls++; } });
     expect(result).toEqual({ code: 0, stdout: 'ran\n', stderr: 'notice\n', sudoReady: true });
+    expect(readyCalls).toBe(1);
     expect(stdinSeen.join('')).toBe(`${SUDO_PASSWORD}\n`);
     expect(JSON.stringify(result)).not.toContain(SUDO_PASSWORD);
     host.close();

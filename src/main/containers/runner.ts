@@ -13,7 +13,7 @@ export class HostAccessError extends Error {}
 export type VerifyHost = (host: string, port: number, key: Buffer, isActive: () => boolean) => Promise<boolean>;
 
 /** Answers a `sudo -S -p marker` prompt on stderr with the password at most once, until `ready` appears on stdout. */
-export interface SudoPrompt { marker: string; ready: string; password: string }
+export interface SudoPrompt { marker: string; ready: string; password: string; onReady?: () => void }
 
 export interface RemoteHost {
   run(command: string, timeoutMs: number, sudo?: SudoPrompt): Promise<RunResult>;
@@ -74,7 +74,7 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
             if (!ready) { addStdout(chunk); return; }
             const result = ready.feed(chunk);
             addStdout(result.output);
-            if (result.ready) { authenticated = true; disarm(); }
+            if (result.ready) { authenticated = true; disarm(); sudo?.onReady?.(); }
           });
           stream.stderr.on('data', (chunk: Buffer) => {
             if (!prompts) { addStderr(chunk); return; }

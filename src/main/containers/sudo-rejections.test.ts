@@ -14,6 +14,37 @@ describe('connectionFingerprint', () => {
   });
 });
 
+describe('SudoRejections gate', () => {
+  it('lets one authentication per connection run at a time, in order', async () => {
+    const rejections = new SudoRejections();
+    const order: string[] = [];
+    const first = await rejections.acquire('h1');
+    const second = rejections.acquire('h1').then(release => { order.push('second'); return release; });
+    const third = rejections.acquire('h1').then(release => { order.push('third'); return release; });
+    const other = await rejections.acquire('h2');
+    other();
+    await new Promise(resolve => setTimeout(resolve, 5));
+    expect(order).toEqual([]);
+    first();
+    first();
+    (await second)();
+    (await third)();
+    expect(order).toEqual(['second', 'third']);
+    (await rejections.acquire('h1'))();
+  });
+  it('is released by a holder that fails', async () => {
+    const rejections = new SudoRejections();
+    const failing = async () => {
+      const release = await rejections.acquire('h1');
+      try { throw new Error('boom'); } finally { release(); }
+    };
+    await expect(failing()).rejects.toThrow('boom');
+    const release = await Promise.race([rejections.acquire('h1'), new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 100))]);
+    expect(release).toBeTypeOf('function');
+    release!();
+  });
+});
+
 describe('SudoRejections', () => {
   it('remembers a rejection per connection id and fingerprint', () => {
     const rejections = new SudoRejections();

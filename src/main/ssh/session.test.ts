@@ -69,18 +69,32 @@ function simulateTtySudo(stream: ServerChannel, command: string): void {
     stream.write(`\r\nSorry, try again.\r\n${marker}`);
   });
   if (answered) { stream.write(ready); stream.write('exec-ready\r\n'); return; }
+  // Captured per test, so streams of earlier tests that close late do not count.
+  const open = openPrompts;
+  const settle = () => { open.delete(stream); };
+  stream.on('data', () => { if (answered) settle(); });
+  stream.on('close', settle);
   const prompt = () => {
+    open.add(stream); mostOpenPrompts = Math.max(mostOpenPrompts, open.size);
     // Two writes, so detection has to work across chunks.
     stream.write(`notice\r\n${marker.slice(0, 9)}`);
     stream.write(marker.slice(9));
   };
-  if (command.includes('sudo-quiet')) { stream.write('starting\r\n'); quietPrompt = prompt; return; }
+  if (command.includes('sudo-quiet')) {
+    stream.write('starting\r\n');
+    quietPrompt = prompt;
+    quietCrash = () => { stream.stderr.write('sudo: unable to resolve host\r\n'); stream.exit(1); stream.end(); };
+    return;
+  }
   prompt();
 }
 let quietPrompt: (() => void) | undefined;
+let quietCrash: (() => void) | undefined;
+let openPrompts = new Set<ServerChannel>();
+let mostOpenPrompts = 0;
 
 beforeEach(async () => {
-  events = []; peers = []; shell = undefined; shells = []; execCommands = []; sudoInput = []; size = undefined; autoAck = true; quietPrompt = undefined;
+  events = []; peers = []; shell = undefined; shells = []; execCommands = []; sudoInput = []; size = undefined; autoAck = true; quietPrompt = undefined; quietCrash = undefined; openPrompts = new Set(); mostOpenPrompts = 0;
   sudoRejections = new SudoRejections();
   server = new Server({ hostKeys: [hostKey] }, peer => {
     peers.push(peer);
@@ -354,6 +368,55 @@ describe('SSH session manager with a real local SSH server', () => {
     expect(events).toContainEqual(expect.objectContaining({ status: 'error', message: 'Das sudo-Passwort wurde abgelehnt.' }));
     expect(execCommands).toHaveLength(1);
     expect(peers).toHaveLength(1);
+    expect(sudoInput.join('')).toBe('synthetic-password\n');
+  });
+
+  const statusesOf = (ids: string[], status: string) => ids.filter(id => events.some(event => event.type === 'status' && event.sessionId === id && event.status === status));
+
+  it('sends a wrong password only once when several tabs open at the same time', async () => {
+    const ids = [sudoTab('sudo-wrong'), sudoTab('sudo-wrong'), sudoTab('sudo-wrong')];
+    await Promise.all(ids.map(id => manager.connect(1, id)));
+    await waitFor(() => statusesOf(ids, 'error').length === 3);
+    for (const id of ids) {
+      expect(events).toContainEqual(expect.objectContaining({ sessionId: id, status: 'error', message: 'Das sudo-Passwort wurde abgelehnt.' }));
+    }
+    expect(sudoInput.join('')).toBe('synthetic-password\n');
+    expect(execCommands).toHaveLength(1);
+  });
+
+  it('lets several tabs authenticate one after another with a correct password', async () => {
+    const ids = [sudoTab('web-1'), sudoTab('web-1'), sudoTab('web-1')];
+    await Promise.all(ids.map(id => manager.connect(1, id)));
+    await waitFor(() => output().split('sudo-ok').length === 4);
+    expect(sudoInput.join('')).toBe('synthetic-password\n'.repeat(3));
+    expect(mostOpenPrompts).toBe(1);
+    expect(statusesOf(ids, 'connected')).toHaveLength(3);
+    expect(hasStatus('error')).toBe(false);
+  });
+
+  it('gives up its place when a waiting tab is closed', async () => {
+    const holder = sudoTab('sudo-quiet');
+    const closed = sudoTab('web-1');
+    const next = sudoTab('web-1');
+    const connecting = [manager.connect(1, holder), manager.connect(1, closed), manager.connect(1, next)];
+    await waitFor(() => Boolean(quietPrompt));
+    manager.close(1, closed);
+    quietPrompt!();
+    await Promise.all(connecting);
+    await waitFor(() => output().split('sudo-ok').length === 3);
+    expect(execCommands).toHaveLength(2);
+    expect(statusesOf([closed], 'connected')).toHaveLength(0);
+  });
+
+  it('releases the gate when the holding tab fails', async () => {
+    const failing = sudoTab('sudo-quiet');
+    const next = sudoTab('web-1');
+    const connecting = [manager.connect(1, failing), manager.connect(1, next)];
+    await waitFor(() => Boolean(quietCrash));
+    quietCrash!();
+    await waitFor(() => statusesOf([failing], 'closed').length + statusesOf([failing], 'error').length === 1);
+    await Promise.all(connecting);
+    await waitFor(() => output().includes('sudo-ok'));
     expect(sudoInput.join('')).toBe('synthetic-password\n');
   });
 

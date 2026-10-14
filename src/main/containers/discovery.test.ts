@@ -132,6 +132,60 @@ describe('ContainerDiscovery over SSH', () => {
     expect(host.sudo.filter(Boolean)).toHaveLength(2);
     expect(host.sudo.filter(Boolean)[1]!.password).toBe('synthetic-password-2');
   });
+  it('runs one sudo authentication per connection at a time and lets waiters fail fast after a rejection', async () => {
+    const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
+    const host = fakeHost({});
+    let running = 0, most = 0;
+    host.run = async (command, _timeout, prompt) => {
+      host.sudo.push(prompt);
+      if (!prompt) return ok('');
+      running++; most = Math.max(most, running);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      running--;
+      return { code: null, stdout: '', stderr: '', sudoRejected: true };
+    };
+    const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn() });
+    const target = { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' } as const;
+    const results = await Promise.allSettled([discovery.action('h1', target, 'stop'), discovery.action('h1', target, 'start'), discovery.action('h1', target, 'restart')]);
+    expect(results.map(result => result.status === 'rejected' && (result.reason as Error).message)).toEqual(Array(3).fill('Das sudo-Passwort wurde abgelehnt.'));
+    expect(host.sudo.filter(Boolean)).toHaveLength(1);
+    expect(most).toBe(1);
+  });
+  it('releases the sudo gate when a command fails', async () => {
+    const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
+    const host = fakeHost({});
+    let calls = 0;
+    host.run = async (_command, _timeout, prompt) => {
+      host.sudo.push(prompt);
+      if (++calls === 1) throw new Error('channel failed');
+      return ok('');
+    };
+    const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn() });
+    const target = { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' } as const;
+    await expect(discovery.action('h1', target, 'stop')).rejects.toBeInstanceOf(Error);
+    await expect(discovery.action('h1', target, 'start')).resolves.toBeUndefined();
+    expect(host.sudo.filter(Boolean)).toHaveLength(2);
+  });
+  it('releases the sudo gate as soon as sudo reports readiness', async () => {
+    const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
+    const host = fakeHost({});
+    const started: string[] = [];
+    let finishFirst: (() => void) | undefined;
+    host.run = async (command, _timeout, prompt) => {
+      started.push(command.includes('stop') ? 'stop' : 'start');
+      prompt?.onReady?.();
+      if (command.includes('stop')) await new Promise<void>(resolve => { finishFirst = resolve; });
+      return ok('');
+    };
+    const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn() });
+    const target = { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' } as const;
+    const first = discovery.action('h1', target, 'stop');
+    await vi.waitFor(() => expect(finishFirst).toBeDefined());
+    await discovery.action('h1', target, 'start');
+    expect(started).toEqual(['stop', 'start']);
+    finishFirst!();
+    await first;
+  });
   it('shares the rejection memory with terminal tabs', async () => {
     const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
     const sudoRejections = new SudoRejections();

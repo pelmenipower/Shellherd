@@ -98,17 +98,22 @@ export class ContainerDiscovery {
   /**
    * With a stored password: authenticate with `sudo -S -v` first, fresh markers per command. After a
    * rejection the password is not sent again (account lockout), until the connection settings change.
+   * One authentication per connection at a time; the gate opens at readiness or when the run ends.
    */
   private async runSudo(host: RemoteHost, connection: SshConnectionNode, argv: string[], timeoutMs: number): Promise<RunResult> {
     const setting = sudoSetting(connection);
     if (setting.kind !== 'prompt') return host.run(remoteCommand(argv, setting), timeoutMs);
     const print = connectionFingerprint(connection);
-    if (this.sudoRejections.isRejected(connection.id, print)) return { code: null, stdout: '', stderr: '', sudoRejected: true };
-    const marker = createSudoMarker('sudo');
-    const ready = createSudoMarker('ready');
-    const result = await host.run(remoteCommand(argv, { kind: 'prompt', marker, ready, stdin: true }), timeoutMs, { marker, ready, password: setting.password });
-    if (result.sudoRejected) this.sudoRejections.markRejected(connection.id, print);
-    return result;
+    const release = await this.sudoRejections.acquire(connection.id);
+    try {
+      if (this.sudoRejections.isRejected(connection.id, print)) return { code: null, stdout: '', stderr: '', sudoRejected: true };
+      const marker = createSudoMarker('sudo');
+      const ready = createSudoMarker('ready');
+      const result = await host.run(remoteCommand(argv, { kind: 'prompt', marker, ready, stdin: true }), timeoutMs,
+        { marker, ready, password: setting.password, onReady: release });
+      if (result.sudoRejected) this.sudoRejections.markRejected(connection.id, print);
+      return result;
+    } finally { release(); }
   }
 
   private async listLocal(): Promise<DiscoveryResult> {

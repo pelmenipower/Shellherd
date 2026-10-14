@@ -66,7 +66,7 @@ interface Session {
   /** Set once the user sent input; later exits are the user's own. */
   typed?: boolean;
   /** Container tab authenticating sudo with the stored password; removed at the ready marker. */
-  sudo?: { watcher: SudoWatcher; password?: string; fingerprint: string };
+  sudo?: { watcher: SudoWatcher; password?: string; fingerprint: string; release?: () => void };
   /** sudo authenticated and the ready marker was seen. */
   sudoReady?: boolean;
 }
@@ -176,6 +176,14 @@ export class SshSessionManager {
       const client = session.client;
       // Decided before connecting, so an unusable password fails without contacting the host.
       const sudo = session.target ? this.sudoMode(session, connection) : undefined;
+      if (session.sudo) {
+        // One sudo authentication per connection at a time, so parallel tabs cannot multiply a wrong password.
+        const pending = session.sudo;
+        const release = await this.sudoRejections.acquire(session.connectionId);
+        if (!this.active(session) || session.sudo !== pending) { release(); return; }
+        pending.release = release;
+        if (this.sudoRejections.isRejected(session.connectionId, pending.fingerprint)) throw new ContainerInputError(SUDO_REJECTED);
+      }
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
           .then(valid => {
@@ -230,7 +238,7 @@ export class SshSessionManager {
   private sudoOutput(session: Session, chunk: Buffer): void {
     const sudo = session.sudo!;
     const result = sudo.watcher.feed(chunk);
-    if (result.ready) { session.sudo = undefined; session.sudoReady = true; }
+    if (result.ready) { this.dropSudo(session); session.sudoReady = true; }
     this.output(session, result.output);
     if (result.ready || !result.prompts) return;
     // A second prompt means sudo refused the password; never send it twice.
@@ -246,8 +254,15 @@ export class SshSessionManager {
 
   private releaseSudoHold(session: Session): void {
     const sudo = session.sudo;
-    session.sudo = undefined;
+    this.dropSudo(session);
     if (sudo) this.output(session, sudo.watcher.flush());
+  }
+
+  /** Forgets the password and opens the connection's sudo gate for the next tab or command. */
+  private dropSudo(session: Session): void {
+    const release = session.sudo?.release;
+    session.sudo = undefined;
+    release?.();
   }
 
   private ended(session: Session): void {
@@ -417,7 +432,7 @@ export class SshSessionManager {
     this.sessions.delete(session.id);
     clearTimeout(session.timer);
     this.clearKey(session);
-    session.sudo = undefined;
+    this.dropSudo(session);
     session.outstanding.clear();
     session.stream?.destroy();
     session.client?.destroy();
