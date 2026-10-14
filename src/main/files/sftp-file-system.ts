@@ -23,7 +23,7 @@ export function remoteEntry(name: string, attrs: Attributes, target?: Attributes
   const effective = type === 'link' ? target : attrs;
   const isDirectory = effective ? (effective.mode & TYPE_MASK) === DIRECTORY : false;
   return { name, type, size: effective && !isDirectory ? effective.size : 0, modified: (effective ?? attrs).mtime * 1000,
-    permissions: permissionText(attrs.mode),
+    permissions: permissionText(attrs.mode), mode: attrs.mode & 0o7777,
     ...(type === 'link' && target ? { linkTarget: isDirectory ? 'directory' : 'file' } : {}) };
 }
 
@@ -34,6 +34,7 @@ export interface RemoteFileSystem extends FileSystem {
   realpath: (path: string) => Promise<string>;
   /** Does not follow links. */
   lstat: (path: string) => Promise<FileEntry | null>;
+  chmod: (path: string, mode: number) => Promise<void>;
 }
 
 const missing = (error: unknown): null => { if ((error as { code?: number }).code === NO_SUCH_FILE) return null; throw error; };
@@ -54,6 +55,7 @@ export function sftpFileSystem(sftp: SFTPWrapper): RemoteFileSystem {
     },
     stat: path => stat(path).then(attrs => remoteEntry(posix.basename(path), attrs), missing),
     lstat: path => call<Attributes>(callback => sftp.lstat(path, callback)).then(attrs => remoteEntry(posix.basename(path), attrs), missing),
+    chmod: (path, mode) => call<void>(callback => sftp.chmod(path, mode, error => callback(error, undefined))),
     mkdir: path => call<void>(callback => sftp.mkdir(path, error => callback(error, undefined))),
     read: path => sftp.createReadStream(path, { highWaterMark: 256 * 1024 }),
     write: path => sftp.createWriteStream(path),

@@ -1,6 +1,7 @@
 import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
 import type { Vault, WorkspaceLayout } from './vault/types';
 import type { ConnectionCatalog, ExternalDragHover, IncomingTab, IncomingView, TabTransferRequest, ViewTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
+import type { SftpChmodRequest, SftpEditRequest } from './sftp';
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
@@ -42,6 +43,11 @@ export const IPC_CHANNELS = {
   sftpClearFinished: 'sftp:clear-finished',
   sftpState: 'sftp:state',
   sftpClose: 'sftp:close',
+  sftpChmod: 'sftp:chmod',
+  sftpEdit: 'sftp:edit',
+  sftpEditOpen: 'sftp:edit-open',
+  sftpEditUpload: 'sftp:edit-upload',
+  sftpEditClose: 'sftp:edit-close',
   sftpEvent: 'sftp:event',
   localPlaces: 'local:places',
   localList: 'local:list',
@@ -141,6 +147,11 @@ export interface DesktopApi {
   sftpClearFinished: (request: SftpSessionRequest) => Promise<void>;
   sftpState: (request: SftpSessionRequest) => Promise<SftpSessionState>;
   sftpClose: (request: SftpSessionRequest) => Promise<void>;
+  sftpChmod: (request: SftpChmodRequest) => Promise<void>;
+  sftpEdit: (request: SftpPathRequest) => Promise<{ editId: string }>;
+  sftpEditOpen: (request: SftpEditRequest) => Promise<void>;
+  sftpEditUpload: (request: SftpEditRequest) => Promise<void>;
+  sftpEditClose: (request: SftpEditRequest) => Promise<void>;
   onSftpEvent: (listener: (event: SftpEvent) => void) => () => void;
   localPlaces: () => Promise<LocalPlaces>;
   localList: (request: LocalPathRequest) => Promise<DirectoryListing>;

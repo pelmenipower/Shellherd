@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs';
+import { chmodSync, closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
@@ -52,6 +52,7 @@ function startServer(root: string): Promise<{ server: Server; port: number }> {
       sftp.on('REMOVE', (reqid, path) => guard(reqid, () => { unlinkSync(local(path)); sftp.status(reqid, STATUS_CODE.OK); }));
       sftp.on('RENAME', (reqid, from, to) => guard(reqid, () => { renameSync(local(from), local(to)); sftp.status(reqid, STATUS_CODE.OK); }));
       sftp.on('SETSTAT', (reqid, path, changes) => guard(reqid, () => {
+        if (changes.mode !== undefined) chmodSync(local(path), changes.mode);
         if (changes.mtime !== undefined) utimesSync(local(path), changes.atime ?? changes.mtime, changes.mtime);
         sftp.status(reqid, STATUS_CODE.OK);
       }));
@@ -68,6 +69,7 @@ describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', 
   let manager: SftpSessionManager;
   const events: SftpEvent[] = [];
   let sessionId: string;
+  const opened: string[] = [];
 
   const waitFor = async <T>(find: () => T | undefined): Promise<T> => {
     for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -89,7 +91,8 @@ describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', 
     server = started.server;
     const node: ConnectionNode = { id: 'files', type: 'connection', protocol: 'sftp', name: 'Loopback', host: '127.0.0.1', port: started.port,
       username: 'synthetic-user', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [] };
-    manager = new SftpSessionManager({ getConnection: () => node, verifyHost: async () => true, emit: (_owner, event) => events.push(event), local: localFileSystem });
+    manager = new SftpSessionManager({ getConnection: () => node, verifyHost: async () => true, emit: (_owner, event) => events.push(event), local: localFileSystem,
+      openFile: async path => { opened.push(path); }, editPollInterval: 50 });
     sessionId = manager.open(1, 'files').sessionId;
     await waitFor(() => events.find(event => event.type === 'status' && event.status === 'connected') ? true : undefined);
   });
@@ -113,6 +116,26 @@ describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', 
     manager.resolveConflict(1, sessionId, conflict.conflictId, 'overwrite', false);
     expect(await finished(jobId)).toMatchObject({ state: 'done', doneFiles: 1 });
     expect(readFileSync(join(remoteRoot, 'project', 'readme.txt'), 'utf8')).toBe('changed');
+  });
+
+  it('opens a server file for editing and uploads each save, but not over a newer server version', async () => {
+    const { editId } = await manager.edit(1, sessionId, '/project/readme.txt');
+    expect(readFileSync(opened[0], 'utf8')).toBe('changed');
+    writeFileSync(opened[0], 'edited locally');
+    await waitFor(() => events.some(event => event.type === 'edit' && event.edit.id === editId && event.edit.state === 'saved') ? true : undefined);
+    expect(readFileSync(join(remoteRoot, 'project', 'readme.txt'), 'utf8')).toBe('edited locally');
+
+    utimesSync(join(remoteRoot, 'project', 'readme.txt'), 2_000_000_000, 2_000_000_000);
+    writeFileSync(opened[0], 'second edit');
+    await waitFor(() => events.some(event => event.type === 'edit' && event.edit.state === 'conflict') ? true : undefined);
+    expect(readFileSync(join(remoteRoot, 'project', 'readme.txt'), 'utf8')).toBe('edited locally');
+    await manager.editUpload(1, sessionId, editId);
+    expect(readFileSync(join(remoteRoot, 'project', 'readme.txt'), 'utf8')).toBe('second edit');
+
+    await manager.chmod(1, sessionId, ['/project/readme.txt'], 0o600, false);
+    await manager.editClose(1, sessionId, editId);
+    expect(manager.state(1, sessionId).edits).toEqual([]);
+    await waitFor(() => { try { statSync(opened[0]); return undefined; } catch { return true; } });
   });
 
   it('downloads, renames and deletes on the server', async () => {

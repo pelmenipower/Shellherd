@@ -21,6 +21,7 @@ function setup() {
     verifyHost: async () => true,
     emit: (ownerId, event) => events.push({ ownerId, event }),
     local: localFileSystem,
+    openFile: async () => {},
     createClient: () => {
       const client = Object.assign(new EventEmitter(), { connect: vi.fn(), destroy: vi.fn() });
       clients.push(client);

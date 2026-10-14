@@ -1,6 +1,7 @@
 import { ipcMain, shell, webContents } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
-import { win32 } from 'node:path';
+import { spawn } from 'node:child_process';
+import { extname, win32 } from 'node:path';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import type { KnownHosts } from '../ssh/known-hosts';
@@ -28,6 +29,23 @@ const ConflictSchema = z.object({ ...session, conflictId: z.string().uuid(), cho
 const LocalPathSchema = z.object({ path: localPath }).strict();
 const LocalRenameSchema = z.object({ from: localPath, to: localPath }).strict();
 const LocalDeleteSchema = z.object({ paths: z.array(localPath).min(1).max(1000) }).strict();
+
+const EditSchema = z.object({ ...session, editId: z.string().uuid() }).strict();
+const ChmodSchema = z.object({ ...session, paths: z.array(remotePath).min(1).max(1000), mode: z.number().int().min(0).max(0o7777), recursive: z.boolean() }).strict();
+
+// Programs and scripts would run instead of opening; they and files without extension open in Notepad.
+const RUNNABLE = /^\.(exe|com|bat|cmd|ps1|psm1|psd1|vbs|vbe|js|jse|wsf|wsh|msi|msp|msc|lnk|url|scr|hta|cpl|jar|reg|pif|scf|inf|application|appref-ms|dll|sys)$/i;
+
+function openInNotepad(path: string): void {
+  spawn(win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'notepad.exe'), [path], { detached: true, stdio: 'ignore' }).unref();
+}
+
+/** Opens an edited copy with the program Windows associates with it, never by running it. */
+export async function openForEditing(path: string): Promise<void> {
+  const extension = extname(path);
+  if (!extension || RUNNABLE.test(extension)) { openInNotepad(path); return; }
+  if (await shell.openPath(path)) openInNotepad(path);
+}
 
 function parse<T>(schema: z.ZodType<T>, request: unknown): T {
   const result = schema.safeParse(request);
@@ -58,6 +76,7 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
       if (owner && !owner.isDestroyed()) owner.send(IPC_CHANNELS.sftpEvent, event);
     },
     local: localFileSystem,
+    openFile: openForEditing,
   });
   handle(IPC_CHANNELS.sftpOpen, OpenSchema, (ownerId, request) => manager.open(ownerId, request.connectionId));
   handle(IPC_CHANNELS.sftpHome, SessionSchema, (ownerId, request) => manager.home(ownerId, request.sessionId));
@@ -71,6 +90,11 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
     manager.resolveConflict(ownerId, request.sessionId, request.conflictId, request.choice, request.applyToAll));
   handle(IPC_CHANNELS.sftpClearFinished, SessionSchema, (ownerId, request) => manager.clearFinished(ownerId, request.sessionId));
   handle(IPC_CHANNELS.sftpState, SessionSchema, (ownerId, request) => manager.state(ownerId, request.sessionId));
+  handle(IPC_CHANNELS.sftpChmod, ChmodSchema, (ownerId, request) => manager.chmod(ownerId, request.sessionId, request.paths, request.mode, request.recursive));
+  handle(IPC_CHANNELS.sftpEdit, RemotePathSchema, (ownerId, request) => manager.edit(ownerId, request.sessionId, request.path));
+  handle(IPC_CHANNELS.sftpEditOpen, EditSchema, (ownerId, request) => manager.editOpen(ownerId, request.sessionId, request.editId));
+  handle(IPC_CHANNELS.sftpEditUpload, EditSchema, (ownerId, request) => manager.editUpload(ownerId, request.sessionId, request.editId));
+  handle(IPC_CHANNELS.sftpEditClose, EditSchema, (ownerId, request) => manager.editClose(ownerId, request.sessionId, request.editId));
   handle(IPC_CHANNELS.sftpClose, SessionSchema, (ownerId, request) => manager.close(ownerId, request.sessionId));
 
   handle(IPC_CHANNELS.localPlaces, z.undefined(), () => localPlaces());

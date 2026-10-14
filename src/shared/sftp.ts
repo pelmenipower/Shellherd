@@ -12,6 +12,8 @@ export interface FileEntry {
   modified: number;
   /** `rwxr-xr-x` style; remote entries only. */
   permissions?: string;
+  /** Permission bits (e.g. 0o644); remote entries only. */
+  mode?: number;
   /** Links: what they point to; unknown for broken links. */
   linkTarget?: 'file' | 'directory';
 }
@@ -48,8 +50,20 @@ export interface TransferConflict {
   target: { size: number; modified: number };
 }
 
+/** A server file opened in a local editor; saving uploads it again. */
+export interface EditedFile {
+  id: string;
+  name: string;
+  remotePath: string;
+  state: 'open' | 'uploading' | 'saved' | 'conflict' | 'error';
+  /** Last successful upload, milliseconds since 1970. */
+  savedAt?: number;
+  message?: string;
+}
+
 export type SftpEvent =
   | { type: 'status'; sessionId: string; status: SftpStatus; message?: string }
+  | { type: 'edit'; sessionId: string; edit: EditedFile; closed?: boolean }
   | { type: 'transfer'; sessionId: string; job: TransferJob }
   | { type: 'conflict'; sessionId: string; conflict: TransferConflict };
 
@@ -68,7 +82,9 @@ export interface SftpTransferRequest extends SftpSessionRequest {
 export interface SftpJobRequest extends SftpSessionRequest { jobId: string }
 export interface SftpConflictAnswer extends SftpSessionRequest { conflictId: string; choice: ConflictChoice; applyToAll: boolean }
 /** Running and finished jobs plus an open question; used when a tab is opened in another window. */
-export interface SftpSessionState { status: SftpStatus; jobs: TransferJob[]; conflict?: TransferConflict }
+export interface SftpSessionState { status: SftpStatus; jobs: TransferJob[]; conflict?: TransferConflict; edits: EditedFile[] }
+export interface SftpEditRequest extends SftpSessionRequest { editId: string }
+export interface SftpChmodRequest extends SftpSessionRequest { paths: string[]; mode: number; recursive: boolean }
 
 export interface LocalPathRequest { path: string }
 export interface LocalRenameRequest { from: string; to: string }

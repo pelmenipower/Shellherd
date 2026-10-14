@@ -12,6 +12,7 @@ import type { FileSystem } from './file-system';
 import { removeRemote, sftpFileSystem } from './sftp-file-system';
 import type { RemoteFileSystem } from './sftp-file-system';
 import { planTransfer, runTransfer, TransferCanceled } from './transfer';
+import { RemoteEdits } from './remote-edit';
 
 const PROGRESS_INTERVAL = 200;
 const KEPT_FINISHED_JOBS = 20;
@@ -21,6 +22,10 @@ export interface SftpDependencies {
   verifyHost: (host: string, port: number, key: Buffer, isActive: () => boolean) => Promise<boolean>;
   emit: (ownerId: number, event: SftpEvent) => void;
   local: FileSystem;
+  /** Opens a local copy of a server file in an editor. */
+  openFile: (path: string) => Promise<void>;
+  /** How often edited copies are checked for changes; tests use less. */
+  editPollInterval?: number;
   /** Injected so tests never open network connections. */
   createClient?: () => Client;
 }
@@ -38,6 +43,7 @@ interface Session {
   connectionId: string;
   client: Client;
   fs?: RemoteFileSystem;
+  edits?: RemoteEdits;
   status: SftpStatus;
   jobs: Job[];
   running?: Job;
@@ -82,6 +88,8 @@ export class SftpSessionManager {
           if (error) { this.finish(session, 'error', 'Der Server bietet kein SFTP an.'); return; }
           sftp.on('close', () => this.finish(session, 'closed'));
           session.fs = sftpFileSystem(sftp);
+          session.edits = new RemoteEdits(session.fs, { openFile: this.dependencies.openFile, pollInterval: this.dependencies.editPollInterval,
+            emit: (edit, closed) => { if (this.active(session)) this.emit(session, { type: 'edit', sessionId: session.id, edit, ...(closed ? { closed } : {}) }); } });
           session.status = 'connected';
           this.emit(session, { type: 'status', sessionId: session.id, status: 'connected' });
         });
@@ -124,6 +132,28 @@ export class SftpSessionManager {
       await removeRemote(fs, path);
     }
   }
+
+  /** Sets permission bits; `recursive` also changes everything inside folders (links are not followed). */
+  async chmod(ownerId: number, id: string, paths: string[], mode: number, recursive: boolean): Promise<void> {
+    const fs = this.remote(ownerId, id);
+    const apply = async (path: string, entry: { type: string } | null): Promise<void> => {
+      await fs.chmod(path, mode);
+      if (!recursive || entry?.type !== 'directory') return;
+      for (const child of await fs.list(path)) await apply(fs.join(path, child.name), child);
+    };
+    for (const path of paths) await apply(path, await fs.lstat(path));
+  }
+
+  private editor(ownerId: number, id: string): RemoteEdits {
+    this.remote(ownerId, id);
+    return this.sessions.get(id)!.edits!;
+  }
+  /** Downloads a server file into a temporary folder, opens it and uploads every saved change. */
+  edit(ownerId: number, id: string, path: string): Promise<{ editId: string }> { return this.editor(ownerId, id).open(path); }
+  editOpen(ownerId: number, id: string, editId: string): Promise<void> { return this.editor(ownerId, id).reopen(editId); }
+  /** Uploads even if the server copy changed meanwhile. */
+  editUpload(ownerId: number, id: string, editId: string): Promise<void> { return this.editor(ownerId, id).upload(editId, true); }
+  editClose(ownerId: number, id: string, editId: string): Promise<void> { return this.editor(ownerId, id).close(editId); }
 
   /** Queues a transfer; jobs of a connection run one after another. */
   transfer(ownerId: number, request: SftpTransferRequest): { jobId: string } {
@@ -214,7 +244,8 @@ export class SftpSessionManager {
 
   state(ownerId: number, id: string): SftpSessionState {
     const session = this.owned(ownerId, id);
-    return { status: session.status, jobs: session.jobs.map(item => ({ ...item.job })), ...(session.conflict ? { conflict: session.conflict.conflict } : {}) };
+    return { status: session.status, jobs: session.jobs.map(item => ({ ...item.job })), edits: session.edits?.list() ?? [],
+      ...(session.conflict ? { conflict: session.conflict.conflict } : {}) };
   }
 
   /** Moves the connection to another window; it fetches the current state with `state`. */
@@ -244,6 +275,7 @@ export class SftpSessionManager {
     this.clearKey(session);
     for (const entry of session.jobs) entry.controller.abort();
     session.conflict?.resolve({ choice: 'cancel', applyToAll: false });
+    session.edits?.closeAll();
     session.client.destroy();
     session.status = status;
     this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(message ? { message } : {}) });
