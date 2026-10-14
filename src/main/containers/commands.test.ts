@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { actionArgv, ContainerInputError, listArgv, remoteCommand, shellJoin, SHELL_CHOICE, terminalArgv } from './commands';
+import { actionArgv, ContainerInputError, listArgv, PROBE_COMMAND, remoteCommand, shellJoin, SHELL_CHOICE, terminalArgv } from './commands';
 
 function hasSh(): boolean {
   try {
@@ -27,6 +27,16 @@ describe('shellJoin', () => {
       const out = execFileSync('sh', ['-c', `printf %s ${shellJoin([arg])}`], { encoding: 'utf8' });
       expect(out).toBe(arg);
     }
+  });
+});
+
+describe('PROBE_COMMAND', () => {
+  it('runs the probe through sh with the extended PATH, whatever the login shell', () => {
+    expect(PROBE_COMMAND).toBe(`sh -c 'PATH="$PATH:/usr/sbin:/sbin"; for c in docker podman pct qm; do command -v "$c" >/dev/null 2>&1 && echo "has:$c"; done; true'`);
+  });
+  it.runIf(hasSh())('runs through sh and prints only probe markers', () => {
+    const out = execFileSync('sh', ['-c', PROBE_COMMAND], { encoding: 'utf8' });
+    expect(out).toMatch(/^(has:(docker|podman|pct|qm)\r?\n)*$/);
   });
 });
 

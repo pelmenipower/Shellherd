@@ -2,7 +2,7 @@ import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import type { ContainerAction, ContainerHostId, ContainerTarget, DiscoveredItem, DiscoveryResult, RuntimeKind } from '../../shared/containers';
 import type { ConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import { publicError } from '../ssh/session';
-import { actionArgv, ContainerInputError, listArgv, PROBE_SCRIPT, remoteCommand } from './commands';
+import { actionArgv, ContainerInputError, listArgv, PROBE_COMMAND, remoteCommand } from './commands';
 import { describeFailure, parseContainerList, parsePctList, parseProbe, parseQmList } from './parsers';
 import type { RunResult } from './parsers';
 import { HostAccessError } from './runner';
@@ -28,6 +28,16 @@ function readable(error: unknown): Error {
   return new Error(publicError(error));
 }
 
+/** A failed probe must not look like a host without containers. */
+function probeOutput(result: RunResult): string {
+  if (result.timedOut) throw new HostAccessError('Der Host hat nicht rechtzeitig geantwortet.');
+  if (result.code !== 0) {
+    const last = result.stderr.split(/\r?\n/).map(line => line.trim()).filter(Boolean).pop();
+    throw new HostAccessError(last ? last.slice(0, 200) : `Die Container-Erkennung ist fehlgeschlagen (Exit-Code ${result.code ?? '?'}).`);
+  }
+  return result.stdout;
+}
+
 const kindOf = (target: ContainerTarget): RuntimeKind => target.kind === 'container' ? target.runtime : 'proxmox';
 
 export class ContainerDiscovery {
@@ -40,7 +50,7 @@ export class ContainerDiscovery {
       const connection = this.sshConnection(hostId);
       const sudo = connection.containers?.sudo === true;
       return await this.withHost(connection, async host => {
-        const tools = parseProbe((await host.run(PROBE_SCRIPT, LIST_TIMEOUT)).stdout);
+        const tools = parseProbe(probeOutput(await host.run(PROBE_COMMAND, LIST_TIMEOUT)));
         const result: DiscoveryResult = { runtimes: [], items: [], problems: {} };
         for (const runtime of ['docker', 'podman'] as const) {
           if (!tools.has(runtime)) continue;

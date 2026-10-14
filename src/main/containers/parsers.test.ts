@@ -20,6 +20,7 @@ const pct = `VMID       Status     Lock         Name
 const qm = `      VMID NAME                 STATUS     MEM(MB)    BOOTDISK(GB) PID
        100 win11                running    8192              64.00 12345
        103 debian-test          stopped    2048              32.00 0
+       104 VM 104               running    2048              32.00 1234
 `;
 
 describe('container parsers', () => {
@@ -53,6 +54,7 @@ describe('container parsers', () => {
     expect(parseQmList(qm)).toEqual([
       { kind: 'vm', vmid: 100, name: 'win11', state: 'running' },
       { kind: 'vm', vmid: 103, name: 'debian-test', state: 'stopped' },
+      { kind: 'vm', vmid: 104, name: 'VM 104', state: 'running' },
     ]);
   });
 });
@@ -69,5 +71,14 @@ describe('describeFailure', () => {
   it('falls back to the last stderr line or the exit code', () => {
     expect(describeFailure('podman', failed('line one\nError: something odd\n'))).toBe('Error: something odd');
     expect(describeFailure('podman', failed('', 2))).toBe('Befehl fehlgeschlagen (Exit-Code 2).');
+  });
+  it('does not mistake rootfs or /root paths for a missing root login', () => {
+    expect(describeFailure('proxmox', failed('mount failed\nunable to mount rootfs of CT 101'))).toBe('unable to mount rootfs of CT 101');
+    expect(describeFailure('proxmox', failed('cannot open /root/x'))).toBe('cannot open /root/x');
+    expect(describeFailure('proxmox', failed('only root can run this command'))).toContain('brauchen root');
+    expect(describeFailure('proxmox', failed('permission denied'))).toContain('brauchen root');
+  });
+  it('does not send Podman users to the docker group', () => {
+    expect(describeFailure('podman', failed('Error: permission denied on /run/podman/podman.sock'))).toBe('Keine Berechtigung für Podman. sudo aktivieren oder Podman rootless einrichten.');
   });
 });

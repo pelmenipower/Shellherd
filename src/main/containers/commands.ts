@@ -13,6 +13,8 @@ const SAFE_WORD = /^[A-Za-z0-9_./:=@%+,-]+$/;
 export function shellJoin(argv: string[]): string {
   return argv.map(arg => SAFE_WORD.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`).join(' ');
 }
+/** The probe runs in sh so fish, csh and other login shells do not break it. */
+export const PROBE_COMMAND = shellJoin(['sh', '-c', PROBE_SCRIPT]);
 export function remoteCommand(argv: string[], sudo: boolean): string {
   return `${PATH_PREFIX} ${shellJoin(sudo ? ['sudo', '-n', ...argv] : argv)}`;
 }

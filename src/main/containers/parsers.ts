@@ -57,10 +57,10 @@ export function parsePctList(text: string): DiscoveredItem[] {
     .map(parts => ({ kind: 'lxc' as const, vmid: Number(parts[0]), name: parts[parts.length - 1], state: state(parts[1]) }));
 }
 
-/** Columns: VMID NAME STATUS MEM BOOTDISK PID. */
+/** Columns: VMID NAME STATUS MEM BOOTDISK PID; read from the right because unnamed VMs show as "VM <vmid>". */
 export function parseQmList(text: string): DiscoveredItem[] {
-  return guestRows(text).filter(parts => parts.length >= 3)
-    .map(parts => ({ kind: 'vm' as const, vmid: Number(parts[0]), name: parts[1], state: state(parts[2]) }));
+  return guestRows(text).filter(parts => parts.length >= 6)
+    .map(parts => ({ kind: 'vm' as const, vmid: Number(parts[0]), name: parts.slice(1, parts.length - 4).join(' '), state: state(parts[parts.length - 4]) }));
 }
 
 const SUDO_PASSWORD = 'sudo verlangt ein Passwort. Richte NOPASSWD für docker/pct ein oder füge den Benutzer der Gruppe docker hinzu.';
@@ -70,10 +70,11 @@ export function describeFailure(kind: RuntimeKind, result: RunResult): string {
   const text = `${result.stderr}\n${result.stdout}`;
   if (/sudo: (a password is required|a terminal is required)/i.test(text)) return SUDO_PASSWORD;
   if (kind !== 'proxmox' && /permission denied[^\n]*\.sock/i.test(text)) {
-    return `Keine Berechtigung für ${kind === 'docker' ? 'Docker' : 'Podman'}. Benutzer zur Gruppe docker hinzufügen oder sudo aktivieren.`;
+    return kind === 'docker' ? 'Keine Berechtigung für Docker. Benutzer zur Gruppe docker hinzufügen oder sudo aktivieren.'
+      : 'Keine Berechtigung für Podman. sudo aktivieren oder Podman rootless einrichten.';
   }
   if (kind === 'docker' && /Cannot connect to the Docker daemon/i.test(text)) return 'Der Docker-Dienst läuft nicht.';
-  if (kind === 'proxmox' && (result.code === 127 || /root|permission denied/i.test(text))) return 'Proxmox-Befehle brauchen root. sudo aktivieren oder als root verbinden.';
+  if (kind === 'proxmox' && (result.code === 127 || /permission denied|only root|must be root|need to be root|not root/i.test(text))) return 'Proxmox-Befehle brauchen root. sudo aktivieren oder als root verbinden.';
   const last = result.stderr.split(/\r?\n/).map(line => line.trim()).filter(Boolean).pop();
   return last ? last.slice(0, 200) : `Befehl fehlgeschlagen (Exit-Code ${result.code ?? '?'}).`;
 }

@@ -18,8 +18,9 @@ function fakeHost(answers: Record<string, RunResult>) {
 }
 
 const P = 'PATH="$PATH:/usr/sbin:/sbin"';
+const PROBE = `sh -c '${P}; for c in docker podman pct qm; do command -v "$c" >/dev/null 2>&1 && echo "has:$c"; done; true'`;
 const answers = {
-  [`${P}; for c in docker podman pct qm; do command -v "$c" >/dev/null 2>&1 && echo "has:$c"; done; true`]: ok('has:docker\nhas:pct\nhas:qm\n'),
+  [PROBE]: ok('has:docker\nhas:pct\nhas:qm\n'),
   [`${P} docker ps -a --no-trunc --format '{{json .}}'`]: ok('{"ID":"abc","Names":"web-1","Image":"nginx","State":"running"}\n'),
   [`${P} pct list`]: { code: 2, stdout: '', stderr: 'only root can run this command' },
   [`${P} qm list`]: { code: 2, stdout: '', stderr: 'only root can run this command' },
@@ -35,6 +36,17 @@ describe('ContainerDiscovery over SSH', () => {
     expect(result.runtimes).toEqual(['docker', 'proxmox']);
     expect(result.items).toEqual([{ kind: 'container', runtime: 'docker', id: 'abc', ref: 'web-1', name: 'web-1', image: 'nginx', state: 'running' }]);
     expect(result.problems.proxmox).toContain('root');
+  });
+  it('rejects when the probe times out or fails instead of reporting no containers', async () => {
+    const slow = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
+      openRemote: async () => fakeHost({ [PROBE]: { code: null, stdout: '', stderr: '', timedOut: true } }) });
+    await expect(slow.list('h1')).rejects.toThrow('Der Host hat nicht rechtzeitig geantwortet.');
+    const failing = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
+      openRemote: async () => fakeHost({ [PROBE]: { code: 1, stdout: '', stderr: 'warning\nsh: cannot fork\n' } }) });
+    await expect(failing.list('h1')).rejects.toThrow('sh: cannot fork');
+    const silent = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
+      openRemote: async () => fakeHost({ [PROBE]: { code: 1, stdout: '', stderr: '' } }) });
+    await expect(silent.list('h1')).rejects.toThrow('Die Container-Erkennung ist fehlgeschlagen (Exit-Code 1).');
   });
   it('prefixes sudo -n when the connection asks for it', async () => {
     const host = fakeHost({});
