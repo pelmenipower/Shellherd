@@ -6,6 +6,7 @@ import type { LiveLayout, DockZone, SplitRect } from '../terminal-layout';
 import { dockTab, dockZone, mergePane, moveTab, paneRects, panes, resizeBounds, setRatio, splitRects, splitPane } from '../terminal-layout';
 import { TerminalPanel } from './TerminalPanel';
 import { RdpPanel } from './RdpPanel';
+import { FilesPanel } from './FilesPanel';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { ContextMenu } from './ContextMenu';
 import { RDP_ACTION_LABELS } from '../rdp-sessions';
@@ -381,6 +382,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           style: region ? { ...rectangle(region), top: `calc(${region.top}% + 32px)`, height: `calc(${region.height}% - 32px)` } : undefined,
           onFocus: () => { if (region) onFocus(region.pane.id); if (selected !== tab.id) onSelect(tab.id); }, onStatusChange: onStatus,
           adopt: tab.adopt, initialStatus: tab.status };
+        if (tab.connection.protocol === 'sftp') return <FilesPanel key={tab.id} {...panel} />;
         return tab.connection.protocol === 'rdp' ? <RdpPanel key={tab.id} {...panel} />
           : <TerminalPanel key={tab.id} {...panel} onClose={() => onClose(tab.id)} />;
       })}

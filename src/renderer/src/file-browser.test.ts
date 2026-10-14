@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest';
+import type { FileEntry } from '../../shared/sftp';
+import { formatSize, ipcErrorText, joinPath, nameError, nextSelection, parentPath, pathSegments, sortEntries } from './file-browser';
+
+const file = (name: string, size = 0, modified = 0): FileEntry => ({ name, type: 'file', size, modified });
+const folder = (name: string): FileEntry => ({ name, type: 'directory', size: 0, modified: 0 });
+
+describe('file browser', () => {
+  it('sorts folders and links to folders first, names naturally', () => {
+    const link: FileEntry = { name: 'b-link', type: 'link', size: 0, modified: 0, linkTarget: 'directory' };
+    const sorted = sortEntries([file('file10'), file('file2'), folder('z'), link, file('a')], { key: 'name', ascending: true });
+    expect(sorted.map(entry => entry.name)).toEqual(['b-link', 'z', 'a', 'file2', 'file10']);
+    const bySize = sortEntries([file('a', 5), file('b', 50), folder('c')], { key: 'size', ascending: false });
+    expect(bySize.map(entry => entry.name)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('navigates remote and Windows paths up to their root', () => {
+    expect(parentPath('remote', '/home/user')).toBe('/home');
+    expect(parentPath('remote', '/home')).toBe('/');
+    expect(parentPath('remote', '/')).toBeNull();
+    expect(parentPath('local', 'C:\\Users\\me')).toBe('C:\\Users');
+    expect(parentPath('local', 'C:\\Users')).toBe('C:\\');
+    expect(parentPath('local', 'C:\\')).toBeNull();
+    expect(joinPath('remote', '/', 'etc')).toBe('/etc');
+    expect(joinPath('local', 'C:\\', 'Temp')).toBe('C:\\Temp');
+    expect(pathSegments('local', 'C:\\Users\\me').map(segment => segment.label)).toEqual(['C:', 'Users', 'me']);
+    expect(pathSegments('remote', '/var/log').map(segment => segment.path)).toEqual(['/', '/var', '/var/log']);
+  });
+
+  it('rejects names the target side cannot store', () => {
+    expect(nameError('remote', 'a/b')).toMatch('Schrägstrich');
+    expect(nameError('local', 'a:b')).toMatch('Zeichen');
+    expect(nameError('local', '..')).toMatch('nicht erlaubt');
+    expect(nameError('remote', 'report.txt')).toBeNull();
+  });
+
+  it('selects like Explorer with Ctrl and Shift', () => {
+    const names = ['a', 'b', 'c', 'd'];
+    expect(nextSelection(names, [], null, 'b', { ctrl: false, shift: false })).toEqual({ selected: ['b'], anchor: 'b' });
+    expect(nextSelection(names, ['b'], 'b', 'd', { ctrl: false, shift: true }).selected).toEqual(['b', 'c', 'd']);
+    expect(nextSelection(names, ['b'], 'b', 'd', { ctrl: true, shift: false }).selected).toEqual(['b', 'd']);
+    expect(nextSelection(names, ['b', 'd'], 'd', 'b', { ctrl: true, shift: false }).selected).toEqual(['d']);
+  });
+
+  it('formats sizes and strips IPC prefixes', () => {
+    expect(formatSize(512)).toBe('512 B');
+    expect(formatSize(1536)).toBe('1,5 KB');
+    expect(formatSize(50 * 1024 * 1024)).toBe('50 MB');
+    expect(ipcErrorText(new Error("Error invoking remote method 'sftp:list': Error: Zugriff verweigert."))).toBe('Zugriff verweigert.');
+  });
+});
