@@ -11,7 +11,7 @@ export const PROBE_SCRIPT = `${PATH_PREFIX}; for c in docker podman pct qm; do c
 
 const SAFE_WORD = /^[A-Za-z0-9_./:=@%+,-]+$/;
 export function shellJoin(argv: string[]): string {
-  return argv.map(arg => SAFE_WORD.test(arg) ? arg : `'${arg.replace(/'/g, `'\''`)}'`).join(' ');
+  return argv.map(arg => SAFE_WORD.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`).join(' ');
 }
 export function remoteCommand(argv: string[], sudo: boolean): string {
   return `${PATH_PREFIX} ${shellJoin(sudo ? ['sudo', '-n', ...argv] : argv)}`;

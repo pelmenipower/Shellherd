@@ -1,5 +1,15 @@
+import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { actionArgv, ContainerInputError, listArgv, remoteCommand, shellJoin, SHELL_CHOICE, terminalArgv } from './commands';
+
+function hasSh(): boolean {
+  try {
+    execFileSync('sh', ['-c', 'true'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const web = { kind: 'container' as const, runtime: 'docker' as const, ref: 'web-1', name: 'web-1' };
 const ct = { kind: 'lxc' as const, vmid: 101, name: 'ct-web' };
@@ -8,8 +18,15 @@ const vm = { kind: 'vm' as const, vmid: 100, name: 'win11' };
 describe('shellJoin', () => {
   it('leaves plain words and quotes everything else', () => {
     expect(shellJoin(['docker', 'ps', '--format', '{{json .}}'])).toBe("docker ps --format '{{json .}}'");
-    expect(shellJoin(["it's"])).toBe("'it'\''s'");
+    expect(shellJoin(["it's"])).toBe("'it'\\''s'");
     expect(shellJoin(['$(rm -rf /)'])).toBe("'$(rm -rf /)'");
+  });
+  it.runIf(hasSh())('round-trips arguments through sh unchanged', () => {
+    const args = ["it's", "a'; echo pwned; '", '$(id)', 'two words'];
+    for (const arg of args) {
+      const out = execFileSync('sh', ['-c', `printf %s ${shellJoin([arg])}`], { encoding: 'utf8' });
+      expect(out).toBe(arg);
+    }
   });
 });
 
@@ -17,6 +34,11 @@ describe('remoteCommand', () => {
   it('extends PATH for Proxmox tools and adds sudo -n only on request', () => {
     expect(remoteCommand(['pct', 'list'], false)).toBe('PATH="$PATH:/usr/sbin:/sbin" pct list');
     expect(remoteCommand(['pct', 'list'], true)).toBe('PATH="$PATH:/usr/sbin:/sbin" sudo -n pct list');
+  });
+  it.runIf(hasSh())('keeps a quoted argument intact through sh', () => {
+    const arg = "a'; echo pwned; '";
+    const out = execFileSync('sh', ['-c', `printf %s ${shellJoin([arg])}`], { encoding: 'utf8' });
+    expect(out).toBe(arg);
   });
 });
 
