@@ -9,6 +9,7 @@ import type { ConnectionCatalog, IncomingTab, IncomingView, TransferLayout, Wind
 import { requireSshSender } from './ssh/ipc';
 import type { SshSessionManager } from './ssh/session';
 import type { RdpSessionManager } from './rdp/host';
+import type { SftpSessionManager } from './files/sftp-session';
 import { vaultSessionManager } from './vault/ipc';
 import { DragGhost, tearOffBounds } from './drag-ghost';
 import { visibleBounds } from './windows';
@@ -17,7 +18,7 @@ import type { WindowRegistry } from './windows';
 const finite = z.number().finite().min(-1_000_000).max(1_000_000);
 const TabConnectionSchema = z.object({
   id: z.string().min(1).max(256), name: z.string().max(500),
-  protocol: z.enum(['ssh', 'rdp', 'powershell', 'cmd']), address: z.string().max(1000),
+  protocol: z.enum(['ssh', 'sftp', 'rdp', 'powershell', 'cmd']), address: z.string().max(1000),
 }).strict();
 const TargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('main') }).strict(),
@@ -27,7 +28,7 @@ const TargetSchema = z.discriminatedUnion('kind', [
 const tabFields = {
   connection: TabConnectionSchema,
   status: z.enum(['connecting', 'connected', 'closed', 'error']),
-  session: z.object({ kind: z.enum(['terminal', 'rdp']), sessionId: z.string().uuid() }).strict().optional(),
+  session: z.object({ kind: z.enum(['terminal', 'rdp', 'sftp']), sessionId: z.string().uuid() }).strict().optional(),
   snapshot: z.string().max(8 * 1024 * 1024).optional(),
 };
 const TransferSchema = z.object({ ...tabFields, target: TargetSchema }).strict();
@@ -57,6 +58,7 @@ export interface WindowIpcDependencies {
   registry: WindowRegistry;
   ssh: SshSessionManager;
   rdp: RdpSessionManager;
+  sftp: SftpSessionManager;
   createSecondary: (bounds: Rectangle) => BrowserWindow;
   closeOwnerSessions: (ownerId: number) => void;
 }
@@ -66,7 +68,7 @@ export function catalog(): ConnectionCatalog {
   return { nodes: redactSecrets(vault.nodes), confirmBeforeClosingSession: vault.settings.confirmBeforeClosingSession };
 }
 
-export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary, closeOwnerSessions }: WindowIpcDependencies): {
+export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSecondary, closeOwnerSessions }: WindowIpcDependencies): {
   broadcastCatalog: () => void;
 } {
   const hovered = new Map<number, number>();
@@ -110,6 +112,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
     let status = tab.status;
     if (tab.session?.kind === 'terminal') status = ssh.transferOwner(from, tab.session.sessionId, to);
     if (tab.session?.kind === 'rdp') status = rdp.transferOwner(from, tab.session.sessionId, to, target);
+    if (tab.session?.kind === 'sftp') status = sftp.transferOwner(from, tab.session.sessionId, to);
     return { connection: tab.connection, status, ...(tab.session ? { session: tab.session } : {}), ...(tab.snapshot ? { snapshot: tab.snapshot } : {}) };
   };
   const present = (target: BrowserWindow): void => {
@@ -136,7 +139,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, createSecondary,
     if (parsed.tabs.reduce((total, tab) => total + (tab.snapshot?.length ?? 0), 0) > 32 * 1024 * 1024) throw new Error('Die Ansicht ist zu groß zum Verschieben.');
     // Check every session first so a view never ends up split between two windows.
     for (const tab of parsed.tabs) {
-      if (tab.session && !(tab.session.kind === 'terminal' ? ssh : rdp).owns(from, tab.session.sessionId)) throw new Error('Eine Sitzung der Ansicht ist nicht verfügbar.');
+      if (tab.session && !{ terminal: ssh, rdp, sftp }[tab.session.kind].owns(from, tab.session.sessionId)) throw new Error('Eine Sitzung der Ansicht ist nicht verfügbar.');
     }
     const { target } = await resolveTarget(from, parsed.target);
     const incoming: IncomingView = { name: parsed.name, layout: parsed.layout,

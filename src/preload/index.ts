@@ -1,6 +1,7 @@
 import {
   contextBridge,
   ipcRenderer,
+  webUtils,
 } from 'electron';
 
 import type { IpcRendererEvent } from 'electron';
@@ -57,6 +58,25 @@ const desktopApi: DesktopApi = {
     ipcRenderer.on('rdp:event', handler);
     return () => ipcRenderer.removeListener('rdp:event', handler);
   },
+  sftpOpen: request => ipcRenderer.invoke('sftp:open', request),
+  sftpHome: request => ipcRenderer.invoke('sftp:home', request),
+  sftpList: request => ipcRenderer.invoke('sftp:list', request),
+  sftpMkdir: request => ipcRenderer.invoke('sftp:mkdir', request),
+  sftpRename: request => ipcRenderer.invoke('sftp:rename', request),
+  sftpDelete: request => ipcRenderer.invoke('sftp:delete', request),
+  sftpTransfer: request => ipcRenderer.invoke('sftp:transfer', request),
+  sftpCancel: request => ipcRenderer.invoke('sftp:cancel', request),
+  sftpResolve: request => ipcRenderer.invoke('sftp:resolve', request),
+  sftpClearFinished: request => ipcRenderer.invoke('sftp:clear-finished', request),
+  sftpState: request => ipcRenderer.invoke('sftp:state', request),
+  sftpClose: request => ipcRenderer.invoke('sftp:close', request),
+  onSftpEvent: listener => subscribe('sftp:event', listener),
+  localPlaces: () => ipcRenderer.invoke('local:places'),
+  localList: request => ipcRenderer.invoke('local:list', request),
+  localMkdir: request => ipcRenderer.invoke('local:mkdir', request),
+  localRename: request => ipcRenderer.invoke('local:rename', request),
+  localDelete: request => ipcRenderer.invoke('local:delete', request),
+  pathForFile: file => webUtils.getPathForFile(file),
   getVersion: () =>
     ipcRenderer.invoke('app:get-version'),
 

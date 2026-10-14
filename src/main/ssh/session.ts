@@ -1,14 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { open, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { win32 } from 'node:path';
 import { Client } from 'ssh2';
-import type { ClientChannel, ConnectConfig } from 'ssh2';
+import type { ClientChannel } from 'ssh2';
 import type { IPty, IPtyForkOptions, IWindowsPtyForkOptions } from 'node-pty';
 import type { ConnectionNode, LocalShellConnectionNode, LocalShellProtocol, VaultNode } from '../../shared/vault/types';
 import type { SshEvent, SshPrepareRequest, SshStatus, TerminalSize } from '../../shared/ssh';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
+import { sshConnectConfig } from './client-config';
+
+export { agentSocket } from './client-config';
 
 const OUTPUT_HIGH = 128 * 1024;
 const OUTPUT_LOW = 32 * 1024;
@@ -69,15 +72,9 @@ export function shellEnvironment(source: NodeJS.ProcessEnv = process.env): Recor
     entry[1] !== undefined && !entry[0].toUpperCase().startsWith('ELECTRON_')));
 }
 
-export function agentSocket(platform = process.platform, socket = process.env.SSH_AUTH_SOCK): string {
-  if (socket) return socket;
-  if (platform === 'win32') return '\\\\.\\pipe\\openssh-ssh-agent';
-  throw new Error('Kein SSH-Agent gefunden. Starte einen Agent oder wähle eine andere Authentifizierung.');
-}
-
 class LocalShellError extends Error {}
 
-function publicError(error: unknown): string {
+export function publicError(error: unknown): string {
   if (error instanceof HostKeyError || error instanceof LocalShellError) return error.message;
   const code = (error as NodeJS.ErrnoException)?.code;
   if (code === 'ENOENT' || code === 'EACCES') return 'Die private Schlüsseldatei konnte nicht gelesen werden. Prüfe Pfad und Zugriffsrechte.';
@@ -95,7 +92,7 @@ export class SshSessionManager {
   prepare(ownerId: number, request: SshPrepareRequest): { sessionId: string } {
     if (this.sessions.size >= MAX_SSH_SESSIONS) throw new Error(`Maximal ${MAX_SSH_SESSIONS} Terminal-Sessions gleichzeitig. Schließe zuerst einen Tab.`);
     const connection = this.dependencies.getConnection(request.connectionId);
-    if (connection.protocol === 'rdp') throw new Error('Diese Verbindung ist keine Terminalverbindung.');
+    if (connection.protocol === 'rdp' || connection.protocol === 'sftp') throw new Error('Diese Verbindung ist keine Terminalverbindung.');
     if (connection.protocol === 'ssh' && (!connection.host.trim() || !connection.username?.trim())) {
       throw new Error('Bitte speichere Host und Benutzername, bevor du die Verbindung startest.');
     }
@@ -135,35 +132,18 @@ export class SshSessionManager {
       if (connection.protocol === 'powershell' || connection.protocol === 'cmd') { await this.startLocalShell(session, connection); return; }
       if (connection.protocol !== 'ssh' || !session.client) throw new Error('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
       const client = session.client;
-      const config: ConnectConfig = { host: connection.host, port: connection.port,
-        username: connection.username, readyTimeout: 120_000, keepaliveInterval: 15_000,
-        keepaliveCountMax: 3, agentForward: false, tryKeyboard: false,
-        hostVerifier: (key: Buffer, callback: (valid: boolean) => void) => {
-          void this.dependencies.verifyHost(connection.host, connection.port, key, () => this.active(session))
-            .then(valid => {
-              if (!valid && this.active(session)) this.finish(session, 'error', 'Der Server-Schlüssel wurde nicht bestätigt.');
-              callback(valid && this.active(session));
-            }).catch(error => {
-              this.finish(session, 'error', publicError(error));
-              callback(false);
-            });
-        },
-      };
-      const auth = connection.authentication;
-      if (auth.method === 'password') config.password = auth.password;
-      else if (auth.method === 'agent') config.agent = agentSocket();
-      else {
-        const file = await open(auth.keyPath, 'r');
-        try {
-          const stat = await file.stat();
-          if (!stat.isFile() || stat.size > 1024 * 1024) throw new Error('Invalid key file');
-          session.key = await file.readFile();
-        } finally { await file.close(); }
-        if (!this.active(session)) { this.clearKey(session); return; }
-        config.privateKey = session.key;
-        config.passphrase = auth.passphrase;
-      }
-      if (!this.active(session)) return;
+      const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
+        void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
+          .then(valid => {
+            if (!valid && this.active(session)) this.finish(session, 'error', 'Der Server-Schlüssel wurde nicht bestätigt.');
+            callback(valid && this.active(session));
+          }).catch(error => {
+            this.finish(session, 'error', publicError(error));
+            callback(false);
+          });
+      });
+      session.key = key;
+      if (!this.active(session)) { this.clearKey(session); return; }
       client.once('ready', () => {
         this.clearKey(session);
         client.shell({ term: 'xterm-256color', cols: session.size.cols, rows: session.size.rows }, (error, stream) => {

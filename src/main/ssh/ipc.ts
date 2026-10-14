@@ -16,8 +16,9 @@ export function requireSshSender(event: IpcMainInvokeEvent): number {
   return event.sender.id;
 }
 
-export function registerSshIpcHandlers(): SshSessionManager {
-  const knownHosts = new KnownHosts(join(app.getPath('userData'), 'known-hosts.json'), async prompt => {
+/** One instance for terminals and file transfers: it serializes confirmations and writes. */
+export function createKnownHosts(): KnownHosts {
+  return new KnownHosts(join(app.getPath('userData'), 'known-hosts.json'), async prompt => {
     const parent = BrowserWindow.getFocusedWindow();
     const options = {
       type: 'warning' as const,
@@ -29,6 +30,9 @@ export function registerSshIpcHandlers(): SshSessionManager {
     const result = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
     return result.response === 1;
   });
+}
+
+export function registerSshIpcHandlers(knownHosts: KnownHosts): SshSessionManager {
   const manager = new SshSessionManager({
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);

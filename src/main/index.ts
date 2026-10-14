@@ -2,7 +2,9 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron';
 import type { Rectangle } from 'electron';
 import { join } from 'node:path';
 
-import { registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
+import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
+import { registerFileIpcHandlers } from './files/ipc';
+import type { SftpSessionManager } from './files/sftp-session';
 import type { SshSessionManager } from './ssh/session';
 import { rdpSurfaceMode, registerRdpIpcHandlers } from './rdp/ipc';
 import type { RdpSessionManager } from './rdp/host';
@@ -19,11 +21,15 @@ import {
 
 let sshSessionManager: SshSessionManager;
 let rdpSessionManager: RdpSessionManager;
+let sftpSessionManager: SftpSessionManager;
 
-// SSH, local shells and RDP share every lifecycle path: crash, navigation, close, lock and quit.
-const closeOwnerSessions = (ownerId: number): void => { sshSessionManager.closeOwner(ownerId); rdpSessionManager.closeOwner(ownerId); };
-const closeAllSessions = (): void => { sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); };
-const hasOwnerSessions = (ownerId: number): boolean => sshSessionManager.hasOwner(ownerId) || rdpSessionManager.hasOwner(ownerId);
+// SSH, local shells, RDP and SFTP share every lifecycle path: crash, navigation, close, lock and quit.
+const closeOwnerSessions = (ownerId: number): void => {
+  sshSessionManager.closeOwner(ownerId); rdpSessionManager.closeOwner(ownerId); sftpSessionManager.closeOwner(ownerId);
+};
+const closeAllSessions = (): void => { sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); };
+const hasOwnerSessions = (ownerId: number): boolean =>
+  sshSessionManager.hasOwner(ownerId) || rdpSessionManager.hasOwner(ownerId) || sftpSessionManager.hasOwner(ownerId);
 const hasAnySessions = (): boolean => BrowserWindow.getAllWindows().some(window => !window.isDestroyed() && hasOwnerSessions(window.webContents.id));
 
 /** Detached windows close without moving their tabs (vault lock, workspace replacement, app exit). */
@@ -127,8 +133,10 @@ app.whenReady().then(() => {
     () => app.getVersion(),
   );
 
-  sshSessionManager = registerSshIpcHandlers();
+  const knownHosts = createKnownHosts();
+  sshSessionManager = registerSshIpcHandlers(knownHosts);
   rdpSessionManager = registerRdpIpcHandlers();
+  sftpSessionManager = registerFileIpcHandlers(knownHosts);
   ipcMain.handle(IPC_CHANNELS.readClipboardText, event => {
     requireSshSender(event);
     vaultSessionManager.getSnapshot();
@@ -141,7 +149,7 @@ app.whenReady().then(() => {
     clipboard.writeText(text);
   });
   const { broadcastCatalog } = registerWindowIpcHandlers({
-    registry: windowRegistry, ssh: sshSessionManager, rdp: rdpSessionManager, closeOwnerSessions,
+    registry: windowRegistry, ssh: sshSessionManager, rdp: rdpSessionManager, sftp: sftpSessionManager, closeOwnerSessions,
     createSecondary: bounds => createWindow('secondary', bounds),
   });
   registerVaultIpcHandlers({

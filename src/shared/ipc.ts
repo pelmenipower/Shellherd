@@ -1,6 +1,8 @@
 import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
 import type { Vault, WorkspaceLayout } from './vault/types';
 import type { ConnectionCatalog, ExternalDragHover, IncomingTab, IncomingView, TabTransferRequest, ViewTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
+import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
+  SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 
 export const IPC_CHANNELS = {
@@ -28,6 +30,24 @@ export const IPC_CHANNELS = {
   rdpClose: 'rdp:close',
   rdpAction: 'rdp:action',
   rdpEvent: 'rdp:event',
+  sftpOpen: 'sftp:open',
+  sftpHome: 'sftp:home',
+  sftpList: 'sftp:list',
+  sftpMkdir: 'sftp:mkdir',
+  sftpRename: 'sftp:rename',
+  sftpDelete: 'sftp:delete',
+  sftpTransfer: 'sftp:transfer',
+  sftpCancel: 'sftp:cancel',
+  sftpResolve: 'sftp:resolve',
+  sftpClearFinished: 'sftp:clear-finished',
+  sftpState: 'sftp:state',
+  sftpClose: 'sftp:close',
+  sftpEvent: 'sftp:event',
+  localPlaces: 'local:places',
+  localList: 'local:list',
+  localMkdir: 'local:mkdir',
+  localRename: 'local:rename',
+  localDelete: 'local:delete',
   windowReady: 'window:ready',
   windowCloseReady: 'window:close-ready',
   windowEvacuate: 'window:evacuate',
@@ -109,6 +129,26 @@ export interface DesktopApi {
   rdpClose: (request: RdpSessionRequest) => Promise<void>;
   rdpAction: (request: RdpActionRequest) => Promise<void>;
   onRdpEvent: (listener: (event: RdpEvent) => void) => () => void;
+  sftpOpen: (request: SftpOpenRequest) => Promise<{ sessionId: string }>;
+  sftpHome: (request: SftpSessionRequest) => Promise<string>;
+  sftpList: (request: SftpPathRequest) => Promise<DirectoryListing>;
+  sftpMkdir: (request: SftpPathRequest) => Promise<void>;
+  sftpRename: (request: SftpRenameRequest) => Promise<void>;
+  sftpDelete: (request: SftpDeleteRequest) => Promise<void>;
+  sftpTransfer: (request: SftpTransferRequest) => Promise<{ jobId: string }>;
+  sftpCancel: (request: SftpJobRequest) => Promise<void>;
+  sftpResolve: (request: SftpConflictAnswer) => Promise<void>;
+  sftpClearFinished: (request: SftpSessionRequest) => Promise<void>;
+  sftpState: (request: SftpSessionRequest) => Promise<SftpSessionState>;
+  sftpClose: (request: SftpSessionRequest) => Promise<void>;
+  onSftpEvent: (listener: (event: SftpEvent) => void) => () => void;
+  localPlaces: () => Promise<LocalPlaces>;
+  localList: (request: LocalPathRequest) => Promise<DirectoryListing>;
+  localMkdir: (request: LocalPathRequest) => Promise<void>;
+  localRename: (request: LocalRenameRequest) => Promise<void>;
+  localDelete: (request: LocalDeleteRequest) => Promise<void>;
+  /** Absolute path of a file dropped from Explorer; empty for files without one. */
+  pathForFile: (file: File) => string;
   windowReady: () => Promise<{ role: WindowRole }>;
   windowCloseReady: () => Promise<void>;
   onWindowEvacuate: (listener: () => void) => () => void;
