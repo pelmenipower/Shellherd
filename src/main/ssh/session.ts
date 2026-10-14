@@ -57,6 +57,8 @@ interface Session {
   target?: TerminalTarget;
   exitCode?: number | null;
   tail?: string;
+  /** Set once the user sent input; later exits are the user's own. */
+  typed?: boolean;
 }
 
 export function findConnection(nodes: VaultNode[], id: string): ConnectionNode | undefined {
@@ -96,12 +98,12 @@ export function publicError(error: unknown): string {
   return 'Die SSH-Verbindung ist fehlgeschlagen. Prüfe Host, Benutzer und Authentifizierung.';
 }
 
-/** Why a container tab ended; undefined when the output already says enough. */
-export function targetExitMessage(target: TerminalTarget, code: number | null | undefined, tail: string): string | undefined {
-  if (code === undefined || code === null || code === 0) return undefined;
+/** Why a container tab ended; undefined when the output already says enough or the user ended it. */
+export function targetExitMessage(target: TerminalTarget, code: number | null | undefined, tail: string, typed = false): string | undefined {
+  if (typed || code === undefined || code === null || code === 0) return undefined;
   if (/No such container/i.test(tail)) return `Container „${target.item.name}“ wurde nicht gefunden.`;
   if (target.item.kind === 'container' && target.mode === 'shell' && (code === 126 || code === 127)) return 'Keine Shell im Container gefunden.';
-  if (target.item.kind === 'vm') return 'Die serielle Konsole ist nicht verfügbar. Serielle Schnittstelle in der VM-Hardware hinzufügen.';
+  if (target.item.kind === 'vm' && /serial/i.test(tail)) return 'Die serielle Konsole ist nicht verfügbar. Serielle Schnittstelle in der VM-Hardware hinzufügen.';
   return undefined;
 }
 
@@ -155,6 +157,7 @@ export class SshSessionManager {
     try {
       if (session.connectionId === LOCAL_CONTAINER_HOST) { await this.startLocalContainer(session); return; }
       const connection = this.dependencies.getConnection(session.connectionId);
+      if (session.target && connection.protocol !== 'ssh') throw new Error('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
       if (connection.protocol === 'powershell' || connection.protocol === 'cmd' || connection.protocol === 'aicli') { await this.startLocalShell(session, connection); return; }
       if (connection.protocol !== 'ssh' || !session.client) throw new Error('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
       const client = session.client;
@@ -196,7 +199,7 @@ export class SshSessionManager {
   }
 
   private ended(session: Session): void {
-    const message = session.target ? targetExitMessage(session.target, session.exitCode, session.tail ?? '') : undefined;
+    const message = session.target ? targetExitMessage(session.target, session.exitCode, session.tail ?? '', session.typed === true) : undefined;
     this.finish(session, message ? 'error' : 'closed', message);
   }
 
@@ -261,7 +264,7 @@ export class SshSessionManager {
 
   private output(session: Session, chunk: Buffer): void {
     if (!this.active(session) || chunk.length === 0) return;
-    if (session.target) session.tail = ((session.tail ?? '') + chunk.toString('utf8')).slice(-2048);
+    if (session.target) session.tail = ((session.tail ?? '') + chunk.subarray(-2048).toString('utf8')).slice(-2048);
     if (session.handover) {
       // Streams are paused; only chunks already in flight arrive here.
       if (session.handover.bytes + chunk.length > OUTPUT_LIMIT) { this.finish(session, 'error', 'Die Terminalausgabe konnte nicht übergeben werden.'); return; }
@@ -300,6 +303,7 @@ export class SshSessionManager {
     if (bytes > 16_384 || session.inputBytes + bytes > INPUT_LIMIT) throw new Error('Zu viele Terminaleingaben. Bitte warte kurz.');
     if (!bytes) return;
     session.inputBytes += bytes;
+    session.typed = true;
     try {
       if (session.pty) { session.pty.write(data); return; }
       await new Promise<void>((resolve, reject) => session.stream!.write(data, error => error ? reject(error) : resolve()));

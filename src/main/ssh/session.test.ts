@@ -63,6 +63,12 @@ beforeEach(async () => {
         const stream = acceptExec();
         stream.on('error', () => {});
         if (info.command.includes('missing')) { stream.stderr.write('Error response from daemon: No such container: missing\r\n'); stream.exit(1); stream.end(); return; }
+        if (info.command.includes('exits-ok')) { stream.write('bye\r\n'); stream.exit(0); stream.end(); return; }
+        if (info.command.includes('exits-on-input')) {
+          stream.write('exec-ready\r\n');
+          stream.on('data', () => { stream.exit(127); stream.end(); });
+          return;
+        }
         stream.write('exec-ready\r\n');
         stream.on('data', (data: Buffer) => { stream.write(data); });
       });
@@ -243,6 +249,24 @@ describe('SSH session manager with a real local SSH server', () => {
     expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', message: 'Container „missing“ wurde nicht gefunden.' }));
   });
 
+  it('closes normally when the user ends the shell after typing, whatever the exit code', async () => {
+    const id = manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { ...web, ref: 'exits-on-input' }, mode: 'shell' } }).sessionId;
+    await manager.connect(1, id);
+    await waitFor(() => output().includes('exec-ready'));
+    await manager.input(1, id, 'exit\r');
+    await waitFor(() => hasStatus('closed') || hasStatus('error'));
+    expect(hasStatus('closed')).toBe(true);
+    expect(hasStatus('error')).toBe(false);
+  });
+
+  it('closes normally when the remote command exits with 0', async () => {
+    const id = manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { ...web, ref: 'exits-ok' }, mode: 'logs' } }).sessionId;
+    await manager.connect(1, id);
+    await waitFor(() => hasStatus('closed') || hasStatus('error'));
+    expect(hasStatus('closed')).toBe(true);
+    expect(hasStatus('error')).toBe(false);
+  });
+
   it('rejects invalid targets before connecting', () => {
     expect(() => manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { ...web, ref: '$(id)' }, mode: 'shell' } })).toThrow('Ungültige Container-Angabe.');
     expect(() => manager.prepare(1, { connectionId: LOCAL_CONTAINER_HOST, cols: 80, rows: 24 })).toThrow();
@@ -257,6 +281,11 @@ describe('targetExitMessage', () => {
     expect(targetExitMessage({ item: web, mode: 'logs' }, 1, 'No such container: web-1')).toBe('Container „web-1“ wurde nicht gefunden.');
     expect(targetExitMessage({ item: { kind: 'vm', vmid: 100, name: 'w' }, mode: 'shell' }, 255, 'unable to find a serial interface')).toContain('Serielle Schnittstelle');
     expect(targetExitMessage({ item: web, mode: 'shell' }, 130, '')).toBeUndefined();
+  });
+  it('stays silent once the user typed or without a serial hint', () => {
+    expect(targetExitMessage({ item: web, mode: 'shell' }, 127, '', true)).toBeUndefined();
+    expect(targetExitMessage({ item: web, mode: 'shell' }, 1, 'No such container: x', true)).toBeUndefined();
+    expect(targetExitMessage({ item: { kind: 'vm', vmid: 100, name: 'w' }, mode: 'shell' }, 255, 'connection lost')).toBeUndefined();
   });
 });
 
