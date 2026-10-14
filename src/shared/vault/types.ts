@@ -96,6 +96,28 @@ export interface Vault {
   nodes: VaultNode[];
   workspaces: Workspace[];
   settings: VaultSettings;
+  /** AI providers for the terminal assistant; keys stay encrypted in the vault. */
+  ai?: AiSettings;
+}
+
+export type AiProviderKind = 'openai' | 'azure' | 'anthropic' | 'gemini';
+
+export interface AiProvider {
+  id: string;
+  name: string;
+  kind: AiProviderKind;
+  /** Model ID; for Azure the deployment name. */
+  model: string;
+  apiKey?: string;
+  /** OpenAI-compatible base URL, Azure endpoint, or an override for Anthropic/Gemini. */
+  baseUrl?: string;
+  /** Azure only, e.g. 2024-10-21. */
+  apiVersion?: string;
+}
+
+export interface AiSettings {
+  providers: AiProvider[];
+  defaultProviderId?: string;
 }
 
 export interface Workspace {

@@ -13,6 +13,8 @@ import type { WindowRole } from './windows';
 import { registerWindowIpcHandlers } from './window-ipc';
 import { FileAssociation, vaultFileFromArgs } from './file-association';
 import { testConnection } from './connection-test';
+import { registerAiIpcHandlers } from './ai/ipc';
+import type { AssistantService } from './ai/assistant';
 import { ConnectionNodeSchema } from '../shared/vault/schema';
 
 import { IPC_CHANNELS } from '../shared/ipc';
@@ -25,12 +27,14 @@ import {
 let sshSessionManager: SshSessionManager;
 let rdpSessionManager: RdpSessionManager;
 let sftpSessionManager: SftpSessionManager;
+let assistant: AssistantService | undefined;
 
 // SSH, local shells, RDP and SFTP share every lifecycle path: crash, navigation, close, lock and quit.
 const closeOwnerSessions = (ownerId: number): void => {
   sshSessionManager.closeOwner(ownerId); rdpSessionManager.closeOwner(ownerId); sftpSessionManager.closeOwner(ownerId);
+  assistant?.cancelOwner(ownerId);
 };
-const closeAllSessions = (): void => { sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); };
+const closeAllSessions = (): void => { sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); assistant?.cancelAll(); };
 const hasOwnerSessions = (ownerId: number): boolean =>
   sshSessionManager.hasOwner(ownerId) || rdpSessionManager.hasOwner(ownerId) || sftpSessionManager.hasOwner(ownerId);
 const hasAnySessions = (): boolean => BrowserWindow.getAllWindows().some(window => !window.isDestroyed() && hasOwnerSessions(window.webContents.id));
@@ -172,6 +176,8 @@ app.whenReady().then(() => {
   sshSessionManager = registerSshIpcHandlers(knownHosts);
   rdpSessionManager = registerRdpIpcHandlers();
   sftpSessionManager = registerFileIpcHandlers(knownHosts);
+  const ai = registerAiIpcHandlers(windowRegistry);
+  assistant = ai.service;
   // Dry run with the form's current values; only the main window may test, nothing is stored or logged.
   ipcMain.handle(IPC_CHANNELS.connectionTest, (event, request: unknown) => {
     windowRegistry.requireMain(event);
@@ -197,7 +203,7 @@ app.whenReady().then(() => {
   });
   registerVaultIpcHandlers({
     onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); },
-    onVaultChange: () => { broadcastCatalog(); rdpSessionManager.prewarm(); },
+    onVaultChange: () => { broadcastCatalog(); ai.broadcast(); rdpSessionManager.prewarm(); },
     guard: event => windowRegistry.requireMain(event),
   });
   createWindow('main');

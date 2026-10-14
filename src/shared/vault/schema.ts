@@ -148,6 +148,21 @@ export const VaultSettingsSchema: z.ZodType<VaultSettings> = z.object({
     confirmBeforeClosingSession: z.boolean(),
 });
 
+export const AiProviderSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(80),
+  kind: z.enum(['openai', 'azure', 'anthropic', 'gemini']),
+  model: z.string().min(1).max(200),
+  apiKey: z.string().max(4096).optional(),
+  baseUrl: z.string().url().max(2048).optional(),
+  apiVersion: z.string().max(40).optional(),
+});
+
+export const AiSettingsSchema = z.object({
+  providers: z.array(AiProviderSchema).max(20),
+  defaultProviderId: z.string().optional(),
+});
+
 export const VaultSchema: z.ZodType<Vault> = z.object({
   format: z.literal('terminus-vault'),
   version: z.literal(2),
@@ -162,6 +177,7 @@ export const VaultSchema: z.ZodType<Vault> = z.object({
   nodes: z.array(VaultNodeSchema),
   workspaces: z.array(WorkspaceSchema),
   settings: VaultSettingsSchema,
+  ai: AiSettingsSchema.optional(),
 });
 
 export const EncryptedVaultFileSchema: z.ZodType<EncryptedVaultFile> =

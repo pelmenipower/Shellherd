@@ -1,5 +1,6 @@
 import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
-import type { ConnectionNode, Vault, WorkspaceLayout } from './vault/types';
+import type { AiProvider, ConnectionNode, Vault, WorkspaceLayout } from './vault/types';
+import type { AiAskRequest, AiCatalog, AiEvent } from './ai';
 import type { ConnectionTestResult } from './connection-test';
 import type { ConnectionCatalog, ExternalDragHover, IncomingTab, IncomingView, TabTransferRequest, ViewTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
 import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditRequest } from './sftp';
@@ -76,6 +77,12 @@ export const IPC_CHANNELS = {
   closeSecondaryWindows: 'window:close-secondaries',
   vaultLaunchFile: 'vault:launch-file',
   connectionTest: 'connection:test',
+  aiCatalog: 'ai:catalog',
+  aiCatalogChanged: 'ai:catalog-changed',
+  aiAsk: 'ai:ask',
+  aiCancel: 'ai:cancel',
+  aiTest: 'ai:test',
+  aiEvent: 'ai:event',
   vaultOpenFile: 'vault:open-file',
   fileTypeStatus: 'app:file-type-status',
   fileTypeRegister: 'app:file-type-register',
@@ -194,6 +201,14 @@ export interface DesktopApi {
   vaultLaunchFile: () => Promise<string | null>;
   /** Dry run of a possibly unsaved connection. */
   connectionTest: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
+  aiCatalog: () => Promise<AiCatalog>;
+  onAiCatalog: (listener: (catalog: AiCatalog) => void) => () => void;
+  /** Starts a streamed answer; text arrives as `ai:event` deltas. */
+  aiAsk: (request: AiAskRequest) => Promise<void>;
+  aiCancel: (request: { requestId: string }) => Promise<void>;
+  onAiEvent: (listener: (event: AiEvent) => void) => () => void;
+  /** Settings form only: one short round trip, returns the model's reply. */
+  aiTest: (provider: AiProvider) => Promise<string>;
   /** A vault file opened from Explorer while Terminus was running. */
   onVaultOpenFile: (listener: (filePath: string) => void) => () => void;
   fileTypeStatus: () => Promise<boolean>;
