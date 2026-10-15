@@ -8,6 +8,13 @@ import { exampleVault } from './example';
 
 
 describe('ConnectionNodeSchema', () => {
+    it('keeps the disabled flag and treats it as optional', () => {
+        const connection = { id: 'c', type: 'connection', protocol: 'cmd', name: 'CMD', tags: [] };
+        expect(ConnectionNodeSchema.parse({ ...connection, disabled: true })).toMatchObject({ disabled: true });
+        expect(ConnectionNodeSchema.safeParse(connection).success).toBe(true);
+        expect(ConnectionNodeSchema.safeParse({ ...connection, disabled: 'yes' }).success).toBe(false);
+    });
+
     it('accepts a valid SSH connection', () => {
         const connection = {
             id: 'connection-api',

@@ -28,6 +28,8 @@ interface ConnectionBase {
   tags: string[];
   color?: string;
   icon?: ConnectionIconName;
+  /** Greyed out and never opened (single, folder or workspace) until re-enabled. */
+  disabled?: boolean;
 }
 
 export interface SshConnectionNode extends ConnectionBase {

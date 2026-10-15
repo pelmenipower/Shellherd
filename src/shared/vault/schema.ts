@@ -39,6 +39,7 @@ const connectionBase = {
     tags: z.array(z.string()),
     color: z.string().optional(),
     icon: z.enum(CONNECTION_ICONS).optional(),
+    disabled: z.boolean().optional(),
 };
 
 const remoteTarget = {

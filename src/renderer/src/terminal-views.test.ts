@@ -114,6 +114,16 @@ describe('terminal views', () => {
     expect(toWorkspaceViews(restored.state, restored.tabs)).toEqual(saved);
   });
 
+  it('counts disabled connections skipped across all views of a workspace', () => {
+    const node: ConnectionNode = { id: 'server', type: 'connection', protocol: 'cmd', name: 'Server', tags: [], disabled: true };
+    let next = 0;
+    const restored = fromWorkspaceViews({ layout: { type: 'pane', connectionIds: [] }, views: [
+      { name: 'A', layout: { type: 'pane', connectionIds: ['server'] } }, { name: 'B', layout: { type: 'pane', connectionIds: ['server'] } },
+    ] }, () => node, () => `id-${++next}`);
+    expect(restored.tabs).toEqual([]);
+    expect(restored.skipped).toBe(2);
+  });
+
   it('keeps the name of a single renamed view and summarizes saved workspaces', () => {
     const state = renameView(syncViews(initialViews(), [tab('a')], 'a', 'root'), 'view-1', 'Produktion');
     const saved = toWorkspaceViews(state, [tab('a')]);

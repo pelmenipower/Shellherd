@@ -8,7 +8,7 @@ const fields: ConnectionFields = {
   name: ' API ', comment: ' comment ', host: ' api.example.test ', port: '22', username: ' deploy ',
   method: 'agent', password: 'synthetic-only', keyPath: '/synthetic/key', passphrase: 'synthetic-only',
   domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
-  tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off',
+  tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off', disabled: 'off',
 };
 
 /** SSH result narrowed for property assertions. */
@@ -110,5 +110,14 @@ describe('connection destinations', () => {
     expect(parentFolderId(nodes, 'connection')).toBe('');
     expect(parentFolderId(nodes, 'nested')).toBe('inner');
     expect(parentFolderId(nodes, 'missing')).toBeUndefined();
+  });
+});
+
+describe('disabled connections in the editor', () => {
+  it('keeps a connection disabled when it is edited and saved', () => {
+    const node: VaultNode = { id: 'c', type: 'connection', protocol: 'cmd', name: 'CMD', tags: [], disabled: true };
+    if (node.type !== 'connection') throw new Error('fixture');
+    expect(connectionFromFields('c', fieldsFromConnection('cmd', node), 'cmd')).toMatchObject({ disabled: true });
+    expect(connectionFromFields('c', { ...fieldsFromConnection('cmd'), name: 'Neu' }, 'cmd')).not.toHaveProperty('disabled');
   });
 });

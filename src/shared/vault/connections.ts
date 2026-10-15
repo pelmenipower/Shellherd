@@ -40,6 +40,20 @@ export function redactSecrets(nodes: VaultNode[]): VaultNode[] {
   });
 }
 
+/** Connections of a folder tree that may be opened, plus how many were skipped as disabled. */
+export function connectionsIn(nodes: VaultNode[]): { connections: ConnectionNode[]; disabled: number } {
+  const all = (items: VaultNode[]): ConnectionNode[] => items.flatMap(node => node.type === 'folder' ? all(node.children) : [node]);
+  const found = all(nodes);
+  const connections = found.filter(node => !node.disabled);
+  return { connections, disabled: found.length - connections.length };
+}
+
+export const disabledNotice = (node: ConnectionNode): string =>
+  `Die Verbindung „${node.name}“ ist deaktiviert. Per Rechtsklick → „Aktivieren“ wieder freigeben.`;
+
+export const skippedNotice = (count: number): string =>
+  count === 1 ? '1 deaktivierte Verbindung wurde übersprungen.' : `${count} deaktivierte Verbindungen wurden übersprungen.`;
+
 export function isRemoteConnection(node: ConnectionNode): node is RemoteConnectionNode {
   return node.protocol === 'ssh' || node.protocol === 'sftp' || node.protocol === 'rdp';
 }

@@ -131,6 +131,14 @@ describe('terminal layout and saved workspaces', () => {
     expect(JSON.stringify(restored)).not.toContain('synthetic-secret');
     expect(JSON.stringify(saved)).not.toContain('tabIds');
   });
+  it('skips disabled connections and counts them instead of opening a session', () => {
+    const disabled: ConnectionNode = { ...node, id: 'off', disabled: true };
+    const lookup = (id: string) => id === 'off' ? disabled : node;
+    const restored = restoreLayout({ type: 'pane', connectionIds: ['off', 'server', 'off'], activeConnectionId: 'off' }, lookup, uuid);
+    expect(restored.tabs.map(tab => tab.connection.id)).toEqual(['server']);
+    expect(restored.skipped).toBe(2);
+    expect(restored.activeTabId).toBe(restored.tabs[0].id);
+  });
   it('rejects missing references or layouts exceeding runtime limits before opening any session', () => {
     expect(() => restoreLayout({ type: 'pane', connectionIds: ['missing'] }, () => undefined, uuid)).toThrow('fehlende Verbindung');
     expect(() => restoreLayout({ type: 'pane', connectionIds: Array(17).fill('server') }, () => node, uuid)).toThrow('16 Sessions');

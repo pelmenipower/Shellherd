@@ -25,6 +25,8 @@ export interface ConnectionFields {
   icon: string;
   /** SSH only: run container commands with sudo (stored password or sudo -n). */
   containerSudo: 'on' | 'off';
+  /** Not editable in the form; carried over so saving never re-enables a connection. */
+  disabled: 'on' | 'off';
 }
 
 export class ConnectionFieldError extends Error {
@@ -43,6 +45,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     tags: connection?.tags.join(', ') ?? '', color: connection?.color ?? '',
     icon: connection?.icon ?? PROTOCOLS[protocol].defaultIcon,
     containerSudo: 'off',
+    disabled: connection?.disabled ? 'on' : 'off',
   };
   if (connection?.protocol === 'ssh' || connection?.protocol === 'sftp' || connection?.protocol === 'rdp') {
     Object.assign(fields, { host: connection.host, port: String(connection.port), username: connection.username ?? '' });
@@ -81,6 +84,7 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
     tags: [...new Set(fields.tags.split(',').map(tag => tag.trim()).filter(Boolean))],
     ...(fields.color ? { color: fields.color } : {}),
     icon: fields.icon,
+    ...(fields.disabled === 'on' ? { disabled: true } : {}),
   };
   let node: object;
   if (protocol === 'ssh' || protocol === 'sftp') {

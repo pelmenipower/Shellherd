@@ -162,13 +162,15 @@ export function savedLayout(layout: LiveLayout, tabs: TerminalTab[]): WorkspaceL
   return { type: 'pane', connectionIds: saved.map(tab => tab.connection.id), ...(active ? { activeConnectionId: active } : {}),
     ...(fileBrowsers.length ? { fileBrowsers } : {}), ...(containerTabs.length ? { containerTabs } : {}) };
 }
-export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => ConnectionNode | undefined, uuid: () => string): { layout: LiveLayout; tabs: TerminalTab[]; activeTabId: string | null } {
+export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => ConnectionNode | undefined, uuid: () => string): { layout: LiveLayout; tabs: TerminalTab[]; activeTabId: string | null; skipped: number } {
   const tabs: TerminalTab[] = [];
+  let skipped = 0;
   const restore = (node: WorkspaceLayout): LiveLayout => {
     if (node.type === 'split') return { ...node, id: uuid(), first: restore(node.first), second: restore(node.second) };
-    const tabIds = node.connectionIds.map((id, index) => {
+    const tabIds = node.connectionIds.flatMap((id, index) => {
       const connection = lookup(id);
       if (!connection) throw new Error('Der Workspace verweist auf eine fehlende Verbindung.');
+      if (connection.disabled) { skipped++; return []; }
       if (tabs.length >= MAX_SSH_SESSIONS) throw new Error(`Ein Workspace darf höchstens ${MAX_SSH_SESSIONS} Sessions starten.`);
       const tabId = uuid();
       const container = node.containerTabs?.find(entry => entry.index === index);
@@ -183,5 +185,5 @@ export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => Co
   };
   const layout = restore(saved);
   if (panes(layout).length > 4) throw new Error('Ein Workspace darf höchstens vier Terminalbereiche enthalten.');
-  return { layout, tabs, activeTabId: panes(layout).find(pane => pane.activeTabId)?.activeTabId ?? null };
+  return { layout, tabs, activeTabId: panes(layout).find(pane => pane.activeTabId)?.activeTabId ?? null, skipped };
 }
