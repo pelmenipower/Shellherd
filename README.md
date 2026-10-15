@@ -38,6 +38,9 @@ Verbindungsauswahl. Änderungen gelten auch für bereits laufende Tabs und werde
 im verschlüsselten Vault gespeichert; bestehende Vaults verwenden das Terminalsymbol.
 Über das Bearbeiten-Symbol einer Zeile öffnest du die Eigenschaften. Ungespeicherte
 Eingaben sind beim Wechsel geschützt. Ordner lassen sich über F2 direkt umbenennen.
+Rechtsklick → `Deaktivieren` graut eine Verbindung aus: Sie lässt sich nicht mehr
+öffnen, `Alle verbinden` und Workspaces überspringen sie, Zugangsdaten bleiben
+erhalten. Bereits laufende Tabs bleiben offen. `Aktivieren` gibt sie wieder frei.
 Hintergrund-Tabs bleiben verbunden und
 verarbeiten ihre Ausgabe weiter. Im Tabstreifen wechseln Pfeiltasten sowie
 Home/End zwischen Tabs. Das Schließen eines Tabs beendet nur seine Session.
