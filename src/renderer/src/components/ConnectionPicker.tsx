@@ -60,8 +60,9 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
       onToggle={event => { const shown = event.newState === 'open'; setOpen(shown); if (shown) search.current?.focus(); }}
       onKeyDown={event => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); trigger.current?.focus(); return; }
-        if (event.key === 'Enter' && event.target === search.current && !limitReached && results[0]) {
-          event.preventDefault(); close(); onConnect(results[0].node.id); return;
+        const first = results.find(item => item.node.type === 'connection' && !item.node.disabled);
+        if (event.key === 'Enter' && event.target === search.current && !limitReached && first) {
+          event.preventDefault(); close(); onConnect(first.node.id); return;
         }
         if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || (event.target === search.current && ['Home', 'End'].includes(event.key))) return;
         const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.connection-picker-option:not(:disabled)')];
@@ -79,9 +80,9 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
       {limitReached && <p className="connection-picker-hint" role="status">Alle 16 Sessions sind belegt. Schließe zuerst einen Tab.</p>}
       <div className="connection-picker-results">
         {results.map(({ node, path }) => node.type === 'connection' && <button className="connection-picker-option" key={node.id} type="button"
-          disabled={disabled || limitReached} onClick={() => { close(); onConnect(node.id); }}
+          disabled={disabled || limitReached || node.disabled} onClick={() => { close(); onConnect(node.id); }}
           title={`${path ? `${path} / ` : ''}${node.name} · ${connectionAddress(node)}`}>
-          <span className="connection-picker-name"><ConnectionIcon icon={node.icon} color={node.color} /><span>{node.name}</span></span><small>{path ? `${path} · ` : ''}{connectionAddress(node)}</small>
+          <span className="connection-picker-name"><ConnectionIcon icon={node.icon} color={node.color} /><span>{node.name}</span></span><small>{path ? `${path} · ` : ''}{connectionAddress(node)}{node.disabled ? ' · deaktiviert' : ''}</small>
         </button>)}
         {!results.length && <p className="connection-picker-hint" role="status">{query.trim() ? 'Keine passende Verbindung.' : 'Noch keine Verbindung gespeichert. Lege über „Neu“ eine Verbindung an.'}</p>}
       </div>

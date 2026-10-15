@@ -27,7 +27,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
 import { containerConnection, isRunning, tabLabel, toTerminalConnection } from './terminal-tabs';
-import { connectionAddress, NEW_CONNECTION_KINDS } from '../../shared/vault/connections';
+import { connectionAddress, connectionsIn, disabledNotice, NEW_CONNECTION_KINDS, skippedNotice } from '../../shared/vault/connections';
 import { LOCAL_CONTAINER_HOST, toTarget } from '../../shared/containers';
 import type { ContainerAction, DiscoveredItem, TerminalTargetMode } from '../../shared/containers';
 import type { ContainerTreeProps } from './container-tree';
@@ -536,7 +536,7 @@ export default function App() {
       terminals.restore(restored.tabs, restored.activeTabId);
       setActiveWorkspaceId(id);
       setEditorOpen(false);
-      setError(null);
+      setError(restored.skipped ? skippedNotice(restored.skipped) : null);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'Der Workspace konnte nicht geöffnet werden.');
     }
@@ -595,6 +595,7 @@ export default function App() {
   function connectNode(id: string, paneId?: string, asFiles = false): void {
     const node = vault && findNode(vault.nodes, id);
     if (!node || node.type !== 'connection') return;
+    if (node.disabled) { setError(disabledNotice(node)); return; }
     navigateEditor(() => {
       if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
       if (paneId) terminalLayout.setFocused(paneId);
@@ -605,6 +606,7 @@ export default function App() {
   function openContainer(hostId: string, item: DiscoveredItem, mode: TerminalTargetMode): void {
     const host = hostId === LOCAL_CONTAINER_HOST ? undefined : vault && findNode(vault.nodes, hostId);
     if (hostId !== LOCAL_CONTAINER_HOST && host?.type !== 'connection') return;
+    if (host?.type === 'connection' && host.disabled) { setError(disabledNotice(host)); return; }
     navigateEditor(() => {
       if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
       const name = host?.type === 'connection' ? host.name : 'Dieser Computer';
@@ -625,20 +627,22 @@ export default function App() {
   function connectFolder(folderId: string): void {
     const folder = vault && findNode(vault.nodes, folderId);
     if (!folder || folder.type !== 'folder') return;
-    const collect = (nodes: VaultNode[]): ConnectionNode[] => nodes.flatMap(node => node.type === 'folder' ? collect(node.children) : [node]);
-    const connections = collect(folder.children);
-    if (!connections.length) { setError(`Der Ordner „${folder.name}“ enthält keine Verbindungen.`); return; }
+    const { connections, disabled } = connectionsIn(folder.children);
+    if (!connections.length) { setError(disabled ? `Alle Verbindungen im Ordner „${folder.name}“ sind deaktiviert.` : `Der Ordner „${folder.name}“ enthält keine Verbindungen.`); return; }
     navigateEditor(() => {
       const free = MAX_SSH_SESSIONS - terminals.tabs.length;
       for (const connection of connections.slice(0, Math.max(0, free))) terminals.open(toTerminalConnection(connection));
       setEditorOpen(false); setEditorDirty(false);
-      setError(connections.length > free ? `Es wurden nur ${Math.max(0, free)} von ${connections.length} Verbindungen geöffnet: Maximal ${MAX_SSH_SESSIONS} Sessions gleichzeitig.` : null);
+      const notices = [...(connections.length > free ? [`Es wurden nur ${Math.max(0, free)} von ${connections.length} Verbindungen geöffnet: Maximal ${MAX_SSH_SESSIONS} Sessions gleichzeitig.`] : []),
+        ...(disabled ? [skippedNotice(disabled)] : [])];
+      setError(notices.length ? notices.join(' ') : null);
     });
   }
 
   async function saveAndConnect(connection: ConnectionNode, parentId: string): Promise<boolean> {
     if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return false; }
     if (!await saveConnection(connection, parentId)) return false;
+    if (connection.disabled) { setEditorOpen(false); setEditorDirty(false); setError(disabledNotice(connection)); return true; }
     terminals.open(toTerminalConnection(connection)); setEditorOpen(false); setEditorDirty(false); return true;
   }
 
@@ -648,6 +652,15 @@ export default function App() {
     try { nodes = moveNode(vault.nodes, id, target); }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Verschieben fehlgeschlagen.'); return; }
     if (nodes !== vault.nodes) await persistVault({ ...vault, nodes });
+  }
+
+  async function toggleDisabled(id: string): Promise<boolean> {
+    if (!vault || busy) return false;
+    return persistVault({ ...vault, nodes: updateNode(vault.nodes, id, node => {
+      if (node.type !== 'connection') return node;
+      const { disabled: _disabled, ...rest } = node;
+      return node.disabled ? rest : { ...rest, disabled: true };
+    }) });
   }
 
   async function renameNode(id: string, name: string): Promise<boolean> {
@@ -727,7 +740,7 @@ export default function App() {
           <LocalContainers containers={containerTree} disabled={busy} />
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy} containers={containerTree}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); setError(null); })}
-            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
+            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
           {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu. Über „Neu“ oder Rechtsklick wählst du die Verbindungsart.</p><button type="button" className="secondary-button" onClick={() => newConnection()}>Neue SSH-Verbindung</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}${!terminals.tabs.length ? ' no-terminals' : ''}`}>
