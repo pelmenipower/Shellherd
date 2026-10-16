@@ -8,6 +8,7 @@ import { TerminalPanel } from './TerminalPanel';
 import { RdpPanel } from './RdpPanel';
 import { FilesPanel } from './FilesPanel';
 import { ClusterView } from './kubernetes/ClusterView';
+import { sshConnectionForNode } from '../kube-ssh';
 import type { KubeViewSnapshot } from '../../../shared/kubernetes';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { ContextMenu } from './ContextMenu';
@@ -396,7 +397,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
         if (tab.connection.protocol === 'sftp') return <FilesPanel key={tab.id} {...panel} />;
         if (tab.connection.protocol === 'kubernetes' && !tab.connection.kube) {
           return <ClusterView key={tab.id} tabId={tab.id} connection={tab.connection} visible={panel.visible} focused={panel.focused} style={panel.style}
-            onFocus={panel.onFocus} onStatusChange={onStatus} onPopout={onPopout} initialView={tab.kubeView} onSnapshot={onSnapshot} />;
+            onFocus={panel.onFocus} onStatusChange={onStatus} onPopout={onPopout} initialView={tab.kubeView} onSnapshot={onSnapshot}
+            sshForNode={node => sshConnectionForNode(nodes, node)} onOpenSsh={id => onConnect(id, region?.pane.id ?? focusedPane.id)} />;
         }
         return tab.connection.protocol === 'rdp' ? <RdpPanel key={tab.id} {...panel} />
           : <TerminalPanel key={tab.id} {...panel} onClose={() => onClose(tab.id)} />;
