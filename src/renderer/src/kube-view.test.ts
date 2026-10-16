@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ClusterStatus, KubeEvent, KubeKind, KubeRow, NodeTile, UsageHistory } from '../../shared/kubernetes';
 import { KIND_INFO, refKey } from '../../shared/kubernetes';
-import { dockContainer, dockTerminalKey, formatAge, formatUsage, initialKubeView, kubeViewReducer, matchesFilter, snapshotOf, sparkline, visibleRows } from './kube-view';
+import { dockContainer, dockSelection, dockTerminalKey, settleArm, formatAge, formatUsage, initialKubeView, kubeViewReducer, matchesFilter, snapshotOf, sparkline, visibleRows } from './kube-view';
 import type { KubeViewState } from './kube-view';
 
 /** Namespaced kinds default to namespace 'shop'; cluster-scoped kinds get no namespace. */
@@ -469,6 +469,44 @@ describe('openQuery, sortBy and container choice', () => {
     expect(dockContainer(pod, null)).toBe('app');
     expect(dockContainer(row('pods', 'x'), null)).toBeNull();
     expect(dockContainer(null, 'app')).toBeNull();
+  });
+
+  it('dockSelection honours the chosen container without a drill-down (I-1)', () => {
+    const state = kubeViewReducer(rowsEvent(initialKubeView('shop'), [pod]), { type: 'select', key: refKey(pod.ref) });
+    const chosen = kubeViewReducer(state, { type: 'selectContainer', name: 'sidecar' });
+    expect(chosen.containersOf).toBeNull();
+    const selected = visibleRows(chosen).find(r => refKey(r.ref) === chosen.selected) ?? null;
+    expect(dockSelection(chosen.containersOf, selected, chosen.container)).toMatchObject({ container: 'sidecar', armKey: `${refKey(pod.ref)}/sidecar` });
+    expect(dockSelection(null, selected, null).container).toBe('app');
+    expect(dockSelection(null, row('deployments', 'd'), null)).toEqual({ podRow: null, container: null, armKey: null });
+  });
+
+  it('an armed shell does not come back when the selection returns to the armed pod (C-1)', () => {
+    const other = row('pods', 'api-2', { containers: ['app'] });
+    let state = rowsEvent(initialKubeView('shop'), [pod, other]);
+    state = kubeViewReducer(state, { type: 'select', key: refKey(pod.ref) });
+    let stored: string | null = null;
+    const render = (): string | null => {
+      const selected = visibleRows(state).find(r => refKey(r.ref) === state.selected) ?? null;
+      const { armKey } = dockSelection(state.containersOf, selected, state.container);
+      const settled = settleArm(stored, armKey);
+      stored = settled; // ClusterView writes the settled value back during render
+      return settled;
+    };
+    stored = dockSelection(null, pod, null).armKey; // click on "Shell öffnen"
+    expect(render()).toBe(`${refKey(pod.ref)}/app`);
+    state = kubeViewReducer(state, { type: 'move', delta: 1 });
+    expect(render()).toBeNull();
+    state = kubeViewReducer(state, { type: 'move', delta: -1 });
+    expect(state.selected).toBe(refKey(pod.ref));
+    expect(render()).toBeNull();
+  });
+
+  it('settleArm keeps only a matching key', () => {
+    expect(settleArm('a/b', 'a/b')).toBe('a/b');
+    expect(settleArm('a/b', 'a/c')).toBeNull();
+    expect(settleArm('a/b', null)).toBeNull();
+    expect(settleArm(null, null)).toBeNull();
   });
 
   it('drill does nothing for an empty selector map', () => {

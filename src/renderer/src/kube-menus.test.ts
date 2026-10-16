@@ -182,11 +182,16 @@ describe('A1 pods', () => {
       expect(find(entries, id)).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
     }
   });
-  it('treats status null like not connected', () => {
+  it('treats a missing status as read-only like the hotkeys and the help (M-1)', () => {
     const entries = rowMenu(pod(), withStatus(null));
-    expect(find(entries, 'delete')).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
+    expect(find(entries, 'delete')).toMatchObject({ disabled: true, hint: READ_ONLY_MESSAGE });
     expect(find(entries, 'logs')).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
     expect(find(entries, 'drill').disabled).toBeUndefined();
+  });
+  it('dock Logs leaves previous mode and SSH explains a missing hook (M-3, M-6)', () => {
+    const entries = menu({ type: 'dock', mode: 'logs', pod: pod(), container: 'api', previous: true });
+    expect(find(entries, 'mode-logs').run).toMatchObject({ type: 'view', previous: false });
+    expect(find(rowMenu(node(), { ...context(), canSsh: false, sshForNode: () => undefined }), 'ssh')).toMatchObject({ disabled: true, hint: 'Hier lässt sich keine Verbindung öffnen.' });
   });
   it('read-only disables shell and delete with READ_ONLY_MESSAGE but keeps logs and copy', () => {
     const entries = rowMenu(pod(), withStatus(READ_ONLY));
@@ -709,7 +714,7 @@ describe('invariants', () => {
       for (const entry of items(menuFor(target, ctx))) {
         if (entry.run.type !== 'kubeAction') continue;
         checked++;
-        const reason = actionReason(entry.run.action, { ref: entry.run.ref, readOnly: ctx.status?.readOnly === true, connected: ctx.status?.state === 'ready' });
+        const reason = actionReason(entry.run.action, { ref: entry.run.ref, readOnly: ctx.status?.readOnly ?? true, connected: ctx.status?.state === 'ready' });
         if (reason) expect(entry).toMatchObject({ disabled: true, hint: reason });
         else expect(entry.disabled).toBeUndefined();
         if (!reason) expect(ACTION_KINDS[entry.run.action]).toContain(entry.run.ref.kind);

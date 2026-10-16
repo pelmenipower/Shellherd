@@ -7,7 +7,7 @@ import { actionReason, bindingOf, commandForKey, completions, parseCommandLine, 
 import { menuFor, type MenuTarget } from '../../kube-menus';
 import { runMenuAction, type MenuRunner } from '../../kube-menu-run';
 import { ContextMenu, type ContextMenuEntry } from '../ContextMenu';
-import { snapshotOf, visibleRows } from '../../kube-view';
+import { dockSelection, settleArm, snapshotOf, visibleRows } from '../../kube-view';
 import { NodeStrip } from './NodeStrip';
 import { ProblemBanner } from './ProblemBanner';
 import { ResourceTable } from './ResourceTable';
@@ -64,12 +64,13 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   const rows = visibleRows(state);
   const selectedRow = rows.find(row => refKey(row.ref) === state.selected) ?? null;
   // Logs and shell follow the pod: the drilled-into pod, or the selected pod row.
-  const podRow = state.containersOf ?? (selectedRow?.ref.kind === 'pods' ? selectedRow : null);
+  const { podRow, container, armKey } = dockSelection(state.containersOf, selectedRow, state.container);
   const podRef = podRow?.ref ?? null;
-  const container = state.containersOf ? state.container : (podRow?.containers?.[0] ?? null);
   const terminalMode: KubeTerminalMode | null = state.dock === 'logs' ? (previous ? 'previous' : 'logs') : state.dock === 'shell' ? 'shell' : null;
-  const armKey = podRef && container ? `${refKey(podRef)}/${container}` : null;
-  const armed = armedFor !== null && armedFor === armKey;
+  // A shell arm holds only for the key it was armed for. Once the dock key moves away the arm is dropped at once
+  // (during render, so it cannot race with arm()), and returning to that pod shows the placeholder again.
+  const armed = settleArm(armedFor, armKey) !== null;
+  if (armedFor !== null && !armed) setArmedFor(null);
 
   const say = useCallback((message: string) => {
     setNotice(message);
@@ -216,7 +217,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
 
   const menuEntries = (current: MenuState): ContextMenuEntry[] => {
     const entries = menuFor(current.target, {
-      state, status, canPopout: Boolean(onPopout), sshForNode: onOpenSsh && sshForNode ? sshForNode : noSsh, now: current.now,
+      state, status, canPopout: Boolean(onPopout), sshForNode: onOpenSsh && sshForNode ? sshForNode : noSsh, canSsh: Boolean(onOpenSsh && sshForNode), now: current.now,
     });
     const run = runnerFor(current.target);
     return entries.map((entry): ContextMenuEntry => entry.kind === 'item'

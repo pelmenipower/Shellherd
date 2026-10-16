@@ -59,6 +59,7 @@ const actionUnavailable = (action: KubeAction) => (context: CommandContext): str
 
 const shellUnavailable = (context: CommandContext): string | undefined => {
   if (context.readOnly) return READ_ONLY_MESSAGE;
+  if (context.state.status?.state !== 'ready') return NOT_CONNECTED_MESSAGE;
   return onlyForPods(context) ?? (podNotRunning(selectedRow(context.state)) ? 'Der Pod läuft nicht.' : undefined);
 };
 
@@ -67,7 +68,7 @@ export const KUBE_COMMANDS: KubeCommand[] = [
   { id: 'up', group: 'Navigation', description: 'Zeile nach oben', keys: ['↑', 'k'], bindings: ['k', 'ArrowUp'] },
   { id: 'drill', group: 'Navigation', description: 'Öffnen: Ressource, Pods eines Workloads oder Container', keys: ['Enter'], bindings: ['Enter'] },
   { id: 'back', group: 'Navigation', description: 'Eine Ebene zurück', keys: ['Esc', '⌫'], bindings: ['Escape', 'Backspace'] },
-  { id: 'menu', group: 'Navigation', description: 'Kontextmenü der Zeile öffnen', keys: ['Shift+F10'], bindings: ['Shift+F10', 'ContextMenu'] },
+  { id: 'menu', group: 'Navigation', description: 'Kontextmenü der Zeile öffnen', keys: ['Shift+F10'], bindings: ['Shift+F10', 'ContextMenu', 'Shift+ContextMenu'] },
   { id: 'tab', group: 'Navigation', description: 'Tab wechseln (1–9, 0 für den zehnten)', keys: ['1–9', '0'], bindings: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'] },
   { id: 'command', group: 'Navigation', description: 'Befehlszeile öffnen', keys: [':'], bindings: [':'] },
   { id: 'kind', group: 'Navigation', description: 'Ressourcentyp wechseln', keys: [], bindings: [],

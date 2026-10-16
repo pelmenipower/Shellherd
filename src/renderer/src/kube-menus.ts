@@ -38,6 +38,8 @@ export interface MenuContext {
   canPopout: boolean;
   /** SSH connection in the vault for a node, see kube-ssh.ts. */
   sshForNode: (node: { name: string; ip?: string }) => { id: string; name: string } | undefined;
+  /** False where no SSH connection can be opened at all (secondary window without the hook). */
+  canSsh?: boolean;
   /** Unix milliseconds; menuFor never reads the clock itself. */
   now: number;
 }
@@ -111,7 +113,8 @@ function sshItem(env: Env, node: { name: string; ip?: string }): MenuEntry {
   const match = env.ctx.sshForNode(node);
   return match
     ? item(env, 'ssh', 'SSH-Verbindung öffnen', { type: 'ssh', connectionId: match.id }, { extra: match.name })
-    : item(env, 'ssh', 'SSH-Verbindung öffnen', { type: 'ssh', connectionId: '' }, { reason: `Keine SSH-Verbindung für ${node.name} im Vault.` });
+    : item(env, 'ssh', 'SSH-Verbindung öffnen', { type: 'ssh', connectionId: '' },
+      { reason: env.ctx.canSsh === false ? 'Hier lässt sich keine Verbindung öffnen.' : `Keine SSH-Verbindung für ${node.name} im Vault.` });
 }
 
 function ownerItem(env: Env, row: KubeRow, kinds: KubeKind[]): MenuEntry[] {
@@ -464,7 +467,7 @@ function dockMenu(env: Env, target: Extract<MenuTarget, { type: 'dock' }>): Menu
   const shellReason = podOnly ?? (env.readOnly ? READ_ONLY_MESSAGE : reason ?? (podNotRunning(pod) ? NOT_RUNNING : undefined));
   return assemble([], [
     [
-      item(env, 'mode-logs', 'Logs', view(dock('logs')), { hotkey: 'logs', reason: podOnly ?? reason }),
+      item(env, 'mode-logs', 'Logs', { type: 'view', actions: [dock('logs')], previous: false }, { hotkey: 'logs', reason: podOnly ?? reason }),
       item(env, 'mode-shell', 'Shell', SHELL_ARMED(dock('shell')), { hotkey: 'shell', reason: shellReason }),
       item(env, 'mode-events', 'Events', view(dock('events')), { hotkey: 'events', reason }),
       item(env, 'mode-yaml', 'YAML', view(dock('yaml')), { hotkey: 'yaml', reason }),
@@ -530,7 +533,7 @@ function backgroundMenu(env: Env): MenuEntry[] {
 
 export function menuFor(target: MenuTarget, context: MenuContext): MenuEntry[] {
   const hot = target.type === 'row' || target.type === 'container' || target.type === 'dock';
-  const env: Env = { ctx: context, connected: context.status?.state === 'ready', readOnly: context.status?.readOnly === true, hot };
+  const env: Env = { ctx: context, connected: context.status?.state === 'ready', readOnly: context.status?.readOnly ?? true, hot };
   switch (target.type) {
     case 'row': return rowMenu(env, target.row);
     case 'container': return containerMenu(env, target.pod, target.name);

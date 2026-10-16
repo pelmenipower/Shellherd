@@ -89,9 +89,8 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
       <div ref={tableRef} className="kube-table-focus" tabIndex={-1}>
         <div ref={scrollRef} className="kube-table-scroll"
           onContextMenu={event => {
-            // A key-triggered native event lands on the focus element itself; the key handler already opened the menu.
+            // Key-triggered native events bubble from the focus element above this div and never reach it.
             event.preventDefault();
-            if (event.target === tableRef.current) return;
             open(event, { type: 'background' });
           }}
           onScroll={event => setScroll({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>

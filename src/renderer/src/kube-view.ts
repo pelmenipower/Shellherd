@@ -264,3 +264,15 @@ export function dockContainer(podRow: KubeRow | null, chosen: string | null): st
 export function dockTerminalKey(pod: string, container: string, mode: KubeTerminalMode, epoch: number): string {
   return mode === 'shell' ? `${pod}/${container}/shell` : `${pod}/${container}/${mode}/${epoch}`;
 }
+
+/** The pod the dock follows (drilled-into pod, else the selected pod row), its container and the shell arm key. */
+export function dockSelection(containersOf: KubeRow | null, selectedRow: KubeRow | null, chosen: string | null): { podRow: KubeRow | null; container: string | null; armKey: string | null } {
+  const podRow = containersOf ?? (selectedRow?.ref.kind === 'pods' ? selectedRow : null);
+  const container = dockContainer(podRow, chosen);
+  return { podRow, container, armKey: podRow && container ? `${refKey(podRow.ref)}/${container}` : null };
+}
+
+/** A shell arm only holds while the dock still shows the key it was armed for; once the key moves away it is gone for good. */
+export function settleArm(armedFor: string | null, armKey: string | null): string | null {
+  return armedFor !== null && armedFor === armKey ? armedFor : null;
+}

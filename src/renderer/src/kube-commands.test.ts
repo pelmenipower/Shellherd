@@ -68,6 +68,8 @@ describe('kube commands', () => {
     expect(bindingOf({ key: 'F10', ctrlKey: false, shiftKey: true, altKey: false, metaKey: false })).toBe('Shift+F10');
     expect(bindingOf({ key: 'ContextMenu', ctrlKey: false, shiftKey: false, altKey: false, metaKey: false })).toBe('ContextMenu');
     expect(commandForKey('Shift+F10')?.id).toBe('menu'); expect(commandForKey('ContextMenu')?.id).toBe('menu');
+    expect(bindingOf({ key: 'ContextMenu', ctrlKey: false, shiftKey: true, altKey: false, metaKey: false })).toBe('Shift+ContextMenu');
+    expect(commandForKey('Shift+ContextMenu')?.id).toBe('menu');
   });
   it('explains why actions are unavailable', () => {
     const state = { ...initialKubeView('shop') };
@@ -76,6 +78,12 @@ describe('kube commands', () => {
     expect(restart.unavailable?.({ state: { ...state, status: READY }, readOnly: false })).toBe('Nur für Deployments, StatefulSets und DaemonSets.');
     expect(restart.unavailable?.({ state, readOnly: false })).toBe('Der Cluster ist gerade nicht verbunden.');
     expect(KUBE_COMMANDS.find(command => command.id === 'shell')!.unavailable?.({ state, readOnly: true })).toBe('Dieser Cluster ist schreibgeschützt.');
+  });
+  it('the shell hotkey needs a connection after read-only (M-2)', () => {
+    const shell = KUBE_COMMANDS.find(command => command.id === 'shell')!;
+    const pods = { ...initialKubeView('shop'), query: { kind: 'pods' as const, namespace: 'shop' } };
+    expect(shell.unavailable?.({ state: pods, readOnly: false })).toBe('Der Cluster ist gerade nicht verbunden.');
+    expect(shell.unavailable?.({ state: { ...pods, status: READY }, readOnly: false })).toBeUndefined();
   });
   it('parses command lines', () => {
     expect(parseCommandLine(':pods')).toEqual({ id: 'kind', kind: 'pods' });
