@@ -86,13 +86,14 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     onStatusRef.current(tabId, statusState === 'ready' ? 'connected' : statusState === 'error' ? 'error' : 'connecting');
   }, [statusState, tabId]);
 
-  // Counts the returns to `ready` after a reconnect: the dock terminal remounts then, which restarts a log stream.
+  // Counts the returns to `ready` after a reconnect: a log stream restarts then; a shell goes back to its
+  // "Shell öffnen" placeholder and is only reopened by the user.
   const [epoch, setEpoch] = useState(0);
   const wasReady = useRef(false);
   const seenReady = useRef(false);
   useEffect(() => {
     if (statusState === 'ready') {
-      if (wasReady.current === false && seenReady.current) setEpoch(value => value + 1);
+      if (wasReady.current === false && seenReady.current) { setEpoch(value => value + 1); setArmed(false); }
       wasReady.current = true;
       seenReady.current = true;
     } else if (statusState) wasReady.current = false;

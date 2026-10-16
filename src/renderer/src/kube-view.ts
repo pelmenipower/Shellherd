@@ -1,5 +1,5 @@
 import { KIND_COLUMNS, KIND_INFO, queryKey, refKey } from '../../shared/kubernetes';
-import type { ColumnInfo, ClusterStatus, DockMode, KubeEvent, KubeKind, KubeProblem, KubeQuery, KubeRef, KubeRow, KubeViewSnapshot, NodeTile, UsageHistory } from '../../shared/kubernetes';
+import type { ColumnInfo, ClusterStatus, DockMode, KubeEvent, KubeKind, KubeProblem, KubeQuery, KubeRef, KubeRow, KubeTerminalMode, KubeViewSnapshot, NodeTile, UsageHistory } from '../../shared/kubernetes';
 
 /** One drill-down level; `query` is the table to return to on back. */
 export interface Crumb { label: string; query: KubeQuery }
@@ -243,4 +243,9 @@ function compareValues(a: SortValue, b: SortValue): number {
     return a - b;
   }
   return String(a).localeCompare(String(b));
+}
+
+/** React key of the dock terminal: a reconnect (epoch) restarts log streams, a shell is never reopened by itself. */
+export function dockTerminalKey(pod: string, container: string, mode: KubeTerminalMode, epoch: number): string {
+  return mode === 'shell' ? `${pod}/${container}/shell` : `${pod}/${container}/${mode}/${epoch}`;
 }

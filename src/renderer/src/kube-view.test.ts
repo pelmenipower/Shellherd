@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ClusterStatus, KubeEvent, KubeKind, KubeRow, NodeTile, UsageHistory } from '../../shared/kubernetes';
 import { KIND_INFO, refKey } from '../../shared/kubernetes';
-import { formatAge, formatUsage, initialKubeView, kubeViewReducer, matchesFilter, snapshotOf, sparkline, visibleRows } from './kube-view';
+import { dockTerminalKey, formatAge, formatUsage, initialKubeView, kubeViewReducer, matchesFilter, snapshotOf, sparkline, visibleRows } from './kube-view';
 import type { KubeViewState } from './kube-view';
 
 /** Namespaced kinds default to namespace 'shop'; cluster-scoped kinds get no namespace. */
@@ -378,5 +378,19 @@ describe('cluster events', () => {
     expect(state.problems).toHaveLength(1);
     expect(state.namespaces).toEqual(['shop', 'billing']);
     expect(state.usage).toEqual(usage);
+  });
+});
+
+describe('dockTerminalKey', () => {
+  it('restarts log streams after a reconnect but never a shell', () => {
+    expect(dockTerminalKey('pods/shop/api-1', 'api', 'logs', 0)).not.toBe(dockTerminalKey('pods/shop/api-1', 'api', 'logs', 1));
+    expect(dockTerminalKey('pods/shop/api-1', 'api', 'previous', 0)).not.toBe(dockTerminalKey('pods/shop/api-1', 'api', 'previous', 1));
+    expect(dockTerminalKey('pods/shop/api-1', 'api', 'shell', 0)).toBe(dockTerminalKey('pods/shop/api-1', 'api', 'shell', 1));
+  });
+  it('changes with pod, container and mode', () => {
+    const key = dockTerminalKey('pods/shop/api-1', 'api', 'shell', 0);
+    expect(dockTerminalKey('pods/shop/api-2', 'api', 'shell', 0)).not.toBe(key);
+    expect(dockTerminalKey('pods/shop/api-1', 'sidecar', 'shell', 0)).not.toBe(key);
+    expect(dockTerminalKey('pods/shop/api-1', 'api', 'logs', 0)).not.toBe(key);
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { KIND_COLUMNS, READ_ONLY_MESSAGE, refKey, type DockMode, type KubeDetail, type KubeDetailMode, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
 import type { TerminalConnection } from '../../terminal-tabs';
-import { formatAge } from '../../kube-view';
+import { dockTerminalKey, formatAge } from '../../kube-view';
 import { TerminalPanel } from '../TerminalPanel';
 
 const DOCK_TABS: { mode: DockMode; label: string; key: string }[] = [
@@ -130,7 +130,7 @@ export function DetailDock(props: DetailDockProps) {
             </div>
           ) : terminalConnection && target && (
             <div className="kube-dock-terminal">
-              <TerminalPanel key={`${refKey(podRef)}/${container}/${terminalKind}/${epoch}`} connection={terminalConnection} tabId={`${tabId}:dock`}
+              <TerminalPanel key={dockTerminalKey(refKey(podRef), container, terminalKind, epoch)} connection={terminalConnection} tabId={`${tabId}:dock`}
                 visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} />
             </div>
           )
