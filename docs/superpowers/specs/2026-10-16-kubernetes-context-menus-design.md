@@ -15,7 +15,7 @@ Job löschen, Node sperren/freigeben (cordon/uncordon), CronJob anhalten/fortset
 - Menüs entstehen an genau einer Stelle (`kube-menus.ts`) und sind ohne DOM getestet.
 - Hilfe-Overlay, Hotkey, `:`-Befehl und Menü nennen für dieselbe Aktion immer dieselbe Verfügbarkeit und dieselbe Begründung.
 - Keine verändernde Aktion umgeht den Bestätigungsdialog. Bei Produktion muss der Name eingetippt werden, „Nur lesen“ wird weiter im Main durchgesetzt.
-- Kein Menüeintrag kopiert Secret-Werte, Tokens, Server-URLs oder kubeconfig-Inhalte.
+- Kein Eintrag kopiert gezielt Env-Werte, Secret-Werte, Tokens, Server-URLs oder kubeconfig-Inhalte. YAML/Describe kopieren genau den angezeigten, maskierten Text.
 
 ## Festgelegte Entscheidungen
 
@@ -152,7 +152,7 @@ Kein Drill-down (Ingress hat keinen Pod-Selector); „Backend-Services anzeigen�
 
 | Eintrag | Hotkey | Verfügbar wenn | Aufwand | Wert |
 |---|---|---|---|---|
-| `<Kind> <name>` anzeigen (Sprung zum beteiligten Objekt) | – | `row.involved` Kind ∈ KUBE_KINDS; sonst deaktiviert „ReplicaSets zeigt Terminus nicht an.“ (analog PVC, HPA …) | (b, winzig) `rows.ts`: `involved?: KubeRef` aus `involvedObject` (Kind → KubeKind-Mapping im Main, Namespace = Event-Namespace). Fallback (a): `cells.object` „Kind/name“ parsen | ★★★ |
+| `<Kind> <name>` anzeigen (Sprung zum beteiligten Objekt) | – | `row.involved` Kind ∈ KUBE_KINDS; sonst deaktiviert „ReplicaSets zeigt Terminus nicht an.“ (analog PVC, HPA …) | (b, winzig) `rows.ts`: `involved?: { kind; name; ref? }` aus `involvedObject` (Kind → KubeKind-Mapping im Main, Namespace = Event-Namespace). Fallback (a): `cells.object` „Kind/name“ parsen | ★★★ |
 | Events des Objekts | – | wie oben | (a) `jump` + `dock('events')` | ★★ |
 | Describe des Objekts | – | wie oben | (a) `jump` + `dock('describe')` | ★★ |
 | Logs des Pods | l | Kind = Pod | (a) `jump` + `dock('logs')` | ★★★ (Warning-Event → sofort Logs) |
@@ -206,7 +206,7 @@ Kein Kontextmenü. Begründung: Der Klick tut bereits das Einzige, was sinnvoll 
 
 ### H · Tabellenkopf (★, nice-to-have)
 
-Aufsteigend sortieren · Absteigend sortieren · Sortierung aufheben (hint: „Standard: Reihenfolge des Eintreffens“). Nur „Sortierung aufheben“ bringt etwas Neues (heute nur durch Reiterwechsel möglich). (a*) Reducer-Aktion `sort` um eine explizite Variante `{ key, descending } | null` erweitern.
+Aufsteigend sortieren · Absteigend sortieren · Sortierung aufheben (hint: „Standard: Reihenfolge des Eintreffens“). Nur „Sortierung aufheben“ bringt etwas Neues (heute nur durch Reiterwechsel möglich). (a*) Reducer-Aktion `sortBy` mit `{ key, descending } | null` ergänzen (`sort` bleibt unverändert).
 
 ### I · Leere Tabellenfläche (★, nice-to-have)
 
@@ -262,18 +262,18 @@ Nicht ergänzen: „Nur lesen umschalten“ / „Produktion umschalten“ – Si
 4. **`ContextMenu.tsx` wiederverwenden**, unverändert. `hint` trägt Hotkey oder Begründung; deaktivierte Einträge bleiben sichtbar (wie das Hilfe-Overlay; die Spec-Formulierung „blendet aus“ bei Nur-lesen ist damit als „ausgegraut mit Begründung“ zu lesen – Discoverability und Konsistenz mit `?`).
 5. **Erzeugung an einer Stelle: neues reines Modul `src/renderer/src/kube-menus.ts`.** Nicht in `kube-commands.ts` falten: Befehle sind auswahl- und tabellenbezogen („die ausgewählte Zeile im aktuellen Reiter“), Menüs sind zielbezogen (beliebige Zeile, Kachel, Problem, Dock) und brauchen Zeilendaten (Labels, Images, Owner). Beide müssen aber **dieselbe Verfügbarkeitslogik** nutzen:
    - `kube-commands.ts`: `actionUnavailable` zu einer exportierten, **ref-basierten** Funktion `actionReason(action, { ref, readOnly, connected })` umbauen; der Registry-Eintrag ruft sie mit der ausgewählten Zeile. Damit stimmen Hilfe, Hotkey, `:`-Befehl und Menü immer überein, und Problem-Einträge können Aktionen auf ein Ref auslösen, das nicht im aktuellen Reiter liegt.
-   - `kube-menus.ts`: `menuFor(target: MenuTarget, context: MenuContext): MenuEntry[]`. `MenuTarget` = `{ type: 'row', row } | { type: 'container', pod, name } | { type: 'node', tile } | { type: 'problem', problem } | { type: 'dock', mode, pod?, container?, text? } | { type: 'header', column } | { type: 'background' }`. `MenuContext` = `{ state, status (readOnly, production, state), canPopout, sshForNode?: (node) => { id, name } | undefined }`. `MenuEntry` = `{ kind: 'item', id, label, hint?, disabled?, run: MenuAction } | heading | separator`. `MenuAction` ist eine diskriminierte Union: `command(id)` (läuft über das vorhandene `runKey`), `view(KubeViewAction)`, `copy(text, label)`, `kubeAction(ref, action, replicas?)` (läuft über `startAction`/`setPending`), `popout(target)`, `ssh(connectionId)`, `dockReload`. `ClusterView` hat genau einen `runMenu(action)`-Switch und mappt `MenuEntry` → `ContextMenuEntry`.
+   - `kube-menus.ts`: `menuFor(target: MenuTarget, context: MenuContext): MenuEntry[]`. `MenuTarget` = `{ type: 'row', row } | { type: 'container', pod, name } | { type: 'node', tile } | { type: 'problem', problem } | { type: 'dock', mode, pod?, container?, text? } | { type: 'header', column } | { type: 'background' }`. `MenuContext` = `{ state, status (readOnly, production, state), canPopout, sshForNode?: (node) => { id, name } | undefined }`. `MenuEntry` = `{ kind: 'item', id, label, hint?, disabled?, run: MenuAction } | heading | separator`. `MenuAction` ist eine diskriminierte Union: `view(KubeViewAction)`, `copy(text, label)`, `kubeAction(ref, action, replicas?)` (läuft über `startAction`/`setPending`), `popout(target)`, `ssh(connectionId)`, `dockReload`. `ClusterView` hat genau einen `runMenu(action)`-Switch und mappt `MenuEntry` → `ContextMenuEntry`.
    - Tests ohne DOM (vitest, wie `kube-commands.test.ts`): Reihenfolge und Labels je Ziel, Begründungen bei readOnly/nicht verbunden/Completed-Pod, Namespace-Eintrag nur bei „alle“, Owner-Eintrag nur mit Owner, Argo-Überschrift nur mit Label, kein Eintrag ruft eine Aktion ohne `kubeAction`-Weg auf.
 6. **kubectl-/Clipboard-Builder in `src/renderer/src/kube-kubectl.ts`** (rein): `logs`, `logsPrevious`, `exec`, `describe`, `getYaml`, `deletePod`, `rolloutRestart`, `rolloutStatus`, `scale`, `logsJob`, `createJobFromCron`, `patchSuspend`, `cordon`, `uncordon`, `drain`, `portForward`, `serviceDns`, `labelsText`, `selectorText`. Alle Namen gegen `KUBE_NAME` prüfen, Label-Schlüssel/-Werte gegen `LABEL_KEY`/`LABEL_VALUE`; schlägt die Prüfung fehl, liefert der Builder `null` und der Eintrag ist deaktiviert („Name enthält ungültige Zeichen.“). Kein Shell-Quoting nötig, weil die Muster keine Metazeichen zulassen – das ist im Test festzuhalten.
 7. **Clipboard** über `window.desktopApi.writeClipboardText`; Erfolg → `say('Kopiert: …')`, Fehler → `say('Kopieren fehlgeschlagen.')`.
-8. **Reducer-Ergänzungen** (`kube-view.ts`, rein, testbar): `openQuery(query, crumbLabel)` (Pods einer Node/eines Selectors aus beliebigem Kontext, mit Crumb), explizites `sort(key, descending | null)`, `container` gilt für den ausgewählten Pod auch ohne Drill-down (zurücksetzen bei Auswahlwechsel).
+8. **Reducer-Ergänzungen** (`kube-view.ts`, rein, testbar): `openQuery(query, crumbLabel)` (Pods einer Node/eines Selectors aus beliebigem Kontext, mit Crumb), explizites `sortBy(key, descending | null)`, `container` gilt für den ausgewählten Pod auch ohne Drill-down (zurücksetzen bei Auswahlwechsel).
 
 ---
 
 ## Sicherheit, Risiken und Ausschlüsse
 
 - **Kein Exec ohne ausdrücklichen Klick.** „Shell öffnen“ im Menü armt die Shell genau wie `s`; Hover, Auswahl oder das Öffnen des Menüs starten nie eine Exec-Session. Shell-Einträge bei readOnly deaktiviert; Main lehnt zusätzlich ab (`openTerminal`).
-- **Keine Secrets kopieren.** Es gibt keinen Secrets-Reiter; „YAML kopieren“ kopiert den maskierten Text aus `toYaml`; Describe zeigt `secretKeyRef` nur als Verweis. Es gibt **keinen** Eintrag, der Env-Werte, Tokens, Server-URLs oder kubeconfig-Inhalte kopiert. kubectl-Befehle enthalten nur Namespace, Namen, Container, Labels.
+- **Keine Secrets kopieren.** Es gibt keinen Secrets-Reiter; „YAML kopieren“ kopiert den maskierten Text aus `toYaml`; Describe zeigt `secretKeyRef` nur als Verweis. Kein Eintrag kopiert gezielt Env-Werte, Tokens, Server-URLs oder kubeconfig-Inhalte; YAML/Describe kopieren genau den angezeigten, maskierten Text (Describe zeigt Env-Werte im Klartext, wie die Anzeige). kubectl-Befehle enthalten nur Namespace, Namen, Container, Labels.
 - **Jede verändernde Aktion läuft durch `startAction`/`setPending` → `ConfirmAction` → `confirmationFor`.** Kein Menüeintrag ruft `action()` direkt auf; keine „ohne Nachfrage“-Varianten; kein Doppelklick-Shortcut für Aktionen. Neue Aktionen (Job löschen, cordon/uncordon, suspend/resume, trigger) bekommen Titel/Label in `confirm-action.ts`, Produktion = Name tippen, und werden in `actions.ts` **nach** der readOnly-Prüfung und mit Kind-Prüfung (`ACTION_KINDS`) sowie im zod-Enum `KubeActionRequestSchema` ergänzt. Fehlt eines davon, wirft Main „Diese Aktion ist hier nicht möglich.“ – fail-safe.
 - **readOnly:** Einträge ausgegraut mit `READ_ONLY_MESSAGE`; Main bleibt die Instanz, die ablehnt (`KubeSessions.action` liest den Vault bei jedem Aufruf).
 - **Nicht vorziehen:** `drain` (nur als kopierbarer Befehl), Löschen von Deployments/Services/Ingress/Nodes, YAML bearbeiten, Port-Forward ausführen, „Logs aller Pods“, Argo-Sync, Harbor-Links. Alles Stufe 2/3 oder bewusst ausgeschlossen.
@@ -298,6 +298,6 @@ Nicht ergänzen: „Nur lesen umschalten“ / „Produktion umschalten“ – Si
 - `rows.test.ts` prüft Owner-Auflösung (ReplicaSet → Deployment, Job → CronJob), Pod-/Node-IP, `suspended`, `unschedulable` und `involved`.
 - `actions.test.ts` und `client-api.test.ts` prüfen die neuen Aktionen inklusive readOnly zuerst, Kind-Prüfung, Nodes ohne Namespace, `propagationPolicy: 'Background'` und `createJobFrom` mit Namen, Kürzung auf 63 Zeichen und ownerReference.
 - `confirm-action.test.ts` prüft die Texte der neuen Aktionen und dass bei Produktion der Name eingetippt werden muss.
-- `kube-view.test.ts` prüft `openQuery`, explizites `sort` und Container-Wahl ohne Drill-down.
+- `kube-view.test.ts` prüft `openQuery`, explizites `sortBy` und Container-Wahl ohne Drill-down.
 - `kube-ssh.test.ts` prüft die Zuordnung Node → SSH-Verbindung (nur exakte Treffer, erster aktiver).
 - Manuell, nur lesend: Menüs auf allen Flächen öffnen, Kopieren prüfen, verändernde Aktionen nur bis zum Dialog und dann abbrechen.
