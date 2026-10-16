@@ -5,6 +5,7 @@ import type { TerminalTab } from './terminal-tabs';
 import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import { containerConnection } from './terminal-tabs';
+import type { KubeViewSnapshot } from '../../shared/kubernetes';
 
 const node: ConnectionNode = { id: 'server', type: 'connection', protocol: 'ssh', name: 'Server', host: 'example.test', port: 22,
   username: 'synthetic', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [] };
@@ -163,5 +164,26 @@ describe('workspaces with container tabs', () => {
     const restored = restoreLayout(saved, id => id === 'h1' ? host as never : undefined, () => `u${++n}`);
     expect(restored.tabs.map(tab => tab.connection.target)).toEqual([undefined, shell]);
     expect(restored.tabs[1].connection.name).toBe('web-1 @ server01');
+  });
+});
+
+describe('workspaces with cluster tabs', () => {
+  const cluster = { id: 'k1', type: 'connection', protocol: 'kubernetes', name: 'k8s', tags: [], accessHosts: ['h1'], kubeconfig: { source: 'auto' },
+    production: true, readOnly: false, icon: 'kubernetes' } as const;
+  const view: KubeViewSnapshot = { query: { kind: 'pods', namespace: 'shop' }, crumbs: ['shop'], selected: 'pods//api-1', dock: 'logs' };
+  it('saves the view of cluster tabs, drops pod tabs and restores the view as initial view', () => {
+    const clusterConnection = { id: 'k1', name: 'k8s', protocol: 'kubernetes' as const, address: 'k8s' };
+    const podConnection = { ...clusterConnection, name: 'Logs: api-1 @ k8s', kube: { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'logs' as const } };
+    const tabs: TerminalTab[] = [
+      { id: 'a', connection: clusterConnection, ordinal: 1, status: 'connected', kubeView: view },
+      { id: 'b', connection: podConnection, ordinal: 1, status: 'connected' },
+    ];
+    const saved = savedLayout({ type: 'pane', id: 'p', tabIds: ['a', 'b'], activeTabId: 'b' }, tabs);
+    expect(saved).toEqual({ type: 'pane', connectionIds: ['k1'], kubeTabs: [{ index: 0, view }] });
+    const restored = restoreLayout(saved, id => id === 'k1' ? cluster as never : undefined, () => 'u');
+    expect(restored.tabs).toHaveLength(1);
+    expect(restored.tabs[0].connection).toMatchObject({ id: 'k1', name: 'k8s', protocol: 'kubernetes' });
+    expect(restored.tabs[0].connection.kube).toBeUndefined();
+    expect(restored.tabs[0].kubeView).toEqual(view);
   });
 });

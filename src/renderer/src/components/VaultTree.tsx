@@ -27,6 +27,8 @@ interface VaultTreeProps {
   onOpenFiles?: (id: string) => void;
   /** Opens every connection in a folder. */
   onConnectAll?: (folderId: string) => void;
+  /** Starts the Kubernetes cluster setup from an SSH connection that can reach the API server. */
+  onSetupCluster?: (sshId: string) => void;
   /** Flips the connection's disabled flag; disabled connections are greyed out and never opened. */
   onToggleDisabled?: (id: string) => void;
   onNewFolder?: (parentId: string) => void;
@@ -51,7 +53,7 @@ function Icon({ kind }: { kind: 'folder' | 'terminal' | 'connect' | 'edit' | 'ch
   const paths = { folder: 'M3 7V5h7l2 2h9v13H3V7Z', terminal: 'm4 6 6 6-6 6m9 0h7', connect: 'm9 5 10 7-10 7V5Z', edit: 'm14 5 5 5M4 20l5-1L21 7l-5-5L4 14v6Z', chevron: 'm9 5 7 7-7 7', rename: 'M4 6h16M12 6v14M8 20h8' };
   return <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={paths[kind]} /></svg>;
 }
-export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder, onOpenFiles, onConnectAll, onToggleDisabled, onMove, containers }: VaultTreeProps) {
+export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder, onOpenFiles, onConnectAll, onToggleDisabled, onMove, containers, onSetupCluster }: VaultTreeProps) {
   const [menu, setMenu] = useState<{ x: number; y: number; node: VaultNode | null } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const [query, setQuery] = useState('');
@@ -146,13 +148,14 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
     const off = Boolean(node.disabled);
     return [{ kind: 'item', label: 'Verbinden', hint: off ? 'deaktiviert' : 'Enter', disabled: !onConnect || off, onSelect: () => onConnect?.(node.id) },
       ...(node.protocol === 'ssh' && onOpenFiles ? [{ kind: 'item' as const, label: 'Dateien öffnen (SFTP)', disabled: off, onSelect: () => onOpenFiles(node.id) }] : []),
+      ...(node.protocol === 'ssh' && onSetupCluster ? [{ kind: 'item' as const, label: 'Als Kubernetes-Cluster einrichten…', disabled: off, onSelect: () => onSetupCluster(node.id) }] : []),
       ...(node.protocol === 'ssh' && containers ? [{ kind: 'item' as const, label: 'Container anzeigen', disabled: off, onSelect: () => { if (!expandedHosts.has(node.id)) toggleHost(node.id); else containers.onExpand(node.id); } }] : []), ...edit,
       { kind: 'item', label: off ? 'Aktivieren' : 'Deaktivieren', hint: off ? undefined : 'ausgrauen, nicht mehr öffnen', disabled: !onToggleDisabled, onSelect: () => onToggleDisabled?.(node.id) },
       { kind: 'separator' }, ...createEntries(parentFolderId(nodes, node.id) ?? '', 'Neue Verbindung daneben')];
   };
   const openMenu = (x: number, y: number, node: VaultNode | null) => { if (!disabled) setMenu({ x, y, node }); };
   const renderNode = (node: VaultNode, depth: number, path?: string): React.ReactNode => <li key={node.id}>
-    <div className={`vault-tree-row${selectedNodeId === node.id ? ' is-selected' : ''}${node.type === 'connection' && node.disabled ? ' is-disabled' : ''}${hintClass(node)}`} style={{ paddingLeft: `${depth * 14}px` }} {...rowDrag(node)}
+    <div className={`vault-tree-row${selectedNodeId === node.id ? ' is-selected' : ''}${node.type === 'connection' && node.disabled ? ' is-disabled' : ''}${node.type === 'connection' && node.protocol === 'kubernetes' && node.production ? ' vault-node-production' : ''}${hintClass(node)}`} style={{ paddingLeft: `${depth * 14}px` }} {...rowDrag(node)}
       onContextMenu={event => { event.preventDefault(); event.stopPropagation(); openMenu(event.clientX, event.clientY, node); }}>
       {node.type === 'folder' && !searching ? <button className={`tree-toggle${collapsed.has(node.id) ? '' : ' is-expanded'}`} type="button"
         aria-label={`${node.name} ${collapsed.has(node.id) ? 'aufklappen' : 'zuklappen'}`} aria-expanded={!collapsed.has(node.id)} disabled={disabled}

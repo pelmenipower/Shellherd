@@ -4,6 +4,8 @@
 .vault-tree-row { display: flex; align-items: center; min-height: 32px; border-radius: 4px; }
 .vault-tree-row:hover { background: var(--ui-raised); }
 .vault-tree-row.is-selected { background: #183245; }
+/* Production clusters get a red left edge; inset shadow keeps the row layout unchanged. */
+.vault-tree-row.vault-node-production { box-shadow: inset 3px 0 0 var(--ui-danger); }
 .tree-toggle, .tree-row-actions button { display: grid; place-items: center; width: 26px; min-width: 26px; min-height: 28px; padding: 0; background: transparent; border: 0; }
 .tree-toggle-spacer { width: 26px; flex: 0 0 26px; }
 .tree-toggle.is-expanded svg { transform: rotate(90deg); }

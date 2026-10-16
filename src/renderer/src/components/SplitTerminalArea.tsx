@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import type { TerminalTab } from '../terminal-tabs';
+import type { TerminalConnection, TerminalTab } from '../terminal-tabs';
 import type { SshStatus } from '../../../shared/ssh';
 import type { LiveLayout, DockZone, SplitRect } from '../terminal-layout';
 import { dockTab, dockZone, mergePane, moveTab, paneRects, panes, resizeBounds, setRatio, splitRects, splitPane } from '../terminal-layout';
 import { TerminalPanel } from './TerminalPanel';
 import { RdpPanel } from './RdpPanel';
 import { FilesPanel } from './FilesPanel';
+import { ClusterView } from './kubernetes/ClusterView';
+import type { KubeViewSnapshot } from '../../../shared/kubernetes';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { ContextMenu } from './ContextMenu';
 import { RDP_ACTION_LABELS } from '../rdp-sessions';
@@ -38,6 +40,10 @@ interface Props {
   onTearOff?: (tabId: string, x: number, y: number) => void;
   /** Top-level views of this window; omitted hides the view bar. */
   viewControls?: ViewControls;
+  /** Pod logs or shell detached from a cluster tab, opened as a tab of its own; omitted windows cannot detach. */
+  onPopout?: (connection: TerminalConnection) => void;
+  /** Current view of a cluster tab, saved with the workspace; omitted windows do not save it. */
+  onSnapshot?: (tabId: string, snapshot: KubeViewSnapshot) => void;
 }
 /** Preview area of a dock zone inside a pane region (percent of the stage). */
 function zoneRect(region: { left: number; top: number; width: number; height: number }, zone: DockZone) {
@@ -45,6 +51,7 @@ function zoneRect(region: { left: number; top: number; width: number; height: nu
   if (zone === 'top' || zone === 'bottom') return { ...region, height: region.height / 2, top: zone === 'top' ? region.top : region.top + region.height / 2 };
   return region;
 }
+const ignore = (): void => {};
 const outsideWindow = (x: number, y: number): boolean => x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight;
 const rectangle = (region: { left: number; top: number; width: number; height: number }): CSSProperties => ({
   left: `${region.left}%`, top: `${region.top}%`, width: `${region.width}%`, height: `${region.height}%`,
@@ -54,7 +61,7 @@ interface DockTarget {
   marker?: { left: number; top: number };
 }
 export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, focused, busy, onLayout, onFocus, onSelect, onStatus, onClose, draggedTabId, onDrag, visible = true,
-  externalHover = null, pendingDock = null, onDockHandled, onTearOff, viewControls }: Props) {
+  externalHover = null, pendingDock = null, onDockHandled, onTearOff, viewControls, onPopout, onSnapshot }: Props) {
   const [viewDrop, setViewDrop] = useState<string | null>(null);
   const viewDropRef = useRef<string | null>(null);
   const [renamingView, setRenamingView] = useState<{ id: string; name: string } | null>(null);
@@ -388,6 +395,10 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           onFocus: () => { if (region) onFocus(region.pane.id); if (selected !== tab.id) onSelect(tab.id); }, onStatusChange: onStatus,
           adopt: tab.adopt, initialStatus: tab.status };
         if (tab.connection.protocol === 'sftp') return <FilesPanel key={tab.id} {...panel} />;
+        if (tab.connection.protocol === 'kubernetes' && !tab.connection.kube) {
+          return <ClusterView key={tab.id} tabId={tab.id} connection={tab.connection} visible={panel.visible} focused={panel.focused} style={panel.style}
+            onFocus={panel.onFocus} onStatusChange={onStatus} onPopout={onPopout ?? ignore} initialView={tab.kubeView} onSnapshot={onSnapshot} />;
+        }
         return tab.connection.protocol === 'rdp' ? <RdpPanel key={tab.id} {...panel} />
           : <TerminalPanel key={tab.id} {...panel} onClose={() => onClose(tab.id)} />;
       })}
