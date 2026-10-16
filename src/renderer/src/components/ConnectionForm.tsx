@@ -13,8 +13,9 @@ import type { ConnectionTestResult } from '../../../shared/connection-test';
 const newTitles: Record<ConnectionProtocol, string> = {
   ssh: 'Neue SSH-Verbindung', sftp: 'Neue SFTP-Verbindung (Dateien)', rdp: 'Neue Remotedesktop-Verbindung (RDP)',
   powershell: 'Neue lokale PowerShell', cmd: 'Neue lokale Eingabeaufforderung (CMD)', aicli: 'Neue KI-CLI (Claude Code, Codex, Gemini)',
+  kubernetes: 'Neuer Kubernetes-Cluster',
 };
-const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', sftp: 'Dateien öffnen', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten', aicli: 'CLI starten' };
+const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', sftp: 'Dateien öffnen', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten', aicli: 'CLI starten', kubernetes: 'Cluster öffnen' };
 
 interface ConnectionFormProps {
   connection?: ConnectionNode;

@@ -133,6 +133,7 @@ export class SshSessionManager {
     if (local && !request.target) throw new Error('Die Verbindung wurde nicht gefunden.');
     const connection = local ? undefined : this.dependencies.getConnection(request.connectionId);
     if (connection?.protocol === 'rdp' || connection?.protocol === 'sftp') throw new Error('Diese Verbindung ist keine Terminalverbindung.');
+    if (connection?.protocol === 'kubernetes' && !request.kube) throw new Error('Cluster öffnen sich im Cluster-Tab.');
     if (connection && request.target && connection.protocol !== 'ssh') throw new Error('Container-Tabs gibt es nur für SSH-Verbindungen.');
     if (connection?.protocol === 'ssh' && (!connection.host.trim() || !connection.username?.trim())) {
       throw new Error('Bitte speichere Host und Benutzername, bevor du die Verbindung startest.');

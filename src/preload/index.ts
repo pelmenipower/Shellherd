@@ -7,6 +7,7 @@ import {
 import type { IpcRendererEvent } from 'electron';
 import type { SshEvent } from '../shared/ssh';
 import type { RdpEvent } from '../shared/rdp';
+import type { KubeEvent } from '../shared/kubernetes';
 import type { DesktopApi } from '../shared/ipc';
 
 function subscribe<T>(channel: string, listener: (value: T) => void): () => void {
@@ -71,6 +72,13 @@ const desktopApi: DesktopApi = {
     ipcRenderer.on('rdp:event', handler);
     return () => ipcRenderer.removeListener('rdp:event', handler);
   },
+  kubeOpen: request => ipcRenderer.invoke('k8s:open', request),
+  kubeSubscribe: request => ipcRenderer.invoke('k8s:subscribe', request),
+  kubeDetail: request => ipcRenderer.invoke('k8s:detail', request),
+  kubeAction: request => ipcRenderer.invoke('k8s:action', request),
+  kubeClose: request => ipcRenderer.invoke('k8s:close', request),
+  kubeProbe: request => ipcRenderer.invoke('k8s:probe', request),
+  onKubeEvent: listener => subscribe('k8s:event', listener),
   sftpOpen: request => ipcRenderer.invoke('sftp:open', request),
   sftpHome: request => ipcRenderer.invoke('sftp:home', request),
   sftpList: request => ipcRenderer.invoke('sftp:list', request),
