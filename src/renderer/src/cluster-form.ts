@@ -35,7 +35,8 @@ export function suggestAccessHosts(nodes: VaultNode[], sshId: string): string[] 
 }
 
 export function newClusterFromSsh(ssh: SshConnectionNode, nodes: VaultNode[], probe: KubeProbeResult, id: string): KubernetesConnectionNode {
-  return { ...emptyCluster(id), name: probe.clusterName?.trim() || ssh.name, accessHosts: suggestAccessHosts(nodes, ssh.id) };
+  return { ...emptyCluster(id), name: probe.clusterName?.trim() || ssh.name, accessHosts: suggestAccessHosts(nodes, ssh.id),
+    ...(probe.currentContext ? { context: probe.currentContext } : {}) };
 }
 
 export function emptyCluster(id: string): KubernetesConnectionNode {

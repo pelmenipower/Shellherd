@@ -164,6 +164,11 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
       row.cells.node = nodeName ?? '—';
       row.tone = pod.tone;
       row.containers = list(spec.containers).map(c => text(rec(c).name)).filter((n): n is string => !!n);
+      for (const container of list(spec.containers).map(rec)) {
+        const containerName = text(container.name);
+        const image = text(container.image);
+        if (containerName && image) row.cells[`image:${containerName}`] = image;
+      }
       if (nodeName) row.node = nodeName;
       break;
     }
@@ -177,6 +182,8 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
       const succeeded = count(status.succeeded) ?? 0;
       const failed = count(status.failed) ?? 0;
       row.cells.completions = `${succeeded}/${completions}`;
+      const matchLabels = labelMap(rec(spec.selector).matchLabels);
+      if (Object.keys(matchLabels).length > 0) row.selector = matchLabels;
       const lastRun = stamp(status.completionTime) ?? stamp(status.startTime);
       if (lastRun) row.cells.lastRun = lastRun;
       row.tone = succeeded >= completions ? 'ok' : failed > 0 ? 'bad' : 'warn';

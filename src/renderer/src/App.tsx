@@ -802,7 +802,8 @@ export default function App() {
               </button></div>
             {showConnectionForm || selectedNode?.type === 'connection' ? <ConnectionForm
               key={`${showConnectionForm ? `new-${newConnectionTarget.protocol}-${newConnectionTarget.parentId ?? selectedNodeId ?? 'root'}` : selectedNode?.id}-${editorRevision}`}
-              connection={showConnectionForm ? clusterDraft ?? undefined : selectedNode?.type === 'connection' ? selectedNode : undefined} nodes={vault.nodes}
+              connection={showConnectionForm ? clusterDraft ?? undefined : selectedNode?.type === 'connection' ? selectedNode : undefined} isNew={showConnectionForm}
+              nodes={vault.nodes}
               protocol={showConnectionForm ? newConnectionTarget.protocol : undefined}
               initialParentId={showConnectionForm ? newConnectionTarget.parentId ?? (selectedNode?.type === 'folder' ? selectedNode.id : '') : parentFolderId(vault.nodes, selectedNodeId ?? '') ?? ''}
               busy={busy} onDirtyChange={setEditorDirty} onConnect={showConnectionForm ? undefined : () => { if (selectedNode?.type === 'connection') connectNode(selectedNode.id); }}

@@ -138,6 +138,7 @@ describe('ResourceWatcher', () => {
     expect(batches).toHaveLength(1);
 
     api.latest().onEnd();
+    clock.advance(1000);
     await settle();
 
     expect(api.listCalls).toBe(1);
@@ -183,7 +184,7 @@ describe('ResourceWatcher', () => {
     clock.advance(1);
     await settle();
     expect(api.listCalls).toBe(3);
-    expect(trouble).toEqual(['Live-Aktualisierung gestört: offline']);
+    expect(trouble).toEqual(['Live-Aktualisierung gestört: Die Kubernetes-API hat einen Fehler gemeldet.']);
 
     clock.advance(4999);
     await settle();
@@ -193,21 +194,119 @@ describe('ResourceWatcher', () => {
 
     expect(api.listCalls).toBe(4);
     expect(batches[batches.length - 1].upserts.map(row => row.uid)).toEqual(['u1']);
-    expect(trouble).toEqual(['Live-Aktualisierung gestört: offline', undefined]);
+    expect(trouble).toEqual(['Live-Aktualisierung gestört: Die Kubernetes-API hat einen Fehler gemeldet.', undefined]);
   });
 
-  it('resumes a cleanly closed watch from the last resourceVersion without listing', async () => {
-    const { api, watcher } = setup();
+  it('resumes a cleanly closed watch after 1 s from the last resourceVersion without listing', async () => {
+    const { api, clock, watcher } = setup();
     api.listQueue.push({ items: [], resourceVersion: '10' });
     await watcher.start();
     api.latest().onEvent('MODIFIED', pod('u1', 'a'));
 
     api.latest().onEnd();
     await settle();
+    expect(api.watches).toHaveLength(1);
+    clock.advance(999);
+    await settle();
+    expect(api.watches).toHaveLength(1);
+    clock.advance(1);
+    await settle();
 
     expect(api.listCalls).toBe(1);
     expect(api.watches).toHaveLength(2);
     expect(api.latest().resourceVersion).toBe('rv-u1');
+  });
+
+  it('relists after three clean closes without any event', async () => {
+    const { api, clock, watcher } = setup();
+    await watcher.start();
+
+    for (let close = 0; close < 2; close++) {
+      api.latest().onEnd();
+      clock.advance(1000);
+      await settle();
+    }
+    expect(api.listCalls).toBe(1);
+    expect(api.watches).toHaveLength(3);
+
+    api.latest().onEnd();
+    await settle();
+    expect(api.listCalls).toBe(2);
+    expect(api.watches).toHaveLength(4);
+  });
+
+  it('counts clean closes again after an event arrived', async () => {
+    const { api, clock, watcher } = setup();
+    await watcher.start();
+    for (let close = 0; close < 2; close++) {
+      api.latest().onEnd();
+      clock.advance(1000);
+      await settle();
+    }
+    api.latest().onEvent('MODIFIED', pod('u1', 'a'));
+    api.latest().onEnd();
+    clock.advance(1000);
+    await settle();
+    expect(api.listCalls).toBe(1);
+  });
+
+  it('relists at once on an ERROR event with code 410 and ignores the close that follows', async () => {
+    const { api, batches, trouble, watcher } = setup();
+    api.listQueue.push({ items: [pod('u1', 'a')], resourceVersion: '5' }, { items: [pod('u9', 'z')], resourceVersion: '50' });
+    await watcher.start();
+    const old = api.latest();
+
+    old.onEvent('ERROR', { kind: 'Status', apiVersion: 'v1', code: 410, reason: 'Expired', message: 'too old resource version' } as KubeObject);
+    await settle();
+    expect(api.listCalls).toBe(2);
+    expect(batches[batches.length - 1].upserts.map(row => row.uid)).toEqual(['u9']);
+    expect(old.stopped).toBe(true);
+
+    old.onEnd();
+    await settle();
+    expect(api.listCalls).toBe(2);
+    expect(api.watches).toHaveLength(2);
+    expect(trouble).toEqual([]);
+  });
+
+  it('fails on other ERROR events, retries with a list and does not resume the closed watch', async () => {
+    const { api, clock, watcher } = setup();
+    api.listQueue.push({ items: [], resourceVersion: '5' }, { items: [], resourceVersion: '6' });
+    await watcher.start();
+    const old = api.latest();
+
+    old.onEvent('ERROR', { kind: 'Status', code: 500, message: 'internal' } as KubeObject);
+    old.onEnd();
+    clock.advance(1000);
+    await settle();
+
+    expect(api.listCalls).toBe(2);
+    expect(api.watches).toHaveLength(2);
+    expect(api.latest().resourceVersion).toBe('6');
+  });
+
+  it('reports 401 and 403 at once with a readable message, retries every 30 s and never leaks the raw error', async () => {
+    const { api, clock, trouble, watcher } = setup();
+    const forbidden = Object.assign(new Error('Body: {"token":"secret"} Headers: {}'), { code: 403 });
+    api.listQueue.push(forbidden, forbidden, { items: [pod('u1', 'a')], resourceVersion: '7' });
+
+    await watcher.start();
+    expect(trouble).toHaveLength(1);
+    expect(trouble[0]).toContain('Keine Berechtigung');
+    expect(trouble[0]).not.toContain('secret');
+
+    clock.advance(29_999);
+    await settle();
+    expect(api.listCalls).toBe(1);
+    clock.advance(1);
+    await settle();
+    expect(api.listCalls).toBe(2);
+    expect(trouble).toHaveLength(1);
+
+    clock.advance(30_000);
+    await settle();
+    expect(api.listCalls).toBe(3);
+    expect(trouble).toEqual([trouble[0], undefined]);
   });
 
   it('stop stops the watch, drops pending batches and starts nothing new', async () => {

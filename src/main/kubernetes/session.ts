@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { KubeConfig } from '@kubernetes/client-node';
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
-import type { ClusterState, ClusterStatus, KubeAction, KubeDetail, KubeDetailMode, KubeEvent, KubeQuery, KubeRef, KubeRow, KubeTerminalTarget, UsageHistory } from '../../shared/kubernetes';
+import type { ClusterState, ClusterStatus, KubeAction, KubeDetail, KubeDetailMode, KubeEvent, KubeOpenResult, KubeQuery, KubeRef, KubeRow, KubeTerminalTarget, UsageHistory } from '../../shared/kubernetes';
 import { READ_ONLY_MESSAGE, queryKey } from '../../shared/kubernetes';
 import type { TerminalSize } from '../../shared/ssh';
 import { HostAccessError } from '../containers/runner';
 import { KubeApiError } from './api';
+import { isAltnameError } from './client-api';
 import type { KubeApi, KubeStream, TerminalIo } from './api';
 import { runAction } from './actions';
 import type { ClusterAccess } from './access';
@@ -26,7 +27,11 @@ const NOT_AVAILABLE = 'Die Cluster-Ansicht ist nicht verfügbar.';
 const NOT_CONNECTED = 'Der Cluster ist gerade nicht verbunden.';
 const RECONNECTING = 'Die Verbindung zum Cluster wird gerade wiederhergestellt.';
 const CONNECT_FAILED = 'Die Verbindung zum Cluster ist fehlgeschlagen.';
+const DISABLED = 'Diese Verbindung ist deaktiviert.';
+const DEFAULT_NAMESPACE = 'default';
 const ENDED = 'Die Cluster-Sitzung wurde beendet.';
+/** How long a terminal waits for a reconnect, like the SSH start timer. */
+const READY_WAIT_MS = 30_000;
 
 export interface KubeSessionDependencies {
   getCluster: (id: string) => KubernetesConnectionNode;
@@ -56,6 +61,7 @@ interface Entry {
   query: KubeQuery;
   views: Set<string>;
   loaded: boolean;
+  trouble?: string;
   watcher: ResourceWatcher;
 }
 
@@ -73,14 +79,16 @@ export function userMessage(error: unknown): string | undefined {
   return undefined;
 }
 
-function isTlsError(error: unknown): boolean {
-  return error instanceof KubeApiError && error.message.startsWith('TLS:');
+/** Only a certificate that does not name the server's host is worth the `kubernetes` retry. */
+function isAltname(error: unknown): boolean {
+  return error instanceof KubeApiError && isAltnameError(error);
 }
 
-/** Nodes show their running pod count, taken from the overview's pod watch. */
-function decorate(query: KubeQuery, row: KubeRow, counts: Record<string, number>): KubeRow {
+/** Nodes show their running pod count and, with metrics, CPU and RAM, all taken from the overview. */
+function decorate(query: KubeQuery, row: KubeRow, counts: Record<string, number>, usage: Record<string, { cpu: string; memory: string }>): KubeRow {
   if (query.kind !== 'nodes') return row;
-  return { ...row, cells: { ...row.cells, pods: counts[row.ref.name] ?? 0 } };
+  const share = usage[row.ref.name];
+  return { ...row, cells: { ...row.cells, pods: counts[row.ref.name] ?? 0, ...(share ?? {}) } };
 }
 
 /**
@@ -93,6 +101,7 @@ class Session {
   metrics = false;
   private hostName?: string;
   private cluster?: KubernetesConnectionNode;
+  private contextNamespace?: string;
   private access?: ClusterAccess;
   private tunnel?: Tunnel;
   private api?: KubeApi;
@@ -127,6 +136,21 @@ class Session {
     this.deps.emit(view.ownerId, { type: 'status', viewId: view.viewId, status: this.status() });
   }
 
+  /** Current status and overview, for the reply to `k8s:open`. */
+  snapshot(viewId: string): KubeOpenResult {
+    const state = this.overview?.current();
+    return { viewId, status: this.status(), ...(state ? { overview: state } : {}) };
+  }
+
+  /** Sends everything a view may have missed: status, overview, usage and the trouble of its table. */
+  resend(view: View): void {
+    this.sendStatus(view);
+    const state = this.overview?.current();
+    if (state) this.deps.emit(view.ownerId, { type: 'overview', viewId: view.viewId, ...state });
+    const usage = this.overview?.usage();
+    if (usage && Object.keys(usage).length > 0) this.deps.emit(view.ownerId, { type: 'usage', viewId: view.viewId, pods: usage });
+  }
+
   detach(view: View): void {
     this.release(view);
     this.views.delete(view.viewId);
@@ -155,8 +179,22 @@ class Session {
   waitReady(): Promise<KubeApi> {
     if (this.state === 'ready' && this.api) return Promise.resolve(this.api);
     if (this.state === 'error') return Promise.reject(new Error(this.message ?? CONNECT_FAILED));
-    if (this.state === 'reconnecting') return Promise.reject(new Error(RECONNECTING));
-    return new Promise((resolve, reject) => { this.waiters.push({ resolve, reject }); });
+    return new Promise((resolve, reject) => {
+      let timer: Timer | undefined;
+      const clear = (): void => { if (timer) this.options.cancel(timer.handle); };
+      const waiter = {
+        resolve: (api: KubeApi) => { clear(); resolve(api); },
+        reject: (error: Error) => { clear(); reject(error); },
+      };
+      // A reconnect gets a limit like the first connect; a session that never comes back must not hold the caller.
+      if (this.state === 'reconnecting') {
+        timer = this.later(() => {
+          this.waiters = this.waiters.filter(candidate => candidate !== waiter);
+          reject(new Error(RECONNECTING));
+        }, READY_WAIT_MS);
+      }
+      this.waiters.push(waiter);
+    });
   }
 
   /** Subscribes a view to a query. Without a live API the query waits until the session is ready. */
@@ -206,6 +244,8 @@ class Session {
     this.access = access;
     this.hostName = access.connection.name;
     const parsed = parseKubeconfig(access.kubeconfig, cluster.context);
+    this.contextNamespace = parsed.namespace ?? DEFAULT_NAMESPACE;
+    this.emitStatus();
     const tunnel = await this.deps.openTunnel(access, parsed.server);
     if (this.disposed) { tunnel.close(); throw new Error(ENDED); }
     this.tunnel = tunnel;
@@ -229,7 +269,7 @@ class Session {
       await first.list('nodes', null);
       return first;
     } catch (error) {
-      if (!isTlsError(error)) throw error;
+      if (!isAltname(error)) throw error;
     }
     const second = this.deps.createApi(parsed.build(port, 'kubernetes'));
     await second.list('nodes', null);
@@ -331,6 +371,7 @@ class Session {
     if (existing) {
       existing.views.add(view.viewId);
       if (existing.loaded) this.deliver(view.viewId, existing.query, { reset: true, upserts: existing.watcher.rows(), deletes: [] });
+      if (existing.trouble) this.deliverTrouble(view.viewId, existing.query, existing.trouble);
       return Promise.resolve();
     }
     const entry: Entry = {
@@ -339,7 +380,11 @@ class Session {
       loaded: false,
       watcher: new ResourceWatcher(api, query,
         batch => this.onBatch(entry, batch),
-        message => { if (message !== undefined) this.checkHealth(); },
+        message => {
+          entry.trouble = message;
+          for (const viewId of entry.views) this.deliverTrouble(viewId, entry.query, message);
+          if (message !== undefined) this.checkHealth();
+        },
         { schedule: this.options.schedule, cancel: this.options.cancel }),
     };
     this.entries.set(key, entry);
@@ -368,17 +413,24 @@ class Session {
     const view = this.views.get(viewId);
     if (!view) return;
     const counts = this.overview?.podCounts() ?? {};
-    const upserts = batch.upserts.map(row => decorate(query, row, counts));
+    const usage = this.overview?.nodeUsageCells() ?? {};
+    const upserts = batch.upserts.map(row => decorate(query, row, counts, usage));
     this.deps.emit(view.ownerId, { type: 'rows', viewId, query, reset: batch.reset, upserts, deletes: batch.deletes });
+  }
+
+  private deliverTrouble(viewId: string, query: KubeQuery, message: string | undefined): void {
+    const view = this.views.get(viewId);
+    if (!view) return;
+    this.deps.emit(view.ownerId, { type: 'trouble', viewId, query, ...(message ? { message } : {}) });
   }
 
   private onOverview(state: OverviewState): void {
     for (const view of this.views.values()) {
       this.deps.emit(view.ownerId, { type: 'overview', viewId: view.viewId, nodes: state.nodes, problems: state.problems, namespaces: state.namespaces });
     }
-    // Pod counts in the nodes table change without any node change, so the nodes rows are sent again when they do.
+    // Pod counts and usage in the nodes table change without any node change, so the nodes rows are sent again when they do.
     const counts = this.overview?.podCounts() ?? {};
-    const key = JSON.stringify(Object.entries(counts).sort());
+    const key = JSON.stringify([Object.entries(counts).sort(), Object.entries(this.overview?.nodeUsageCells() ?? {}).sort()]);
     if (key === this.podKey) return;
     this.podKey = key;
     for (const entry of this.entries.values()) {
@@ -417,6 +469,8 @@ class Session {
       ...(this.hostName ? { host: this.hostName } : {}),
       ...(this.message ? { message: this.message } : {}),
       metrics: this.metrics,
+      // Vault setting first, then the kubeconfig context (known once the config was read).
+      ...(cluster?.namespace || this.contextNamespace ? { namespace: cluster?.namespace || this.contextNamespace } : {}),
     };
   }
 
@@ -463,19 +517,21 @@ export class KubeSessions {
   }
 
   /** Opens a view on the cluster's session; the session connects in the background if it is not running. */
-  open(ownerId: number, clusterId: string): { viewId: string } {
-    this.deps.getCluster(clusterId);
+  open(ownerId: number, clusterId: string): KubeOpenResult {
+    if (this.deps.getCluster(clusterId).disabled) throw new Error(DISABLED);
     const { session, fresh } = this.sessionFor(clusterId);
     const view: View = { viewId: randomUUID(), ownerId, session };
     this.views.set(view.viewId, view);
     session.attach(view);
     if (fresh) session.begin();
-    else session.sendStatus(view);
-    return { viewId: view.viewId };
+    // The events of begin() reach the renderer before it listens, so the reply carries the state.
+    return session.snapshot(view.viewId);
   }
 
   subscribe(ownerId: number, viewId: string, query: KubeQuery): Promise<void> {
     const view = this.viewOf(ownerId, viewId);
+    // The renderer registers its listener after `open`, so it gets the current state again with its first query.
+    view.session.resend(view);
     return view.session.subscribe(view, query);
   }
 
@@ -508,6 +564,12 @@ export class KubeSessions {
     view.session.detach(view);
   }
 
+  /** True while the window has a cluster view open (closing the window then asks for confirmation). */
+  hasOwner(ownerId: number): boolean {
+    for (const view of this.views.values()) if (view.ownerId === ownerId) return true;
+    return false;
+  }
+
   closeOwner(ownerId: number): void {
     for (const view of [...this.views.values()]) {
       if (view.ownerId === ownerId) this.close(ownerId, view.viewId);
@@ -523,6 +585,7 @@ export class KubeSessions {
   /** Pod logs and shells run on the cluster's session; the terminal keeps the session alive until it ends. */
   async openTerminal(clusterId: string, target: KubeTerminalTarget, size: TerminalSize, io: TerminalIo): Promise<KubeStream> {
     const cluster = this.deps.getCluster(clusterId);
+    if (cluster.disabled) throw new Error(DISABLED);
     if (target.mode === 'shell' && cluster.readOnly) throw new Error(READ_ONLY_MESSAGE);
     const { session, fresh } = this.sessionFor(clusterId);
     session.holdTerminal();

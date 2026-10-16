@@ -8,7 +8,7 @@ import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditR
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
-import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
+import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
 
 export const IPC_CHANNELS = {
   getVersion: 'app:get-version',
@@ -163,7 +163,7 @@ export interface DesktopApi {
   rdpAction: (request: RdpActionRequest) => Promise<void>;
   onRdpEvent: (listener: (event: RdpEvent) => void) => () => void;
   /** Opens a view on a cluster; the session starts or is shared with other views. */
-  kubeOpen: (request: KubeOpenRequest) => Promise<{ viewId: string }>;
+  kubeOpen: (request: KubeOpenRequest) => Promise<KubeOpenResult>;
   kubeSubscribe: (request: KubeSubscribeRequest) => Promise<void>;
   kubeDetail: (request: KubeDetailRequest) => Promise<KubeDetail>;
   kubeAction: (request: KubeActionRequest) => Promise<void>;

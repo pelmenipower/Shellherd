@@ -46,6 +46,48 @@ describe('rows events', () => {
   });
 });
 
+describe('trouble', () => {
+  const trouble = (state: KubeViewState, message?: string, query = state.query): KubeViewState =>
+    kubeViewReducer(state, { type: 'event', event: { type: 'trouble', viewId: 'v1', query, ...(message ? { message } : {}) } });
+
+  it('keeps the message for the shown query, ignores other queries and clears it when trouble is over', () => {
+    let state = initialKubeView('shop');
+    state = trouble(state, 'Keine Berechtigung: ingresses/list');
+    expect(state.trouble).toBe('Keine Berechtigung: ingresses/list');
+    expect(state.loading).toBe(true);
+    expect(trouble(state, 'x', { kind: 'services', namespace: 'shop' })).toBe(state);
+    expect(trouble(state).trouble).toBeNull();
+  });
+
+  it('forgets the message when the view moves to another table', () => {
+    const state = kubeViewReducer(trouble(initialKubeView('shop'), 'kaputt'), { type: 'setKind', kind: 'services' });
+    expect(state.trouble).toBeNull();
+  });
+});
+
+describe('default namespace', () => {
+  const withNamespace = (namespace?: string): ClusterStatus => ({ ...status, ...(namespace ? { namespace } : {}) });
+  const statusEvent = (state: KubeViewState, value: ClusterStatus): KubeViewState =>
+    kubeViewReducer(state, { type: 'event', event: { type: 'status', viewId: 'v1', status: value } });
+
+  it('applies the cluster namespace once, to a view that has not moved', () => {
+    let state = statusEvent(initialKubeView('default'), withNamespace());
+    expect(state.query.namespace).toBe('default');
+    state = statusEvent(state, withNamespace('shop'));
+    expect(state.query).toEqual({ kind: 'pods', namespace: 'shop' });
+    expect(state.loading).toBe(true);
+    state = statusEvent(state, withNamespace('other'));
+    expect(state.query.namespace).toBe('shop');
+  });
+
+  it('keeps what the user chose and what a workspace restored', () => {
+    const moved = statusEvent(kubeViewReducer(initialKubeView('default'), { type: 'setNamespace', namespace: null }), withNamespace('shop'));
+    expect(moved.query.namespace).toBeNull();
+    const restored = statusEvent(kubeViewReducer(initialKubeView('default'), { type: 'restore', snapshot: { query: { kind: 'pods', namespace: 'kept' }, crumbs: [], dock: 'logs' } }), withNamespace('shop'));
+    expect(restored.query.namespace).toBe('kept');
+  });
+});
+
 describe('selection after deletion', () => {
   it('moves the selection to the row at the same visible position', () => {
     let state = rowsEvent(initialKubeView('shop'), [row('pods', 'a'), row('pods', 'b'), row('pods', 'c')]);

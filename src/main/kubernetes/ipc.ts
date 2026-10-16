@@ -75,6 +75,7 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, sudoReject
     requireSshSender(event);
     const connection = getConnection(parseRequest(KubeProbeRequestSchema, request).connectionId);
     if (connection?.protocol !== 'ssh') throw new Error('Bitte wähle eine SSH-Verbindung.');
+    if (connection.disabled) throw new Error('Diese Verbindung ist deaktiviert.');
     const host = await openRemote(connection);
     try {
       const { text, source } = await readKubeconfig(host, connection, { source: 'auto' }, sudoRejections);

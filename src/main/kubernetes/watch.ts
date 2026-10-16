@@ -1,11 +1,18 @@
 import type { KubeQuery, KubeRow } from '../../shared/kubernetes';
 import { KubeApiError, type KubeApi, type KubeObject, type ListResult, type WatchHandle, type WatchType } from './api';
+import { toApiError } from './client-api';
 import { toRow } from './rows';
 
 export const BATCH_MS = 250;
 const RETRY_DELAYS_MS = [1000, 2000, 5000];
 const TROUBLE_AFTER = 3;
 const GONE = 410;
+/** A cleanly closed watch resumes after this pause, so a server that closes at once cannot cause a tight loop. */
+const RESUME_MS = 1000;
+/** After this many clean closes without any event the watch starts over with a list. */
+const RELIST_AFTER_CLEAN = 3;
+/** 401 and 403 will not fix themselves quickly: shown at once, retried slowly. */
+const AUTH_RETRY_MS = 30_000;
 
 export interface RowBatch { reset: boolean; upserts: KubeRow[]; deletes: string[] }
 
@@ -25,8 +32,9 @@ interface Timer { handle: unknown }
 
 /**
  * Keeps one table in sync: list, then watch from the list's resourceVersion. Changes are batched,
- * a 410 (stale resourceVersion) relists at once, a clean server close resumes the watch, and
- * other errors relist after 1 s, 2 s, then 5 s. After three failures in a row onTrouble reports it.
+ * a 410 (stale resourceVersion, as end or as ERROR event) relists at once, a clean server close resumes the watch
+ * after 1 s (and relists after three in a row without events), and other errors relist after 1 s, 2 s, then 5 s.
+ * After three failures in a row onTrouble reports it; 401/403 are reported at once and retried every 30 s.
  */
 export class ResourceWatcher {
   private readonly batchMs: number;
@@ -42,7 +50,9 @@ export class ResourceWatcher {
   private batchTimer: Timer | undefined;
   private retryTimer: Timer | undefined;
   private failures = 0;
+  private cleanCloses = 0;
   private troubled = false;
+  private troubleMessage: string | undefined;
 
   constructor(private readonly api: KubeApi, private readonly query: KubeQuery,
     private readonly emit: (batch: RowBatch) => void,
@@ -108,6 +118,11 @@ export class ResourceWatcher {
 
   private onEvent(gen: number, type: WatchType, object: KubeObject): void {
     if (this.isStale(gen)) return;
+    if (type === 'ERROR') {
+      this.onErrorEvent(object);
+      return;
+    }
+    this.cleanCloses = 0;
     const version = object.metadata?.resourceVersion;
     if (version) this.resourceVersion = version;
     if (type === 'BOOKMARK') return;
@@ -128,6 +143,19 @@ export class ResourceWatcher {
     this.arm();
   }
 
+  /** The server reports a failed watch as a Status object inside the stream and closes it afterwards. */
+  private onErrorEvent(object: KubeObject): void {
+    const code = (object as { code?: unknown }).code;
+    if (code === GONE) {
+      void this.relist();
+      return;
+    }
+    // A new generation makes the close that follows this event stale.
+    this.watchHandle?.stop();
+    this.watchHandle = undefined;
+    this.fail(toApiError({ code: typeof code === 'number' ? code : undefined }), ++this.generation);
+  }
+
   private onEnd(gen: number, error: KubeApiError | undefined): void {
     if (this.isStale(gen)) return;
     this.watchHandle = undefined;
@@ -135,8 +163,16 @@ export class ResourceWatcher {
       void this.relist();
     } else if (error) {
       this.fail(error, gen);
+    } else if (++this.cleanCloses >= RELIST_AFTER_CLEAN) {
+      this.cleanCloses = 0;
+      void this.relist();
     } else {
-      void this.watchFrom(gen);
+      this.retryTimer = {
+        handle: this.schedule(() => {
+          this.retryTimer = undefined;
+          if (!this.isStale(gen)) void this.watchFrom(gen);
+        }, RESUME_MS),
+      };
     }
   }
 
@@ -173,12 +209,18 @@ export class ResourceWatcher {
   private fail(error: unknown, gen: number): void {
     this.watchHandle = undefined;
     this.failures++;
-    if (this.failures >= TROUBLE_AFTER) {
+    // Never the raw error text: an ApiException carries the response body and headers.
+    const api = toApiError(error);
+    const auth = api.code === 401 || api.code === 403;
+    if (auth || this.failures >= TROUBLE_AFTER) {
       this.troubled = true;
-      const message = error instanceof Error ? error.message : String(error);
-      this.onTrouble(`Live-Aktualisierung gestört: ${message}`);
+      const message = auth ? api.message : `Live-Aktualisierung gestört: ${api.message}`;
+      if (message !== this.troubleMessage) {
+        this.troubleMessage = message;
+        this.onTrouble(message);
+      }
     }
-    const delay = RETRY_DELAYS_MS[Math.min(this.failures, RETRY_DELAYS_MS.length) - 1];
+    const delay = auth ? AUTH_RETRY_MS : RETRY_DELAYS_MS[Math.min(this.failures, RETRY_DELAYS_MS.length) - 1];
     this.retryTimer = {
       handle: this.schedule(() => {
         this.retryTimer = undefined;
@@ -190,8 +232,10 @@ export class ResourceWatcher {
   /** A successful list or batch ends any failure streak. */
   private recover(): void {
     this.failures = 0;
+    this.cleanCloses = 0;
     if (this.troubled) {
       this.troubled = false;
+      this.troubleMessage = undefined;
       this.onTrouble(undefined);
     }
   }

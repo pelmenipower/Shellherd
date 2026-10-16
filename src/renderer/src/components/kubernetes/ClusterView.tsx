@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { KIND_INFO, KUBE_KINDS, refKey, type KubeAction, type KubeViewSnapshot, type KubeTerminalMode } from '../../../../shared/kubernetes';
 import type { SshStatus } from '../../../../shared/ssh';
-import type { TerminalConnection } from '../../terminal-tabs';
+import { kubeTabName, type TerminalConnection } from '../../terminal-tabs';
 import { useClusterSession } from '../../hooks/useClusterSession';
 import { KUBE_COMMANDS, bindingOf, commandForKey, completions, parseCommandLine, type KubeCommand } from '../../kube-commands';
 import { snapshotOf, visibleRows } from '../../kube-view';
@@ -21,7 +21,8 @@ interface ClusterViewProps {
   style?: CSSProperties;
   onFocus?: () => void;
   onStatusChange: (id: string, status: SshStatus) => void;
-  onPopout: (connection: TerminalConnection) => void;
+  /** Absent in windows that cannot open a tab (secondary windows). */
+  onPopout?: (connection: TerminalConnection) => void;
   initialView?: KubeViewSnapshot;
   onSnapshot?: (tabId: string, snapshot: KubeViewSnapshot) => void;
 }
@@ -44,7 +45,9 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const status = state.status;
-  const readOnly = status?.readOnly ?? false;
+  // Without a status nothing is known: treat the cluster as production and read-only until main says otherwise.
+  const readOnly = status?.readOnly ?? true;
+  const production = status?.production ?? true;
   const clusterName = status?.name ?? connection.name;
   const modal = help || pending !== null;
   const rows = visibleRows(state);
@@ -83,6 +86,18 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     onStatusRef.current(tabId, statusState === 'ready' ? 'connected' : statusState === 'error' ? 'error' : 'connecting');
   }, [statusState, tabId]);
 
+  // Counts the returns to `ready` after a reconnect: the dock terminal remounts then, which restarts a log stream.
+  const [epoch, setEpoch] = useState(0);
+  const wasReady = useRef(false);
+  const seenReady = useRef(false);
+  useEffect(() => {
+    if (statusState === 'ready') {
+      if (wasReady.current === false && seenReady.current) setEpoch(value => value + 1);
+      wasReady.current = true;
+      seenReady.current = true;
+    } else if (statusState) wasReady.current = false;
+  }, [statusState]);
+
   // Saved with the workspace whenever the view moves.
   const snapshot = snapshotOf(state);
   const snapshotKey = JSON.stringify(snapshot);
@@ -107,11 +122,11 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   };
 
   const popout = () => {
+    if (!onPopout) { say('Hier lässt sich kein Tab öffnen.'); return; }
     if (!terminalMode) { say('Als Tab öffnen gibt es nur für Logs und Shell.'); return; }
     if (!podRef || !container) { say('Wähle einen Pod mit Container.'); return; }
     const target = { namespace: podRef.namespace ?? '', pod: podRef.name, container, mode: terminalMode };
-    const name = terminalMode === 'shell' ? `${podRef.name} @ ${clusterName}` : `Logs: ${podRef.name} @ ${clusterName}`;
-    onPopout({ ...connection, name, kube: target });
+    onPopout({ ...connection, name: kubeTabName(target, clusterName), kube: target });
   };
 
   const runCommand = (text: string) => {
@@ -292,11 +307,11 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
         <DetailDock connection={connection} tabId={tabId} visible={visible} open={state.dockOpen} mode={state.dock}
           previous={previous} armed={armed} selected={selectedRow?.ref ?? null} podRef={podRef} container={container} readOnly={readOnly}
           detail={detail} onMode={mode => dispatch({ type: 'dock', mode })} onArm={() => { setArmed(true); dispatch({ type: 'dock', mode: 'shell' }); }}
-          onToggle={() => dispatch({ type: 'toggleDock' })} onPopout={popout} />
+          onToggle={() => dispatch({ type: 'toggleDock' })} onPopout={onPopout ? popout : undefined} epoch={epoch} />
       </div>
       {help && <HelpOverlay state={state} readOnly={readOnly} onClose={() => setHelp(false)} />}
       {pending && (
-        <ConfirmAction pending={pending} cluster={{ name: clusterName, production: status?.production ?? false }}
+        <ConfirmAction pending={pending} cluster={{ name: clusterName, production }}
           run={action} onClose={() => setPending(null)} />
       )}
     </section>

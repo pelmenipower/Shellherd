@@ -92,6 +92,22 @@ export class Overview {
     return { nodes, problems, namespaces };
   }
 
+  /** Pod usage history so far, for views that attach late. */
+  usage(): UsageHistory {
+    return this.history;
+  }
+
+  /** CPU and RAM share of allocatable per node name, as table text; empty without metrics. */
+  nodeUsageCells(): Record<string, { cpu: string; memory: string }> {
+    const cells: Record<string, { cpu: string; memory: string }> = {};
+    for (const node of this.nodes) {
+      const name = node.metadata?.name ?? '';
+      const tile = toNodeTile(node, this.nodeUsage.get(name));
+      if (tile.cpu !== undefined && tile.memory !== undefined) cells[name] = { cpu: percent(tile.cpu), memory: percent(tile.memory) };
+    }
+    return cells;
+  }
+
   /** Running pods per node name (for the Nodes table's `pods` cell). */
   podCounts(): Record<string, number> {
     const counts: Record<string, number> = {};
@@ -155,6 +171,8 @@ export class Overview {
     if (!this.stopped) this.emit(this.current());
   }
 }
+
+const percent = (share: number): string => `${Math.round(share * 100)}%`;
 
 const toUsage = (sample: MetricsSample): Usage => ({ cpuMilli: sample.cpuMilli, memoryBytes: sample.memoryBytes });
 

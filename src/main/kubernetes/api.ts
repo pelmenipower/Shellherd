@@ -7,7 +7,8 @@ export interface KubeMeta {
 }
 export interface KubeObject { apiVersion?: string; kind?: string; metadata?: KubeMeta; [key: string]: unknown }
 export interface ListResult { items: KubeObject[]; resourceVersion: string }
-export type WatchType = 'ADDED' | 'MODIFIED' | 'DELETED' | 'BOOKMARK';
+/** ERROR carries a Status object ({ kind: 'Status', code, … }) inside an otherwise healthy stream. */
+export type WatchType = 'ADDED' | 'MODIFIED' | 'DELETED' | 'BOOKMARK' | 'ERROR';
 export interface WatchHandle { stop(): void }
 /** code: HTTP status when there is one (401, 403, 404, 410 …). Message is safe to show. */
 export class KubeApiError extends Error { constructor(message: string, readonly code?: number) { super(message); } }

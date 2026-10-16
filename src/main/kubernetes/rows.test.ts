@@ -80,6 +80,14 @@ describe('workloads', () => {
       .toMatchObject({ tone: 'ok', cells: { completions: '1/1', lastRun: '2026-10-16T07:02:00Z' } });
   });
 
+  it('gives a job the selector of its pods and a pod the image of each container', () => {
+    expect(toRow('jobs', { metadata: { name: 'migrate', namespace: 'shop', uid: 'j1' }, spec: { selector: { matchLabels: { 'controller-uid': 'abc' } } }, status: {} }))
+      .toMatchObject({ selector: { 'controller-uid': 'abc' } });
+    expect(toRow('jobs', { metadata: { name: 'plain', namespace: 'shop', uid: 'j3' }, spec: {}, status: {} })?.selector).toBeUndefined();
+    const row = toRow('pods', pod({ phase: 'Running' }, { containers: [{ name: 'api', image: 'reg/api:1' }, { name: 'proxy', image: 'envoy:2' }], nodeName: 'w' }));
+    expect(row?.cells).toMatchObject({ 'image:api': 'reg/api:1', 'image:proxy': 'envoy:2' });
+  });
+
   it('falls back to startTime for a job without completionTime', () => {
     expect(toRow('jobs', { metadata: { name: 'backup', namespace: 'shop', uid: 'j2' }, spec: {}, status: { startTime: '2026-10-16T06:00:00Z', failed: 1 } }))
       .toMatchObject({ tone: 'bad', cells: { completions: '0/1', lastRun: '2026-10-16T06:00:00Z' } });

@@ -28,7 +28,11 @@ describe('cluster creation and validation', () => {
   it('creates a production cluster from the probe', () => {
     const cluster = newClusterFromSsh(ssh('a', 'k8s-cp1'), [ssh('a', 'k8s-cp1')], { source: '/etc/kubernetes/admin.conf (sudo)', contexts: ['kubernetes-admin@kubernetes'], currentContext: 'kubernetes-admin@kubernetes', clusterName: 'kubernetes' }, 'k1');
     expect(cluster).toMatchObject({ id: 'k1', protocol: 'kubernetes', name: 'kubernetes', accessHosts: ['a'], kubeconfig: { source: 'auto' }, production: true, readOnly: false });
-    expect(cluster.context).toBeUndefined();   // current context is the default
+    expect(cluster.context).toBe('kubernetes-admin@kubernetes');
+  });
+  it('leaves the context empty when the probe has no current context', () => {
+    const cluster = newClusterFromSsh(ssh('a', 'h'), [ssh('a', 'h')], { source: '~/.kube/config', contexts: ['x'] }, 'k1');
+    expect(cluster.context).toBeUndefined();
   });
   it('creates an empty cluster with production defaults', () => {
     expect(emptyCluster('k')).toMatchObject({ protocol: 'kubernetes', name: '', tags: [], accessHosts: [], kubeconfig: { source: 'auto' }, production: true, readOnly: false, type: 'connection' });

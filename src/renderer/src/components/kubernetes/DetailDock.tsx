@@ -37,14 +37,17 @@ interface DetailDockProps {
   onMode: (mode: DockMode) => void;
   onArm: () => void;
   onToggle: () => void;
-  onPopout: () => void;
+  /** Absent where no tab can be opened. */
+  onPopout?: (() => void) | undefined;
+  /** Changes when the connection came back; remounts the log or shell terminal. */
+  epoch: number;
 }
 
 type DetailResult = { id: string; data?: KubeDetail; error?: string };
 
 /** Bottom dock: logs and shell as embedded terminal, events and manifests as text. Follows the selection. */
 export function DetailDock(props: DetailDockProps) {
-  const { connection, tabId, visible, open, mode, previous, armed, selected, podRef, container, readOnly, detail, onMode, onArm, onToggle, onPopout } = props;
+  const { connection, tabId, visible, open, mode, previous, armed, selected, podRef, container, readOnly, detail, onMode, onArm, onToggle, onPopout, epoch } = props;
   const dockRef = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [result, setResult] = useState<DetailResult | null>(null);
@@ -106,7 +109,7 @@ export function DetailDock(props: DetailDockProps) {
           ))}
         </div>
         <span className="kube-muted kube-dock-hint">{selected ? refKey(selected).split('/').pop() : 'folgt Auswahl'}</span>
-        {terminalKind && target && (
+        {terminalKind && target && onPopout && (
           <button type="button" className="kube-dock-popout" onClick={onPopout}>Als Tab öffnen</button>
         )}
         <button type="button" className="kube-dock-toggle" aria-expanded={open} aria-label={open ? 'Panel einklappen' : 'Panel ausklappen'} onClick={onToggle}>
@@ -127,7 +130,7 @@ export function DetailDock(props: DetailDockProps) {
             </div>
           ) : terminalConnection && target && (
             <div className="kube-dock-terminal">
-              <TerminalPanel key={`${refKey(podRef)}/${container}/${terminalKind}`} connection={terminalConnection} tabId={`${tabId}:dock`}
+              <TerminalPanel key={`${refKey(podRef)}/${container}/${terminalKind}/${epoch}`} connection={terminalConnection} tabId={`${tabId}:dock`}
                 visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} />
             </div>
           )

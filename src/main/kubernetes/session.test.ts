@@ -211,11 +211,137 @@ suite('KubeSessions', () => {
 
     expect(world.deps.openAccess).toHaveBeenCalledTimes(1);
     expect(world.deps.openTunnel).toHaveBeenCalledTimes(1);
-    expect(statusesOf(world, first.viewId).map(status => status.state)).toEqual(['connecting', 'ready']);
+    expect(statusesOf(world, first.viewId).map(status => status.state)).toEqual(['connecting', 'connecting', 'ready']);
     expect(statusesOf(world, second.viewId).map(status => status.state)).toEqual(['connecting', 'ready']);
     expect(statusesOf(world, second.viewId).at(-1)).toMatchObject({ state: 'ready', host: 'k8s-cp1', production: true, readOnly: false, name: 'Prod-Cluster', metrics: false });
     expect(world.events.filter(entry => entry.event.type === 'status' && entry.event.viewId === second.viewId).every(entry => entry.ownerId === 2)).toBe(true);
     expect(JSON.stringify(world.events)).not.toContain('secret-token');
+  });
+
+  it('hands a view that opens on a running session the status, the overview and the namespace in the open result', async () => {
+    const world = setup();
+    world.api.nodes = [node('n1')];
+    world.api.pods = [pod('p1', 'n1')];
+    world.sessions.open(1, 'c1');
+    await settle();
+
+    // Events sent while open() runs reach the renderer before it listens; only the result is reliable.
+    const before = world.events.length;
+    const second = world.sessions.open(2, 'c1');
+    expect(world.events.length).toBe(before);
+    expect(second.status).toMatchObject({ state: 'ready', production: true, readOnly: false, name: 'Prod-Cluster', namespace: 'shop' });
+    expect(second.overview?.nodes.map(tile => tile.name)).toEqual(['n1']);
+    expect(second.overview?.namespaces).toContain('shop');
+  });
+
+  it('sends status and overview again with the first subscription of a view', async () => {
+    const world = setup();
+    world.api.nodes = [node('n1')];
+    world.sessions.open(1, 'c1');
+    await settle();
+    const late = world.sessions.open(2, 'c1').viewId;
+
+    await world.sessions.subscribe(2, late, POD_QUERY);
+
+    expect(statusesOf(world, late).at(-1)).toMatchObject({ state: 'ready', production: true });
+    expect(eventsOf(world, 'overview', late)[0].nodes.map(tile => tile.name)).toEqual(['n1']);
+  });
+
+  it('opens in the vault namespace, else the kubeconfig context namespace, else default', async () => {
+    const withVault = setup();
+    withVault.cluster.namespace = 'ops';
+    const a = withVault.sessions.open(1, 'c1');
+    expect(a.status.namespace).toBe('ops');
+    await settle();
+    expect(statusesOf(withVault, a.viewId).at(-1)?.namespace).toBe('ops');
+
+    const fromContext = setup();
+    const b = fromContext.sessions.open(1, 'c1');
+    expect(b.status.namespace).toBeUndefined();
+    await settle();
+    expect(statusesOf(fromContext, b.viewId).at(-1)?.namespace).toBe('shop');
+
+    const plain = setup({ openAccess: vi.fn(async () => {
+      const next = fakeAccess();
+      return { ...next.access, kubeconfig: KUBECONFIG.replace('    namespace: shop\n', '') } as ClusterAccess;
+    }) });
+    const c = plain.sessions.open(1, 'c1');
+    await settle();
+    expect(statusesOf(plain, c.viewId).at(-1)?.namespace).toBe('default');
+  });
+
+  it('reports a forbidden table at once and a generic failure after three, never with raw error text', async () => {
+    const world = setup();
+    const view = world.sessions.open(1, 'c1').viewId;
+    await settle();
+    world.api.listErrors = [Object.assign(new Error('Body: {"secret":"x"} Headers: {}'), { code: 403 })];
+    await world.sessions.subscribe(1, view, { kind: 'ingresses', namespace: 'shop' });
+    await settle();
+
+    const first = eventsOf(world, 'trouble', view);
+    expect(first).toHaveLength(1);
+    expect(first[0].message).toContain('Keine Berechtigung');
+    expect(JSON.stringify(first)).not.toContain('secret');
+    // 403 is retried slowly.
+    expect(world.clock.delays()).toContain(30_000);
+    world.clock.run(30_000);
+    await settle();
+    expect(eventsOf(world, 'trouble', view).at(-1)).toEqual({ type: 'trouble', viewId: view, query: { kind: 'ingresses', namespace: 'shop' } });
+
+    world.api.listErrors = [new Error('boom'), new Error('boom'), new Error('boom')];
+    await world.sessions.subscribe(1, view, { kind: 'services', namespace: 'shop' });
+    await settle();
+    expect(eventsOf(world, 'trouble', view).filter(event => event.query.kind === 'services')).toHaveLength(0);
+    world.clock.run(1000);
+    await settle();
+    world.clock.run(2000);
+    await settle();
+    const services = eventsOf(world, 'trouble', view).filter(event => event.query.kind === 'services');
+    expect(services).toHaveLength(1);
+    expect(services[0].message).not.toContain('boom');
+  });
+
+  it('lets a terminal wait for a reconnect and gives up after 30 s', async () => {
+    const world = setup();
+    const view = world.sessions.open(1, 'c1').viewId;
+    await settle();
+    await world.sessions.subscribe(1, view, POD_QUERY);
+    world.accesses[0].drop();
+    world.clock.run(HEALTH_MS);
+    expect(statusesOf(world, view).at(-1)?.state).toBe('reconnecting');
+
+    const logs: KubeTerminalTarget = { namespace: 'shop', pod: 'p1', container: 'app', mode: 'logs' };
+    const waiting = world.sessions.openTerminal('c1', logs, { cols: 80, rows: 24 }, terminalIo());
+    await settle();
+    expect(world.api.terminals).toEqual([]);
+    world.clock.run(10);
+    await settle();
+    await waiting;
+    expect(world.api.terminals).toHaveLength(1);
+
+    world.accesses[1].drop();
+    world.clock.run(HEALTH_MS);
+    const giveUp = world.sessions.openTerminal('c1', logs, { cols: 80, rows: 24 }, terminalIo());
+    const outcome = expect(giveUp).rejects.toThrow('wiederhergestellt');
+    world.clock.run(30_000);
+    await outcome;
+  });
+
+  it('refuses disabled clusters and counts open views per window', async () => {
+    const world = setup();
+    world.cluster.disabled = true;
+    expect(() => world.sessions.open(1, 'c1')).toThrow('deaktiviert');
+    await expect(world.sessions.openTerminal('c1', { namespace: 'shop', pod: 'p1', container: 'app', mode: 'logs' }, { cols: 80, rows: 24 }, terminalIo()))
+      .rejects.toThrow('deaktiviert');
+
+    world.cluster.disabled = false;
+    expect(world.sessions.hasOwner(1)).toBe(false);
+    const view = world.sessions.open(1, 'c1').viewId;
+    expect(world.sessions.hasOwner(1)).toBe(true);
+    expect(world.sessions.hasOwner(2)).toBe(false);
+    world.sessions.close(1, view);
+    expect(world.sessions.hasOwner(1)).toBe(false);
+    await settle();
   });
 
   it('starts one watcher per distinct query and sends a late subscriber the current rows', async () => {

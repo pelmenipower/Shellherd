@@ -45,7 +45,7 @@ export interface KubeRow {
   labels: Record<string, string>;
   /** Pods: container names in spec order (no init containers). */
   containers?: string[];
-  /** Workloads and services: the pod selector used for drill-down. */
+  /** Workloads, jobs and services: the pod selector used for drill-down. */
   selector?: Record<string, string>;
   /** Pods: the node they run on. */
   node?: string;
@@ -108,13 +108,21 @@ export interface ClusterStatus {
   message?: string;
   /** metrics.k8s.io answered. */
   metrics: boolean;
+  /** Namespace a fresh view opens in: vault setting, else the kubeconfig context, else `default`. Absent until known. */
+  namespace?: string;
 }
+
+export interface KubeOverview { nodes: NodeTile[]; problems: KubeProblem[]; namespaces: string[] }
+/** Reply of `k8s:open`: the events sent before the reply are lost on the renderer side, so the current state comes along. */
+export interface KubeOpenResult { viewId: string; status: ClusterStatus; overview?: KubeOverview }
 
 export type KubeEvent =
   | { type: 'status'; viewId: string; status: ClusterStatus }
   | { type: 'rows'; viewId: string; query: KubeQuery; reset: boolean; upserts: KubeRow[]; deletes: string[] }
   | { type: 'overview'; viewId: string; nodes: NodeTile[]; problems: KubeProblem[]; namespaces: string[] }
-  | { type: 'usage'; viewId: string; pods: UsageHistory };
+  | { type: 'usage'; viewId: string; pods: UsageHistory }
+  /** Why a table cannot load or stay live; `message` absent = trouble is over. */
+  | { type: 'trouble'; viewId: string; query: KubeQuery; message?: string };
 
 export type KubeDetailMode = 'yaml' | 'describe' | 'events';
 export type KubeDetail = { mode: 'yaml' | 'describe'; text: string } | { mode: 'events'; rows: KubeRow[] };

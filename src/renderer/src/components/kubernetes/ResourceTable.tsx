@@ -123,7 +123,8 @@ export function ResourceTable({ state, rows, dispatch, tableRef }: ResourceTable
               )}
             </tbody>
           </table>
-          {!inContainers && rows.length === 0 && <p className="kube-empty">{emptyText(state)}</p>}
+          {!inContainers && rows.length === 0 && <p className={`kube-empty${state.trouble ? ' error-message' : ''}`} role={state.trouble ? 'alert' : undefined}>{emptyText(state)}</p>}
+          {!inContainers && rows.length > 0 && state.trouble && <p className="kube-empty error-message" role="alert">{state.trouble}</p>}
         </div>
       </div>
     </div>
@@ -131,6 +132,7 @@ export function ResourceTable({ state, rows, dispatch, tableRef }: ResourceTable
 }
 
 function emptyText(state: KubeViewState): string {
+  if (state.trouble) return state.trouble;
   if (state.loading) return 'Lade …';
   if (state.filter.trim()) return `Keine Treffer für „${state.filter.trim()}“.`;
   return 'Keine Einträge.';

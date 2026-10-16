@@ -130,6 +130,21 @@ describe('Overview', () => {
     overview.stop();
   });
 
+  it('gives the nodes table CPU and RAM shares as text, and nothing without metrics', async () => {
+    const api = new FakeApi();
+    api.lists.nodes = [node('n1')];
+    api.nodeSamples = [{ name: 'n1', cpuMilli: 500, memoryBytes: GI }];
+    api.podSamples = [];
+    const { overview } = setup(api);
+    await overview.start();
+    await settle();
+    expect(overview.nodeUsageCells()).toEqual({ n1: { cpu: '25%', memory: '25%' } });
+    overview.stop();
+
+    const bare = setup(new FakeApi());
+    expect(bare.overview.nodeUsageCells()).toEqual({});
+  });
+
   it('reports metrics availability and keeps at most 20 usage samples per pod', async () => {
     const api = new FakeApi();
     api.lists.pods = [pod('p1', 'shop')];

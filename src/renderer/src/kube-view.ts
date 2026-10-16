@@ -12,6 +12,10 @@ export interface KubeViewState {
   crumbs: Crumb[];
   rows: KubeRow[];               // rows of `query`, in arrival order
   loading: boolean;              // true until the first `rows` event for `query`
+  /** Why `query` cannot load or stay live (RBAC, API errors); shown instead of "Lade …". */
+  trouble: string | null;
+  /** True until the view moved on its own: the cluster's default namespace may still replace the initial one. */
+  pendingNamespace: boolean;
   filter: string;
   sort: { key: string; descending: boolean } | null;
   selected: string | null;       // refKey
@@ -48,7 +52,7 @@ const GI = 1024 ** 3;
 
 export function initialKubeView(namespace: string | null): KubeViewState {
   return {
-    status: null, query: { kind: 'pods', namespace }, crumbs: [], rows: [], loading: true, filter: '', sort: null, selected: null,
+    status: null, query: { kind: 'pods', namespace }, crumbs: [], rows: [], loading: true, trouble: null, pendingNamespace: true, filter: '', sort: null, selected: null,
     containersOf: null, container: null, dock: 'logs', dockOpen: false, nodes: [], problems: [], namespaces: [], usage: {},
   };
 }
@@ -150,11 +154,21 @@ export function sparkline(values: number[]): string {
 
 function applyEvent(state: KubeViewState, event: KubeEvent): KubeViewState {
   switch (event.type) {
-    case 'status': return { ...state, status: event.status };
+    case 'status': return applyStatus(state, event.status);
     case 'overview': return { ...state, nodes: event.nodes, problems: event.problems, namespaces: event.namespaces };
     case 'usage': return { ...state, usage: event.pods };
     case 'rows': return applyRows(state, event);
+    case 'trouble': return queryKey(event.query) === queryKey(state.query) ? { ...state, trouble: event.message ?? null } : state;
   }
+}
+
+/** The first status that names a default namespace replaces the initial one, unless the view has moved on. */
+function applyStatus(state: KubeViewState, status: ClusterStatus): KubeViewState {
+  const next = { ...state, status };
+  if (!state.pendingNamespace || !status.namespace) return next;
+  const done = { ...next, pendingNamespace: false };
+  if (state.query.namespace === status.namespace) return done;
+  return { ...done, query: { ...state.query, namespace: status.namespace }, rows: [], loading: true, trouble: null };
 }
 
 function applyRows(state: KubeViewState, event: Extract<KubeEvent, { type: 'rows' }>): KubeViewState {
@@ -182,7 +196,7 @@ function keepSelection(previous: KubeViewState, next: KubeViewState): KubeViewSt
 
 /** Moves to another table: rows are cleared until the first rows event for the new query arrives. */
 function withQuery(state: KubeViewState, query: KubeQuery, crumbs: Crumb[], selected: string | null = null): KubeViewState {
-  return { ...state, query, crumbs, rows: [], loading: true, selected, containersOf: null, container: null };
+  return { ...state, query, crumbs, rows: [], loading: true, trouble: null, pendingNamespace: false, selected, containersOf: null, container: null };
 }
 
 function drill(state: KubeViewState): KubeViewState {

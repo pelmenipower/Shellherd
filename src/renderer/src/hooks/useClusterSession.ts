@@ -23,9 +23,12 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
   useEffect(() => {
     let cancelled = false;
     let opened: string | null = null;
-    window.desktopApi.kubeOpen({ clusterId }).then(({ viewId: id }) => {
+    window.desktopApi.kubeOpen({ clusterId }).then(({ viewId: id, status, overview }) => {
       if (cancelled) { void window.desktopApi.kubeClose({ viewId: id }).catch(() => {}); return; }
       opened = id;
+      // Events sent while `open` ran were lost; the reply carries the state they described.
+      dispatch({ type: 'event', event: { type: 'status', viewId: id, status } });
+      if (overview) dispatch({ type: 'event', event: { type: 'overview', viewId: id, ...overview } });
       setViewId(id);
     }).catch(caught => {
       if (cancelled) return;

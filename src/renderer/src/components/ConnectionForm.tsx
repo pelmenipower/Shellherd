@@ -21,6 +21,8 @@ const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden'
 
 interface ConnectionFormProps {
   connection?: ConnectionNode;
+  /** `connection` is a prefilled draft that is not in the vault yet (cluster setup from an SSH host): saved like a new connection. */
+  isNew?: boolean;
   /** Kind of a new connection; existing connections keep their protocol. */
   protocol?: ConnectionProtocol;
   nodes: VaultNode[];
@@ -37,7 +39,7 @@ interface ConnectionFormProps {
   onTest?: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
 }
 
-export function ConnectionForm({ connection, protocol: requestedProtocol, nodes, initialParentId, busy, onSave, onCancel, onDelete, onConnect,
+export function ConnectionForm({ connection, isNew = false, protocol: requestedProtocol, nodes, initialParentId, busy, onSave, onCancel, onDelete, onConnect,
   onDirtyChange, onSaveAndConnect, onPickKey, onTest }: ConnectionFormProps) {
   const prefix = useId();
   const detailsRef = useRef<HTMLDetailsElement>(null);
@@ -119,7 +121,7 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
 
   return (
     <section className="node-editor compact-editor" aria-label="Verbindung bearbeiten">
-      <h2>{connection ? `${PROTOCOLS[protocol].short}-Verbindung bearbeiten` : newTitles[protocol]}</h2>
+      <h2>{connection && !isNew ? `${PROTOCOLS[protocol].short}-Verbindung bearbeiten` : newTitles[protocol]}</h2>
       <form noValidate data-editor-form onSubmit={event => { event.preventDefault(); void submit(false); }}>
         {textField('Verbindungsname', 'name')}
         <fieldset className="connection-appearance">
@@ -201,7 +203,7 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
           <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>Abbrechen</button>
           {onTest && protocol !== 'kubernetes' && <button className="secondary-button" type="button" disabled={busy || test?.running} title="Prüft die eingegebenen Daten, ohne zu speichern"
             onClick={() => { void runTest(); }}>{test?.running ? 'Teste …' : 'Verbindung testen'}</button>}
-          <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !dirty)}>{busy ? 'Speichert ...' : 'Verbindung speichern'}</button>
+          <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !isNew && !dirty)}>{busy ? 'Speichert ...' : 'Verbindung speichern'}</button>
           {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>{connectLabels[protocol]}</button>
             : onSaveAndConnect && <button className="primary-button" type="button" disabled={busy} onClick={() => { void submit(true); }}>Speichern und verbinden</button>}
         </div>

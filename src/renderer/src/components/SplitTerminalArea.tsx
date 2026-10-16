@@ -51,7 +51,6 @@ function zoneRect(region: { left: number; top: number; width: number; height: nu
   if (zone === 'top' || zone === 'bottom') return { ...region, height: region.height / 2, top: zone === 'top' ? region.top : region.top + region.height / 2 };
   return region;
 }
-const ignore = (): void => {};
 const outsideWindow = (x: number, y: number): boolean => x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight;
 const rectangle = (region: { left: number; top: number; width: number; height: number }): CSSProperties => ({
   left: `${region.left}%`, top: `${region.top}%`, width: `${region.width}%`, height: `${region.height}%`,
@@ -397,7 +396,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
         if (tab.connection.protocol === 'sftp') return <FilesPanel key={tab.id} {...panel} />;
         if (tab.connection.protocol === 'kubernetes' && !tab.connection.kube) {
           return <ClusterView key={tab.id} tabId={tab.id} connection={tab.connection} visible={panel.visible} focused={panel.focused} style={panel.style}
-            onFocus={panel.onFocus} onStatusChange={onStatus} onPopout={onPopout ?? ignore} initialView={tab.kubeView} onSnapshot={onSnapshot} />;
+            onFocus={panel.onFocus} onStatusChange={onStatus} onPopout={onPopout} initialView={tab.kubeView} onSnapshot={onSnapshot} />;
         }
         return tab.connection.protocol === 'rdp' ? <RdpPanel key={tab.id} {...panel} />
           : <TerminalPanel key={tab.id} {...panel} onClose={() => onClose(tab.id)} />;
