@@ -1,5 +1,5 @@
 import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode } from '../../shared/vault/types';
-import { ContainerInputError, shellJoin, sudoSetting } from '../containers/commands';
+import { ContainerInputError, shellJoin } from '../containers/commands';
 import { SUDO_REJECTED } from '../containers/parsers';
 import type { RunResult } from '../containers/parsers';
 import { HostAccessError } from '../containers/runner';
@@ -59,10 +59,12 @@ export async function readKubeconfig(host: RemoteHost, connection: SshConnection
     throw new HostAccessError(`Keine kubeconfig auf ${connection.name} gefunden (geprüft: $KUBECONFIG, ~/.kube/config, /etc/kubernetes/admin.conf).`);
   }
   if (header === 'src:sudo') {
-    if (sudoSetting(connection).kind === 'none') {
-      throw new KubeInputError(`${ADMIN_CONF} braucht sudo. Aktiviere „Container-Befehle mit sudo ausführen“ an der SSH-Verbindung oder gib einen Pfad an.`);
+    // admin.conf uses the SSH connection's own login for sudo (stored password, else sudo -n), independent of the container sudo flag.
+    const login = { ...connection, containers: { ...connection.containers, sudo: true } };
+    const result = await runWithSudo(host, login, ['cat', '--', ADMIN_CONF], READ_TIMEOUT, rejections);
+    if (result.code !== 0 && /a password is required/i.test(result.stderr)) {
+      throw new KubeInputError(`${ADMIN_CONF} braucht sudo, und sudo verlangt ein Passwort. Speichere das Passwort an der SSH-Verbindung, richte NOPASSWD ein oder lege die kubeconfig unter ~/.kube/config ab.`);
     }
-    const result = await runWithSudo(host, connection, ['cat', '--', ADMIN_CONF], READ_TIMEOUT, rejections);
     if (result.code !== 0 || result.timedOut || result.sudoRejected || result.sudoBusy) {
       throw new HostAccessError(runFailure(result));
     }

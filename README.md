@@ -138,8 +138,9 @@ probiert. Fällt einer aus, verbindet Terminus über den nächsten neu; der Stat
 
 Die kubeconfig wird in dieser Reihenfolge gesucht: `$KUBECONFIG` der Login-Shell
 (erste Datei), `~/.kube/config`, dann `/etc/kubernetes/admin.conf`. Die Datei unter
-`/etc/kubernetes` liest Terminus nur per sudo, und nur wenn die SSH-Verbindung
-„mit sudo“ erlaubt ist (siehe „Container und VMs“). Kubeconfigs mit `exec`- oder
+`/etc/kubernetes` liest Terminus per sudo mit der Anmeldung der SSH-Verbindung:
+Ist ein Passwort gespeichert, beantwortet Terminus die sudo-Abfrage damit, sonst
+nutzt es `sudo -n` (dafür braucht der Benutzer NOPASSWD). Kubeconfigs mit `exec`- oder
 `auth-provider`-Abschnitten lehnt Terminus ab, weil deren Plugins auf diesem Rechner
 statt auf dem Server laufen würden.
 

@@ -38,16 +38,25 @@ describe('readKubeconfig auto', () => {
     expect(result).toEqual({ text: CONFIG_YAML, source: '/home/admin/.kube/config' });
   });
 
-  it('fails with a hint when only admin.conf exists and sudo is not enabled', async () => {
-    const host = fakeHost({ [AUTO_SCRIPT]: ok('src:sudo\n') });
+  it('explains the options when sudo -n needs a password', async () => {
+    const host = fakeHost({ [AUTO_SCRIPT]: ok('src:sudo\n'), 'sudo -n cat': { code: 1, stdout: '', stderr: 'sudo: a password is required' } });
     await expect(readKubeconfig(host, ssh('cp1'), { source: 'auto' }, new SudoRejections())).rejects.toThrow(
-      '/etc/kubernetes/admin.conf braucht sudo. Aktiviere „Container-Befehle mit sudo ausführen“ an der SSH-Verbindung oder gib einen Pfad an.');
+      '/etc/kubernetes/admin.conf braucht sudo, und sudo verlangt ein Passwort. Speichere das Passwort an der SSH-Verbindung, richte NOPASSWD ein oder lege die kubeconfig unter ~/.kube/config ab.');
   });
 
-  it('reads admin.conf with sudo -n when sudo is enabled and the agent authenticates', async () => {
+  it('answers the sudo prompt with the stored password of the SSH connection', async () => {
+    const calls: string[] = [];
+    const host = fakeHost({ [AUTO_SCRIPT]: ok('src:sudo\n'), 'cat -- /etc/kubernetes/admin.conf': ok(CONFIG_YAML) }, calls);
+    const result = await readKubeconfig(host, ssh('cp1', { authentication: { method: 'password', password: 'pw' } }), { source: 'auto' }, new SudoRejections());
+    expect(calls[1]).toContain('sudo -S -p');
+    expect(vi.mocked(host.run).mock.calls[1][2]).toMatchObject({ password: 'pw' });
+    expect(result.source).toBe('/etc/kubernetes/admin.conf (sudo)');
+  });
+
+  it('reads admin.conf with sudo -n through the existing SSH connection, without the container sudo flag', async () => {
     const calls: string[] = [];
     const host = fakeHost({ [AUTO_SCRIPT]: ok('src:sudo\n'), 'sudo -n cat -- /etc/kubernetes/admin.conf': ok(CONFIG_YAML) }, calls);
-    const result = await readKubeconfig(host, ssh('cp1', { containers: { sudo: true } }), { source: 'auto' }, new SudoRejections());
+    const result = await readKubeconfig(host, ssh('cp1'), { source: 'auto' }, new SudoRejections());
     expect(calls[1]).toContain('sudo -n cat -- /etc/kubernetes/admin.conf');
     expect(result).toEqual({ text: CONFIG_YAML, source: '/etc/kubernetes/admin.conf (sudo)' });
   });
@@ -123,10 +132,10 @@ describe('openAccess', () => {
   });
 
   it('stops at a configuration error instead of trying the next host', async () => {
-    const cp1 = fakeHost({ [AUTO_SCRIPT]: ok('src:sudo\n') });
+    const cp1 = fakeHost({ [AUTO_SCRIPT]: ok('src:sudo\n'), 'sudo -n cat': { code: 1, stdout: '', stderr: 'sudo: a password is required' } });
     const cp2 = fakeHost({ [AUTO_SCRIPT]: ok(`src:/x\n${CONFIG_YAML}`) });
     const deps = dependencies({ cp1: ssh('cp1'), cp2: ssh('cp2') }, async connection => connection.id === 'cp1' ? cp1 : cp2);
-    await expect(openAccess(cluster(['cp1', 'cp2']), deps)).rejects.toThrow('braucht sudo');
+    await expect(openAccess(cluster(['cp1', 'cp2']), deps)).rejects.toThrow('sudo verlangt ein Passwort');
     expect(cp1.close).toHaveBeenCalledTimes(1);
     expect(cp2.run).not.toHaveBeenCalled();
   });

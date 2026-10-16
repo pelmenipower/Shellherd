@@ -94,7 +94,8 @@ export interface KubernetesConnectionNode extends ConnectionBase {
 1. `$KUBECONFIG` der Login-Shell (nur die erste Datei der Liste)
 2. `~/.kube/config`
 3. `/etc/kubernetes/admin.conf` per sudo. Das läuft über den bestehenden sudo-Weg der Container
-   (`sudoSetting`, `SudoRejections`-Gate, gemerkte abgelehnte Passwörter) und nur, wenn die SSH-Verbindung „mit sudo“ erlaubt.
+   (`SudoRejections`-Gate, gemerkte abgelehnte Passwörter) mit der Anmeldung der SSH-Verbindung, unabhängig vom Container-Schalter „mit sudo“:
+   gespeichertes Passwort beantwortet die sudo-Abfrage, sonst `sudo -n`.
 
 Kubeconfigs mit `exec`- oder `auth-provider`-Abschnitten lehnt Stufe 1 mit einer Meldung ab.
 Diese Plugins würden auf diesem Rechner statt auf cp1 laufen.
@@ -321,7 +322,7 @@ Alle Meldungen sind auf Deutsch, nach dem Muster von `describeFailure` in `src/m
 |---|---|
 | Kein Zugangs-Host erreichbar | „Keiner der Zugangs-Hosts erreichbar (k8s-cp1: Timeout, k8s-cp2: …)“ mit dem Knopf „Erneut versuchen“ |
 | Keine kubeconfig gefunden | „Keine kubeconfig auf k8s-cp1 gefunden (geprüft: $KUBECONFIG, ~/.kube/config, /etc/kubernetes/admin.conf)“ mit dem Hinweis, einen Pfad anzugeben |
-| admin.conf ohne sudo-Erlaubnis | „/etc/kubernetes/admin.conf braucht sudo. Aktiviere ‚mit sudo‘ an der SSH-Verbindung oder gib einen Pfad an.“ |
+| admin.conf, sudo verlangt ein Passwort (kein Passwort gespeichert, kein NOPASSWD) | „/etc/kubernetes/admin.conf braucht sudo, und sudo verlangt ein Passwort. Speichere das Passwort an der SSH-Verbindung, richte NOPASSWD ein oder lege die kubeconfig unter ~/.kube/config ab.“ |
 | sudo abgelehnt oder belegt | dieselben Meldungen wie bei den Containern, über dasselbe Gate |
 | Context nicht vorhanden | „Context ‚…‘ gibt es in der kubeconfig nicht (vorhanden: …)“ |
 | Exec-Plugin in der kubeconfig | „Diese kubeconfig nutzt ein Login-Plugin. Das wird noch nicht unterstützt.“ |
