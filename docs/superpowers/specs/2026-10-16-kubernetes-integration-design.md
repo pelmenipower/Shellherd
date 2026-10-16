@@ -60,17 +60,17 @@ Dabei kommt kein neues Secret auf den Rechner. Wer SSH auf cp1 hat, hat diesen Z
 Die Zugangsdaten bleiben im Speicher des Main-Prozesses und werden beim Schließen der Session verworfen.
 
 **Risiko TLS über den Tunnel.** Ob `client-node` `tls-server-name` über den Tunnel so beachtet, dass Hostname-Prüfung und Zertifikat zusammenpassen,
-klärt ein **Spike als erste Aufgabe** des Plans. Fallback, falls nicht: den Tunnel auf cp1 an `127.0.0.1:6443` enden lassen,
-denn kubeadm nimmt `127.0.0.1` in die SANs des API-Server-Zertifikats auf. Der Spike arbeitet nur lesend
+klärt ein **Spike als erste Aufgabe** des Plans. `@kubernetes/client-node` 2.0 reicht `tlsServerName` an HTTPS und WebSocket weiter. Fallback, falls der Original-Host nicht im Zertifikat steht:
+`tls-server-name: kubernetes`, denn diesen Namen nimmt kubeadm immer in die SANs des API-Server-Zertifikats auf. Der Spike arbeitet nur lesend
 (`list nodes`, ein Watch) und startet erst nach ausdrücklicher Freigabe. Sein Code wird verworfen.
 
 ## Vault-Modell
 
-Neuer Knotentyp neben den bestehenden Verbindungen (`src/shared/vault/types.ts`, zod in `schema.ts`):
+Neue Verbindungsart (`type: 'connection'`, `protocol: 'kubernetes'`) neben den bestehenden Verbindungen (`src/shared/vault/types.ts`, zod in `schema.ts`):
 
 ```ts
-export interface KubernetesClusterNode extends ConnectionBase {
-  type: 'kubernetes';
+export interface KubernetesConnectionNode extends ConnectionBase {
+  protocol: 'kubernetes';
   /** Ordered SSH connection ids; the first reachable one carries the tunnel. */
   accessHosts: string[];
   kubeconfig: { source: 'auto' } | { source: 'path'; path: string };
@@ -84,7 +84,7 @@ export interface KubernetesClusterNode extends ConnectionBase {
 ```
 
 - Er erbt Name, Kommentar, Tags, Farbe, Icon und `disabled` wie jede Verbindung.
-- Es ist ein neuer Typ, deshalb ist **keine Migration** nötig. Bestehende Vaults bleiben gültig.
+- Es ist eine neue Verbindungsart, deshalb ist **keine Migration** nötig. Bestehende Vaults bleiben gültig.
 - `accessHosts` enthält mindestens einen Eintrag. Verweist eine ID auf eine gelöschte oder deaktivierte SSH-Verbindung,
   wird sie übersprungen und am Cluster-Eintrag erscheint ein Hinweis. Sind alle ungültig, öffnet der Tab mit einer Fehlermeldung.
 - Die Schalter `production` und `readOnly` sind unabhängig voneinander.
@@ -216,7 +216,7 @@ So kann die Hilfe nie vom Verhalten abweichen.
 | Aktion | Gilt für | Umsetzung |
 |---|---|---|
 | Rollout neu starten | Deployment, StatefulSet, DaemonSet | Patch der Annotation `kubectl.kubernetes.io/restartedAt` im Pod-Template |
-| Skalieren | Deployment, StatefulSet | Patch der Subresource `scale` |
+| Skalieren | Deployment, StatefulSet | Merge-Patch auf `spec.replicas` |
 | Pod löschen | Pod | `delete` mit Standard-Grace-Period |
 
 - **Jede verändernde Aktion fragt nach.** Das gilt unabhängig von „Produktion“, und es gibt keine Option „nicht mehr fragen“.
