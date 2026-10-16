@@ -9,6 +9,7 @@ const fields: ConnectionFields = {
   method: 'agent', password: 'synthetic-only', keyPath: '/synthetic/key', passphrase: 'synthetic-only',
   domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
   tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off', disabled: 'off',
+  accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
 };
 
 /** SSH result narrowed for property assertions. */
@@ -95,6 +96,24 @@ describe('connection form validation', () => {
       expect(error).toBeInstanceOf(ConnectionFieldError);
       expect((error as ConnectionFieldError).field).toBe(field);
     }
+  });
+});
+
+describe('kubernetes clusters in the form', () => {
+  const cluster = { ...fields, accessHosts: ['a', 'b'], context: ' prod ', namespace: 'apps', production: 'off' as const, readOnly: 'on' as const };
+  it('builds a cluster with ordered access hosts, defaults and overrides', () => {
+    expect(connectionFromFields('k', cluster, 'kubernetes')).toMatchObject({ id: 'k', protocol: 'kubernetes', name: 'API', accessHosts: ['a', 'b'],
+      kubeconfig: { source: 'auto' }, context: 'prod', namespace: 'apps', production: false, readOnly: true });
+    expect(connectionFromFields('k', { ...cluster, context: '', namespace: '' }, 'kubernetes')).not.toHaveProperty('context');
+  });
+  it('reads a cluster back into the form fields', () => {
+    const node = connectionFromFields('k', { ...cluster, kubeconfigSource: 'path', kubeconfigPath: '/etc/k.conf' }, 'kubernetes');
+    expect(fieldsFromConnection('kubernetes', node)).toMatchObject({ accessHosts: ['a', 'b'], kubeconfigSource: 'path', kubeconfigPath: '/etc/k.conf', context: 'prod', production: 'off', readOnly: 'on' });
+  });
+  it('reports access host, kubeconfig path and namespace problems on their fields', () => {
+    expect(() => connectionFromFields('k', { ...cluster, accessHosts: [] }, 'kubernetes')).toThrow(ConnectionFieldError);
+    expect(() => connectionFromFields('k', { ...cluster, kubeconfigSource: 'path', kubeconfigPath: 'rel' }, 'kubernetes')).toThrow('beginnen');
+    expect(() => connectionFromFields('k', { ...cluster, namespace: 'Bad_NS' }, 'kubernetes')).toThrow('Namespace');
   });
 });
 

@@ -1,7 +1,9 @@
 import { ConnectionNodeSchema } from '../../shared/vault/schema';
 import { CONNECTION_ICONS } from '../../shared/vault/appearance';
 import { PROTOCOLS } from '../../shared/vault/connections';
+import { KUBE_NAME } from '../../shared/kubernetes';
 import type { Authentication, ConnectionNode, ConnectionProtocol, VaultNode } from '../../shared/vault/types';
+import { NO_ACCESS_MESSAGE, kubeconfigPathError } from './cluster-form';
 
 /** All form values as strings; only the fields of the chosen protocol are used. */
 export interface ConnectionFields {
@@ -27,7 +29,18 @@ export interface ConnectionFields {
   containerSudo: 'on' | 'off';
   /** Not editable in the form; carried over so saving never re-enables a connection. */
   disabled: 'on' | 'off';
+  /** Kubernetes only: ordered SSH connection ids. */
+  accessHosts: string[];
+  kubeconfigSource: 'auto' | 'path';
+  kubeconfigPath: string;
+  context: string;
+  namespace: string;
+  production: 'on' | 'off';
+  readOnly: 'on' | 'off';
 }
+
+/** Form fields that hold plain text and can be shown in a text input. */
+export type ConnectionTextField = { [K in keyof ConnectionFields]: ConnectionFields[K] extends string ? K : never }[keyof ConnectionFields];
 
 export class ConnectionFieldError extends Error {
   constructor(public readonly field: keyof ConnectionFields, message: string) {
@@ -46,6 +59,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     icon: connection?.icon ?? PROTOCOLS[protocol].defaultIcon,
     containerSudo: 'off',
     disabled: connection?.disabled ? 'on' : 'off',
+    accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
   };
   if (connection?.protocol === 'ssh' || connection?.protocol === 'sftp' || connection?.protocol === 'rdp') {
     Object.assign(fields, { host: connection.host, port: String(connection.port), username: connection.username ?? '' });
@@ -65,6 +79,12 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
   }
   if (connection?.protocol === 'powershell' || connection?.protocol === 'cmd') fields.workingDirectory = connection.workingDirectory ?? '';
   if (connection?.protocol === 'aicli') Object.assign(fields, { workingDirectory: connection.workingDirectory ?? '', tool: connection.tool, command: connection.command ?? '' });
+  if (connection?.protocol === 'kubernetes') Object.assign(fields, {
+    accessHosts: [...connection.accessHosts], kubeconfigSource: connection.kubeconfig.source,
+    kubeconfigPath: connection.kubeconfig.source === 'path' ? connection.kubeconfig.path : '',
+    context: connection.context ?? '', namespace: connection.namespace ?? '',
+    production: connection.production ? 'on' : 'off', readOnly: connection.readOnly ? 'on' : 'off',
+  });
   return fields;
 }
 
@@ -108,6 +128,21 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
     if (/[\r\n]/.test(command)) throw new ConnectionFieldError('command', 'Der Befehl muss eine Zeile sein.');
     node = { ...base, protocol, tool: fields.tool, ...(fields.tool === 'custom' ? { command } : {}),
       ...(fields.workingDirectory.trim() ? { workingDirectory: fields.workingDirectory.trim() } : {}) };
+  } else if (protocol === 'kubernetes') {
+    // Access hosts and the kubeconfig path get field errors here; ConnectionForm adds validateCluster for the rest.
+    if (fields.accessHosts.length === 0) throw new ConnectionFieldError('accessHosts', NO_ACCESS_MESSAGE);
+    const kubeconfigPath = fields.kubeconfigPath.trim();
+    if (fields.kubeconfigSource === 'path') {
+      const problem = kubeconfigPathError(kubeconfigPath);
+      if (problem) throw new ConnectionFieldError('kubeconfigPath', problem);
+    }
+    const namespace = fields.namespace.trim();
+    if (namespace && !KUBE_NAME.test(namespace)) throw new ConnectionFieldError('namespace', 'Bitte gib einen gültigen Namespace ein, z. B. default.');
+    const context = fields.context.trim();
+    node = { ...base, protocol, accessHosts: [...fields.accessHosts],
+      kubeconfig: fields.kubeconfigSource === 'path' ? { source: 'path', path: kubeconfigPath } : { source: 'auto' },
+      ...(context ? { context } : {}), ...(namespace ? { namespace } : {}),
+      production: fields.production === 'on', readOnly: fields.readOnly === 'on' };
   } else {
     node = { ...base, protocol, ...(fields.workingDirectory.trim() ? { workingDirectory: fields.workingDirectory.trim() } : {}) };
   }
