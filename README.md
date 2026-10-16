@@ -124,8 +124,39 @@ für diesen Benutzer nötig. Lehnt sudo das Passwort ab, sendet Terminus es erst
 wieder, wenn die Verbindungseinstellungen geändert wurden.
 
 Container-Tabs von SSH-Hosts werden in Workspaces gespeichert, lokale Container-Tabs
-nicht. Diese Version bietet keinen Datei-Browser in Containern, keine Proxmox-API,
-keine Cluster-Ansicht und kein Kubernetes.
+nicht. Diese Version bietet keinen Datei-Browser in Containern und keine Proxmox-API.
+Kubernetes hat einen eigenen Abschnitt.
+
+## Kubernetes
+
+Ein Cluster wird aus einer bestehenden SSH-Verbindung eingerichtet: Im Kontextmenü
+`Als Kubernetes-Cluster einrichten…` wählen. Terminus liest auf dem Host die kubeconfig
+und schlägt Name, Context und weitere Zugangs-Hosts vor, etwa `k8s-cp2` und
+`k8s-cp3` im selben Namensmuster. Die Zugangs-Hosts werden der Reihe nach
+probiert. Fällt einer aus, verbindet Terminus über den nächsten neu; der Status zeigt,
+über welchen Host der Cluster gerade erreichbar ist.
+
+Die kubeconfig wird in dieser Reihenfolge gesucht: `$KUBECONFIG` der Login-Shell
+(erste Datei), `~/.kube/config`, dann `/etc/kubernetes/admin.conf`. Die Datei unter
+`/etc/kubernetes` liest Terminus nur per sudo, und nur wenn die SSH-Verbindung
+„mit sudo“ erlaubt ist (siehe „Container und VMs“). Kubeconfigs mit `exec`- oder
+`auth-provider`-Abschnitten lehnt Terminus ab, weil deren Plugins auf diesem Rechner
+statt auf dem Server laufen würden.
+
+Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
+Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, YAML,
+Events und Describe bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
+Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird.
+
+Der Cluster-Tab zeigt Nodes, Workloads, Pods und Events live. `Enter` führt per
+Drill-down etwa von einem Deployment über seine Pods zu den Containern, `Esc` geht
+eine Ebene zurück. Unten öffnet sich ein Bereich für Logs (`l`), Shell (`s`), Events
+(`e`), YAML (`y`) und Describe (`d`). `/` filtert, `:` führt Befehle aus wie `:ns all`
+oder `:deploy`, und `?` zeigt die Hilfe mit allen Hotkeys und Befehlen.
+
+Die kubeconfig liegt nur im Speicher des Hauptprozesses und wird nicht auf die
+Festplatte geschrieben. Der Tunnel zum API-Server lauscht nur auf `127.0.0.1`.
+Secret-Daten sind in der YAML-Ansicht maskiert.
 
 ## Server-Schlüssel
 
