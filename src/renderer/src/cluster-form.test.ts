@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyCluster, newClusterFromSsh, suggestAccessHosts, validateCluster } from './cluster-form';
+import { emptyCluster, firstActiveAccessHost, newClusterFromSsh, suggestAccessHosts, validateCluster } from './cluster-form';
 import type { SshConnectionNode } from '../../shared/vault/types';
 
 function ssh(id: string, host: string): SshConnectionNode {
@@ -48,5 +48,21 @@ describe('cluster creation and validation', () => {
     const cluster = { ...emptyCluster('k'), name: 'Prod', accessHosts: ['a'], kubeconfig: { source: 'path' as const, path: '~/.kube/config' } };
     expect(validateCluster(cluster, [ssh('a', 'h')])).toBeNull();
     expect(validateCluster(cluster, [{ ...ssh('a', 'h'), disabled: true }])).toBe('Die Zugangs-Verbindung „a“ ist deaktiviert.');
+  });
+});
+
+describe('firstActiveAccessHost', () => {
+  const cluster = (accessHosts: string[]) => ({ ...emptyCluster('k'), accessHosts });
+  it('returns the first access host that is an enabled SSH connection', () => {
+    const nodes = [{ ...ssh('a', 'h1'), disabled: true }, ssh('b', 'h2'), ssh('c', 'h3')];
+    expect(firstActiveAccessHost(nodes, cluster(['missing', 'a', 'b', 'c']))?.id).toBe('b');
+  });
+  it('skips non-SSH connections and returns null without a match', () => {
+    const other = emptyCluster('x');
+    expect(firstActiveAccessHost([other, { ...ssh('a', 'h'), disabled: true }], cluster(['x', 'a']))).toBeNull();
+  });
+  it('finds connections inside folders', () => {
+    const folder = { id: 'f', type: 'folder' as const, name: 'f', children: [ssh('a', 'h')] };
+    expect(firstActiveAccessHost([folder], cluster(['a']))?.id).toBe('a');
   });
 });
