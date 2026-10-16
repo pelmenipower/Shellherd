@@ -14,7 +14,7 @@ export const KubeOpenRequestSchema = z.object({ clusterId: z.string().min(1).max
 export const KubeViewRequestSchema = z.object({ viewId }).strict();
 export const KubeSubscribeRequestSchema = z.object({ viewId, query: KubeQuerySchema }).strict();
 export const KubeDetailRequestSchema = z.object({ viewId, ref: KubeRefSchema, mode: z.enum(['yaml', 'describe', 'events']) }).strict();
-export const KubeActionRequestSchema = z.object({ viewId, ref: KubeRefSchema, action: z.enum(['restart', 'scale', 'delete']),
+export const KubeActionRequestSchema = z.object({ viewId, ref: KubeRefSchema, action: z.enum(['restart', 'scale', 'delete', 'cordon', 'uncordon', 'suspend', 'resume', 'trigger']),
   replicas: z.number().int().min(0).max(MAX_REPLICAS).optional() }).strict();
 export const KubeProbeRequestSchema = z.object({ connectionId: z.string().min(1).max(256) }).strict();
 export const KubeTerminalTargetSchema: z.ZodType<KubeTerminalTarget> = z.object({ namespace: KubeNameSchema, pod: KubeNameSchema, container: KubeNameSchema,

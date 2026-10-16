@@ -1,6 +1,47 @@
 import { describe, expect, it } from 'vitest';
-import { KUBE_COMMANDS, bindingOf, commandForKey, completions, parseCommandLine } from './kube-commands';
-import { initialKubeView } from './kube-view';
+import { ACTION_KINDS, type KubeAction, type KubeKind, type KubeRow } from '../../shared/kubernetes';
+import { KUBE_COMMANDS, actionReason, bindingOf, commandForKey, completions, parseCommandLine, podNotRunning } from './kube-commands';
+import { initialKubeView, type KubeViewState } from './kube-view';
+
+const READY = { state: 'ready', name: 'c', production: false, readOnly: false, metrics: true } as const;
+const ref = (kind: KubeKind) => ({ kind, namespace: kind === 'nodes' ? undefined : 'shop', name: 'x' });
+const row = (kind: KubeKind, status?: string): KubeRow => ({ uid: 'u', ref: ref(kind), cells: status ? { status } : {}, tone: 'ok', labels: {}, containers: ['a'] });
+const withRow = (kind: KubeKind, status?: string): KubeViewState => {
+  const r = row(kind, status);
+  return { ...initialKubeView('shop'), status: READY, query: { kind, namespace: 'shop' }, rows: [r], selected: `${kind}/${r.ref.namespace ?? ''}/x` };
+};
+
+describe('actionReason', () => {
+  const ACTIONS = Object.keys(ACTION_KINDS) as KubeAction[];
+  const wrong = (action: KubeAction): KubeKind => (action === 'cordon' || action === 'uncordon' ? 'pods' : 'nodes');
+  it.each(ACTIONS)('checks %s in order: readOnly, connected, kind, ref', action => {
+    const right = ref(ACTION_KINDS[action][0]);
+    expect(actionReason(action, { ref: null, readOnly: true, connected: false })).toBe('Dieser Cluster ist schreibgeschützt.');
+    expect(actionReason(action, { ref: null, readOnly: false, connected: false })).toBe('Der Cluster ist gerade nicht verbunden.');
+    expect(actionReason(action, { ref: right, readOnly: false, connected: true })).toBeUndefined();
+    expect(actionReason(action, { ref: null, readOnly: false, connected: true })).toBe('Wähle zuerst eine Zeile.');
+    expect(actionReason(action, { ref: ref(wrong(action)), readOnly: false, connected: true })).toMatch(/^Nur für /);
+    expect(actionReason(action, { ref: null, kind: wrong(action), readOnly: false, connected: true })).toMatch(/^Nur für /);
+  });
+  it('words the kind restriction for delete', () => {
+    expect(actionReason('delete', { ref: ref('services'), readOnly: false, connected: true })).toBe('Nur für Pods und Jobs.');
+  });
+  it('feeds the registry from the selected row, or the drilled pod', () => {
+    const command = (id: string) => KUBE_COMMANDS.find(c => c.id === id)!;
+    expect(command('delete').unavailable?.({ state: withRow('jobs'), readOnly: false })).toBeUndefined();
+    expect(command('restart').unavailable?.({ state: withRow('pods'), readOnly: false })).toBe('Nur für Deployments, StatefulSets und DaemonSets.');
+    expect(command('restart').unavailable?.({ state: { ...withRow('deployments'), selected: null }, readOnly: false })).toBe('Wähle zuerst eine Zeile.');
+    const pods = withRow('pods');
+    expect(command('delete').unavailable?.({ state: { ...pods, containersOf: pods.rows[0], selected: null }, readOnly: false })).toBeUndefined();
+  });
+  it('refuses a shell in pods that do not run', () => {
+    const shell = KUBE_COMMANDS.find(c => c.id === 'shell')!;
+    expect(shell.unavailable?.({ state: withRow('pods', 'Running'), readOnly: false })).toBeUndefined();
+    expect(shell.unavailable?.({ state: withRow('pods', 'Completed'), readOnly: false })).toBe('Der Pod läuft nicht.');
+    expect(podNotRunning(row('pods', 'Terminating'))).toBe(true);
+    expect(podNotRunning(null)).toBe(false);
+  });
+});
 
 describe('kube commands', () => {
   it('gives every command a description and a group', () => {
@@ -24,12 +65,16 @@ describe('kube commands', () => {
     expect(bindingOf({ key: 'd', ctrlKey: true, shiftKey: false, altKey: false, metaKey: false })).toBe('Ctrl+d');
     expect(bindingOf({ key: 'T', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false })).toBe('Ctrl+Shift+T');
     expect(bindingOf({ key: 'S', ctrlKey: false, shiftKey: true, altKey: false, metaKey: false })).toBe('S');
+    expect(bindingOf({ key: 'F10', ctrlKey: false, shiftKey: true, altKey: false, metaKey: false })).toBe('Shift+F10');
+    expect(bindingOf({ key: 'ContextMenu', ctrlKey: false, shiftKey: false, altKey: false, metaKey: false })).toBe('ContextMenu');
+    expect(commandForKey('Shift+F10')?.id).toBe('menu'); expect(commandForKey('ContextMenu')?.id).toBe('menu');
   });
   it('explains why actions are unavailable', () => {
     const state = { ...initialKubeView('shop') };
     const restart = KUBE_COMMANDS.find(command => command.id === 'restart')!;
     expect(restart.unavailable?.({ state, readOnly: true })).toBe('Dieser Cluster ist schreibgeschützt.');
-    expect(restart.unavailable?.({ state, readOnly: false })).toBe('Nur für Deployments, StatefulSets und DaemonSets.');
+    expect(restart.unavailable?.({ state: { ...state, status: READY }, readOnly: false })).toBe('Nur für Deployments, StatefulSets und DaemonSets.');
+    expect(restart.unavailable?.({ state, readOnly: false })).toBe('Der Cluster ist gerade nicht verbunden.');
     expect(KUBE_COMMANDS.find(command => command.id === 'shell')!.unavailable?.({ state, readOnly: true })).toBe('Dieser Cluster ist schreibgeschützt.');
   });
   it('parses command lines', () => {
