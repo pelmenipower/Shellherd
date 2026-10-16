@@ -1,3 +1,4 @@
+import { KIND_INFO } from '../../shared/kubernetes';
 import type { KubeKind, KubeRef, KubeRow, NodeTile, RowTone } from '../../shared/kubernetes';
 import type { KubeObject } from './api';
 
@@ -18,6 +19,30 @@ const labelMap = (v: unknown): Record<string, string> => {
 };
 const joinList = (items: (string | undefined)[]): string => items.filter((item): item is string => !!item).join(',');
 const images = (podSpec: unknown): string => joinList(list(rec(podSpec).containers).map(c => text(rec(c).image)));
+
+const nodeIp = (node: KubeObject): string | undefined => {
+  const found = list(rec(node.status).addresses).map(rec).find(a => a.type === 'InternalIP' && text(a.address));
+  return found ? text(found.address) : undefined;
+};
+
+const OWNER_KINDS: Record<string, KubeKind> = { StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs' };
+
+function ownerOf(kind: KubeKind, meta: Dict, namespace: string | undefined): KubeRef | undefined {
+  if (kind !== 'pods' && kind !== 'jobs') return undefined;
+  const controller = list(meta.ownerReferences).map(rec).find(o => o.controller === true);
+  const ownerKind = text(controller?.kind);
+  const name = text(controller?.name);
+  if (!ownerKind || !name || !namespace) return undefined;
+  if (kind === 'jobs') return ownerKind === 'CronJob' ? { kind: 'cronjobs', namespace, name } : undefined;
+  if (ownerKind === 'ReplicaSet') {
+    const hash = text(labelMap(meta.labels)['pod-template-hash']);
+    if (!hash || !name.endsWith(`-${hash}`) || name.length === hash.length + 1) return undefined;
+    return { kind: 'deployments', namespace, name: name.slice(0, -(hash.length + 1)) };
+  }
+  if (ownerKind === 'Node') return { kind: 'nodes', name };
+  const mapped = OWNER_KINDS[ownerKind];
+  return mapped ? { kind: mapped, namespace, name } : undefined;
+}
 
 const BAD_STATES = new Set(['CrashLoopBackOff', 'ImagePullBackOff', 'ErrImagePull', 'InvalidImageName', 'OOMKilled', 'Error',
   'CreateContainerConfigError', 'Failed']);
@@ -85,6 +110,8 @@ export function toNodeTile(node: KubeObject, usage?: { cpuMilli: number; memoryB
     pressure: facts.pressure,
     unschedulable: facts.unschedulable,
   };
+  const ip = nodeIp(node);
+  if (ip) tile.ip = ip;
   if (usage) {
     const allocatable = rec(rec(node.status).allocatable);
     tile.cpu = share(usage.cpuMilli, parseCpu(text(allocatable.cpu)));
@@ -154,6 +181,8 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
 
   const spec = rec(object.spec);
   const status = rec(object.status);
+  const owner = ownerOf(kind, meta, namespace);
+  if (owner) row.owner = owner;
   switch (kind) {
     case 'pods': {
       const pod = podStatus(object);
@@ -170,6 +199,8 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
         if (containerName && image) row.cells[`image:${containerName}`] = image;
       }
       if (nodeName) row.node = nodeName;
+      const podIp = text(status.podIP);
+      if (podIp) row.ip = podIp;
       break;
     }
     case 'deployments':
@@ -193,7 +224,8 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
       row.cells.schedule = text(spec.schedule) ?? '';
       const lastRun = stamp(status.lastScheduleTime);
       if (lastRun) row.cells.lastRun = lastRun;
-      row.tone = spec.suspend === true ? 'muted' : 'ok';
+      row.suspended = spec.suspend === true;
+      row.tone = row.suspended ? 'muted' : 'ok';
       break;
     }
     case 'services': {
@@ -217,12 +249,25 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
       row.cells.status = `${facts.ready ? 'Ready' : 'NotReady'}${unschedulable ? ',SchedulingDisabled' : ''}`;
       row.cells.roles = facts.roles.length > 0 ? facts.roles.join(',') : '—';
       row.cells.version = text(rec(status.nodeInfo).kubeletVersion) ?? '—';
+      row.unschedulable = unschedulable;
+      const ip = nodeIp(object);
+      if (ip) row.ip = ip;
       row.tone = !facts.ready ? 'bad' : facts.pressure.length > 0 || unschedulable ? 'warn' : 'ok';
       break;
     }
     case 'events': {
       const involved = rec(object.involvedObject);
       const type = text(object.type) ?? 'Normal';
+      const involvedKind = text(involved.kind);
+      const involvedName = text(involved.name);
+      if (involvedKind && involvedName) {
+        row.involved = { kind: involvedKind, name: involvedName };
+        const target = (Object.keys(KIND_INFO) as KubeKind[]).find(k => KIND_INFO[k].kind === involvedKind);
+        if (target) {
+          const ns = text(involved.namespace) ?? namespace;
+          row.involved.ref = KIND_INFO[target].namespaced && ns ? { kind: target, namespace: ns, name: involvedName } : { kind: target, name: involvedName };
+        }
+      }
       row.cells.type = type;
       row.cells.reason = text(object.reason) ?? '';
       row.cells.object = text(involved.name) ? `${text(involved.kind) ?? ''}/${text(involved.name)}` : '';

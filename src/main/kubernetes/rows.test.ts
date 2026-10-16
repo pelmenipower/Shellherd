@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { KubeObject } from './api';
 import { toRow, toNodeTile, podStatus, parseCpu, parseMemory } from './rows';
 
 const pod = (status: object, spec: object = { containers: [{ name: 'api' }], nodeName: 'worker2' }) =>
@@ -151,6 +152,82 @@ describe('events', () => {
     expect(toRow('events', { metadata: { name: 'e2', namespace: 'shop', uid: 'e2' }, type: 'Normal', reason: 'Pulled',
       involvedObject: { kind: 'Pod', name: 'api-1' }, eventTime: '2026-10-16T09:10:00Z', series: { count: 4 } }))
       .toMatchObject({ tone: 'muted', cells: { count: 4, last: '2026-10-16T09:10:00Z' } });
+  });
+});
+
+describe('owner, ip, suspended, unschedulable, involved', () => {
+  const ownedPod = (ownerReferences: object[], labels: Record<string, string> = { 'pod-template-hash': '7d9f8' }, status: object = {}): KubeObject =>
+    ({ metadata: { name: 'api-1', namespace: 'shop', uid: 'u1', labels, ownerReferences: ownerReferences as { kind: string; name: string }[] }, spec: { containers: [{ name: 'api' }] }, status });
+  const ref = (kind: string, name: string, controller = true) => ({ kind, name, controller });
+
+  it('resolves a ReplicaSet owner to its Deployment', () => {
+    expect(toRow('pods', ownedPod([ref('ReplicaSet', 'api-7d9f8')]))?.owner).toEqual({ kind: 'deployments', namespace: 'shop', name: 'api' });
+  });
+
+  it('gives no owner for a ReplicaSet name without the matching hash or without the label', () => {
+    expect(toRow('pods', ownedPod([ref('ReplicaSet', 'api-abc12')]))).not.toHaveProperty('owner');
+    expect(toRow('pods', ownedPod([ref('ReplicaSet', 'api-7d9f8')], {}))).not.toHaveProperty('owner');
+    expect(toRow('pods', ownedPod([ref('ReplicaSet', '7d9f8')]))).not.toHaveProperty('owner');
+  });
+
+  it('maps StatefulSet, DaemonSet and Job owners with the pod namespace', () => {
+    expect(toRow('pods', ownedPod([ref('StatefulSet', 'db')]))?.owner).toEqual({ kind: 'statefulsets', namespace: 'shop', name: 'db' });
+    expect(toRow('pods', ownedPod([ref('DaemonSet', 'agent')]))?.owner).toEqual({ kind: 'daemonsets', namespace: 'shop', name: 'agent' });
+    expect(toRow('pods', ownedPod([ref('Job', 'migrate')]))?.owner).toEqual({ kind: 'jobs', namespace: 'shop', name: 'migrate' });
+  });
+
+  it('maps a static pod owned by a Node without namespace', () => {
+    const owner = toRow('pods', ownedPod([ref('Node', 'cp1')]))?.owner;
+    expect(owner).toEqual({ kind: 'nodes', name: 'cp1' });
+    expect(owner).not.toHaveProperty('namespace');
+  });
+
+  it('uses only the controller reference and ignores other kinds', () => {
+    expect(toRow('pods', ownedPod([ref('Job', 'x', false)]))).not.toHaveProperty('owner');
+    expect(toRow('pods', ownedPod([ref('Job', 'x', false), ref('StatefulSet', 'db')]))?.owner).toMatchObject({ kind: 'statefulsets' });
+    expect(toRow('pods', ownedPod([ref('Foo', 'x')]))).not.toHaveProperty('owner');
+    expect(toRow('pods', ownedPod([]))).not.toHaveProperty('owner');
+  });
+
+  it('maps a Job owned by a CronJob', () => {
+    const job = { metadata: { name: 'nightly-1', namespace: 'shop', uid: 'j1', ownerReferences: [ref('CronJob', 'nightly')] }, spec: {}, status: {} };
+    expect(toRow('jobs', job)?.owner).toEqual({ kind: 'cronjobs', namespace: 'shop', name: 'nightly' });
+    expect(toRow('jobs', { ...job, metadata: { ...job.metadata, ownerReferences: [ref('Foo', 'x')] } })).not.toHaveProperty('owner');
+  });
+
+  it('sets ip for pods and nodes, and leaves it out when missing', () => {
+    expect(toRow('pods', ownedPod([], {}, { podIP: '10.0.0.5' }))?.ip).toBe('10.0.0.5');
+    expect(toRow('pods', ownedPod([], {}))).not.toHaveProperty('ip');
+    const node = { metadata: { name: 'w1', uid: 'n1' }, status: { addresses: [{ type: 'Hostname', address: 'w1' },
+      { type: 'InternalIP', address: '10.1.1.1' }, { type: 'InternalIP', address: '10.1.1.2' }], conditions: [] } };
+    expect(toRow('nodes', node)?.ip).toBe('10.1.1.1');
+    expect(toNodeTile(node).ip).toBe('10.1.1.1');
+    const bare = { metadata: { name: 'w2', uid: 'n2' }, status: {} };
+    expect(toRow('nodes', bare)).not.toHaveProperty('ip');
+    expect('ip' in toNodeTile(bare)).toBe(false);
+  });
+
+  it('sets suspended for cronjobs and unschedulable for nodes', () => {
+    const cron = (suspend?: boolean) => ({ metadata: { name: 'c', namespace: 'shop', uid: 'c1' }, spec: { schedule: '* * * * *', suspend }, status: {} });
+    expect(toRow('cronjobs', cron(true))?.suspended).toBe(true);
+    expect(toRow('cronjobs', cron())?.suspended).toBe(false);
+    expect(toRow('nodes', { metadata: { name: 'w', uid: 'n' }, spec: { unschedulable: true }, status: {} })?.unschedulable).toBe(true);
+    expect(toRow('nodes', { metadata: { name: 'w', uid: 'n' }, status: {} })?.unschedulable).toBe(false);
+  });
+
+  it('builds involved with a ref only for known kinds', () => {
+    const event = (involvedObject: object, namespace = 'shop') => ({ metadata: { name: 'e', namespace, uid: 'e1' }, involvedObject });
+    expect(toRow('events', event({ kind: 'Pod', name: 'api-1', namespace: 'other' }))?.involved)
+      .toEqual({ kind: 'Pod', name: 'api-1', ref: { kind: 'pods', namespace: 'other', name: 'api-1' } });
+    expect(toRow('events', event({ kind: 'Pod', name: 'api-1' }))?.involved?.ref).toEqual({ kind: 'pods', namespace: 'shop', name: 'api-1' });
+    expect(toRow('events', event({ kind: 'ReplicaSet', name: 'api-7d9f8' }))?.involved).toEqual({ kind: 'ReplicaSet', name: 'api-7d9f8' });
+    expect(toRow('events', event({ name: 'x' }))).not.toHaveProperty('involved');
+  });
+
+  it('gives a Node event ref no namespace even though the event lives in default', () => {
+    const involved = toRow('events', { metadata: { name: 'e', namespace: 'default', uid: 'e1' }, involvedObject: { kind: 'Node', name: 'w1', namespace: 'default' } })?.involved;
+    expect(involved?.ref).toEqual({ kind: 'nodes', name: 'w1' });
+    expect(involved?.ref).not.toHaveProperty('namespace');
   });
 });
 
