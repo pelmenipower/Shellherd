@@ -44,9 +44,40 @@
 4. **CronJob-Name nahe 52 Zeichen:** Der Job-Name von „Jetzt ausführen“ ist höchstens 63 Zeichen lang, entspricht DNS-1123 und endet nicht auf `-`. Test in Task 4.
 5. **`Shift+F10` gegenüber `S` und `Ctrl+Shift+T`:** Alle drei Bindings bleiben eindeutig. Test in Task 1.
 
+## Bindende Korrekturen aus der Opus-Validierung
+
+`docs/superpowers/specs/2026-10-16-kubernetes-context-menus-validation.md` ist **bindend**. Ihre Blocker B1–B5 und Korrekturen C1–C34
+gehen dem Text dieses Plans und der Spec vor. Wo die Validierung eine „Entscheidung“ nennt, gilt diese. Die Abschnitte „Nice-to-have“ dort werden **nicht** umgesetzt.
+Jeder Task liest die Punkte, die seine Dateien betreffen:
+
+| Task | Pflichtpunkte aus der Validierung |
+|---|---|
+| 1 (+ 6) | B5, C1, C2, C3, C4, C5, C19, C31 (Task 6 läuft im selben Auftrag wie Task 1, damit `Record<KubeAction, …>` typprüft) |
+| 3 | C21 |
+| 4 | B3 (FakeApi in overview/session/watch-Tests ergänzen), B4, C19, C20 |
+| 4b (neu) | B1, C25: `src/main/kubernetes/rows.ts` + `rows.test.ts` |
+| 5 | C6, C9, C10, C11 |
+| 9a | C24 |
+| 2 | C7, C8, C13, C14, C21, C26, C27, C28, C29, C33, C18 (Testlücken) |
+| 8 | C12, C17; alle neuen Props optional |
+| 7 (+ 9b-Verdrahtung) | B2, C12, C13, C15, C16, C17, C23, C34; 9b-Verdrahtung in `SplitTerminalArea.tsx` gehört zu Task 7, App.tsx bleibt unverändert |
+| 9b (nur VaultTree) | C32 |
+| 10 | C22 (Doku-Formulierung), C30 (Spec-Namen angleichen) |
+
+### Wellen (ersetzt die Tabelle oben)
+
+| Welle | Tasks |
+|---|---|
+| 1 | Task 1 + Task 6 (ein Auftrag) |
+| 2 | Tasks 3, 4, 4b, 5, 9a parallel |
+| 3 | Task 2 |
+| 4 | Task 8 und 9b (VaultTree) parallel |
+| 5 | Task 7 inklusive Verdrahtung in SplitTerminalArea |
+| 6 | Task 10 |
+
 ---
 
-## Wellen
+## Wellen (ursprünglich, ersetzt)
 
 | Welle | Tasks |
 |---|---|
