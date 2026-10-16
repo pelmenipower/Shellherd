@@ -51,9 +51,9 @@
 | Welle | Tasks |
 |---|---|
 | 1 | Task 1 (Vertrag) |
-| 2 | Tasks 3, 4, 5, 6, 8a, 9a parallel |
+| 2 | Tasks 3, 4, 5, 6, 9a parallel |
 | 3 | Task 2 (Menümodell) |
-| 4 | Tasks 7, 8b, 9b parallel |
+| 4 | Tasks 7, 8, 9b parallel |
 | 5 | Task 10 (Doku) |
 
 ---
@@ -81,6 +81,8 @@ export const NOT_CONNECTED_MESSAGE = 'Der Cluster ist gerade nicht verbunden.';
 //   unschedulable?: boolean         — nodes
 //   involved?: { kind: string; name: string; ref?: KubeRef }  — events; ref only when the kind maps to a KubeKind
 // NodeTile addition: ip?: string
+/** Name of a job started by hand from a CronJob: `<cron>-manual-<unix>`, cut to 63 chars, DNS-1123, never ending in '-'. */
+export function manualJobName(cron: string, unix: number): string;
 ```
 
 `KubeActionRequestSchema.action` → `z.enum(['restart','scale','delete','cordon','uncordon','suspend','resume','trigger'])`. `KubeRefSchema` bleibt.
@@ -98,6 +100,7 @@ export function actionReason(action: KubeAction, context: ActionContext): string
 - Neuer Registry-Eintrag: `{ id: 'menu', group: 'Navigation', description: 'Kontextmenü der Zeile öffnen', keys: ['Shift+F10'], bindings: ['Shift+F10', 'ContextMenu'] }`. `CommandId` um `'menu'` erweitern.
 - `bindingOf`: Shift bleibt erhalten, wenn `key.length > 1` ist (Beispiel `Shift+F10`). Einzelzeichen bleiben wie bisher: `S` bleibt `S`, `Ctrl+Shift+T` bleibt `Ctrl+Shift+T`.
 - Tests:
+  - `manualJobName`: kurzer Name, 60-Zeichen-Name, Ergebnis passt auf `KUBE_NAME`, kein `-` am Ende.
   - `actionReason` für alle 8 Aktionen: readOnly zuerst, dann nicht verbunden, dann keine Zeile, dann falsches Kind.
   - `bindingOf` ergibt `'Shift+F10'`, `'S'` und `'Ctrl+Shift+T'`.
   - Keine Bindung ist doppelt vergeben, auch nicht mit `menu`.
@@ -184,12 +187,11 @@ portForward(ns, service, port: number)        // kubectl -n shop port-forward sv
 serviceDns(ns, service)                       // web.shop.svc.cluster.local
 labelsText(labels)                            // one k=v per line, sorted; null if any key/value invalid
 selectorText(selector)                        // app=api,tier=web
-manualJobName(cron, unix)                     // ≤63 chars, DNS-1123, no trailing '-' (shared by Task 4 — export it)
 ```
 
 - Die Singular-Namen für die Kind-Argumente kommen aus `KIND_INFO[kind].kind.toLowerCase()`.
-- Tests: jeder Builder; `null` bei Großbuchstaben, `;` und Leerzeichen; `manualJobName` mit einem CronJob-Namen von 60 Zeichen.
-- `manualJobName` exportiert Task 3, Task 4 importiert ihn im Main aus `../../renderer/src/kube-kubectl`. **Nein:** Main darf nicht aus dem Renderer importieren. `manualJobName` gehört deshalb nach `src/shared/kubernetes.ts`. Diese Funktion legt **Task 1** in shared an, Task 3 re-exportiert sie nur.
+- Tests: jeder Builder; `null` bei Großbuchstaben, `;` und Leerzeichen.
+- `createJobFromCron` nutzt `manualJobName` aus `src/shared/kubernetes.ts` (Task 1). Main importiert nie aus dem Renderer.
 
 ---
 
@@ -285,9 +287,7 @@ export function runMenuAction(action: MenuAction, runner: MenuRunner): void;
 
 ### Task 8: Weitere Flächen
 
-**8a (Welle 2):** reine Hilfe `nodeTileHeading(tile)` in `kube-menus.ts`. **Nein**, `kube-menus.ts` gehört Task 2. 8a entfällt, Task 8b übernimmt das.
-
-**8b (Welle 4) Files:** `NodeStrip.tsx`, `ProblemBanner.tsx`, `DetailDock.tsx`
+**Files (Welle 4):** `NodeStrip.tsx`, `ProblemBanner.tsx`, `DetailDock.tsx`
 
 - Jede Komponente bekommt die Prop `onMenu?: (target: MenuTarget, x: number, y: number) => void` und öffnet sie per Rechtsklick sowie per `Shift+F10`/`ContextMenu` auf dem fokussierten Button.
 - Node-Kacheln und Problem-Einträge ändern beim Rechtsklick die Auswahl nicht.
