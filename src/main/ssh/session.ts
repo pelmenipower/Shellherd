@@ -19,6 +19,10 @@ import type { SudoMode } from '../containers/commands';
 import { SUDO_NOT_CACHED, SUDO_REJECTED } from '../containers/parsers';
 import { connectionFingerprint, SudoRejections } from '../containers/sudo-rejections';
 import { createSudoMarker, SudoWatcher } from '../containers/sudo';
+import { KUBE_NAME, READ_ONLY_MESSAGE } from '../../shared/kubernetes';
+import type { KubeTerminalMode, KubeTerminalTarget } from '../../shared/kubernetes';
+import { KubeApiError } from '../kubernetes/api';
+import type { KubeStream, TerminalIo } from '../kubernetes/api';
 
 export { agentSocket } from './client-config';
 
@@ -27,6 +31,7 @@ const OUTPUT_LOW = 32 * 1024;
 const OUTPUT_LIMIT = 512 * 1024;
 const INPUT_LIMIT = 64 * 1024;
 const SUDO_READY_TIMEOUT = 20_000;
+const KUBE_TERMINAL_MODES: KubeTerminalMode[] = ['logs', 'previous', 'shell'];
 
 /** `args` as a string is passed to Windows unchanged (cmd.exe /k <command line>). */
 export type SpawnShell = (file: string, args: string[] | string, options: IPtyForkOptions | IWindowsPtyForkOptions) => IPty;
@@ -42,6 +47,8 @@ export interface SshDependencies {
   /** Finds an installed program; injected for tests. */
   locate?: (command: string) => Promise<string | null>;
   verifyHost: (host: string, port: number, key: Buffer, isActive: () => boolean) => Promise<boolean>;
+  /** Opens logs or a shell of a pod through the cluster's live session; absent disables cluster terminals. */
+  openKubeTerminal?: (clusterId: string, target: KubeTerminalTarget, size: TerminalSize, io: TerminalIo) => Promise<KubeStream>;
   emit: (ownerId: number, event: SshEvent) => void;
 }
 
@@ -64,6 +71,9 @@ interface Session {
   /** Between a window transfer and the new window's attach: output is held, not emitted. */
   handover?: { held: Buffer[]; bytes: number };
   target?: TerminalTarget;
+  /** Cluster pod terminal (logs or shell); no SSH client, the stream comes from the cluster's session. */
+  kube?: KubeTerminalTarget;
+  kubeStream?: KubeStream;
   exitCode?: number | null;
   tail?: string;
   /** Set once the user sent input; later exits are the user's own. */
@@ -134,6 +144,7 @@ export class SshSessionManager {
     const connection = local ? undefined : this.dependencies.getConnection(request.connectionId);
     if (connection?.protocol === 'rdp' || connection?.protocol === 'sftp') throw new Error('Diese Verbindung ist keine Terminalverbindung.');
     if (connection?.protocol === 'kubernetes' && !request.kube) throw new Error('Cluster öffnen sich im Cluster-Tab.');
+    if (request.kube) this.checkKubeRequest(request.kube, connection);
     if (connection && request.target && connection.protocol !== 'ssh') throw new Error('Container-Tabs gibt es nur für SSH-Verbindungen.');
     if (connection?.protocol === 'ssh' && (!connection.host.trim() || !connection.username?.trim())) {
       throw new Error('Bitte speichere Host und Benutzername, bevor du die Verbindung startest.');
@@ -143,7 +154,8 @@ export class SshSessionManager {
     const id = randomUUID();
     const session: Session = { id, ownerId, connectionId: request.connectionId,
       phase: 'prepared', size: { cols: request.cols, rows: request.rows }, outstanding: new Map(),
-      outputBytes: 0, inputBytes: 0, sequence: 0, ...(request.target ? { target: request.target, tail: '' } : {}) };
+      outputBytes: 0, inputBytes: 0, sequence: 0, ...(request.target ? { target: request.target, tail: '' } : {}),
+      ...(request.kube ? { kube: { ...request.kube } } : {}) };
     this.sessions.set(id, session);
     session.timer = setTimeout(() => this.finish(session, 'error', 'Der Terminalstart wurde abgebrochen.'), 30_000);
     if (connection?.protocol === 'ssh') {
@@ -174,6 +186,7 @@ export class SshSessionManager {
     try {
       if (session.connectionId === LOCAL_CONTAINER_HOST) { await this.startLocalContainer(session); return; }
       const connection = this.dependencies.getConnection(session.connectionId);
+      if (session.kube) { await this.startKubeTerminal(session, session.kube, connection); return; }
       if (session.target && connection.protocol !== 'ssh') throw new Error('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
       if (connection.protocol === 'powershell' || connection.protocol === 'cmd' || connection.protocol === 'aicli') { await this.startLocalShell(session, connection); return; }
       if (connection.protocol !== 'ssh' || !session.client) throw new Error('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
@@ -347,6 +360,35 @@ export class SshSessionManager {
     this.status(session, 'connected');
   }
 
+  /** Cluster terminals are checked before connecting, so a refused request never reaches the cluster. */
+  private checkKubeRequest(kube: KubeTerminalTarget, connection: ConnectionNode | undefined): void {
+    if (connection?.protocol !== 'kubernetes') throw new Error('Pod-Terminals gibt es nur für Kubernetes-Cluster.');
+    if (!this.dependencies.openKubeTerminal) throw new Error('Pod-Terminals sind nicht verfügbar.');
+    if (!KUBE_NAME.test(kube.namespace) || !KUBE_NAME.test(kube.pod) || !KUBE_NAME.test(kube.container) || !KUBE_TERMINAL_MODES.includes(kube.mode)) {
+      throw new Error('Ungültige Pod-Angabe.');
+    }
+    if (kube.mode === 'shell' && connection.readOnly) throw new Error(READ_ONLY_MESSAGE);
+  }
+
+  /** Output and exit come back through `io`; the stream is closed if the tab went away while opening. */
+  private async startKubeTerminal(session: Session, target: KubeTerminalTarget, connection: ConnectionNode): Promise<void> {
+    if (connection.protocol !== 'kubernetes') throw new LocalShellError('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
+    if (target.mode === 'shell' && connection.readOnly) throw new LocalShellError(READ_ONLY_MESSAGE);
+    const open = this.dependencies.openKubeTerminal;
+    if (!open) throw new LocalShellError('Pod-Terminals sind nicht verfügbar.');
+    const io: TerminalIo = {
+      data: chunk => this.output(session, chunk),
+      end: (code, message) => { session.exitCode = code; this.finish(session, message ? 'error' : 'closed', message); },
+    };
+    let stream: KubeStream;
+    try { stream = await open(session.connectionId, target, session.size, io); }
+    catch (error) { throw new LocalShellError(error instanceof KubeApiError ? error.message : 'Das Pod-Terminal konnte nicht geöffnet werden.'); }
+    if (!this.active(session)) { stream.close(); return; }
+    session.kubeStream = stream;
+    session.phase = 'connected';
+    this.status(session, 'connected');
+  }
+
   private clearKey(session: Session): void { session.key?.fill(0); session.key = undefined; }
 
   private status(session: Session, status: 'connecting' | 'connected' | 'closed' | 'error', message?: string): void {
@@ -370,7 +412,7 @@ export class SshSessionManager {
     const sequence = ++session.sequence;
     session.outstanding.set(sequence, chunk.length);
     session.outputBytes += chunk.length;
-    if (session.outputBytes >= OUTPUT_HIGH) { session.stream?.pause(); session.stream?.stderr.pause(); session.pty?.pause(); }
+    if (session.outputBytes >= OUTPUT_HIGH) { session.stream?.pause(); session.stream?.stderr.pause(); session.pty?.pause(); session.kubeStream?.pause(); }
     if (!session.timer) session.timer = setTimeout(() => this.finish(session, 'error', 'Das Terminal reagiert nicht mehr.'), 30_000);
     this.dependencies.emit(session.ownerId, { type: 'data', sessionId: session.id, sequence, data: new Uint8Array(chunk) });
   }
@@ -384,12 +426,12 @@ export class SshSessionManager {
     session.outstanding.delete(sequence);
     session.outputBytes -= length;
     if (!session.outstanding.size) { clearTimeout(session.timer); session.timer = undefined; }
-    if (session.outputBytes < OUTPUT_LOW) { session.stream?.resume(); session.stream?.stderr.resume(); session.pty?.resume(); }
+    if (session.outputBytes < OUTPUT_LOW) { session.stream?.resume(); session.stream?.stderr.resume(); session.pty?.resume(); session.kubeStream?.resume(); }
   }
 
   async input(ownerId: number, id: string, data: string): Promise<void> {
     const session = this.owned(ownerId, id);
-    if (session.phase !== 'connected' || (!session.stream && !session.pty)) throw new Error('Das Terminal ist noch nicht verbunden.');
+    if (session.phase !== 'connected' || (!session.stream && !session.pty && !session.kubeStream)) throw new Error('Das Terminal ist noch nicht verbunden.');
     // While sudo authenticates, keystrokes would end up in its password line.
     if (session.sudo) return;
     const bytes = Buffer.byteLength(data);
@@ -399,6 +441,7 @@ export class SshSessionManager {
     session.typed = true;
     try {
       if (session.pty) { session.pty.write(data); return; }
+      if (session.kubeStream) { session.kubeStream.write(data); return; }
       await new Promise<void>((resolve, reject) => session.stream!.write(data, error => error ? reject(error) : resolve()));
     } catch { throw new Error('Die Terminaleingabe konnte nicht gesendet werden.'); }
     finally { session.inputBytes -= bytes; }
@@ -409,6 +452,7 @@ export class SshSessionManager {
     session.size = size;
     session.stream?.setWindow(size.rows, size.cols, 0, 0);
     try { session.pty?.resize(size.cols, size.rows); } catch { /* shell already exited */ }
+    try { session.kubeStream?.resize(size.cols, size.rows); } catch { /* stream already closed */ }
   }
 
   close(ownerId: number, id: string): void {
@@ -429,7 +473,7 @@ export class SshSessionManager {
     session.outputBytes = 0;
     if (session.phase === 'connected') { clearTimeout(session.timer); session.timer = undefined; }
     session.handover ??= { held: [], bytes: 0 };
-    session.stream?.pause(); session.stream?.stderr.pause(); session.pty?.pause();
+    session.stream?.pause(); session.stream?.stderr.pause(); session.pty?.pause(); session.kubeStream?.pause();
     return session.phase === 'connected' ? 'connected' : 'connecting';
   }
 
@@ -440,7 +484,7 @@ export class SshSessionManager {
     if (!handover) return;
     session.handover = undefined;
     for (const chunk of handover.held) this.output(session, chunk);
-    if (session.outputBytes < OUTPUT_HIGH) { session.stream?.resume(); session.stream?.stderr.resume(); session.pty?.resume(); }
+    if (session.outputBytes < OUTPUT_HIGH) { session.stream?.resume(); session.stream?.stderr.resume(); session.pty?.resume(); session.kubeStream?.resume(); }
   }
 
   closeAll(): void { for (const session of [...this.sessions.values()]) this.finish(session, 'closed'); }
@@ -457,6 +501,7 @@ export class SshSessionManager {
     this.clearKey(session);
     this.dropSudo(session);
     session.outstanding.clear();
+    session.kubeStream?.close();
     session.stream?.destroy();
     session.client?.destroy();
     try { session.pty?.kill(); } catch { /* already exited */ }
