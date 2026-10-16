@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import type { KubernetesConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import type { RunResult } from '../containers/parsers';
 import type { RemoteHost } from '../containers/runner';
@@ -128,5 +129,17 @@ describe('openAccess', () => {
     await expect(openAccess(cluster(['cp1', 'cp2']), deps)).rejects.toThrow('braucht sudo');
     expect(cp1.close).toHaveBeenCalledTimes(1);
     expect(cp2.run).not.toHaveBeenCalled();
+  });
+});
+
+describe('AUTO_SCRIPT', () => {
+  // Runs the real script through sh where one is installed; the unit tests above only match substrings.
+  const sh = spawnSync('sh', ['-c', 'true']).error ? undefined : 'sh';
+  it.skipIf(!sh)('is valid POSIX sh', () => {
+    expect(spawnSync('sh', ['-n', '-c', AUTO_SCRIPT], { encoding: 'utf8' }).stderr).toBe('');
+  });
+  it.skipIf(!sh)('reports src:none without any kubeconfig', () => {
+    const result = spawnSync('sh', ['-c', AUTO_SCRIPT], { encoding: 'utf8', env: { ...process.env, KUBECONFIG: '', HOME: '/nonexistent-terminus-home' } });
+    expect(result.stdout.trim()).toMatch(/^src:(none|sudo)$/);
   });
 });

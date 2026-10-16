@@ -11,7 +11,7 @@ import { KubeInputError } from './kubeconfig';
 
 /** Prints `src:<path>` then the file, or `src:sudo` when only admin.conf exists, or `src:none`. */
 export const AUTO_SCRIPT = [
-  'f="${KUBECONFIG%%:*}"',
+  'f="${KUBECONFIG%%:*}";',
   'if [ -n "$f" ] && [ -r "$f" ]; then printf "src:%s\\n" "$f"; cat -- "$f";',
   'elif [ -r "$HOME/.kube/config" ]; then printf "src:%s\\n" "$HOME/.kube/config"; cat -- "$HOME/.kube/config";',
   'elif [ -e /etc/kubernetes/admin.conf ]; then echo src:sudo;',
