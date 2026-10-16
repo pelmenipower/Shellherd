@@ -1,8 +1,12 @@
 import type { NodeTile } from '../../../../shared/kubernetes';
+import { menuHandlers, type MenuOpener } from '../../kube-menu-trigger';
+
+type OnMenu = MenuOpener;
 
 interface NodeStripProps {
   nodes: NodeTile[];
   onJump: (name: string) => void;
+  onMenu?: OnMenu;
 }
 
 /** Names without the prefix all nodes share, e.g. `cp1` for `k8s-cp1`; the full name when that would leave one empty. */
@@ -21,7 +25,7 @@ function dotTone(node: NodeTile): 'ok' | 'warn' | 'bad' {
   return 'ok';
 }
 
-export function NodeStrip({ nodes, onJump }: NodeStripProps) {
+export function NodeStrip({ nodes, onJump, onMenu }: NodeStripProps) {
   if (nodes.length === 0) return null;
   const labels = shortNodeNames(nodes.map(node => node.name));
   const withoutMetrics = nodes.every(node => node.cpu === undefined && node.memory === undefined);
@@ -32,7 +36,7 @@ export function NodeStrip({ nodes, onJump }: NodeStripProps) {
         const title = [node.name, node.ready ? 'bereit' : 'nicht bereit', ...node.pressure, node.unschedulable ? 'gesperrt' : ''].filter(Boolean).join(', ');
         return (
           <button key={node.name} type="button" role="listitem" className={`kube-node kube-node-${tone}`} title={title}
-            onClick={() => onJump(node.name)}>
+            onClick={() => onJump(node.name)} {...menuHandlers(onMenu, { type: 'node', tile: node })}>
             <span className="kube-node-name"><span className={`kube-dot kube-tone-${tone}`} aria-hidden="true">●</span> {labels[index]}</span>
             {node.cpu !== undefined && <Meter label="CPU" value={node.cpu} />}
             {node.memory !== undefined && <Meter label="RAM" value={node.memory} />}
