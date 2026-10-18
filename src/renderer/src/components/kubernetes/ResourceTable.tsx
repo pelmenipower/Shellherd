@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
 import { KIND_COLUMNS, KIND_INFO, KUBE_KINDS, refKey, type ColumnInfo, type KubeRow } from '../../../../shared/kubernetes';
-import { formatAge, formatUsage, sparkline, type KubeViewAction, type KubeViewState } from '../../kube-view';
+import { filterOf, formatAge, formatUsage, sparkline, type KubeViewAction, type KubeViewState } from '../../kube-view';
 import { rowMenuTarget } from '../../kube-menu-run';
 import type { MenuTarget } from '../../kube-menus';
 
@@ -156,7 +156,7 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
 function emptyText(state: KubeViewState): string {
   if (state.trouble) return state.trouble;
   if (state.loading) return 'Lade …';
-  if (state.filter.trim()) return `Keine Treffer für „${state.filter.trim()}“.`;
+  if (filterOf(state).text.trim()) return `Keine Treffer für „${filterOf(state).text.trim()}“.`;
   return 'Keine Einträge.';
 }
 

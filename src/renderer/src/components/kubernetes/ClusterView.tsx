@@ -7,7 +7,7 @@ import { actionReason, bindingOf, commandForKey, completions, parseCommandLine, 
 import { menuFor, type MenuTarget } from '../../kube-menus';
 import { runMenuAction, type MenuRunner } from '../../kube-menu-run';
 import { ContextMenu, type ContextMenuEntry } from '../ContextMenu';
-import { dockSelection, settleArm, snapshotOf, visibleRows } from '../../kube-view';
+import { dockSelection, filterOf, settleArm, snapshotOf, visibleRows } from '../../kube-view';
 import { NodeStrip } from './NodeStrip';
 import { ProblemBanner } from './ProblemBanner';
 import { ResourceTable } from './ResourceTable';
@@ -238,7 +238,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
         return;
       }
       case 'command': setLine(''); setPrompt('command'); return;
-      case 'filter': setLine(state.filter); setPrompt('filter'); return;
+      case 'filter': setLine(filterOf(state).text); setPrompt('filter'); return;
       case 'logs': setPrevious(false); dispatch({ type: 'dock', mode: 'logs' }); return;
       case 'previous': setPrevious(true); dispatch({ type: 'dock', mode: 'logs' }); return;
       case 'shell': setArmedFor(armKey); dispatch({ type: 'dock', mode: 'shell' }); return;
@@ -280,7 +280,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   };
 
   const closePrompt = (keepFilter: boolean) => {
-    if (prompt === 'filter' && !keepFilter) dispatch({ type: 'filter', text: '' });
+    if (prompt === 'filter' && !keepFilter) dispatch({ type: 'search', text: '' });
     setPrompt(null);
     setLine('');
   };
@@ -350,9 +350,9 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
           {prompt ? (
             <>
               <input type="text" autoFocus className="kube-prompt-input" aria-label={prompt === 'filter' ? 'Filter' : 'Befehl'} autoComplete="off" spellCheck={false}
-                placeholder={prompt === 'filter' ? 'Name oder key=value' : ':befehl'} value={prompt === 'filter' ? state.filter : line}
+                placeholder={prompt === 'filter' ? 'Name oder key=value' : ':befehl'} value={prompt === 'filter' ? filterOf(state).text : line}
                 onChange={event => {
-                  if (prompt === 'filter') dispatch({ type: 'filter', text: event.target.value });
+                  if (prompt === 'filter') dispatch({ type: 'search', text: event.target.value });
                   else setLine(event.target.value);
                 }}
                 onKeyDown={onPromptKeyDown} onBlur={() => { if (prompt === 'filter') setPrompt(null); }} />
@@ -367,8 +367,8 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
               )}
             </>
           ) : (
-            <button type="button" className="kube-prompt-hint" onClick={() => { setLine(state.filter); setPrompt('filter'); }}>
-              {state.filter ? `Filter: ${state.filter}` : '/ filtern'} · : befehl
+            <button type="button" className="kube-prompt-hint" onClick={() => { setLine(filterOf(state).text); setPrompt('filter'); }}>
+              {filterOf(state).text ? `Filter: ${filterOf(state).text}` : '/ filtern'} · : befehl
             </button>
           )}
           <button type="button" className="kube-help-button" aria-label="Hilfe" title="Hilfe (?)" onClick={() => setHelp(true)}>?</button>

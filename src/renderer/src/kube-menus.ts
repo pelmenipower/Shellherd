@@ -5,7 +5,7 @@ import {
 } from '../../shared/kubernetes';
 import { KUBE_COMMANDS, actionReason, podNotRunning, type CommandId } from './kube-commands';
 import * as kubectl from './kube-kubectl';
-import type { KubeViewAction, KubeViewState } from './kube-view';
+import { filterOf, type KubeViewAction, type KubeViewState } from './kube-view';
 
 export type MenuTarget =
   | { type: 'row'; row: KubeRow }
@@ -165,7 +165,7 @@ function filterItems(env: Env, row: KubeRow): MenuEntry[] {
   const entries = Object.entries(row.labels);
   const preferred = PREFERRED_LABELS.filter(key => key in row.labels).map(key => [key, row.labels[key]] as const);
   return (preferred.length > 0 ? preferred : entries).slice(0, 3).map(([key, value]) =>
-    item(env, `filter-${key}=${value}`, `Filtern: ${key}=${value}`, view(select(row), { type: 'filter', text: `${key}=${value}` })));
+    item(env, `filter-${key}=${value}`, `Filtern: ${key}=${value}`, view(select(row), { type: 'search', text: `${key}=${value}` })));
 }
 
 function podRowGroups(env: Env, row: KubeRow): Group[] {
@@ -257,7 +257,7 @@ function cronJobGroups(env: Env, row: KubeRow): Group[] {
   const suspended = row.suspended === true;
   return [
     [item(env, 'drill', 'Jobs anzeigen', view(select(row), { type: 'openQuery', query: { kind: 'jobs', namespace: row.ref.namespace ?? null }, crumb: `CronJob ${name}` },
-      { type: 'filter', text: name }), { hotkey: 'drill' })],
+      { type: 'search', text: `owner:${name}` }), { hotkey: 'drill' })],
     viewItems(env, [select(row)]),
     copyGroup(env, [
       ['name', 'Name', name],
@@ -516,13 +516,13 @@ function headerMenu(env: Env, column: ColumnInfo): MenuEntry[] {
 
 function backgroundMenu(env: Env): MenuEntry[] {
   const { state, status } = env.ctx;
-  const filtered = state.filter !== '';
+  const filtered = filterOf(state).text !== '';
   const all = state.query.namespace === null;
   const back = status?.namespace ?? 'default';
   return assemble([], [
     [
-      filtered ? item(env, 'filter-clear', 'Filter leeren', view({ type: 'filter', text: '' }))
-        : item(env, 'filter-clear', 'Filter leeren', view({ type: 'filter', text: '' }), { reason: 'Kein Filter gesetzt.' }),
+      filtered ? item(env, 'filter-clear', 'Filter leeren', view({ type: 'search', text: '' }))
+        : item(env, 'filter-clear', 'Filter leeren', view({ type: 'search', text: '' }), { reason: 'Kein Filter gesetzt.' }),
       all ? item(env, 'namespace', `Zurück zu ${back}`, view({ type: 'setNamespace', namespace: back }))
         : item(env, 'namespace', 'Alle Namespaces', view({ type: 'setNamespace', namespace: null })),
       { kind: 'item', id: 'sort-clear', label: 'Sortierung aufheben', hint: SORT_HINT, ...(state.sort ? {} : { disabled: true }), run: view({ type: 'sortBy', sort: null }) },

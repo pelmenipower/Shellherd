@@ -144,7 +144,7 @@ describe('A1 pods', () => {
     expect(items(preferred).filter(entry => entry.id.startsWith('filter-')).map(entry => entry.label)).toEqual(['Filtern: app=x', 'Filtern: app.kubernetes.io/name=n', 'Filtern: app.kubernetes.io/instance=i']);
     const fallback = rowMenu(pod({ labels: { a: '1', b: '2', c: '3', d: '4' } }));
     expect(items(fallback).filter(entry => entry.id.startsWith('filter-')).map(entry => entry.label)).toEqual(['Filtern: a=1', 'Filtern: b=2', 'Filtern: c=3']);
-    expect(find(fallback, 'filter-a=1').run).toMatchObject({ actions: [expect.anything(), { type: 'filter', text: 'a=1' }] });
+    expect(find(fallback, 'filter-a=1').run).toMatchObject({ actions: [expect.anything(), { type: 'search', text: 'a=1' }] });
   });
   it('disables logs and shell for a Completed pod, shell with its reason', () => {
     const entries = rowMenu(pod({ cells: { status: 'Completed' } }));
@@ -327,7 +327,7 @@ describe('A4 cronjobs', () => {
     expect(viewActions(drill)).toEqual([
       { type: 'select', key: 'cronjobs/shop/backup' },
       { type: 'openQuery', query: { kind: 'jobs', namespace: 'shop' }, crumb: 'CronJob backup' },
-      { type: 'filter', text: 'backup' },
+      { type: 'search', text: 'owner:backup' },
     ]);
   });
   it('offers Fortsetzen for a suspended cronjob and copies the matching patch', () => {
@@ -603,9 +603,9 @@ describe('H header and I background', () => {
     expect(find(entries, 'namespace').run).toMatchObject({ actions: [{ type: 'setNamespace', namespace: null }] });
   });
   it('clears a set filter and sort, and goes back to the default namespace from all (C26)', () => {
-    const ctx = context({ state: state({ filter: 'api', sort: { key: 'name', descending: true }, query: { kind: 'pods', namespace: null } }) });
+    const ctx = context({ state: state({ filters: { pods: { text: 'api', chips: [] } }, sort: { key: 'name', descending: true }, query: { kind: 'pods', namespace: null } }) });
     const entries = menu({ type: 'background' }, ctx);
-    expect(find(entries, 'filter-clear')).toMatchObject({ run: { actions: [{ type: 'filter', text: '' }] } });
+    expect(find(entries, 'filter-clear')).toMatchObject({ run: { actions: [{ type: 'search', text: '' }] } });
     expect(find(entries, 'filter-clear').disabled).toBeUndefined();
     expect(find(entries, 'sort-clear').disabled).toBeUndefined();
     expect(find(entries, 'namespace')).toMatchObject({ label: 'Zurück zu shop', run: { actions: [{ type: 'setNamespace', namespace: 'shop' }] } });

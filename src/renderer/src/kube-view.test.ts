@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ClusterStatus, KubeEvent, KubeKind, KubeRow, NodeTile, UsageHistory } from '../../shared/kubernetes';
 import { KIND_INFO, refKey } from '../../shared/kubernetes';
-import { dockContainer, dockSelection, dockTerminalKey, settleArm, formatAge, formatUsage, initialKubeView, kubeViewReducer, matchesFilter, snapshotOf, sparkline, visibleRows } from './kube-view';
-import type { KubeViewState } from './kube-view';
+import { columnsOf, compileFilter, defaultSort, filterOf, isFiltered, searchedRows, dockContainer, dockSelection, dockTerminalKey, settleArm, formatAge, formatUsage, initialKubeView, kubeViewReducer, snapshotOf, sparkline, visibleRows } from './kube-view';
+import type { KubeViewAction, KubeViewState } from './kube-view';
+import { KubeViewSnapshotSchema } from '../../shared/kubernetes-schema';
 
 /** Namespaced kinds default to namespace 'shop'; cluster-scoped kinds get no namespace. */
 function row(kind: KubeKind, name: string, extra: Partial<KubeRow> = {}, namespace: string | undefined = KIND_INFO[kind].namespaced ? 'shop' : undefined): KubeRow {
@@ -119,7 +120,7 @@ describe('selection after deletion', () => {
 describe('setKind and setNamespace', () => {
   it('setKind changes the kind and resets the table', () => {
     let state = rowsEvent(initialKubeView('shop'), [row('pods', 'a')]);
-    state = kubeViewReducer(state, { type: 'filter', text: 'a' });
+    state = kubeViewReducer(state, { type: 'search', text: 'a' });
     state = kubeViewReducer(state, { type: 'select', key: refKey(row('pods', 'a').ref) });
     state = kubeViewReducer(state, { type: 'setKind', kind: 'deployments' });
     expect(state.query).toEqual({ kind: 'deployments', namespace: 'shop' });
@@ -127,7 +128,7 @@ describe('setKind and setNamespace', () => {
     expect(state.loading).toBe(true);
     expect(state.crumbs).toEqual([]);
     expect(state.selected).toBeNull();
-    expect(state.filter).toBe('');
+    expect(filterOf(state).text).toBe('');
   });
 
   it('setNamespace(null) sets the query namespace to null', () => {
@@ -215,18 +216,20 @@ describe('drill and back', () => {
   });
 });
 
+const match = (r: KubeRow, text: string): boolean => compileFilter(r.ref.kind, { text, chips: [] }, 0)(r);
+
 describe('filter and sort', () => {
   it('matches names and key=value labels case-insensitively; empty matches everything', () => {
     const pod = row('pods', 'api-1', { labels: { app: 'api', tier: 'Web' } });
-    expect(matchesFilter(pod, 'api')).toBe(true);
-    expect(matchesFilter(pod, 'API-1')).toBe(true);
-    expect(matchesFilter(pod, 'db')).toBe(false);
-    expect(matchesFilter(pod, 'app=api')).toBe(true);
-    expect(matchesFilter(pod, 'App=API')).toBe(true);
-    expect(matchesFilter(pod, 'app=db')).toBe(false);
-    expect(matchesFilter(pod, 'tier=web')).toBe(true);
-    expect(matchesFilter(pod, '')).toBe(true);
-    expect(matchesFilter(pod, '   ')).toBe(true);
+    expect(match(pod, 'api')).toBe(true);
+    expect(match(pod, 'API-1')).toBe(true);
+    expect(match(pod, 'db')).toBe(false);
+    expect(match(pod, 'app=api')).toBe(true);
+    expect(match(pod, 'App=API')).toBe(true);
+    expect(match(pod, 'app=db')).toBe(false);
+    expect(match(pod, 'tier=web')).toBe(true);
+    expect(match(pod, '')).toBe(true);
+    expect(match(pod, '   ')).toBe(true);
   });
 
   it('sorts a numeric column descending on the second click', () => {
@@ -259,7 +262,7 @@ describe('filter and sort', () => {
       row('pods', 'db-1', { cells: { name: 'db-1', status: 'Failed' } }),
     ]);
     state = kubeViewReducer(state, { type: 'sort', key: 'name' });
-    state = kubeViewReducer(state, { type: 'filter', text: 'web' });
+    state = kubeViewReducer(state, { type: 'search', text: 'web' });
     expect(visibleRows(state).map(r => r.ref.name)).toEqual(['web-a', 'web-b']);
   });
 });
@@ -401,14 +404,14 @@ describe('openQuery, sortBy and container choice', () => {
 
   it('openQuery pushes the current query as crumb and back restores it', () => {
     let state = rowsEvent(kubeViewReducer(initialKubeView('shop'), { type: 'setKind', kind: 'deployments' }), [row('deployments', 'api')]);
-    state = kubeViewReducer(state, { type: 'filter', text: 'x' });
+    state = kubeViewReducer(state, { type: 'search', text: 'x' });
     state = kubeViewReducer(state, { type: 'sort', key: 'name' });
     const before = state.query;
     state = kubeViewReducer(state, { type: 'openQuery', query: { kind: 'jobs', namespace: 'shop' }, crumb: 'CronJob nightly' });
     expect(state.query).toEqual({ kind: 'jobs', namespace: 'shop' });
-    expect(state.crumbs).toEqual([{ label: 'CronJob nightly', query: before }]);
+    expect(state.crumbs).toEqual([{ label: 'CronJob nightly', query: before, text: 'x' }]);
     expect(state.selected).toBeNull();
-    expect(state.filter).toBe('');
+    expect(filterOf(state).text).toBe('');
     expect(state.rows).toEqual([]);
     expect(state.loading).toBe(true);
     expect(state.sort).toEqual({ key: 'name', descending: false });
@@ -523,8 +526,202 @@ describe('openQuery, sortBy and container choice', () => {
     state = kubeViewReducer(state, { type: 'drill' });
     expect(state.query).toEqual({ kind: 'jobs', namespace: 'shop' });
     expect(state.crumbs.map(c => c.label)).toEqual(['CronJob nightly']);
-    expect(state.filter).toBe('nightly');
+    expect(filterOf(state).text).toBe('owner:nightly');
     state = kubeViewReducer(state, { type: 'back' });
     expect(state.query).toEqual({ kind: 'cronjobs', namespace: 'shop' });
+  });
+});
+
+const NOW = Date.parse('2026-10-18T12:00:00Z');
+const at = (minutesAgo: number): string => new Date(NOW - minutesAgo * 60_000).toISOString();
+const podsState = (rows: KubeRow[]): KubeViewState => rowsEvent(initialKubeView('shop'), rows);
+const pod = (name: string, status: string, extra: Partial<KubeRow> = {}): KubeRow =>
+  row('pods', name, { cells: { name, status, ready: '1/1', restarts: 0 }, tone: status === 'Running' ? 'ok' : 'bad', ...extra });
+const names = (state: KubeViewState): string[] => visibleRows(state).map(r => r.ref.name);
+const apply = (state: KubeViewState, ...actions: KubeViewAction[]): KubeViewState => actions.reduce(kubeViewReducer, state);
+
+describe('filters per kind (C9, C11)', () => {
+  it('keeps text and chips per kind across setKind', () => {
+    let state = apply(initialKubeView('shop'), { type: 'search', text: 'api' }, { type: 'toggleChip', id: 'failed' });
+    expect(filterOf(state)).toEqual({ text: 'api', chips: ['failed'] });
+    state = apply(state, { type: 'setKind', kind: 'services' });
+    expect(filterOf(state)).toEqual({ text: '', chips: [] });
+    state = apply(state, { type: 'search', text: 'web' }, { type: 'setKind', kind: 'pods' });
+    expect(filterOf(state)).toEqual({ text: 'api', chips: ['failed'] });
+  });
+
+  it('keeps filters on setNamespace', () => {
+    const state = apply(initialKubeView('shop'), { type: 'search', text: 'api' }, { type: 'setNamespace', namespace: null });
+    expect(filterOf(state).text).toBe('api');
+  });
+
+  it('cuts the search text to MAX_SEARCH_LENGTH (B4)', () => {
+    expect(filterOf(apply(initialKubeView('shop'), { type: 'search', text: 'x'.repeat(300) })).text).toHaveLength(200);
+  });
+
+  it('toggleChip adds in CHIPS order, removes again, and ignores unknown ids by reference', () => {
+    let state = apply(initialKubeView('shop'), { type: 'toggleChip', id: 'restarts' }, { type: 'toggleChip', id: 'attention' });
+    expect(filterOf(state).chips).toEqual(['attention', 'restarts']);
+    state = apply(state, { type: 'toggleChip', id: 'restarts' });
+    expect(filterOf(state).chips).toEqual(['attention']);
+    expect(kubeViewReducer(state, { type: 'toggleChip', id: 'nope' })).toBe(state);
+  });
+
+  it('setChips replaces and keeps only known ids', () => {
+    const state = apply(initialKubeView('shop'), { type: 'setChips', ids: ['waiting', 'bogus', 'failed', 'waiting'] });
+    expect(filterOf(state).chips).toEqual(['waiting', 'failed']);
+  });
+
+  it('clearFilter clears text and chips of the current kind and is a no-op without a filter', () => {
+    const empty = initialKubeView('shop');
+    expect(kubeViewReducer(empty, { type: 'clearFilter' })).toBe(empty);
+    const state = apply(empty, { type: 'search', text: 'a' }, { type: 'toggleChip', id: 'failed' }, { type: 'clearFilter' });
+    expect(filterOf(state)).toEqual({ text: '', chips: [] });
+    expect(isFiltered(filterOf(state))).toBe(false);
+    expect(isFiltered({ text: ' ', chips: [] })).toBe(false);
+    expect(isFiltered({ text: '', chips: ['x'] })).toBe(true);
+  });
+
+  it('acts on the pod table behind the container list', () => {
+    const p = pod('api-1', 'Running', { containers: ['app'] });
+    let state = apply(podsState([p]), { type: 'select', key: refKey(p.ref) }, { type: 'drill' });
+    expect(state.containersOf).not.toBeNull();
+    state = apply(state, { type: 'search', text: 'api' });
+    expect(filterOf(state).text).toBe('api');
+  });
+
+  it('drill into pods clears only the target text and back restores the source text', () => {
+    const dep = row('deployments', 'api', { selector: { app: 'api' } });
+    let state = apply(initialKubeView('shop'), { type: 'setChips', ids: ['failed'] }, { type: 'search', text: 'old' });
+    state = apply(state, { type: 'setKind', kind: 'deployments' }, { type: 'search', text: 'api' });
+    state = rowsEvent(state, [dep]);
+    state = apply(state, { type: 'select', key: refKey(dep.ref) }, { type: 'drill' });
+    expect(state.query.kind).toBe('pods');
+    expect(filterOf(state)).toEqual({ text: '', chips: ['failed'] });
+    expect(state.crumbs[0].text).toBe('api');
+    state = apply(state, { type: 'back' });
+    expect(state.query.kind).toBe('deployments');
+    expect(filterOf(state).text).toBe('api');
+  });
+
+  it('jump clears text and chips of the target kind only', () => {
+    let state = apply(initialKubeView('shop'), { type: 'search', text: 'a' }, { type: 'setChips', ids: ['failed'] });
+    state = apply(state, { type: 'setKind', kind: 'nodes' }, { type: 'search', text: 'w' });
+    state = apply(state, { type: 'jump', ref: { kind: 'pods', namespace: 'shop', name: 'x' } });
+    expect(filterOf(state)).toEqual({ text: '', chips: [] });
+    state = apply(state, { type: 'setKind', kind: 'nodes' });
+    expect(filterOf(state).text).toBe('w');
+  });
+});
+
+describe('visibleRows with chips and search (B1)', () => {
+  it('combines search and chips', () => {
+    let state = podsState([pod('web-1', 'Running'), pod('web-2', 'Failed'), pod('db-1', 'Failed')]);
+    state = apply(state, { type: 'search', text: 'web' }, { type: 'toggleChip', id: 'failed' });
+    expect(names(state)).toEqual(['web-2']);
+    expect(searchedRows(state).map(r => r.ref.name)).toEqual(['web-1', 'web-2']);
+  });
+
+  it('uses state.now for time chips and compileFilter for the same predicate', () => {
+    const events = [row('events', 'new', { cells: { last: at(2), type: 'Normal' } }), row('events', 'old', { cells: { last: at(60), type: 'Normal' } })];
+    let state = apply(initialKubeView('shop'), { type: 'setKind', kind: 'events' });
+    state = apply(rowsEvent(state, events), { type: 'toggleChip', id: '5m' }, { type: 'tick', now: NOW });
+    expect(state.now).toBe(NOW);
+    expect(names(state)).toEqual(['new']);
+    expect(compileFilter('events', { text: '', chips: ['5m'] }, NOW)(events[1])).toBe(false);
+  });
+});
+
+describe('selection visibility (C10, C12)', () => {
+  const rows = [pod('a', 'Running'), pod('b', 'Failed'), pod('c', 'Running'), pod('d', 'Running')];
+  const key = (name: string): string => refKey(row('pods', name).ref);
+
+  it('filter mode: selection hidden by a chip becomes null, a visible one stays', () => {
+    const selected = apply(podsState(rows), { type: 'select', key: key('a') });
+    expect(apply(selected, { type: 'toggleChip', id: 'running' }).selected).toBe(key('a'));
+    const hidden = apply(selected, { type: 'toggleChip', id: 'failed' });
+    expect(hidden.selected).toBeNull();
+    expect(hidden.container).toBeNull();
+  });
+
+  it('keeps a selection that is not loaded yet', () => {
+    const state = apply(initialKubeView('shop'), { type: 'select', key: key('later') }, { type: 'search', text: 'zzz' });
+    expect(state.selected).toBe(key('later'));
+  });
+
+  it('rows mode: a selection hidden by a changed row moves to the same visible position', () => {
+    let state = apply(podsState(rows), { type: 'toggleChip', id: 'running' }, { type: 'select', key: key('c') });
+    expect(names(state)).toEqual(['a', 'c', 'd']);
+    state = rowsEvent(state, [pod('c', 'Failed')], { reset: false });
+    expect(state.selected).toBe(key('d'));
+  });
+
+  it('rows mode: moves to the last row, else null', () => {
+    let state = apply(podsState(rows), { type: 'toggleChip', id: 'running' }, { type: 'select', key: key('d') });
+    state = rowsEvent(state, [pod('d', 'Failed')], { reset: false });
+    expect(state.selected).toBe(key('c'));
+    const single = apply(podsState([pod('a', 'Running')]), { type: 'toggleChip', id: 'running' }, { type: 'select', key: key('a') });
+    expect(rowsEvent(single, [pod('a', 'Failed')], { reset: false }).selected).toBeNull();
+  });
+
+  it('tick re-evaluates time chips against the selection', () => {
+    const e = row('events', 'e1', { cells: { last: at(4), type: 'Normal' } });
+    let state = apply(initialKubeView('shop'), { type: 'setKind', kind: 'events' });
+    state = apply(rowsEvent(state, [e]), { type: 'toggleChip', id: '5m' }, { type: 'tick', now: NOW }, { type: 'select', key: refKey(e.ref) });
+    expect(state.selected).toBe(refKey(e.ref));
+    state = apply(state, { type: 'tick', now: NOW + 3 * 60_000 });
+    expect(state.selected).toBeNull();
+  });
+});
+
+describe('columnsOf, defaultSort and sorting (B5)', () => {
+  it('adds a namespace column after name only for all-namespaces of namespaced kinds', () => {
+    const all = initialKubeView(null);
+    expect(columnsOf(all).map(c => c.key).slice(0, 2)).toEqual(['name', 'namespace']);
+    expect(columnsOf(initialKubeView('shop')).some(c => c.key === 'namespace')).toBe(false);
+    expect(columnsOf({ ...all, query: { kind: 'nodes', namespace: null } }).some(c => c.key === 'namespace')).toBe(false);
+  });
+
+  it('sorts by the namespace column', () => {
+    let state = rowsEvent(initialKubeView(null), [row('pods', 'a', {}, 'zeta'), row('pods', 'b', {}, 'alpha')]);
+    state = apply(state, { type: 'sort', key: 'namespace' });
+    expect(names(state)).toEqual(['b', 'a']);
+  });
+
+  it('events default to Zuletzt descending; setKind and sortBy null apply it', () => {
+    expect(defaultSort('events')).toEqual({ key: 'last', descending: true });
+    expect(defaultSort('pods')).toBeNull();
+    let state = apply(initialKubeView('shop'), { type: 'setKind', kind: 'events' });
+    expect(state.sort).toEqual({ key: 'last', descending: true });
+    state = apply(state, { type: 'sort', key: 'reason' }, { type: 'sortBy', sort: null });
+    expect(state.sort).toEqual({ key: 'last', descending: true });
+    expect(apply(initialKubeView('shop'), { type: 'sort', key: 'name' }, { type: 'sortBy', sort: null }).sort).toBeNull();
+  });
+});
+
+describe('snapshotOf and restore filters (B4, C14, C15)', () => {
+  it('omits filters without content and does not trim', () => {
+    const plain = initialKubeView('shop');
+    expect(snapshotOf(plain)).not.toHaveProperty('filters');
+    expect(snapshotOf(apply(plain, { type: 'search', text: '  ' }))).not.toHaveProperty('filters');
+    const state = apply(plain, { type: 'search', text: ' api ' }, { type: 'setKind', kind: 'services' }, { type: 'setChips', ids: ['headless'] });
+    expect(snapshotOf(state).filters).toEqual({ pods: { text: ' api ' }, services: { chips: ['headless'] } });
+  });
+
+  it('a state with 300 characters still passes the schema', () => {
+    const state = { ...initialKubeView('shop'), filters: { pods: { text: 'x'.repeat(300), chips: Array.from({ length: 30 }, (_, i) => `c${i}`) } } };
+    const snapshot = snapshotOf(state);
+    expect(snapshot.filters?.pods?.text).toHaveLength(200);
+    expect(KubeViewSnapshotSchema.safeParse(snapshot).success).toBe(true);
+  });
+
+  it('restore reads filters, drops unknown chips and empty kinds, and sets the default sort', () => {
+    const snapshot = { query: { kind: 'events' as const, namespace: 'shop' }, crumbs: ['Pod x'], dock: 'logs' as const,
+      filters: { events: { text: 'back', chips: ['warning', 'bogus'] }, pods: { chips: ['bogus'] } } };
+    const state = apply(initialKubeView('shop'), { type: 'restore', snapshot });
+    expect(state.filters).toEqual({ events: { text: 'back', chips: ['warning'] } });
+    expect(state.sort).toEqual({ key: 'last', descending: true });
+    expect(state.crumbs[0].text).toBe('');
+    expect(apply(initialKubeView('shop'), { type: 'restore', snapshot: { ...snapshot, filters: undefined } }).filters).toEqual({});
   });
 });
