@@ -34,6 +34,7 @@ const desktopApi: DesktopApi = {
   onWorkspaceRestore: listener => subscribe('workspace:restore', listener),
   closeSecondaryWindows: () => ipcRenderer.invoke('window:close-secondaries'),
   vaultLaunchFile: () => ipcRenderer.invoke('vault:launch-file'),
+  lastVaultFile: () => ipcRenderer.invoke('vault:last-file'),
   connectionTest: connection => ipcRenderer.invoke('connection:test', connection),
   containersList: request => ipcRenderer.invoke('containers:list', request),
   containersAction: request => ipcRenderer.invoke('containers:action', request),

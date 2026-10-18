@@ -196,6 +196,13 @@ export default function App() {
     void window.desktopApi.vaultLaunchFile().then(filePath => { if (filePath) open(filePath); }).catch(() => {});
     return window.desktopApi.onVaultOpenFile(open);
   }, []);
+  // The open screen preselects the vault opened last; "Andere Vault-Datei auswählen" still changes it.
+  useEffect(() => {
+    if (screen !== 'open' || selectedVaultPath) return;
+    let current = true;
+    void window.desktopApi.lastVaultFile().then(filePath => { if (current && filePath) setSelectedVaultPath(previous => previous || filePath); }).catch(() => {});
+    return () => { current = false; };
+  }, [screen, selectedVaultPath]);
   // Files dropped anywhere the page does not handle them itself (the SFTP server side does).
   useEffect(() => {
     const hasFiles = (event: DragEvent): boolean => Boolean(event.dataTransfer?.types.includes('Files'));
