@@ -164,8 +164,8 @@ export type KubeTerminalMode = 'logs' | 'previous' | 'shell';
 export interface KubeTerminalTarget { namespace: string; pod: string; container: string; mode: KubeTerminalMode }
 
 export type DockMode = 'logs' | 'shell' | 'events' | 'yaml' | 'describe';
-/** Saved state of a cluster tab in a workspace. */
 /** Saved filter of one kind; both fields optional, absent = empty. */
 export interface KubeFilterSnapshot { text?: string; chips?: string[] }
+/** Saved state of a cluster tab in a workspace. */
 export interface KubeViewSnapshot { query: KubeQuery; crumbs: string[]; selected?: string; dock: DockMode;
   filters?: Partial<Record<KubeKind, KubeFilterSnapshot>> }

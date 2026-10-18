@@ -72,7 +72,10 @@ export function kubeViewReducer(state: KubeViewState, action: KubeViewAction): K
   switch (action.type) {
     case 'event': return applyEvent(state, action.event);
     case 'setKind': return { ...withQuery(state, { kind: action.kind, namespace: state.query.namespace }, []), sort: defaultSort(action.kind) };
-    case 'setNamespace': return withQuery(state, { kind: state.query.kind, namespace: action.namespace }, []);
+    case 'setNamespace': {
+      const next = withQuery(state, { kind: state.query.kind, namespace: action.namespace }, []);
+      return state.sort && !columnsOf(next).some(column => column.key === state.sort?.key) ? { ...next, sort: defaultSort(next.query.kind) } : next;
+    }
     case 'search': {
       const text = action.text.slice(0, MAX_SEARCH_LENGTH);
       const current = filterOf(state);
@@ -171,7 +174,7 @@ export function visibleRows(state: KubeViewState): KubeRow[] {
   const direction = sort.descending ? -1 : 1;
   return rows
     .map((row, index) => ({ row, index, value: sortValue(row, column) }))
-    .sort((a, b) => compareValues(a.value, b.value) * direction || a.index - b.index)
+    .sort((a, b) => compareValues(a.value, b.value, direction) || a.index - b.index)
     .map(entry => entry.row);
 }
 
@@ -187,7 +190,7 @@ export function snapshotOf(state: KubeViewState): KubeViewSnapshot {
   }
   return {
     query: state.query,
-    crumbs: state.crumbs.map(crumb => crumb.label),
+    crumbs: state.crumbs.slice(-8).map(crumb => crumb.label.slice(0, 300)),
     ...(state.selected ? { selected: state.selected } : {}),
     dock: state.dock,
     ...(Object.keys(filters).length > 0 ? { filters } : {}),
@@ -277,6 +280,8 @@ function changeFilter(state: KubeViewState, filter: KubeFilter): KubeViewState {
 function keepSelection(previous: KubeViewState, next: KubeViewState, mode: 'rows' | 'filter'): KubeViewState {
   const selected = next.selected;
   if (selected === null) return next;
+  // Container mode: the pod table is hidden, and moving the selection would reset the dock's container.
+  if (next.containersOf !== null) return next;
   const remaining = visibleRows(next);
   if (remaining.some(row => refKey(row.ref) === selected)) return next;
   const known = (state: KubeViewState): boolean => state.rows.some(row => refKey(row.ref) === selected);
@@ -340,13 +345,14 @@ function sortValue(row: KubeRow, column: ColumnInfo): SortValue {
   return String(value);
 }
 
-function compareValues(a: SortValue, b: SortValue): number {
+/** `direction` (1 or -1) applies to real comparisons only; missing numbers always sort last. */
+function compareValues(a: SortValue, b: SortValue, direction: 1 | -1): number {
   if (typeof a === 'number' && typeof b === 'number') {
     const aMissing = Number.isNaN(a), bMissing = Number.isNaN(b);
     if (aMissing || bMissing) return aMissing === bMissing ? 0 : aMissing ? 1 : -1;
-    return a - b;
+    return (a - b) * direction;
   }
-  return String(a).localeCompare(String(b));
+  return String(a).localeCompare(String(b)) * direction;
 }
 
 /** Container for the dock: the chosen one if the pod has it, else the pod's first container. */

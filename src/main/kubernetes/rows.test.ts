@@ -136,6 +136,8 @@ describe('workloads', () => {
     expect(job({ completions: 2 }, { succeeded: 2 })).toMatchObject({ tone: 'ok', cells: { status: 'Complete' } });
     expect(job({}, { failed: 1 })).toMatchObject({ tone: 'warn', cells: { status: 'Pending' } });
     expect(job({}, {})).toMatchObject({ tone: 'warn', cells: { status: 'Pending' } });
+    expect(job({}, cond('FailureTarget'))).toMatchObject({ tone: 'bad', cells: { status: 'Failed' } });
+    expect(job({}, { ...cond('SuccessCriteriaMet'), succeeded: 1 })).toMatchObject({ tone: 'ok', cells: { status: 'Complete' } });
   });
 
   it('maps a cronjob with schedule and last schedule time', () => {

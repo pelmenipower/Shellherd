@@ -153,7 +153,7 @@ export function parseCommandLine(line: string): ParsedCommand {
       return { id: 'filter', text: text.slice(name.length).trim() };
     case 'status': {
       if (arg === '') return { error: 'Status fehlt. Syntax: :status <id>[,<id>] | :status alle' };
-      if (arg === 'alle' || arg === 'all') return { id: 'status', chips: 'all' };
+      if (['alle', 'all'].includes(arg.toLowerCase())) return { id: 'status', chips: 'all' };
       return { id: 'status', chips: arg.toLowerCase().split(',').map(part => part.trim()).filter(Boolean) };
     }
     case 'restart':
@@ -169,9 +169,9 @@ export function parseCommandLine(line: string): ParsedCommand {
 
 /** New chip list for `:status`: replaces the chips of the groups the ids belong to, keeps other groups; 'all' clears. */
 export function applyStatusCommand(kind: KubeKind, current: readonly string[], chips: string[] | 'all'): string[] | { error: string } {
-  if (chips === 'all') return [];
   const defs = CHIPS[kind];
   if (defs.length === 0) return { error: `Für ${KIND_INFO[kind].label} gibt es keine Status-Filter.` };
+  if (chips === 'all') return [];
   const unknown = chips.find(id => !defs.some(def => def.id === id));
   if (unknown !== undefined) return { error: `Unbekannter Status „${unknown}“. Möglich: ${defs.map(def => def.id).join(', ')}` };
   const groups = new Set(defs.filter(def => chips.includes(def.id)).map(def => def.group));

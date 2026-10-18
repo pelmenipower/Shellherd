@@ -144,8 +144,9 @@ export function parseMemory(value: string | undefined): number {
 function jobStatus(spec: Dict, status: Dict, completions: number, succeeded: number): JobStatus {
   const conditions = list(status.conditions).map(rec);
   const isTrue = (type: string) => conditions.some(c => c.type === type && c.status === 'True');
-  if (isTrue('Failed')) return 'Failed';
-  if (isTrue('Complete')) return 'Complete';
+  // FailureTarget / SuccessCriteriaMet (Kubernetes 1.31+) precede Failed / Complete.
+  if (isTrue('Failed') || isTrue('FailureTarget')) return 'Failed';
+  if (isTrue('Complete') || isTrue('SuccessCriteriaMet')) return 'Complete';
   if (spec.suspend === true) return 'Suspended';
   if ((count(status.active) ?? 0) > 0) return 'Running';
   if (conditions.length === 0 && succeeded >= completions) return 'Complete';

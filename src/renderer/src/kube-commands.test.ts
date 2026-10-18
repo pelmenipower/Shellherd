@@ -126,6 +126,8 @@ describe('search and status commands', () => {
     expect(parseCommandLine(':status Failed, waiting,,')).toEqual({ id: 'status', chips: ['failed', 'waiting'] });
     expect(parseCommandLine(':status alle')).toEqual({ id: 'status', chips: 'all' });
     expect(parseCommandLine(':status all')).toEqual({ id: 'status', chips: 'all' });
+    expect(parseCommandLine(':status Alle')).toEqual({ id: 'status', chips: 'all' });
+    expect(parseCommandLine(':status ALL')).toEqual({ id: 'status', chips: 'all' });
     expect(parseCommandLine(':status')).toEqual({ error: 'Status fehlt. Syntax: :status <id>[,<id>] | :status alle' });
   });
 
@@ -133,6 +135,7 @@ describe('search and status commands', () => {
     expect(applyStatusCommand('pods', ['attention', 'running'], ['failed', 'waiting'])).toEqual(['attention', 'waiting', 'failed']);
     expect(applyStatusCommand('pods', ['running'], 'all')).toEqual([]);
     expect(applyStatusCommand('ingresses', [], ['x'])).toEqual({ error: 'Für Ingress gibt es keine Status-Filter.' });
+    expect(applyStatusCommand('ingresses', [], 'all')).toEqual({ error: 'Für Ingress gibt es keine Status-Filter.' });
     expect(applyStatusCommand('pods', [], ['failed', 'nope'])).toEqual({ error: `Unbekannter Status „nope“. Möglich: ${CHIPS.pods.map(c => c.id).join(', ')}` });
   });
 

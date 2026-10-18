@@ -674,6 +674,49 @@ describe('selection visibility (C10, C12)', () => {
   });
 });
 
+describe('final review fixes', () => {
+  const key = (name: string): string => refKey(row('pods', name).ref);
+
+  it('I1: container mode keeps selection and container when the pod gets hidden by a chip', () => {
+    const rows = [pod('a', 'Running', { containers: ['x', 'y'] }), pod('b', 'Running')];
+    let state = apply(podsState(rows), { type: 'toggleChip', id: 'running' }, { type: 'select', key: key('a') }, { type: 'drill' }, { type: 'selectContainer', name: 'y' });
+    expect(state.containersOf).not.toBeNull();
+    state = rowsEvent(state, [pod('a', 'Failed', { containers: ['x', 'y'] })], { reset: false });
+    expect(state.selected).toBe(key('a'));
+    expect(state.container).toBe('y');
+  });
+
+  it('I2: snapshotOf keeps at most the last 8 crumbs of at most 300 characters', () => {
+    const query = initialKubeView('shop').query;
+    const crumbs = Array.from({ length: 9 }, (_, i) => ({ label: `${i}`.repeat(3), query, text: '' }));
+    const snapshot = snapshotOf({ ...initialKubeView('shop'), crumbs });
+    expect(snapshot.crumbs).toHaveLength(8);
+    expect(snapshot.crumbs[0]).toBe('111');
+    expect(KubeViewSnapshotSchema.safeParse(snapshot).success).toBe(true);
+    const long = snapshotOf({ ...initialKubeView('shop'), crumbs: [{ label: 'x'.repeat(400), query, text: '' }] });
+    expect(long.crumbs[0]).toHaveLength(300);
+  });
+
+  it('M4: a namespace sort is reset when setNamespace removes the column', () => {
+    let state = apply(initialKubeView(null), { type: 'sort', key: 'namespace' });
+    expect(state.sort?.key).toBe('namespace');
+    state = apply(state, { type: 'setNamespace', namespace: 'shop' });
+    expect(state.sort).toBeNull();
+    const events = apply(initialKubeView(null), { type: 'setKind', kind: 'events' }, { type: 'sort', key: 'namespace' }, { type: 'setNamespace', namespace: 'shop' });
+    expect(events.sort).toEqual({ key: 'last', descending: true });
+  });
+
+  it('M6: rows without a value stay last under a descending sort', () => {
+    const e1 = row('events', 'e1', { cells: { last: at(1) } });
+    const e2 = row('events', 'e2', { cells: { last: at(5) } });
+    const e3 = row('events', 'e3', { cells: {} });
+    let state = apply(initialKubeView('shop'), { type: 'setKind', kind: 'events' });
+    state = rowsEvent(state, [e3, e2, e1]);
+    expect(names(state)).toEqual(['e1', 'e2', 'e3']);
+    expect(names(apply(state, { type: 'sort', key: 'last' }))).toEqual(['e2', 'e1', 'e3']);
+  });
+});
+
 describe('columnsOf, defaultSort and sorting (B5)', () => {
   it('adds a namespace column after name only for all-namespaces of namespaced kinds', () => {
     const all = initialKubeView(null);
