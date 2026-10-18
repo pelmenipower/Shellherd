@@ -993,6 +993,9 @@ export default function App() {
             <label>
               Passwort
               <input
+                // With a preselected vault only the password is left to type.
+                key={selectedVaultPath ? 'with-file' : 'without-file'}
+                autoFocus={Boolean(selectedVaultPath)}
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(event) =>
