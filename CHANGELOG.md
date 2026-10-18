@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an Terminus. Die Versionsnummer folgt [Semantic V
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.7.0] – 2026-10-18
+
+- Kubernetes-Suche: mehrere Begriffe (UND), `"Phrase"`, `!Ausschluss`, `key=value` und `key!=value` für Labels, `feld:wert`-Qualifier sowie Zahlenvergleiche (`restarts>3`, `count>=5`); die Hilfe (`?`) listet Syntax und Qualifier je Reiter.
+- Chip-Leiste mit Status-Filtern und Zählern je Reiter; `w` zeigt nur Auffälliges, `F` setzt Suche und Chips zurück, `:filter` und `:status` setzen sie per Befehl, im Kontextmenü gibt es „Nur … anzeigen“. Suche und Chips bleiben pro Reiter erhalten.
+- Jobs zeigen ihren Status, Pods auch Evicted und Unknown, Nodes einen Hinweis bei Druck.
+- Events sind standardmäßig nach „Zuletzt“ absteigend sortiert.
+
 ## [0.6.0] – 2026-10-16
 
 - Kubernetes-Kontextmenüs: Rechtsklick und `Shift+F10` auf Zeilen, Container, Node-Kacheln, Probleme, Spaltenköpfe, den unteren Bereich und den Hintergrund des Cluster-Tabs.

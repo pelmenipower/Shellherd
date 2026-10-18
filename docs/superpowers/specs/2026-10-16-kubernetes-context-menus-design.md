@@ -280,7 +280,6 @@ Nicht ergänzen: „Nur lesen umschalten“ / „Produktion umschalten“ – Si
 - **Dock-Terminal:** kein `onContextMenu` auf dem Terminal-Container; Rechtsklick = Einfügen bleibt. Kein Menü auf Breadcrumb/Namespace/Reitern, aber `preventDefault`, damit nicht das Hintergrundmenü erscheint.
 - **Veraltete Zeile:** Die Zeile im Menü kann während des Öffnens verschwinden (Pod gelöscht). Aktionen enden dann mit 404-Meldung aus Main – akzeptabel; der Dialog zeigt bei Scale `currentReplicas` der Zeile zum Zeitpunkt des Rechtsklicks.
 - **Nicht verbunden:** `status.state !== 'ready'` deaktiviert Ansicht/Terminal/Aktionen mit Begründung; `detail()`/`action()` würden sonst nur die generische „nicht verbunden“-Meldung werfen.
-- **Label-Filter:** `matchesFilter` kann genau ein `key=value`; keine Mehrfach-Filter erzeugen.
 - **Menülänge:** höchstens ~14 Einträge je Menü; Kopieren-Gruppe mit Überschrift; keine Untermenüs (ContextMenu kann keine). Lieber Einträge weglassen als nachrüsten.
 - **Events → fremde Kinds** (ReplicaSet, PVC, HPA, Lease): Sprung deaktiviert mit Begründung, nicht versteckt.
 - **SSH-Zuordnung Node → Vault:** nur exakte Treffer (`host` = Name/IP, `name` = Name/Kurzname), bei mehreren der erste aktive; nie Verbindungen anlegen; Treffer im hint nennen, damit der Nutzer sieht, wohin er verbindet.

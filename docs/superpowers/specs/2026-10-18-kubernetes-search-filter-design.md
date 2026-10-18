@@ -2,6 +2,8 @@
 
 Stand: 2026-10-18 · Erweiterung von Stufe 1 und den Kontextmenüs · Analyse: Fable · Validierung: Opus (Anhang `-validation.md`, sobald vorhanden, bindend)
 
+Umgesetzt in Version 0.7.0. Bindend ist der Anhang `-validation.md`; wo diese Spec abweicht (z. B. Events-Standardsortierung „Zuletzt ↓“ statt „Warnungen oben“, Hotkeys `w` und `F`, `:filter`, `:status`), gilt der Anhang und der Code (`SEARCH_HELP`, `CHIPS`).
+
 ## Umfang (festgelegt)
 
 **Drin:**
