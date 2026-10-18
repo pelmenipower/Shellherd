@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { actionArgv, ContainerInputError, inspectArgv, inventoryActionArgv, inventoryArgv, listArgv, PROBE_COMMAND, remoteCommand, shellJoin, SHELL_CHOICE, sudoSetting, terminalArgv } from './commands';
+import { actionArgv, ContainerInputError, inspectArgv, inventoryActionArgv, inventoryArgv, listArgv, localProbeArgv, PROBE_COMMAND, remoteCommand, shellJoin, SHELL_CHOICE, sudoSetting, terminalArgv } from './commands';
 import { INVENTORY_KINDS } from '../../shared/containers';
 import type { ContainerRuntime, InventoryAction, InventoryKind } from '../../shared/containers';
 import type { SshConnectionNode } from '../../shared/vault/types';
@@ -84,11 +84,16 @@ describe('remoteCommand', () => {
 });
 
 describe('listArgv', () => {
-  it('lists every runtime', () => {
-    expect(listArgv('docker')).toEqual(['docker', 'ps', '-a', '--no-trunc', '--format', '{{json .}}']);
-    expect(listArgv('podman')).toEqual(['podman', 'ps', '-a', '--format', 'json']);
+  it('lists Proxmox guests', () => {
     expect(listArgv('lxc')).toEqual(['pct', 'list']);
     expect(listArgv('vm')).toEqual(['qm', 'list']);
+  });
+});
+
+describe('localProbeArgv', () => {
+  it('only asks for the version, never the daemon', () => {
+    expect(localProbeArgv('docker')).toEqual(['docker', '--version']);
+    expect(localProbeArgv('podman')).toEqual(['podman', '--version']);
   });
 });
 

@@ -1,5 +1,5 @@
 import { CONTAINER_REF, INVENTORY_ACTIONS, inventoryRefValid, MAX_VMID, MIN_VMID } from '../../shared/containers';
-import type { ContainerAction, ContainerRuntime, ContainerTarget, InventoryAction, InventoryKind, InventoryRef, RuntimeKind, TerminalTarget } from '../../shared/containers';
+import type { ContainerAction, ContainerRuntime, ContainerTarget, InventoryAction, InventoryKind, InventoryRef, TerminalTarget } from '../../shared/containers';
 import type { SshConnectionNode } from '../../shared/vault/types';
 
 /** Invalid targets or actions; the message is safe to show. */
@@ -55,13 +55,13 @@ function vmid(value: number): string {
   return String(value);
 }
 
-export function listArgv(kind: Exclude<RuntimeKind, 'proxmox'> | 'lxc' | 'vm'): string[] {
-  switch (kind) {
-    case 'docker': return ['docker', 'ps', '-a', '--no-trunc', '--format', '{{json .}}'];
-    case 'podman': return ['podman', 'ps', '-a', '--format', 'json'];
-    case 'lxc': return ['pct', 'list'];
-    case 'vm': return ['qm', 'list'];
-  }
+export function listArgv(kind: 'lxc' | 'vm'): string[] {
+  return kind === 'lxc' ? ['pct', 'list'] : ['qm', 'list'];
+}
+
+/** Local presence check without touching the daemon. */
+export function localProbeArgv(runtime: ContainerRuntime): string[] {
+  return [runtimeOf(runtime), '--version'];
 }
 
 export function terminalArgv({ item, mode }: TerminalTarget): string[] {
