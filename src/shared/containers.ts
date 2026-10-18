@@ -124,7 +124,15 @@ export function containerTone(state: InventoryState, status: string, exitCode?: 
 
 export const CONTAINER_VIEW_SUFFIX = ' · Container';
 export const LOCAL_HOST_NAME = 'Dieser Computer';
-/** Host part of a container view tab name: `name` without a trailing CONTAINER_VIEW_SUFFIX. */
+export const RUNTIME_LABEL: Record<ContainerRuntime, string> = { docker: 'Docker', podman: 'Podman' };
+/** `<host> · Docker`, `<host> · Podman`; without runtime `<host> · Container` (CONTAINER_VIEW_SUFFIX). */
+export function containerViewTabName(hostName: string, runtime?: ContainerRuntime): string {
+  return `${hostName} · ${runtime ? RUNTIME_LABEL[runtime] : 'Container'}`;
+}
+/** Strips one trailing ' · Container', ' · Docker' or ' · Podman'; anything else stays unchanged. */
 export function containerViewHostName(name: string): string {
-  return name.endsWith(CONTAINER_VIEW_SUFFIX) ? name.slice(0, -CONTAINER_VIEW_SUFFIX.length) : name;
+  for (const suffix of [CONTAINER_VIEW_SUFFIX, ' · Docker', ' · Podman']) {
+    if (name.endsWith(suffix)) return name.slice(0, -suffix.length);
+  }
+  return name;
 }

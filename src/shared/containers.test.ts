@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONTAINER_VIEW_SUFFIX, containerTone, containerViewHostName, inventoryRefValid, isInventoryRef,
+  CONTAINER_VIEW_SUFFIX, RUNTIME_LABEL, containerTone, containerViewHostName, containerViewTabName, inventoryRefValid, isInventoryRef,
 } from './containers';
 import type { InventoryRef } from './containers';
 
@@ -66,5 +66,25 @@ describe('containerViewHostName', () => {
     expect(containerViewHostName(`srv${CONTAINER_VIEW_SUFFIX}`)).toBe('srv');
     expect(containerViewHostName('srv')).toBe('srv');
     expect(containerViewHostName(`${CONTAINER_VIEW_SUFFIX}x`)).toBe(`${CONTAINER_VIEW_SUFFIX}x`);
+  });
+  it('strips the runtime suffixes too', () => {
+    expect(containerViewHostName('srv · Docker')).toBe('srv');
+    expect(containerViewHostName('srv · Podman')).toBe('srv');
+    expect(containerViewHostName('srv · Dockerx')).toBe('srv · Dockerx');
+    expect(containerViewHostName('srv · Docker · Docker')).toBe('srv · Docker');
+  });
+});
+
+describe('containerViewTabName', () => {
+  it('appends the runtime or Container', () => {
+    expect(containerViewTabName('srv')).toBe('srv · Container');
+    expect(containerViewTabName('srv', 'docker')).toBe('srv · Docker');
+    expect(containerViewTabName('srv', 'podman')).toBe('srv · Podman');
+  });
+});
+
+describe('RUNTIME_LABEL', () => {
+  it('labels both runtimes', () => {
+    expect(RUNTIME_LABEL).toEqual({ docker: 'Docker', podman: 'Podman' });
   });
 });

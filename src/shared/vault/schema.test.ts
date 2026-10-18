@@ -150,5 +150,17 @@ describe('WorkspacePaneSchema containerViews', () => {
   it('rejects out-of-range positions', () => {
     expect(WorkspacePaneSchema.safeParse({ ...pane, containerViews: [64] }).success).toBe(false);
     expect(WorkspacePaneSchema.safeParse({ ...pane, containerViews: [-1] }).success).toBe(false);
+    expect(WorkspacePaneSchema.safeParse({ ...pane, containerViews: [{ index: 64, runtime: 'docker' }] }).success).toBe(false);
+  });
+  it('accepts objects with a fixed runtime', () => {
+    const ok = (containerViews: unknown[]) => WorkspacePaneSchema.safeParse({ ...pane, containerViews }).success;
+    expect(ok([{ index: 0, runtime: 'docker' }])).toBe(true);
+    expect(ok([{ index: 0 }])).toBe(true);
+    expect(ok([0, { index: 2, runtime: 'podman' }])).toBe(true);
+  });
+  it('rejects unknown runtimes and extra keys', () => {
+    const ok = (containerViews: unknown[]) => WorkspacePaneSchema.safeParse({ ...pane, containerViews }).success;
+    expect(ok([{ index: 0, runtime: 'proxmox' }])).toBe(false);
+    expect(ok([{ index: 0, extra: 1 }])).toBe(false);
   });
 });
