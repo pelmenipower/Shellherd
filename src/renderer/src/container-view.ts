@@ -29,7 +29,8 @@ export interface ContainerViewState {
 }
 
 export type ContainerViewAction =
-  | { type: 'loading' }
+  /** quiet: a background poll; it does not show "lade …" once an inventory is there. */
+  | { type: 'loading'; quiet?: boolean }
   | { type: 'setInventory'; inventory: ContainerInventory }
   | { type: 'fail'; message: string }
   | { type: 'setRuntime'; runtime: ContainerRuntime }
@@ -69,13 +70,16 @@ export function initialContainerViewState(now: number): ContainerViewState {
 
 export function containerViewReducer(state: ContainerViewState, action: ContainerViewAction): ContainerViewState {
   const next = reduce(state, action);
-  // Any change of the selection drops the shell arm.
-  return next.selected !== state.selected && next.armed !== null ? { ...next, armed: null } : next;
+  if (next.armed === null) return next;
+  // Any change of the selection drops the shell arm; so does a poll that shows the container gone or not running,
+  // otherwise the shell would reopen by itself when it runs again.
+  const row = next.inventory?.rows.containers.find(candidate => candidate.uid === next.armed);
+  return next.selected !== state.selected || row?.state !== 'running' ? { ...next, armed: null } : next;
 }
 
 function reduce(state: ContainerViewState, action: ContainerViewAction): ContainerViewState {
   switch (action.type) {
-    case 'loading': return state.loading ? state : { ...state, loading: true };
+    case 'loading': return state.loading || (action.quiet && state.inventory !== null) ? state : { ...state, loading: true };
     case 'setInventory': {
       const runtimeChanged = state.inventory !== null && state.inventory.runtime !== action.inventory.runtime;
       const next: ContainerViewState = { ...state, inventory: action.inventory, loading: false, error: null, ...(runtimeChanged ? { selected: null } : {}) };

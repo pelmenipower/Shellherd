@@ -24,15 +24,15 @@ export function useContainerInventory(hostId: string, runtime: ContainerRuntime 
   const again = useRef(false);
   const sequence = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const load = useRef<() => void>(() => {});
+  const load = useRef<(quiet?: boolean) => void>(() => {});
 
-  load.current = () => {
+  load.current = (quiet = false) => {
     clearTimeout(timer.current);
     if (inFlight.current) { again.current = true; return; }
     inFlight.current = true;
     const id = ++sequence.current;
     const { hostId: host, runtime: wanted } = inputRef.current;
-    dispatchRef.current({ type: 'loading' });
+    dispatchRef.current(quiet ? { type: 'loading', quiet: true } : { type: 'loading' });
     window.desktopApi.containersInventory({ hostId: host, ...(wanted ? { runtime: wanted } : {}) }).then(
       inventory => { if (alive.current && id === sequence.current) dispatchRef.current({ type: 'setInventory', inventory }); },
       error => { if (alive.current && id === sequence.current) dispatchRef.current({ type: 'fail', message: ipcMessage(error, 'Die Container konnten nicht geladen werden.') }); },
@@ -43,7 +43,7 @@ export function useContainerInventory(hostId: string, runtime: ContainerRuntime 
       const stale = id !== sequence.current;
       if ((again.current || stale) && visibleRef.current) { again.current = false; load.current(); return; }
       again.current = false;
-      if (visibleRef.current) timer.current = setTimeout(() => load.current(), POLL_MS);
+      if (visibleRef.current) timer.current = setTimeout(() => load.current(true), POLL_MS);
     });
   };
 
@@ -63,6 +63,6 @@ export function useContainerInventory(hostId: string, runtime: ContainerRuntime 
     if (!inFlight.current) load.current();
   }, [key, visible]);
 
-  const reload = useCallback(() => load.current(), []);
+  const reload = useCallback(() => load.current(false), []);
   return { reload };
 }

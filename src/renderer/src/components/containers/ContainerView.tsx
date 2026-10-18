@@ -110,6 +110,8 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
     } finally {
       dispatch({ type: 'busy', uid: row.uid, busy: false });
       reload();
+      // The dock shows the state from before the action: refetch Inspect (and restart logs) for the selected row.
+      if (row.uid === state.selected) dispatch({ type: 'reloadDock' });
     }
   };
 
@@ -130,7 +132,10 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
 
   const popout = () => {
     if (!onPopout) { say(NO_POPOUT); return; }
-    if (!selected || (state.dock !== 'logs' && state.dock !== 'shell')) { say('Nur für Logs und Shell.'); return; }
+    // Same reasons as the Ctrl+Shift+T entry of the registry.
+    const reason = commandForKey('Ctrl+Shift+T')?.unavailable?.(commandContext);
+    if (reason) { say(reason); return; }
+    if (!selected || (state.dock !== 'logs' && state.dock !== 'shell')) return;
     openTab(terminalTargetOf(selected, state.dock));
   };
 

@@ -30,6 +30,13 @@ describe('initial state', () => {
     expect(state).toMatchObject({ kind: 'containers', dock: 'logs', dockOpen: true, loading: true, epoch: 0, busy: [], armed: null, inventory: null });
     expect(state.views.images).toEqual({ filters: {}, chips: [], sort: null, groupBy: null, collapsed: [] });
   });
+  it('a quiet loading keeps the status line once an inventory is there', () => {
+    const idle = loaded(abc());
+    expect(run(idle, { type: 'loading', quiet: true }).loading).toBe(false);
+    expect(run(idle, { type: 'loading' }).loading).toBe(true);
+    const empty = { ...initialContainerViewState(NOW), loading: false };
+    expect(run(empty, { type: 'loading', quiet: true }).loading).toBe(true);
+  });
   it('setInventory clears loading and error, fail keeps the old inventory', () => {
     const failed = run(loaded(abc()), { type: 'loading' }, { type: 'fail', message: 'kaputt' });
     expect(failed).toMatchObject({ loading: false, error: 'kaputt' });
@@ -165,6 +172,15 @@ describe('dock and shell arm', () => {
     expect(run(armed, { type: 'select', uid: 'docker:containers:a' }).armed).toBe('docker:containers:a');
     expect(run(armed, { type: 'select', uid: 'docker:containers:b' }).armed).toBeNull();
     expect(run(armed, { type: 'move', delta: 1 }).armed).toBeNull();
+  });
+  it('a poll that shows the armed container stopped drops the arm for good', () => {
+    const armed = run(loaded([ctr('a', 'running')]), { type: 'select', uid: 'docker:containers:a' }, { type: 'arm' });
+    expect(armed.armed).toBe('docker:containers:a');
+    const exited = run(armed, { type: 'setInventory', inventory: inventory([ctr('a', 'exited')]) });
+    expect(exited.armed).toBeNull();
+    expect(run(exited, { type: 'setInventory', inventory: inventory([ctr('a', 'running')]) }).armed).toBeNull();
+    expect(run(armed, { type: 'setInventory', inventory: inventory([ctr('a', 'running')]) }).armed).toBe('docker:containers:a');
+    expect(run(armed, { type: 'setInventory', inventory: inventory([ctr('z')]) }).armed).toBeNull();
   });
   it('setKind to images switches logs and shell to inspect', () => {
     expect(run(loaded(abc()), { type: 'setKind', kind: 'images' }).dock).toBe('inspect');

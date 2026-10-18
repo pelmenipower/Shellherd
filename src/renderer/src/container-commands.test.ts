@@ -35,6 +35,7 @@ describe('CONTAINER_COMMANDS', () => {
     expect(reason('shell', ctx())).toBeUndefined();
     expect(reason('shell', ctx({ kind: 'images' }))).toBe('Nur für Container.');
     expect(reason('shell', ctx({ row: container('exited') }))).toBe('Der Container läuft nicht.');
+    expect(reason('shell', ctx({ row: null }))).toBe('Keine Zeile ausgewählt.');
   });
   it('words inspect', () => {
     expect(reason('inspect', ctx())).toBeUndefined();
@@ -45,6 +46,7 @@ describe('CONTAINER_COMMANDS', () => {
     expect(reason('popout', ctx({ canPopout: false }))).toBe('Hier lässt sich kein Tab öffnen.');
     expect(reason('popout', ctx({ dock: 'inspect' }))).toBe('Nur für Logs und Shell.');
     expect(reason('popout', ctx({ dock: 'logs', kind: 'images' }))).toBe('Nur für Container.');
+    expect(reason('popout', ctx({ dock: 'logs', row: null }))).toBe('Keine Zeile ausgewählt.');
     expect(reason('popout', ctx({ dock: 'shell', row: container('exited') }))).toBe('Der Container läuft nicht.');
     expect(reason('popout', ctx({ dock: 'shell' }))).toBeUndefined();
   });

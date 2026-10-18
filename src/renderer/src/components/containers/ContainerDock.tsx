@@ -182,7 +182,7 @@ export function ContainerDock(props: ContainerDockProps) {
           })}
         </div>
         <span className="kube-muted kube-dock-hint">{row ? row.name : 'folgt Auswahl'}</span>
-        {terminalConnection && onPopout && <button type="button" className="kube-dock-popout" onClick={onPopout}>Als Tab öffnen</button>}
+        {terminalConnection && onPopout && !(terminalMode === 'shell' && !running) && <button type="button" className="kube-dock-popout" onClick={onPopout}>Als Tab öffnen</button>}
         <button type="button" className="kube-dock-copy" disabled={nothingToCopy} title={nothingToCopy ? 'Nichts zu kopieren.' : undefined} onClick={copy}>Kopieren</button>
         <button type="button" className="kube-dock-toggle" aria-expanded={open} aria-label={open ? 'Panel einklappen' : 'Panel ausklappen'} onClick={onToggle}>
           {open ? '▾' : '▴'}

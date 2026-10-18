@@ -43,7 +43,8 @@ export function actionUnavailable(row: InventoryRow | null, action: InventoryAct
 const logsUnavailable = (context: ContainerCommandContext): string | undefined => context.kind === 'containers' ? undefined : ONLY_CONTAINERS;
 const shellUnavailable = (context: ContainerCommandContext): string | undefined => {
   if (context.kind !== 'containers') return ONLY_CONTAINERS;
-  return context.row?.state === 'running' ? undefined : 'Der Container läuft nicht.';
+  if (!context.row) return NO_ROW;
+  return context.row.state === 'running' ? undefined : 'Der Container läuft nicht.';
 };
 const forAction = (action: InventoryAction) => (context: ContainerCommandContext): string | undefined => actionUnavailable(context.row, action);
 
@@ -67,6 +68,7 @@ export const CONTAINER_COMMANDS: readonly ContainerCommand[] = [
     unavailable: context => {
       if (!context.canPopout) return 'Hier lässt sich kein Tab öffnen.';
       if (context.dock === 'inspect') return 'Nur für Logs und Shell.';
+      if (!context.row) return NO_ROW;
       return context.dock === 'shell' ? shellUnavailable(context) : logsUnavailable(context);
     } },
   { id: 'restart', group: 'Aktionen', description: 'Container neu starten', keys: ['r'], bindings: ['r'], unavailable: forAction('restart') },
