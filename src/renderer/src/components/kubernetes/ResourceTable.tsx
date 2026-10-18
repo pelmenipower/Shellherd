@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
-import { KIND_COLUMNS, KIND_INFO, KUBE_KINDS, refKey, type ColumnInfo, type KubeRow } from '../../../../shared/kubernetes';
-import { filterOf, formatAge, formatUsage, sparkline, type KubeViewAction, type KubeViewState } from '../../kube-view';
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
+import { KIND_INFO, KUBE_KINDS, refKey, type ColumnInfo, type KubeRow } from '../../../../shared/kubernetes';
+import { columnsOf, filterOf, formatAge, formatUsage, isFiltered, searchedRows, sparkline, type KubeViewAction, type KubeViewState } from '../../kube-view';
+import { CHIPS, attentionChip, chipCounts } from '../../../../shared/kube-status';
 import { rowMenuTarget } from '../../kube-menu-run';
 import type { MenuTarget } from '../../kube-menus';
 
@@ -22,15 +23,8 @@ interface ResourceTableProps {
 export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: ResourceTableProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ top: 0, height: 480 });
-  const [now, setNow] = useState(() => Date.now());
   const kind = state.query.kind;
   const inContainers = state.containersOf !== null;
-
-  // Ages refresh every ten seconds.
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 10_000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Track the viewport size for the row window.
   useEffect(() => {
@@ -55,9 +49,18 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
     setScroll({ top: element.scrollTop, height: element.clientHeight || 480 });
   }, [selectedIndex]);
 
+  const filter = filterOf(state);
+  const chipDefs = CHIPS[kind];
+  const attention = attentionChip(kind);
+  const filtered = isFiltered(filter);
+  // Counts follow the search text only; chips are ignored.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const counts = useMemo(() => chipCounts(kind, searchedRows(state), state.now), [state.rows, kind, filter.text, state.now]);
+  const showBar = !inContainers && (chipDefs.length > 0 || filtered);
   const columns: ColumnInfo[] = inContainers
     ? [{ key: 'name', label: 'Container' }, { key: 'image', label: 'Image' }]
-    : KIND_COLUMNS[kind];
+    : columnsOf(state);
+  const now = state.now || Date.now();
   const windowed = !inContainers && rows.length > WINDOW_THRESHOLD;
   const first = windowed ? Math.max(0, Math.floor(scroll.top / ROW_HEIGHT) - OVERSCAN) : 0;
   const last = windowed ? Math.min(rows.length, first + Math.ceil(scroll.height / ROW_HEIGHT) + 2 * OVERSCAN) : rows.length;
@@ -86,6 +89,31 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
           );
         })}
       </div>
+      {showBar && (
+        <div className="kube-chipbar" role="toolbar" aria-label="Status-Filter" onContextMenu={event => event.preventDefault()}>
+          {chipDefs.map((chip, index) => {
+            const on = filter.chips.includes(chip.id);
+            const count = counts[chip.id] ?? 0;
+            return (
+              <Fragment key={chip.id}>
+                {index > 0 && chipDefs[index - 1].group !== chip.group && <span className="kube-chip-sep" aria-hidden="true" />}
+                <button type="button" aria-pressed={on} title={chip.id === attention ? 'Taste w' : undefined}
+                  className={`kube-chip kube-filter-chip${on ? ' kube-chip-on' : ''}${count === 0 ? ' kube-chip-zero' : ''}`}
+                  onClick={() => dispatch({ type: 'toggleChip', id: chip.id })}>
+                  {chip.label} <span className="kube-chip-count">{count}</span>
+                </button>
+              </Fragment>
+            );
+          })}
+          {filtered && !state.loading && (
+            <span className="kube-chipbar-end">
+              <span>{rows.length} von {state.rows.length}</span>
+              <button type="button" className="kube-chipbar-reset" title="Suche und Status-Filter zurücksetzen (F)"
+                onClick={() => dispatch({ type: 'clearFilter' })}>Zurücksetzen</button>
+            </span>
+          )}
+        </div>
+      )}
       <div ref={tableRef} className="kube-table-focus" tabIndex={-1}>
         <div ref={scrollRef} className="kube-table-scroll"
           onContextMenu={event => {
@@ -145,7 +173,14 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
               )}
             </tbody>
           </table>
-          {!inContainers && rows.length === 0 && <p className={`kube-empty${state.trouble ? ' error-message' : ''}`} role={state.trouble ? 'alert' : undefined}>{emptyText(state)}</p>}
+          {!inContainers && rows.length === 0 && (
+            <div className="kube-empty-block">
+              <p className={`kube-empty${state.trouble ? ' error-message' : ''}`} role={state.trouble ? 'alert' : undefined}>{emptyText(state)}</p>
+              {widenable(state) && (
+                <button type="button" className="kube-empty-action" onClick={() => dispatch({ type: 'setNamespace', namespace: null })}>In allen Namespaces suchen</button>
+              )}
+            </div>
+          )}
           {!inContainers && rows.length > 0 && state.trouble && <p className="kube-empty error-message" role="alert">{state.trouble}</p>}
         </div>
       </div>
@@ -153,10 +188,23 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
   );
 }
 
+/** The all-namespaces search is offered only where setNamespace keeps the table (no drill-down) and the kind has namespaces. */
+function widenable(state: KubeViewState): boolean {
+  if (state.trouble || state.loading || state.rows.length === 0 || !isFiltered(filterOf(state))) return false;
+  return state.query.namespace !== null && KIND_INFO[state.query.kind].namespaced && state.crumbs.length === 0;
+}
+
 function emptyText(state: KubeViewState): string {
   if (state.trouble) return state.trouble;
   if (state.loading) return 'Lade …';
-  if (filterOf(state).text.trim()) return `Keine Treffer für „${filterOf(state).text.trim()}“.`;
+  if (state.rows.length === 0) return 'Keine Einträge.';
+  const filter = filterOf(state);
+  const text = filter.text.trim();
+  const labels = CHIPS[state.query.kind].filter(chip => filter.chips.includes(chip.id)).map(chip => chip.label).join(', ');
+  const ns = state.query.namespace !== null ? ` in ${state.query.namespace}` : '';
+  if (text && labels) return `Keine Treffer für „${text}“ mit ${labels}${ns}.`;
+  if (text) return `Keine Treffer für „${text}“${ns}.`;
+  if (labels) return `Keine Zeilen mit ${labels}${ns}.`;
   return 'Keine Einträge.';
 }
 
@@ -176,6 +224,7 @@ function cellText(state: KubeViewState, row: KubeRow, column: ColumnInfo, now: n
     const cell = row.cells[column.key];
     return cell === undefined || cell === '' ? '–' : String(cell);
   }
+  if (column.key === 'namespace') return row.ref.namespace ?? '–';
   const value = row.cells[column.key] ?? (column.key === 'name' ? row.ref.name : '');
   if (column.age) return formatAge(String(value), now);
   return String(value) || '–';

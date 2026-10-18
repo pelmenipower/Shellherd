@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { KIND_INFO, KUBE_KINDS, refKey, type KubeAction, type KubeRef, type KubeViewSnapshot, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
 import type { SshStatus } from '../../../../shared/ssh';
 import { kubeTabName, type TerminalConnection } from '../../terminal-tabs';
 import { useClusterSession } from '../../hooks/useClusterSession';
-import { actionReason, bindingOf, commandForKey, completions, parseCommandLine, type KubeCommand } from '../../kube-commands';
+import { actionReason, applyStatusCommand, bindingOf, commandForKey, completions, parseCommandLine, type KubeCommand } from '../../kube-commands';
 import { menuFor, type MenuTarget } from '../../kube-menus';
 import { runMenuAction, type MenuRunner } from '../../kube-menu-run';
 import { ContextMenu, type ContextMenuEntry } from '../ContextMenu';
 import { dockSelection, filterOf, settleArm, snapshotOf, visibleRows } from '../../kube-view';
+import { MAX_SEARCH_LENGTH } from '../../../../shared/kube-filter';
+import { CHIPS, attentionChip } from '../../../../shared/kube-status';
 import { NodeStrip } from './NodeStrip';
 import { ProblemBanner } from './ProblemBanner';
 import { ResourceTable } from './ResourceTable';
@@ -38,6 +40,8 @@ const noSsh = (): undefined => undefined;
 
 const ALL_NAMESPACES = '__all';
 const NOTICE_MS = 6000;
+/** Cadence of the clock that drives ages and time chips. */
+const TICK_MS = 10_000;
 
 /** Cluster tab: header, node strip, problems, the resource table and the detail dock. */
 export function ClusterView({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, onPopout, initialView, onSnapshot, sshForNode, onOpenSsh }: ClusterViewProps) {
@@ -61,7 +65,11 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   const production = status?.production ?? true;
   const clusterName = status?.name ?? connection.name;
   const modal = help || pending !== null || menu !== null;
-  const rows = visibleRows(state);
+  const filter = filterOf(state);
+  const kindChipIds = useMemo(() => CHIPS[state.query.kind].map(chip => chip.id), [state.query.kind]);
+  // visibleRows reads exactly these fields of state.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => visibleRows(state), [state.rows, state.query.kind, filter.text, filter.chips, state.sort, state.now, state.query.namespace]);
   const selectedRow = rows.find(row => refKey(row.ref) === state.selected) ?? null;
   // Logs and shell follow the pod: the drilled-into pod, or the selected pod row.
   const { podRow, container, armKey } = dockSelection(state.containersOf, selectedRow, state.container);
@@ -71,6 +79,13 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   // (during render, so it cannot race with arm()), and returning to that pod shows the placeholder again.
   const armed = settleArm(armedFor, armKey) !== null;
   if (armedFor !== null && !armed) setArmedFor(null);
+
+  // One clock for the whole view: ages and time chips read state.now.
+  useEffect(() => {
+    dispatch({ type: 'tick', now: Date.now() });
+    const timer = setInterval(() => dispatch({ type: 'tick', now: Date.now() }), TICK_MS);
+    return () => clearInterval(timer);
+  }, [dispatch]);
 
   const say = useCallback((message: string) => {
     setNotice(message);
@@ -161,6 +176,12 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
       case 'restart': startAction('restart'); return;
       case 'delete': startAction('delete'); return;
       case 'help': setHelp(true); return;
+      case 'filter': dispatch({ type: 'search', text: parsed.text }); return;
+      case 'status': {
+        const result = applyStatusCommand(state.query.kind, filter.chips, parsed.chips);
+        if ('error' in result) say(result.error); else dispatch({ type: 'setChips', ids: result });
+        return;
+      }
     }
   };
 
@@ -238,7 +259,13 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
         return;
       }
       case 'command': setLine(''); setPrompt('command'); return;
-      case 'filter': setLine(filterOf(state).text); setPrompt('filter'); return;
+      case 'filter': setLine(filter.text); setPrompt('filter'); return;
+      case 'attention': {
+        const chip = attentionChip(state.query.kind);
+        if (chip) dispatch({ type: 'toggleChip', id: chip });
+        return;
+      }
+      case 'resetFilter': dispatch({ type: 'clearFilter' }); return;
       case 'logs': setPrevious(false); dispatch({ type: 'dock', mode: 'logs' }); return;
       case 'previous': setPrevious(true); dispatch({ type: 'dock', mode: 'logs' }); return;
       case 'shell': setArmedFor(armKey); dispatch({ type: 'dock', mode: 'shell' }); return;
@@ -301,16 +328,17 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
         if (text.trim()) runCommand(text);
       } else {
         setPrompt(null);
+        tableRef.current?.focus({ preventScroll: true });
       }
       return;
     }
     if (event.key === 'Tab' && prompt === 'command') {
-      const first = completions(line, state.namespaces)[0];
+      const first = completions(line, state.namespaces, kindChipIds)[0];
       if (first) { event.preventDefault(); setLine(first); }
     }
   };
 
-  const suggestions = prompt === 'command' ? completions(line, state.namespaces) : [];
+  const suggestions = prompt === 'command' ? completions(line, state.namespaces, kindChipIds) : [];
   const namespaceOptions = [...new Set([...(state.query.namespace ? [state.query.namespace] : []), ...state.namespaces])];
   const crumbCount = state.crumbs.length;
 
@@ -349,13 +377,18 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
         <div className="kube-prompt">
           {prompt ? (
             <>
-              <input type="text" autoFocus className="kube-prompt-input" aria-label={prompt === 'filter' ? 'Filter' : 'Befehl'} autoComplete="off" spellCheck={false}
-                placeholder={prompt === 'filter' ? 'Name oder key=value' : ':befehl'} value={prompt === 'filter' ? filterOf(state).text : line}
+              <input type="text" autoFocus className="kube-prompt-input" aria-label={prompt === 'filter' ? 'Suchen' : 'Befehl'} autoComplete="off" spellCheck={false}
+                placeholder={prompt === 'filter' ? 'Name, status:, node:, app=api, !term …' : ':befehl'}
+                maxLength={prompt === 'filter' ? MAX_SEARCH_LENGTH : undefined} value={prompt === 'filter' ? filter.text : line}
                 onChange={event => {
                   if (prompt === 'filter') dispatch({ type: 'search', text: event.target.value });
                   else setLine(event.target.value);
                 }}
                 onKeyDown={onPromptKeyDown} onBlur={() => { if (prompt === 'filter') setPrompt(null); }} />
+              {prompt === 'filter' && filter.text && (
+                <button type="button" className="kube-prompt-clear" aria-label="Suche leeren"
+                  onMouseDown={event => { event.preventDefault(); dispatch({ type: 'search', text: '' }); }}>×</button>
+              )}
               {suggestions.length > 0 && (
                 <ul className="kube-suggest" role="listbox" aria-label="Vorschläge">
                   {suggestions.map(suggestion => (
@@ -367,8 +400,8 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
               )}
             </>
           ) : (
-            <button type="button" className="kube-prompt-hint" onClick={() => { setLine(filterOf(state).text); setPrompt('filter'); }}>
-              {filterOf(state).text ? `Filter: ${filterOf(state).text}` : '/ filtern'} · : befehl
+            <button type="button" className="kube-prompt-hint" onClick={() => { setLine(filter.text); setPrompt('filter'); }}>
+              {filter.text ? `Suche: ${filter.text}` : '/ suchen'} · : befehl
             </button>
           )}
           <button type="button" className="kube-help-button" aria-label="Hilfe" title="Hilfe (?)" onClick={() => setHelp(true)}>?</button>
