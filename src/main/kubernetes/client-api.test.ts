@@ -164,6 +164,20 @@ describe('openLogs', () => {
     expect(io.end).toHaveBeenCalledWith(0, undefined);
   });
 
+  it('shows the held partial line before a mid-stream body error', async () => {
+    const fake = fakeLogRequest();
+    const io = fakeIo();
+    openLogs(testConfig(), logsTarget, io, fake.sendRequest);
+    fake.push('{"level":"info","msg":"held"}');
+    await flush();
+    expect(io.data).not.toHaveBeenCalled();
+    fake.fail(new Error('socket hang up'));
+    await flush();
+    expect(io.data).toHaveBeenCalledWith(Buffer.from('INFO  held'));
+    expect(io.end).toHaveBeenCalledTimes(1);
+    expect(io.end.mock.calls[0][0]).toBeNull();
+  });
+
   it('only fixes line ends in raw mode and for previous logs', async () => {
     const fake = fakeLogRequest();
     const io = fakeIo();

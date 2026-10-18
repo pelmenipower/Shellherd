@@ -8,6 +8,8 @@ const YELLOW = '\x1b[33m';
 const GRAY = '\x1b[90m';
 const MAX_EXTRAS = 6;
 const MAX_QUERY_LENGTH = 200;
+/** A partial line longer than this is no longer held back for formatting. */
+export const MAX_PENDING_LINE = 64 * 1024;
 
 const TIME_PATHS = [['ts'], ['time'], ['timestamp'], ['@timestamp'], ['record', 'log_time']];
 const LEVEL_PATHS = [['record', 'error_severity'], ['level'], ['severity'], ['lvl']];
@@ -29,8 +31,20 @@ function pick(object: Json, paths: string[][]): unknown {
   return undefined;
 }
 
+/**
+ * Makes a decoded value safe for the terminal: line breaks become CRLF plus an indent, tabs become a space
+ * and every other control character (C0, DEL, C1, including ESC) becomes U+FFFD. JSON escapes such as
+ * \u001b are inert in raw mode, so compact mode must not turn them into live control characters.
+ */
+function sanitize(value: string): string {
+  return value
+    .replace(/\r\n|\r|\n/g, '\r\n    ')
+    .replace(/\t/g, ' ')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, '�');
+}
+
 function text(value: unknown): string {
-  return typeof value === 'string' ? value : JSON.stringify(value);
+  return sanitize(typeof value === 'string' ? value : (JSON.stringify(value) ?? ''));
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -111,7 +125,10 @@ export function formatLogLine(line: string, state: LogFormatState = {}): string 
     const value = pick(object, paths);
     if (value === undefined) return;
     let shown = text(value);
-    if (max !== undefined && shown.length > max) shown = `${shown.slice(0, max)}…`;
+    if (max !== undefined) {
+      const chars = Array.from(shown);
+      if (chars.length > max) shown = `${chars.slice(0, max).join('')}…`;
+    }
     extras.push(`${key}=${shown}`);
   };
   if (isError) addExtra('sql_state', [['record', 'sql_state_code']]);
@@ -133,6 +150,8 @@ export class LogFormatter {
   private readonly state: LogFormatState = {};
   private pending = '';
   private lastWasCr = false;
+  /** True while the rest of an over-long or non-JSON line is passed through unformatted. */
+  private passthrough = false;
 
   constructor(private readonly format: LogFormat) {}
 
@@ -159,8 +178,32 @@ export class LogFormatter {
   }
 
   private compact(input: string): string {
-    const lines = (this.pending + input).split('\n');
-    this.pending = lines.pop() ?? '';
-    return lines.map(line => `${formatLogLine(line.replace(/\r$/, ''), this.state)}\r\n`).join('');
+    let out = '';
+    let pos = 0;
+    while (pos < input.length) {
+      const newline = input.indexOf('\n', pos);
+      if (this.passthrough) {
+        const end = newline < 0 ? input.length : newline + 1;
+        out += this.raw(input.slice(pos, end));
+        if (newline >= 0) this.passthrough = false;
+        pos = end;
+        continue;
+      }
+      if (newline < 0) {
+        this.pending += input.slice(pos);
+        const head = this.pending.trimStart();
+        if (this.pending.length > MAX_PENDING_LINE || (head !== '' && !head.startsWith('{'))) {
+          out += this.raw(this.pending);
+          this.pending = '';
+          this.passthrough = true;
+        }
+        break;
+      }
+      const line = this.pending + input.slice(pos, newline);
+      this.pending = '';
+      out += `${formatLogLine(line.replace(/\r$/, ''), this.state)}\r\n`;
+      pos = newline + 1;
+    }
+    return out;
   }
 }
