@@ -342,7 +342,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
           detail={detail} onMode={mode => dispatch({ type: 'dock', mode })} onArm={() => { setArmedFor(armKey); dispatch({ type: 'dock', mode: 'shell' }); }}
           onToggle={() => dispatch({ type: 'toggleDock' })} onPopout={onPopout ? popout : undefined} epoch={epoch + dockReloads} onMenu={(target, x, y) => openMenu(target, x, y)}
           logFormat={state.logFormat} onLogFormat={format => dispatch({ type: 'setLogFormat', format })} onSay={say}
-          onCopy={(text, label) => { window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text)), () => say('Kopieren fehlgeschlagen.')); }} />
+          onCopy={(text, label, info) => { window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text, info)), () => say('Kopieren fehlgeschlagen.')); }} />
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} label="Kontextmenü" entries={menuEntries(menu)} onClose={() => setMenu(null)} />}
       {help && <HelpOverlay state={state} readOnly={readOnly} onClose={() => setHelp(false)} />}

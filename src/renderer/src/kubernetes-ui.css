@@ -127,8 +127,9 @@
 /* Column filter row, group rows and the group-by select */
 .kube-filter-row th { top: 24px; padding: 0 2px; cursor: default; }
 .kube-filter-row th:hover { color: var(--ui-muted); }
-.kube-col-filter { position: relative; display: block; height: 24px; }
-.kube-filter-row input, .kube-filter-row select { width: 100%; min-width: 0; height: 24px; box-sizing: border-box; padding: 0 14px 0 4px; border-width: 1px; font-size: 11px; line-height: 22px; }
+.kube-col-filter, .kube-col-filter-empty { position: relative; display: block; height: 24px; }
+/* Selectors outrank the global input rule in styles.css (0,3,1) so every field is 24px high. */
+.kube-table .kube-filter-row input:not([type='checkbox']):not([type='range']):not([type='color']), .kube-table .kube-filter-row select { width: 100%; min-width: 0; height: 24px; box-sizing: border-box; padding: 0 14px 0 4px; border-width: 1px; font-size: 11px; line-height: 22px; }
 .kube-col-filter-clear, .kube-text-chip-clear { position: absolute; right: 1px; top: 1px; min-height: 0; height: 22px; box-sizing: border-box; line-height: 1; padding: 0 3px; border: 0; background: none; color: var(--ui-muted); }
 .kube-text-chip-clear { position: static; height: auto; padding: 0 2px; }
 .kube-filter-invalid { border-color: var(--ui-danger); }
