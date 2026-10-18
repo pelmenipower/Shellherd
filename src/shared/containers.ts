@@ -9,14 +9,12 @@ export const MIN_VMID = 100;
 export const MAX_VMID = 999_999_999;
 
 export type ItemState = 'running' | 'paused' | 'stopped';
-export type DiscoveredItem =
-  | { kind: 'container'; runtime: ContainerRuntime; id: string; ref: string; name: string; image: string; state: ItemState }
-  | { kind: 'lxc' | 'vm'; vmid: number; name: string; state: ItemState };
+export type DiscoveredItem = { kind: 'lxc' | 'vm'; vmid: number; name: string; state: ItemState };
 
 export interface DiscoveryResult {
   runtimes: RuntimeKind[];
   items: DiscoveredItem[];
-  /** Per runtime: a short German message when listing failed (e.g. no permission). */
+  /** Per runtime kind: a short German message when listing failed; only 'proxmox' is filled. */
   problems: Partial<Record<RuntimeKind, string>>;
 }
 
@@ -29,9 +27,7 @@ export interface TerminalTarget { item: ContainerTarget; mode: TerminalTargetMod
 export type ContainerAction = 'start' | 'stop' | 'restart' | 'shutdown';
 
 export function toTarget(item: DiscoveredItem): ContainerTarget {
-  return item.kind === 'container'
-    ? { kind: 'container', runtime: item.runtime, ref: item.ref, name: item.name }
-    : { kind: item.kind, vmid: item.vmid, name: item.name };
+  return { kind: item.kind, vmid: item.vmid, name: item.name };
 }
 
 /** Identity of a container or guest on one host. */

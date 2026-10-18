@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONTAINER_VIEW_SUFFIX, RUNTIME_LABEL, containerTone, containerViewHostName, containerViewTabName, inventoryRefValid, isInventoryRef,
+  CONTAINER_VIEW_SUFFIX, RUNTIME_LABEL, containerTone, containerViewHostName, containerViewTabName, inventoryRefValid, isInventoryRef, itemKey, toTarget,
 } from './containers';
 import type { InventoryRef } from './containers';
 
@@ -86,5 +86,16 @@ describe('containerViewTabName', () => {
 describe('RUNTIME_LABEL', () => {
   it('labels both runtimes', () => {
     expect(RUNTIME_LABEL).toEqual({ docker: 'Docker', podman: 'Podman' });
+  });
+});
+
+describe('toTarget and itemKey', () => {
+  it('maps LXC and VM guests to targets', () => {
+    expect(toTarget({ kind: 'lxc', vmid: 101, name: 'ct', state: 'running' })).toEqual({ kind: 'lxc', vmid: 101, name: 'ct' });
+    expect(toTarget({ kind: 'vm', vmid: 200, name: 'vm', state: 'stopped' })).toEqual({ kind: 'vm', vmid: 200, name: 'vm' });
+  });
+  it('keys containers and guests', () => {
+    expect(itemKey({ kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' })).toBe('container:docker:web-1');
+    expect(itemKey({ kind: 'vm', vmid: 200, name: 'vm', state: 'stopped' })).toBe('vm:200');
   });
 });
