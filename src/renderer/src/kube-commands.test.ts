@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ACTION_KINDS, type KubeAction, type KubeKind, type KubeRow } from '../../shared/kubernetes';
-import { CHIPS } from '../../shared/kube-status';
-import { KUBE_COMMANDS, actionReason, applyStatusCommand, bindingOf, commandForKey, completions, parseCommandLine, podNotRunning } from './kube-commands';
+import { KUBE_COMMANDS, actionReason, bindingOf, commandForKey, podNotRunning } from './kube-commands';
 import { initialKubeView, type KubeViewState } from './kube-view';
 
 const READY = { state: 'ready', name: 'c', production: false, readOnly: false, metrics: true } as const;
@@ -59,7 +58,7 @@ describe('kube commands', () => {
     expect(commandForKey('y')?.id).toBe('yaml'); expect(commandForKey('d')?.id).toBe('describe'); expect(commandForKey('p')?.id).toBe('previous');
     expect(commandForKey('r')?.id).toBe('restart'); expect(commandForKey('S')?.id).toBe('scale'); expect(commandForKey('Ctrl+d')?.id).toBe('delete');
     expect(commandForKey('Ctrl+j')?.id).toBe('toggleDock'); expect(commandForKey('Ctrl+Shift+T')?.id).toBe('popout');
-    expect(commandForKey('?')?.id).toBe('help'); expect(commandForKey('/')?.id).toBe('filter'); expect(commandForKey(':')?.id).toBe('command');
+    expect(commandForKey('?')?.id).toBe('help'); expect(commandForKey('/')?.id).toBe('filter'); expect(commandForKey(':')).toBeUndefined();
     expect(commandForKey('1')?.id).toBe('tab'); expect(commandForKey('0')?.id).toBe('tab');
   });
   it('builds bindings from keyboard events', () => {
@@ -86,19 +85,16 @@ describe('kube commands', () => {
     expect(shell.unavailable?.({ state: pods, readOnly: false })).toBe('Der Cluster ist gerade nicht verbunden.');
     expect(shell.unavailable?.({ state: { ...pods, status: READY }, readOnly: false })).toBeUndefined();
   });
-  it('parses command lines', () => {
-    expect(parseCommandLine(':pods')).toEqual({ id: 'kind', kind: 'pods' });
-    expect(parseCommandLine('deploy')).toEqual({ id: 'kind', kind: 'deployments' });
-    expect(parseCommandLine(':ns all')).toEqual({ id: 'namespace', namespace: null });
-    expect(parseCommandLine(':ns shop')).toEqual({ id: 'namespace', namespace: 'shop' });
-    expect(parseCommandLine(':scale 3')).toEqual({ id: 'scale', replicas: 3 });
-    expect(parseCommandLine(':scale -1')).toEqual({ error: 'Replicas: ganze Zahl von 0 bis 1000.' });
-    expect(parseCommandLine(':ns Shop')).toEqual({ error: 'Ungültiger Namespace „Shop“.' });
-    expect(parseCommandLine(':foo')).toEqual({ error: 'Unbekannter Befehl „foo“. Mit ? siehst du alle Befehle.' });
+  it('gives every command a key and a binding', () => {
+    for (const command of KUBE_COMMANDS) { expect(command.keys.length).toBeGreaterThan(0); expect(command.bindings.length).toBeGreaterThan(0); }
   });
-  it('completes commands and namespaces', () => {
-    expect(completions(':n', [])).toEqual([':nodes', ':ns ']);
-    expect(completions(':ns s', ['shop', 'monitoring', 'system'])).toEqual([':ns shop', ':ns system']);
+  it('describes / as the name filter and locks it in the container list', () => {
+    const filter = commandForKey('/')!;
+    expect(filter.description).toBe('Name filtern (Events: Meldung)');
+    expect(filter.unavailable?.({ state: withRow('pods'), readOnly: false })).toBeUndefined();
+    const pods = withRow('pods');
+    expect(filter.unavailable?.({ state: { ...pods, containersOf: pods.rows[0] }, readOnly: false })).toBe('In der Container-Liste gibt es keine Filter.');
+    expect(commandForKey('F')!.description).toBe('Alle Filter des Reiters zurücksetzen (Gruppierung bleibt)');
   });
 });
 
@@ -114,39 +110,5 @@ describe('search and status commands', () => {
       expect(attention.unavailable?.({ state: withRow(kind), readOnly: false })).toBe('Dieser Reiter hat keinen Chip „Auffällig“.');
     }
     expect(commandForKey('F')!.unavailable).toBeUndefined();
-  });
-
-  it('parses :filter keeping the text after the name', () => {
-    expect(parseCommandLine(':filter status:crash')).toEqual({ id: 'filter', text: 'status:crash' });
-    expect(parseCommandLine(':filter "a  b"  ')).toEqual({ id: 'filter', text: '"a  b"' });
-    expect(parseCommandLine(':filter')).toEqual({ id: 'filter', text: '' });
-  });
-
-  it('parses :status', () => {
-    expect(parseCommandLine(':status Failed, waiting,,')).toEqual({ id: 'status', chips: ['failed', 'waiting'] });
-    expect(parseCommandLine(':status alle')).toEqual({ id: 'status', chips: 'all' });
-    expect(parseCommandLine(':status all')).toEqual({ id: 'status', chips: 'all' });
-    expect(parseCommandLine(':status Alle')).toEqual({ id: 'status', chips: 'all' });
-    expect(parseCommandLine(':status ALL')).toEqual({ id: 'status', chips: 'all' });
-    expect(parseCommandLine(':status')).toEqual({ error: 'Status fehlt. Syntax: :status <id>[,<id>] | :status alle' });
-  });
-
-  it('applies :status per group', () => {
-    expect(applyStatusCommand('pods', ['attention', 'running'], ['failed', 'waiting'])).toEqual(['attention', 'waiting', 'failed']);
-    expect(applyStatusCommand('pods', ['running'], 'all')).toEqual([]);
-    expect(applyStatusCommand('ingresses', [], ['x'])).toEqual({ error: 'Für Ingress gibt es keine Status-Filter.' });
-    expect(applyStatusCommand('ingresses', [], 'all')).toEqual({ error: 'Für Ingress gibt es keine Status-Filter.' });
-    expect(applyStatusCommand('pods', [], ['failed', 'nope'])).toEqual({ error: `Unbekannter Status „nope“. Möglich: ${CHIPS.pods.map(c => c.id).join(', ')}` });
-  });
-
-  it('completes :status with chip ids of the kind', () => {
-    expect(completions(':sta', [])).toEqual([':status ']);
-    expect(completions(':st', [])).toContain(':status ');
-    expect(completions(':fi', [])).toEqual([':filter ']);
-    expect(completions(':status fa', [], ['failed', 'waiting'])).toEqual([':status failed']);
-    expect(completions(':status failed,wa', [], ['failed', 'waiting'])).toEqual([':status failed,waiting']);
-    expect(completions(':status a', [], ['x'])).toEqual([':status alle']);
-    expect(completions(':status ', [])).toEqual([]);
-    expect(completions(':filter ', [], ['failed'])).toEqual([]);
   });
 });
