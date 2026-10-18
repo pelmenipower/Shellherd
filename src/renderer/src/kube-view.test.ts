@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ClusterStatus, KubeEvent, KubeKind, KubeRow, NodeTile, UsageHistory } from '../../shared/kubernetes';
 import { KIND_INFO, refKey } from '../../shared/kubernetes';
-import { columnsOf, compileFilter, defaultSort, filterOf, isFiltered, searchedRows, dockContainer, dockSelection, dockTerminalKey, settleArm, formatAge, formatUsage, initialKubeView, kubeViewReducer, snapshotOf, sparkline, visibleRows } from './kube-view';
+import { activeFilter, activeGrouping, columnsOf, compileFilter, navigableRows, tableItems, defaultSort, filterOf, isFiltered, searchedRows, dockContainer, dockSelection, dockTerminalKey, settleArm, formatAge, formatUsage, initialKubeView, kubeViewReducer, snapshotOf, sparkline, visibleRows } from './kube-view';
 import type { KubeViewAction, KubeViewState } from './kube-view';
 import { KubeViewSnapshotSchema } from '../../shared/kubernetes-schema';
 
@@ -785,5 +785,241 @@ describe('initial namespace', () => {
   it('switches to the configured namespace once', () => {
     const after = kubeViewReducer(initialKubeView(null), statusEvent(ready('shop')));
     expect(after.query.namespace).toBe('shop');
+  });
+});
+
+describe('column filters and grouping', () => {
+  const key = (name: string): string => refKey(row('pods', name).ref);
+  const cpod = (name: string, status: string, node: string, namespace = 'shop', extra: Partial<KubeRow> = {}): KubeRow =>
+    row('pods', name, { cells: { name, status, ready: '1/1', restarts: 0, node }, node, tone: status === 'Running' ? 'ok' : 'bad', ...extra }, namespace);
+  const col = (state: KubeViewState, k: string, value: string): KubeViewState => kubeViewReducer(state, { type: 'setColumnFilter', key: k, value });
+  const grouped = (state: KubeViewState, by: 'node' | 'namespace' | 'status' | 'roles' | null): KubeViewState => kubeViewReducer(state, { type: 'setGroupBy', groupBy: by });
+  const items = (state: KubeViewState): string[] => tableItems(state).map(i => (i.type === 'group' ? `[${i.label}:${i.count}${i.collapsed ? ':c' : ''}]` : i.row.ref.name));
+
+  it('initial state has no groups', () => {
+    expect(initialKubeView('shop').groups).toEqual({});
+  });
+
+  it('C6: ignores unknown and none keys, truncates, deletes on blank, keeps reference when unchanged', () => {
+    const state = podsState([cpod('a', 'Running', 'n1')]);
+    expect(col(state, 'bogus', 'x')).toBe(state);
+    expect(col(state, 'cpu', 'x')).toBe(state);
+    expect(col(state, 'namespace', 'shop')).toBe(state); // no namespace column with a namespace
+    expect(col(state, 'name', '  ')).toBe(state);
+    const set = col(state, 'name', ' a ');
+    expect(filterOf(set).columns).toEqual({ name: ' a ' });
+    expect(col(set, 'name', ' a ')).toBe(set);
+    expect(filterOf(col(state, 'name', 'x'.repeat(150))).columns?.name).toHaveLength(100);
+    const cleared = col(set, 'name', ' ');
+    expect(filterOf(cleared)).toEqual({ text: '', chips: [] });
+    expect('columns' in filterOf(cleared)).toBe(false);
+  });
+
+  it('filters rows by column, ANDed with search, and replaces the columns object', () => {
+    let state = podsState([cpod('web-1', 'Running', 'n1'), cpod('web-2', 'Failed', 'n2'), cpod('db-1', 'Running', 'n2')]);
+    state = col(state, 'status', 'Running');
+    expect(names(state)).toEqual(['web-1', 'db-1']);
+    const before = filterOf(state).columns;
+    state = col(state, 'node', 'n2');
+    expect(filterOf(state).columns).not.toBe(before);
+    expect(names(state)).toEqual(['db-1']);
+    state = apply(state, { type: 'search', text: 'web' });
+    expect(names(state)).toEqual([]);
+    expect(filterOf(state).columns).toEqual({ status: 'Running', node: 'n2' });
+  });
+
+  it('persists per kind across setKind', () => {
+    let state = col(podsState([]), 'name', 'api');
+    state = apply(state, { type: 'setKind', kind: 'services' });
+    expect(filterOf(state).columns).toBeUndefined();
+    state = apply(state, { type: 'setKind', kind: 'pods' });
+    expect(filterOf(state).columns).toEqual({ name: 'api' });
+  });
+
+  it('B7: namespace column filter and grouping apply only with all namespaces', () => {
+    const data = [cpod('a', 'Running', 'n1', 'shop'), cpod('b', 'Running', 'n1', 'other')];
+    let state = apply(initialKubeView(null), { type: 'setColumnFilter', key: 'namespace', value: 'shop' }, { type: 'setGroupBy', groupBy: 'namespace' });
+    state = rowsEvent(state, data);
+    expect(names(state)).toEqual(['a']);
+    expect(activeGrouping(state)?.by).toBe('namespace');
+    state = rowsEvent(apply(state, { type: 'setNamespace', namespace: 'other' }), data);
+    expect(names(state)).toEqual(['a', 'b']);
+    expect(activeFilter(state)).toEqual({ text: '', chips: [] });
+    expect('columns' in activeFilter(state)).toBe(false);
+    expect(filterOf(state).columns).toEqual({ namespace: 'shop' });
+    expect(activeGrouping(state)).toBeNull();
+    expect(tableItems(state).every(i => i.type === 'row')).toBe(true);
+    state = rowsEvent(apply(state, { type: 'setNamespace', namespace: null }), data);
+    expect(names(state)).toEqual(['a']);
+    expect(activeGrouping(state)?.by).toBe('namespace');
+  });
+
+  it('isFiltered counts column values; searchedRows ignores chips but uses columns (C9)', () => {
+    expect(isFiltered({ text: '', chips: [], columns: { name: ' ' } })).toBe(false);
+    expect(isFiltered({ text: '', chips: [], columns: { name: 'a' } })).toBe(true);
+    let state = podsState([cpod('web-1', 'Running', 'n1'), cpod('web-2', 'Failed', 'n1'), cpod('db-1', 'Failed', 'n1')]);
+    state = apply(state, { type: 'setColumnFilter', key: 'name', value: 'web' }, { type: 'toggleChip', id: 'failed' });
+    expect(searchedRows(state).map(r => r.ref.name)).toEqual(['web-1', 'web-2']);
+    expect(names(state)).toEqual(['web-2']);
+  });
+
+  it('B8: drill and back restore the column filters; openQuery on the same kind too', () => {
+    const dep = row('deployments', 'api', { cells: { name: 'api' }, selector: { app: 'api' } });
+    let state = apply(initialKubeView('shop'), { type: 'setKind', kind: 'deployments' }, { type: 'setColumnFilter', key: 'name', value: 'api' });
+    state = rowsEvent(state, [dep]);
+    state = apply(state, { type: 'select', key: refKey(dep.ref) }, { type: 'drill' });
+    expect(state.crumbs[0].columns).toEqual({ name: 'api' });
+    expect(filterOf(state)).toEqual({ text: '', chips: [] });
+    state = apply(state, { type: 'back' });
+    expect(filterOf(state).columns).toEqual({ name: 'api' });
+    const plain = apply(initialKubeView('shop'), { type: 'openQuery', query: { kind: 'jobs', namespace: 'shop' }, crumb: 'x' });
+    expect('columns' in plain.crumbs[0]).toBe(false);
+    let same = apply(initialKubeView('shop'), { type: 'setColumnFilter', key: 'name', value: 'p' });
+    same = apply(same, { type: 'openQuery', query: { kind: 'pods', namespace: 'shop', selector: { node: 'n1' } }, crumb: 'Node n1' });
+    expect(filterOf(same).columns).toBeUndefined();
+    same = apply(same, { type: 'back' });
+    expect(filterOf(same).columns).toEqual({ name: 'p' });
+  });
+
+  it('jump clears the target kind columns', () => {
+    let state = apply(initialKubeView('shop'), { type: 'setColumnFilter', key: 'name', value: 'p' });
+    state = apply(state, { type: 'jump', ref: { kind: 'pods', namespace: 'shop', name: 'x' } });
+    expect(filterOf(state)).toEqual({ text: '', chips: [] });
+  });
+
+  it('F clears all filters but keeps the grouping', () => {
+    const state = apply(initialKubeView('shop'), { type: 'setColumnFilter', key: 'name', value: 'p' }, { type: 'setGroupBy', groupBy: 'node' });
+    const cleared = kubeViewReducer(state, { type: 'clearFilter' });
+    expect(filterOf(cleared)).toEqual({ text: '', chips: [] });
+    expect('columns' in filterOf(cleared)).toBe(false);
+    expect(cleared.groups.pods?.by).toBe('node');
+  });
+
+  it('C14: setGroupBy validates and resets collapsed', () => {
+    const state = podsState([cpod('a', 'Running', 'n1')]);
+    expect(grouped(state, null)).toBe(state);
+    expect(grouped(state, 'roles')).toBe(state);
+    expect(grouped(state, 'namespace')).toBe(state); // a namespace is selected
+    const g = grouped(state, 'node');
+    expect(g.groups.pods).toEqual({ by: 'node', collapsed: [] });
+    expect(grouped(g, 'node')).toBe(g);
+    const c = kubeViewReducer(g, { type: 'toggleGroup', key: 'n1' });
+    expect(grouped(c, 'status').groups.pods).toEqual({ by: 'status', collapsed: [] });
+    expect(grouped(c, null).groups).toEqual({});
+  });
+
+  it('C15: toggleGroup toggles, caps at 50 and ignores long keys and ungrouped tables', () => {
+    const state = podsState([]);
+    expect(kubeViewReducer(state, { type: 'toggleGroup', key: 'x' })).toBe(state);
+    let g = grouped(state, 'node');
+    expect(kubeViewReducer(g, { type: 'toggleGroup', key: 'x'.repeat(301) })).toBe(g);
+    g = kubeViewReducer(g, { type: 'toggleGroup', key: 'a' });
+    expect(g.groups.pods?.collapsed).toEqual(['a']);
+    g = kubeViewReducer(g, { type: 'toggleGroup', key: 'a' });
+    expect(g.groups.pods?.collapsed).toEqual([]);
+    for (let i = 0; i < 52; i++) g = kubeViewReducer(g, { type: 'toggleGroup', key: `k${i}` });
+    expect(g.groups.pods?.collapsed).toHaveLength(50);
+    expect(g.groups.pods?.collapsed[0]).toBe('k2');
+    expect(g.groups.pods?.collapsed[49]).toBe('k51');
+  });
+
+  it('keeps groups per kind across setKind and tableItems groups rows', () => {
+    let state = grouped(podsState([cpod('a', 'Running', 'n2'), cpod('b', 'Running', 'n1'), cpod('c', 'Running', 'n2')]), 'node');
+    expect(items(state)).toEqual(['[n1:1]', 'b', '[n2:2]', 'a', 'c']);
+    state = apply(state, { type: 'setKind', kind: 'services' }, { type: 'setKind', kind: 'pods' });
+    expect(state.groups.pods?.by).toBe('node');
+  });
+
+  it('B4: move follows display order', () => {
+    let state = grouped(podsState([cpod('a', 'Running', 'n2'), cpod('b', 'Running', 'n1'), cpod('c', 'Running', 'n3'), cpod('d', 'Running', 'n2')]), 'node');
+    expect(navigableRows(state).map(r => r.ref.name)).toEqual(['b', 'a', 'd', 'c']);
+    state = apply(state, { type: 'move', delta: 1 });
+    expect(state.selected).toBe(key('b'));
+    state = apply(state, { type: 'move', delta: 1 });
+    expect(state.selected).toBe(key('a'));
+    state = apply(state, { type: 'move', delta: 1 });
+    expect(state.selected).toBe(key('d'));
+  });
+
+  it('B4: move skips collapsed groups', () => {
+    let state = grouped(podsState([cpod('a', 'Running', 'n1'), cpod('b', 'Running', 'n2'), cpod('c', 'Running', 'n3')]), 'node');
+    state = apply(state, { type: 'toggleGroup', key: 'n2' }, { type: 'select', key: key('a') }, { type: 'move', delta: 1 });
+    expect(state.selected).toBe(key('c'));
+    expect(navigableRows(state).map(r => r.ref.name)).toEqual(['a', 'c']);
+  });
+
+  it('B5: collapsing the selected group clears the selection', () => {
+    let state = grouped(podsState([cpod('a', 'Running', 'n1'), cpod('b', 'Running', 'n2')]), 'node');
+    state = apply(state, { type: 'select', key: key('a') });
+    const other = kubeViewReducer(state, { type: 'toggleGroup', key: 'n2' });
+    expect(other.selected).toBe(key('a'));
+    const hit = kubeViewReducer(state, { type: 'toggleGroup', key: 'n1' });
+    expect(hit.selected).toBeNull();
+    expect(hit.groups.pods?.collapsed).toEqual(['n1']);
+  });
+
+  it('B5: jump then rows event reveals the target group; select in a collapsed group reveals it', () => {
+    let state = apply(initialKubeView('shop'), { type: 'setGroupBy', groupBy: 'node' }, { type: 'toggleGroup', key: 'n1' });
+    state = apply(state, { type: 'jump', ref: { kind: 'pods', namespace: 'shop', name: 'a' } });
+    expect(state.groups.pods?.collapsed).toEqual(['n1']);
+    state = rowsEvent(state, [cpod('a', 'Running', 'n1'), cpod('b', 'Running', 'n2')]);
+    expect(state.selected).toBe(key('a'));
+    expect(state.groups.pods?.collapsed).toEqual([]);
+    state = apply(state, { type: 'toggleGroup', key: 'n2' });
+    expect(state.groups.pods?.collapsed).toEqual(['n2']);
+    state = apply(state, { type: 'select', key: key('b') });
+    expect(state.groups.pods?.collapsed).toEqual([]);
+  });
+
+  it('B5: reveal keeps the reference when nothing changes', () => {
+    const state = grouped(podsState([cpod('a', 'Running', 'n1')]), 'node');
+    expect(kubeViewReducer(state, { type: 'tick', now: 0 })).toBe(state);
+    expect(kubeViewReducer(state, { type: 'select', key: null })).toBe(state);
+  });
+
+  it('B4: keepSelection in rows mode uses display position', () => {
+    let state = grouped(podsState([cpod('a', 'Running', 'n2'), cpod('b', 'Running', 'n1'), cpod('c', 'Running', 'n2')]), 'node');
+    // display: b | a c
+    state = apply(state, { type: 'select', key: key('a') });
+    state = rowsEvent(state, [], { reset: false, deletes: ['pods-a'] });
+    expect(state.selected).toBe(key('c'));
+    state = rowsEvent(state, [], { reset: false, deletes: ['pods-c'] });
+    expect(state.selected).toBe(key('b'));
+  });
+
+  it('C21: snapshotOf stores raw columns, grouping and collapsed within the limits; schema accepts it', () => {
+    let state = apply(initialKubeView(null), { type: 'setColumnFilter', key: 'name', value: 'x'.repeat(100) }, { type: 'setColumnFilter', key: 'namespace', value: 'shop' }, { type: 'setGroupBy', groupBy: 'namespace' });
+    for (let i = 0; i < 60; i++) state = apply(state, { type: 'toggleGroup', key: `g${i}` });
+    state = apply(state, { type: 'setNamespace', namespace: 'shop' });
+    const snapshot = snapshotOf(state);
+    expect(snapshot.filters?.pods?.columns).toEqual({ name: 'x'.repeat(100), namespace: 'shop' });
+    expect(snapshot.filters?.pods?.groupBy).toBe('namespace');
+    expect(snapshot.filters?.pods?.collapsed).toHaveLength(50);
+    expect(KubeViewSnapshotSchema.safeParse(snapshot).success).toBe(true);
+    expect('filters' in snapshotOf(initialKubeView('shop'))).toBe(false);
+    const only = snapshotOf({ ...initialKubeView('shop'), groups: { pods: { by: 'node', collapsed: [] } }, filters: { services: { text: '', chips: [], columns: { name: ' ' } } } });
+    expect(only.filters).toEqual({ pods: { groupBy: 'node' } });
+  });
+
+  it('C22: restore keeps valid columns and grouping, drops unknown ones, accepts old snapshots', () => {
+    const base = { query: { kind: 'pods' as const, namespace: 'shop' }, crumbs: [], dock: 'logs' as const };
+    const state = kubeViewReducer(initialKubeView('shop'), { type: 'restore', snapshot: { ...base, filters: {
+      pods: { columns: { name: 'a', namespace: 'shop', cpu: 'x', bogus: 'y', status: ' ' }, groupBy: 'node', collapsed: ['n1', 'n1', 'n2'] },
+      services: { groupBy: 'node', collapsed: ['x'] },
+      nodes: { text: 'w' },
+    } } });
+    expect(state.filters.pods).toEqual({ text: '', chips: [], columns: { name: 'a', namespace: 'shop' } });
+    expect(state.groups).toEqual({ pods: { by: 'node', collapsed: ['n1', 'n2'] } });
+    expect(state.filters.services).toBeUndefined();
+    expect(state.filters.nodes).toEqual({ text: 'w', chips: [] });
+    const old = kubeViewReducer(state, { type: 'restore', snapshot: base });
+    expect(old.filters).toEqual({});
+    expect(old.groups).toEqual({});
+  });
+
+  it('visibleRows stays ungrouped while navigableRows follows the groups', () => {
+    const state = grouped(podsState([cpod('a', 'Running', 'n2'), cpod('b', 'Running', 'n1')]), 'node');
+    expect(names(state)).toEqual(['a', 'b']);
+    expect(navigableRows(state).map(r => r.ref.name)).toEqual(['b', 'a']);
   });
 });
