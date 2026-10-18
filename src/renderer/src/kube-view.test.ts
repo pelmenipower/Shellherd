@@ -72,7 +72,8 @@ describe('default namespace', () => {
     kubeViewReducer(state, { type: 'event', event: { type: 'status', viewId: 'v1', status: value } });
 
   it('applies the cluster namespace once, to a view that has not moved', () => {
-    let state = statusEvent(initialKubeView('default'), withNamespace());
+    // While connecting the kubeconfig is not read yet, so a status without namespace changes nothing.
+    let state = statusEvent(initialKubeView('default'), { ...withNamespace(), state: 'connecting' });
     expect(state.query.namespace).toBe('default');
     state = statusEvent(state, withNamespace('shop'));
     expect(state.query).toEqual({ kind: 'pods', namespace: 'shop' });
@@ -766,5 +767,23 @@ describe('snapshotOf and restore filters (B4, C14, C15)', () => {
     expect(state.sort).toEqual({ key: 'last', descending: true });
     expect(state.crumbs[0].text).toBe('');
     expect(apply(initialKubeView('shop'), { type: 'restore', snapshot: { ...snapshot, filters: undefined } }).filters).toEqual({});
+  });
+});
+
+describe('initial namespace', () => {
+  const ready = (namespace?: string): ClusterStatus => ({ state: 'ready', name: 'k8s', production: true, readOnly: false, metrics: true, ...(namespace ? { namespace } : {}) });
+  const statusEvent = (status: ClusterStatus): KubeViewAction => ({ type: 'event', event: { type: 'status', viewId: 'v', status } });
+
+  it('starts with all namespaces and keeps them when the cluster names none', () => {
+    const start = initialKubeView(null);
+    expect(start.query.namespace).toBeNull();
+    const after = kubeViewReducer(start, statusEvent(ready()));
+    expect(after.query.namespace).toBeNull();
+    expect(after.pendingNamespace).toBe(false);
+  });
+
+  it('switches to the configured namespace once', () => {
+    const after = kubeViewReducer(initialKubeView(null), statusEvent(ready('shop')));
+    expect(after.query.namespace).toBe('shop');
   });
 });

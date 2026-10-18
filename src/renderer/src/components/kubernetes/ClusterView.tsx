@@ -45,7 +45,7 @@ const TICK_MS = 10_000;
 
 /** Cluster tab: header, node strip, problems, the resource table and the detail dock. */
 export function ClusterView({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, onPopout, initialView, onSnapshot, sshForNode, onOpenSsh }: ClusterViewProps) {
-  const { state, dispatch, retry, detail, action } = useClusterSession(connection.id, initialView, 'default');
+  const { state, dispatch, retry, detail, action } = useClusterSession(connection.id, initialView, null);
   const rootRef = useRef<HTMLElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const [previous, setPrevious] = useState(false);

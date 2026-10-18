@@ -239,7 +239,9 @@ function applyEvent(state: KubeViewState, event: KubeEvent): KubeViewState {
 /** The first status that names a default namespace replaces the initial one, unless the view has moved on. */
 function applyStatus(state: KubeViewState, status: ClusterStatus): KubeViewState {
   const next = { ...state, status };
-  if (!state.pendingNamespace || !status.namespace) return next;
+  if (!state.pendingNamespace) return next;
+  // Ready without a configured namespace: keep the initial one (all namespaces).
+  if (!status.namespace) return status.state === 'ready' ? { ...next, pendingNamespace: false } : next;
   const done = { ...next, pendingNamespace: false };
   if (state.query.namespace === status.namespace) return done;
   return { ...done, query: { ...state.query, namespace: status.namespace }, rows: [], loading: true, trouble: null };

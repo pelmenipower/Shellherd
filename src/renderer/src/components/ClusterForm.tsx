@@ -108,7 +108,7 @@ export function ClusterForm({ idPrefix, fields, nodes, busy, error, onChange }: 
 
       <div className="editor-field">
         <label htmlFor={`${idPrefix}-namespace`}>Namespace</label>
-        <input id={`${idPrefix}-namespace`} type="text" placeholder="default" value={fields.namespace} disabled={busy} autoComplete="off" spellCheck={false}
+        <input id={`${idPrefix}-namespace`} type="text" placeholder="alle Namespaces" value={fields.namespace} disabled={busy} autoComplete="off" spellCheck={false}
           aria-invalid={error?.field === 'namespace' || undefined}
           aria-describedby={error?.field === 'namespace' ? `${idPrefix}-namespace-error` : undefined}
           onChange={event => onChange({ namespace: event.target.value })} />
