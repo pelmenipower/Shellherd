@@ -5,7 +5,8 @@ import {
 } from '../../shared/kubernetes';
 import { KUBE_COMMANDS, actionReason, podNotRunning, type CommandId } from './kube-commands';
 import * as kubectl from './kube-kubectl';
-import { filterOf, type KubeViewAction, type KubeViewState } from './kube-view';
+import { primaryChip } from '../../shared/kube-status';
+import { defaultSort, filterOf, type KubeViewAction, type KubeViewState } from './kube-view';
 
 export type MenuTarget =
   | { type: 'row'; row: KubeRow }
@@ -51,6 +52,7 @@ const NO_CONTAINER = 'Der Pod hat keine Container.';
 const NOT_RUNNING = 'Der Pod läuft nicht.';
 const ONLY_PODS = 'Nur für Pods.';
 const SORT_HINT = 'Standard: Reihenfolge des Eintreffens';
+const EVENTS_SORT_HINT = 'Standard: Zuletzt absteigend';
 const PREFERRED_LABELS = ['app', 'app.kubernetes.io/name', 'app.kubernetes.io/instance', 'app.kubernetes.io/component'];
 
 interface Env { ctx: MenuContext; connected: boolean; readOnly: boolean; /** Hotkey hints only for targets that are the selection. */ hot: boolean }
@@ -387,6 +389,10 @@ function rowMenu(env: Env, row: KubeRow): MenuEntry[] {
       case 'events': return eventGroups(env, row);
     }
   })();
+  const chip = primaryChip(row.ref.kind, row, env.ctx.now);
+  if (chip && groups.length > 0) {
+    groups[0] = [...groups[0], item(env, `only-${chip.id}`, `Nur ${chip.label} anzeigen`, view(select(row), { type: 'setChips', ids: [chip.id] }))];
+  }
   return assemble(lead, groups);
 }
 
@@ -504,28 +510,35 @@ function dockEventMenu(env: Env, row: KubeRow): MenuEntry[] {
   ]);
 }
 
+/** "Sortierung aufheben": disabled while the sort already equals the default of the kind (C21). */
+function sortClearItem(env: Env): MenuEntry {
+  const { sort, query } = env.ctx.state;
+  const standard = defaultSort(query.kind);
+  const atDefault = sort === null || standard === null ? sort === standard : sort.key === standard.key && sort.descending === standard.descending;
+  return { kind: 'item', id: 'sort-clear', label: 'Sortierung aufheben', hint: standard ? EVENTS_SORT_HINT : SORT_HINT, ...(atDefault ? { disabled: true } : {}), run: view({ type: 'sortBy', sort: null }) };
+}
+
 function headerMenu(env: Env, column: ColumnInfo): MenuEntry[] {
   const sort = (descending: boolean): MenuAction => view({ type: 'sortBy', sort: { key: column.key, descending } });
-  const sorted = env.ctx.state.sort !== null;
   return [
     item(env, 'sort-asc', 'Aufsteigend sortieren', sort(false)),
     item(env, 'sort-desc', 'Absteigend sortieren', sort(true)),
-    { kind: 'item', id: 'sort-clear', label: 'Sortierung aufheben', hint: SORT_HINT, ...(sorted ? {} : { disabled: true }), run: view({ type: 'sortBy', sort: null }) },
+    sortClearItem(env),
   ];
 }
 
 function backgroundMenu(env: Env): MenuEntry[] {
   const { state, status } = env.ctx;
-  const filtered = filterOf(state).text !== '';
+  const filter = filterOf(state);
   const all = state.query.namespace === null;
   const back = status?.namespace ?? 'default';
   return assemble([], [
     [
-      filtered ? item(env, 'filter-clear', 'Filter leeren', view({ type: 'search', text: '' }))
-        : item(env, 'filter-clear', 'Filter leeren', view({ type: 'search', text: '' }), { reason: 'Kein Filter gesetzt.' }),
+      item(env, 'search-clear', 'Suche leeren', view({ type: 'search', text: '' }), { reason: filter.text !== '' ? undefined : 'Keine Suche gesetzt.' }),
+      item(env, 'chips-clear', 'Status-Filter leeren', view({ type: 'setChips', ids: [] }), { reason: filter.chips.length > 0 ? undefined : 'Kein Status-Filter gesetzt.' }),
       all ? item(env, 'namespace', `Zurück zu ${back}`, view({ type: 'setNamespace', namespace: back }))
         : item(env, 'namespace', 'Alle Namespaces', view({ type: 'setNamespace', namespace: null })),
-      { kind: 'item', id: 'sort-clear', label: 'Sortierung aufheben', hint: SORT_HINT, ...(state.sort ? {} : { disabled: true }), run: view({ type: 'sortBy', sort: null }) },
+      sortClearItem(env),
     ],
     [item(env, 'help', 'Hilfe…', { type: 'help' }, { extra: '?' })],
   ]);
