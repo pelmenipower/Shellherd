@@ -1,4 +1,4 @@
-import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
+import type { ConnectionNode, WorkspaceContainerView, WorkspaceLayout } from '../../shared/vault/types';
 import type { TerminalTab } from './terminal-tabs';
 import { containerConnection, containerViewConnection, sameTarget, toTerminalConnection } from './terminal-tabs';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
@@ -159,7 +159,8 @@ export function savedLayout(layout: LiveLayout, tabs: TerminalTab[]): WorkspaceL
     .filter(tab => tab.connection.id !== LOCAL_CONTAINER_HOST && !tab.connection.kube);
   const active = layout.activeTabId ? saved.find(tab => tab.id === layout.activeTabId)?.connection.id : undefined;
   const fileBrowsers = saved.flatMap((tab, index) => tab.connection.view === 'files' ? [index] : []);
-  const containerViews = saved.flatMap((tab, index) => tab.connection.view === 'containers' ? [index] : []);
+  const containerViews: (number | WorkspaceContainerView)[] = saved.flatMap((tab, index) =>
+    tab.connection.view !== 'containers' ? [] : [tab.connection.runtime ? { index, runtime: tab.connection.runtime } : index]);
   const containerTabs = saved.flatMap((tab, index) => tab.connection.target ? [{ index, target: tab.connection.target.item, mode: tab.connection.target.mode }] : []);
   const kubeTabs = saved.flatMap((tab, index) => tab.connection.protocol === 'kubernetes' && tab.kubeView ? [{ index, view: tab.kubeView }] : []);
   return { type: 'pane', connectionIds: saved.map(tab => tab.connection.id), ...(active ? { activeConnectionId: active } : {}),
@@ -177,10 +178,11 @@ export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => Co
       if (tabs.length >= MAX_SSH_SESSIONS) throw new Error(`Ein Workspace darf höchstens ${MAX_SSH_SESSIONS} Sessions starten.`);
       const tabId = uuid();
       const container = node.containerTabs?.find(entry => entry.index === index);
+      const view = node.containerViews?.find(entry => (typeof entry === 'number' ? entry : entry.index) === index);
       const target = container && connection.protocol === 'ssh'
         ? containerConnection(connection.id, connection.name, connectionAddress(connection), { item: container.target, mode: container.mode })
-        : node.containerViews?.includes(index) && connection.protocol === 'ssh'
-          ? containerViewConnection(connection.id, connection.name, connectionAddress(connection))
+        : view !== undefined && connection.protocol === 'ssh'
+          ? containerViewConnection(connection.id, connection.name, connectionAddress(connection), typeof view === 'number' ? undefined : view.runtime)
           : toTerminalConnection(connection, node.fileBrowsers?.includes(index));
       const kubeView = node.kubeTabs?.find(entry => entry.index === index)?.view;
       tabs.push({ id: tabId, connection: target, ordinal: tabs.filter(tab => sameTarget(tab.connection, target)).length + 1, status: 'connecting',
