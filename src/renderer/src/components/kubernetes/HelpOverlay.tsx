@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNativeSurfaceBlock } from '../../native-surface';
 import { KUBE_COMMANDS, type CommandGroup, type KubeCommand } from '../../kube-commands';
 import type { KubeViewState } from '../../kube-view';
+import { SEARCH_HELP } from '../../../../shared/kube-filter';
+import { CHIPS } from '../../../../shared/kube-status';
+import { KIND_INFO } from '../../../../shared/kubernetes';
 
 const GROUPS: CommandGroup[] = ['Navigation', 'Ansicht', 'Aktionen'];
 
@@ -26,6 +29,18 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
     && matches([command.description, command.keys.join(' '), command.bindings.join(' ')].join(' ')));
   const commands = KUBE_COMMANDS.filter(command => command.command
     && matches([command.command?.syntax, command.command?.example, command.description].join(' ')));
+
+  const kind = state.query.kind;
+  const label = KIND_INFO[kind].label;
+  const forms = SEARCH_HELP.forms.filter(item => matches([item.form, item.description, item.example].join(' ')));
+  const qualifiers = SEARCH_HELP.qualifiers[kind].filter(item => matches(`${item.name}: ${item.description}`));
+  const numeric = SEARCH_HELP.numeric[kind];
+  const numericText = numeric ? `Zahlen: ${numeric.join(', ')}` : '';
+  const showNumeric = numericText !== '' && matches(numericText);
+  const chips = CHIPS[kind].filter(chip => matches(`${chip.id} ${chip.label}`));
+  const noChips = CHIPS[kind].length === 0 && matches('Keine Status-Filter.');
+  const showSyntax = matches(SEARCH_HELP.syntax);
+  const showNote = matches(SEARCH_HELP.note);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // The view also listens for keys; Escape must only close this dialog.
@@ -83,6 +98,51 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
                 );
               })}
             </dl>
+          </div>
+          <div>
+            <h3>Suche</h3>
+            {showSyntax && <p><code>{SEARCH_HELP.syntax}</code></p>}
+            <dl>
+              {forms.map(item => (
+                <div key={item.form} className="kube-help-row">
+                  <dt><code>{item.form}</code></dt>
+                  <dd>
+                    {item.description}
+                    <span className="kube-muted"> · Beispiel: <code>{item.example}</code></span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {showNote && <p className="kube-muted">{SEARCH_HELP.note}</p>}
+            {(qualifiers.length > 0 || showNumeric) && (
+              <section>
+                <h4>Qualifier für {label}</h4>
+                <dl>
+                  {qualifiers.map(item => (
+                    <div key={item.name} className="kube-help-row">
+                      <dt><code>{item.name}:</code></dt>
+                      <dd>{item.description}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {showNumeric && <p className="kube-muted">{numericText}</p>}
+              </section>
+            )}
+            {(chips.length > 0 || noChips) && (
+              <section>
+                <h4>Status-Filter für {label}</h4>
+                {noChips ? <p className="kube-muted">Keine Status-Filter.</p> : (
+                  <dl>
+                    {chips.map(chip => (
+                      <div key={chip.id} className="kube-help-row">
+                        <dt><code>{chip.id}</code></dt>
+                        <dd>{chip.label}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+              </section>
+            )}
           </div>
         </div>
       </div>
