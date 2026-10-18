@@ -164,8 +164,25 @@ export type KubeTerminalMode = 'logs' | 'previous' | 'shell';
 export interface KubeTerminalTarget { namespace: string; pod: string; container: string; mode: KubeTerminalMode }
 
 export type DockMode = 'logs' | 'shell' | 'events' | 'yaml' | 'describe';
-/** Saved filter of one kind; both fields optional, absent = empty. */
-export interface KubeFilterSnapshot { text?: string; chips?: string[] }
+/** Group-by options of the cluster table; the per-kind subset is GROUP_OPTIONS in kube-columns.ts. */
+export const GROUP_BY_IDS = ['namespace', 'node', 'status', 'owner', 'roles', 'type', 'reason', 'objectKind'] as const;
+export type GroupBy = typeof GROUP_BY_IDS[number];
+/** Limits of the saved view; the reducer keeps the state inside them so the vault schema never rejects a snapshot. */
+export const MAX_COLUMN_FILTERS = 12;
+export const MAX_COLUMN_FILTER_LENGTH = 100;
+export const MAX_COLLAPSED = 50;
+export const MAX_GROUP_KEY_LENGTH = 300;
+
+/** Saved filter and grouping of one kind; every field optional, absent = empty / no grouping. */
+export interface KubeFilterSnapshot {
+  text?: string;
+  chips?: string[];
+  /** Column key -> filter text as typed. */
+  columns?: Record<string, string>;
+  groupBy?: GroupBy;
+  /** Keys of collapsed groups ('' = "(ohne)"). */
+  collapsed?: string[];
+}
 /** Saved state of a cluster tab in a workspace. */
 export interface KubeViewSnapshot { query: KubeQuery; crumbs: string[]; selected?: string; dock: DockMode;
   filters?: Partial<Record<KubeKind, KubeFilterSnapshot>> }
