@@ -8,7 +8,7 @@ import { parseRequest } from '../ssh/validation';
 import { ContainerDiscovery } from './discovery';
 import { openRemoteHost, runLocal } from './runner';
 import { SudoRejections } from './sudo-rejections';
-import { ActionRequestSchema, ListRequestSchema } from './validation';
+import { ActionRequestSchema, InspectRequestSchema, InventoryActionRequestSchema, InventoryRequestSchema, ListRequestSchema } from './validation';
 
 export function registerContainerIpcHandlers(knownHosts: KnownHosts, sudoRejections = new SudoRejections()): ContainerDiscovery {
   const discovery = new ContainerDiscovery({
@@ -27,8 +27,20 @@ export function registerContainerIpcHandlers(knownHosts: KnownHosts, sudoRejecti
   });
   ipcMain.handle(IPC_CHANNELS.containersAction, (event, request: unknown) => {
     requireSshSender(event);
+    const inventory = InventoryActionRequestSchema.safeParse(request);
+    if (inventory.success) return discovery.inventoryAction(inventory.data.hostId, inventory.data.target, inventory.data.action);
     const parsed = parseRequest(ActionRequestSchema, request);
     return discovery.action(parsed.hostId, parsed.target, parsed.action);
+  });
+  ipcMain.handle(IPC_CHANNELS.containersInventory, (event, request: unknown) => {
+    requireSshSender(event);
+    const parsed = parseRequest(InventoryRequestSchema, request);
+    return discovery.inventory(parsed.hostId, parsed.runtime);
+  });
+  ipcMain.handle(IPC_CHANNELS.containersInspect, (event, request: unknown) => {
+    requireSshSender(event);
+    const parsed = parseRequest(InspectRequestSchema, request);
+    return discovery.inspect(parsed.hostId, parsed.ref);
   });
   return discovery;
 }

@@ -3,7 +3,7 @@ import type { SshConnectionNode } from '../../shared/vault/types';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import { ContainerDiscovery } from './discovery';
 import type { RemoteHost, SudoPrompt } from './runner';
-import { listArgv, remoteCommand } from './commands';
+import { inspectArgv, inventoryArgv, listArgv, remoteCommand } from './commands';
 import { connectionFingerprint, SudoRejections } from './sudo-rejections';
 import type { RunResult } from './parsers';
 
@@ -336,5 +336,114 @@ describe('ContainerDiscovery on this computer', () => {
   it('refuses Proxmox actions locally', async () => {
     const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal: vi.fn() });
     await expect(discovery.action(LOCAL_CONTAINER_HOST, { kind: 'vm', vmid: 100, name: 'x' }, 'start')).rejects.toThrow('Proxmox');
+  });
+});
+
+const cmd = (argv: string[]) => remoteCommand(argv, { kind: 'none' });
+const CONTAINERS = '{"ID":"abc","Names":"web-1","Image":"nginx","State":"running","Status":"Up 1 hour"}\n';
+const inventoryAnswers = (rt: 'docker' | 'podman', extra: Record<string, RunResult> = {}): Record<string, RunResult> => ({
+  [PROBE]: ok('has:docker\nhas:podman\n'),
+  [cmd(inventoryArgv(rt, 'containers'))]: ok(rt === 'docker' ? CONTAINERS : '[]'),
+  [cmd(inventoryArgv(rt, 'images'))]: ok(''),
+  [cmd(inventoryArgv(rt, 'volumes'))]: ok(''),
+  [cmd(inventoryArgv(rt, 'networks'))]: ok(''),
+  ...extra,
+});
+
+describe('ContainerDiscovery inventory over SSH', () => {
+  it('uses docker first, lists the kinds one after another and sets user and sudo', async () => {
+    const host = fakeHost(inventoryAnswers('docker'));
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
+    const result = await discovery.inventory('h1');
+    expect(result.runtime).toBe('docker');
+    expect(result.runtimes).toEqual(['docker', 'podman']);
+    expect(result.rows.containers).toHaveLength(1);
+    expect(result.user).toBe('admin');
+    expect(result.sudo).toBe(false);
+    expect(host.commands).toEqual([PROBE, ...(['containers', 'images', 'volumes', 'networks'] as const).map(kind => cmd(inventoryArgv('docker', kind)))]);
+  });
+  it('honours the runtime parameter and falls back to the first runtime for an unknown one', async () => {
+    const podman = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => fakeHost(inventoryAnswers('podman')), runLocal: vi.fn() });
+    expect((await podman.inventory('h1', 'podman')).runtime).toBe('podman');
+    const only = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
+      openRemote: async () => fakeHost({ ...inventoryAnswers('docker'), [PROBE]: ok('has:docker\n') }) });
+    expect((await only.inventory('h1', 'podman')).runtime).toBe('docker');
+  });
+  it('rejects without a runtime and when the probe fails', async () => {
+    const none = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(), openRemote: async () => fakeHost({ [PROBE]: ok('has:pct\n') }) });
+    await expect(none.inventory('h1')).rejects.toThrow('Auf diesem Host wurde weder Docker noch Podman gefunden.');
+    const failing = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
+      openRemote: async () => fakeHost({ [PROBE]: { code: 1, stdout: '', stderr: 'sh: cannot fork\n' } }) });
+    await expect(failing.inventory('h1')).rejects.toThrow('sh: cannot fork');
+  });
+  it('reports a failed kind in problems and still returns the others', async () => {
+    const images = cmd(inventoryArgv('docker', 'images'));
+    const host = fakeHost(inventoryAnswers('docker', { [images]: { code: null, stdout: '', stderr: '', timedOut: true } }));
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
+    const result = await discovery.inventory('h1');
+    expect(result.problems).toEqual({ images: 'Der Host hat nicht rechtzeitig geantwortet.' });
+    expect(result.rows.images).toEqual([]);
+    expect(result.rows.containers).toHaveLength(1);
+  });
+  it('sets sudo and runs the lists through sudo -n when the connection asks for it', async () => {
+    const host = fakeHost({ [PROBE]: ok('has:docker\n') });
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh({ containers: { sudo: true } }), openRemote: async () => host, runLocal: vi.fn() });
+    const result = await discovery.inventory('h1');
+    expect(result.sudo).toBe(true);
+    expect(result.problems.containers).toBeDefined();
+    expect(host.commands[1]).toBe(remoteCommand(inventoryArgv('docker', 'containers'), { kind: 'noninteractive' }));
+  });
+});
+
+describe('ContainerDiscovery inventory on this computer', () => {
+  const missing = { code: null, stdout: '', stderr: '', notFound: true } as RunResult;
+  it('treats a missing podman as absent and keeps docker', async () => {
+    const runLocal = vi.fn(async (file: string) => file === 'docker' ? ok(CONTAINERS) : missing);
+    const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal });
+    const result = await discovery.inventory(LOCAL_CONTAINER_HOST);
+    expect(result.runtimes).toEqual(['docker']);
+    expect(result.rows.containers).toHaveLength(1);
+    expect(result.user).toBeUndefined();
+    expect(result.sudo).toBe(false);
+  });
+  it('rejects when both runtimes are missing', async () => {
+    const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal: vi.fn(async () => missing) });
+    await expect(discovery.inventory(LOCAL_CONTAINER_HOST)).rejects.toThrow('Auf diesem Host wurde weder Docker noch Podman gefunden.');
+  });
+});
+
+describe('ContainerDiscovery inspect and inventoryAction', () => {
+  const ref = { kind: 'containers', runtime: 'docker', ref: 'web-1' } as const;
+  it('masks inspect output and reports failures via describeFailure', async () => {
+    const json = JSON.stringify([{ Config: { Env: ['DB_PASSWORD=x', 'A=b'] } }]);
+    const host = fakeHost({ [cmd(inspectArgv(ref))]: ok(json) });
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
+    const text = await discovery.inspect('h1', ref);
+    expect(text).toContain('DB_PASSWORD=***');
+    expect(text).not.toContain('DB_PASSWORD=x');
+    const failing = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
+      openRemote: async () => fakeHost({ [cmd(inspectArgv(ref))]: { code: null, stdout: '', stderr: '', timedOut: true } }) });
+    await expect(failing.inspect('h1', ref)).rejects.toThrow('Der Host hat nicht rechtzeitig geantwortet.');
+  });
+  it('rejects remove on networks before anything runs', async () => {
+    const openRemote = vi.fn();
+    const runLocal = vi.fn();
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote, runLocal });
+    const network = { kind: 'networks', runtime: 'docker', ref: 'bridge' } as const;
+    await expect(discovery.inventoryAction('h1', network, 'remove')).rejects.toThrow('Diese Aktion ist hier nicht möglich.');
+    await expect(discovery.inventoryAction(LOCAL_CONTAINER_HOST, network, 'remove')).rejects.toThrow('Diese Aktion ist hier nicht möglich.');
+    expect(openRemote).not.toHaveBeenCalled();
+    expect(runLocal).not.toHaveBeenCalled();
+  });
+  it('removes an image by repo:tag over SSH and locally', async () => {
+    const image = { kind: 'images', runtime: 'docker', ref: 'nginx:1.25' } as const;
+    const host = fakeHost({ [cmd(['docker', 'rmi', 'nginx:1.25'])]: ok('') });
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
+    await discovery.inventoryAction('h1', image, 'remove');
+    expect(host.commands).toEqual([cmd(['docker', 'rmi', 'nginx:1.25'])]);
+    const runLocal = vi.fn(async (..._args: unknown[]) => ok(''));
+    const local = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal });
+    await local.inventoryAction(LOCAL_CONTAINER_HOST, image, 'remove');
+    expect(runLocal).toHaveBeenCalledWith('docker', ['rmi', 'nginx:1.25'], 120_000);
   });
 });
