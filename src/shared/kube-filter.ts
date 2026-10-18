@@ -1,7 +1,7 @@
 import { LABEL_KEY, LABEL_VALUE, type KubeKind, type KubeRow } from './kubernetes';
 
-/** Search text plus active chip ids of one kind. */
-export interface KubeFilter { text: string; chips: string[] }
+/** Search text, active chip ids and column filters of one kind. `columns` is omitted when empty, never `{}` (B11). */
+export interface KubeFilter { text: string; chips: string[]; columns?: Record<string, string> }
 export const EMPTY_FILTER: KubeFilter = { text: '', chips: [] };
 export const MAX_SEARCH_LENGTH = 200;
 

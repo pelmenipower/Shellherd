@@ -1,10 +1,12 @@
 import { compileSearch, EMPTY_FILTER, MAX_SEARCH_LENGTH, type KubeFilter } from '../../shared/kube-filter';
 import { compileChips, knownChips } from '../../shared/kube-status';
-import { KIND_COLUMNS, KIND_INFO, queryKey, refKey } from '../../shared/kubernetes';
-import type { ColumnInfo, ClusterStatus, DockMode, KubeEvent, KubeKind, KubeProblem, KubeQuery, KubeRef, KubeRow, KubeTerminalMode, KubeViewSnapshot, NodeTile, UsageHistory } from '../../shared/kubernetes';
+import { columnFilterKind, columnsFor, compileColumnFilters, groupKey, groupRows, GROUP_OPTIONS, type KubeGrouping, type TableItem } from './kube-columns';
+import { KIND_COLUMNS, KIND_INFO, KUBE_KINDS, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH, queryKey, refKey } from '../../shared/kubernetes';
+import type { ColumnInfo, ClusterStatus, DockMode, GroupBy, KubeEvent, KubeKind, KubeProblem, KubeQuery, KubeRef, KubeRow, KubeTerminalMode, KubeViewSnapshot, NodeTile, UsageHistory } from '../../shared/kubernetes';
 
 /** One drill-down level; `query` is the table to return to on back. */
-export interface Crumb { label: string; query: KubeQuery; /** Search text of the table left behind; back restores it. */ text: string }
+export interface Crumb { label: string; query: KubeQuery; /** Search text of the table left behind; back restores it. */ text: string;
+  /** Column filters of the table left behind; back restores them. Omitted when empty. */ columns?: Record<string, string> }
 
 /** Renderer state of one cluster tab. Pure data; the reducer below is the only writer. */
 export interface KubeViewState {
@@ -20,6 +22,8 @@ export interface KubeViewState {
   pendingNamespace: boolean;
   /** Search text and chips per kind; a kind without an entry is unfiltered. */
   filters: Partial<Record<KubeKind, KubeFilter>>;
+  /** Grouping per kind; a kind without an entry is not grouped. */
+  groups: Partial<Record<KubeKind, KubeGrouping>>;
   /** Unix ms for time chips and ages; set only by 'tick'. 0 until the first tick. */
   now: number;
   sort: { key: string; descending: boolean } | null;
@@ -42,11 +46,14 @@ export type KubeViewAction =
   | { type: 'search'; text: string }        // search text of the current kind, cut to MAX_SEARCH_LENGTH
   | { type: 'toggleChip'; id: string }      // unknown id for the current kind: state unchanged
   | { type: 'setChips'; ids: string[] }     // replaces all chips of the current kind
-  | { type: 'clearFilter' }                 // text and chips of the current kind; no-op returns the same state
+  | { type: 'clearFilter' }                 // text, chips and column filters of the current kind (grouping stays); no-op returns the same state
+  | { type: 'setColumnFilter'; key: string; value: string }   // current kind
+  | { type: 'setGroupBy'; groupBy: GroupBy | null }           // current kind
+  | { type: 'toggleGroup'; key: string }                      // current kind
   | { type: 'tick'; now: number }
   | { type: 'sort'; key: string }
   | { type: 'select'; key: string | null }
-  | { type: 'move'; delta: number }              // within visibleRows
+  | { type: 'move'; delta: number }              // within navigableRows
   | { type: 'drill' }                             // Enter on the selected row
   | { type: 'back' }
   | { type: 'openQuery'; query: KubeQuery; crumb: string }   // push the current query as crumb, show `query`
@@ -63,12 +70,16 @@ const GI = 1024 ** 3;
 
 export function initialKubeView(namespace: string | null): KubeViewState {
   return {
-    status: null, query: { kind: 'pods', namespace }, crumbs: [], rows: [], loading: true, trouble: null, pendingNamespace: true, filters: {}, now: 0, sort: null, selected: null,
+    status: null, query: { kind: 'pods', namespace }, crumbs: [], rows: [], loading: true, trouble: null, pendingNamespace: true, filters: {}, groups: {}, now: 0, sort: null, selected: null,
     containersOf: null, container: null, dock: 'logs', dockOpen: false, nodes: [], problems: [], namespaces: [], usage: {},
   };
 }
 
 export function kubeViewReducer(state: KubeViewState, action: KubeViewAction): KubeViewState {
+  return reveal(reduce(state, action));
+}
+
+function reduce(state: KubeViewState, action: KubeViewAction): KubeViewState {
   switch (action.type) {
     case 'event': return applyEvent(state, action.event);
     case 'setKind': return { ...withQuery(state, { kind: action.kind, namespace: state.query.namespace }, []), sort: defaultSort(action.kind) };
@@ -96,18 +107,21 @@ export function kubeViewReducer(state: KubeViewState, action: KubeViewAction): K
     }
     case 'clearFilter': {
       const current = filterOf(state);
-      return current.text === '' && current.chips.length === 0 ? state : changeFilter(state, EMPTY_FILTER);
+      return current.text === '' && current.chips.length === 0 && current.columns === undefined ? state : changeFilter(state, EMPTY_FILTER);
     }
+    case 'setColumnFilter': return setColumnFilter(state, action.key, action.value);
+    case 'setGroupBy': return setGroupBy(state, action.groupBy);
+    case 'toggleGroup': return toggleGroup(state, action.key);
     case 'tick': return action.now === state.now ? state : keepSelection(state, { ...state, now: action.now }, 'rows');
     case 'sort': {
       const previous = state.sort?.key === action.key ? state.sort : null;
       return { ...state, sort: previous ? { key: action.key, descending: !previous.descending } : { key: action.key, descending: false } };
     }
     case 'select': return action.key === state.selected ? state : { ...state, selected: action.key, container: null };
-    case 'openQuery': return withText(withQuery(state, action.query, [...state.crumbs, { label: action.crumb, query: state.query, text: filterOf(state).text }]), action.query.kind, '');
+    case 'openQuery': return withText(withQuery(state, action.query, [...state.crumbs, crumbOf(state, action.crumb)]), action.query.kind, '');
     case 'sortBy': return { ...state, sort: action.sort ?? defaultSort(state.query.kind) };
     case 'move': {
-      const rows = visibleRows(state);
+      const rows = navigableRows(state);
       if (rows.length === 0) return state;
       const current = rows.findIndex(row => refKey(row.ref) === state.selected);
       // Without a selection, +1 starts at the first row and -1 at the last.
@@ -134,30 +148,53 @@ export function filterOf(state: KubeViewState): KubeFilter {
   return state.filters[state.query.kind] ?? EMPTY_FILTER;
 }
 
+/** Filter of the current kind with only the column filters that apply to columnsOf(state) (B7). */
+export function activeFilter(state: KubeViewState): KubeFilter {
+  const filter = filterOf(state);
+  if (!filter.columns) return filter;
+  const columns = columnsOf(state);
+  const kind = state.query.kind;
+  const kept: Record<string, string> = {};
+  for (const [key, value] of Object.entries(filter.columns)) {
+    const column = columns.find(candidate => candidate.key === key);
+    if (column && columnFilterKind(kind, column) !== 'none') kept[key] = value;
+  }
+  const count = Object.keys(kept).length;
+  if (count === Object.keys(filter.columns).length) return filter;
+  return { text: filter.text, chips: filter.chips, ...(count > 0 ? { columns: kept } : {}) };
+}
+
+/** Grouping of the current kind, or null when absent, unknown for the kind, or namespace-only while a namespace is selected (B7). */
+export function activeGrouping(state: KubeViewState): KubeGrouping | null {
+  const { kind, namespace } = state.query;
+  const grouping = state.groups[kind];
+  if (!grouping) return null;
+  const option = GROUP_OPTIONS[kind].find(candidate => candidate.id === grouping.by);
+  if (!option || (option.allNamespacesOnly && namespace !== null)) return null;
+  return grouping;
+}
+
 export function isFiltered(filter: KubeFilter): boolean {
-  return filter.text.trim() !== '' || filter.chips.length > 0;
+  return filter.text.trim() !== '' || filter.chips.length > 0 || Object.values(filter.columns ?? {}).some(value => value.trim() !== '');
 }
 
-/** Search and chips. The search part is memoised in compileSearch. */
-export function compileFilter(kind: KubeKind, filter: KubeFilter, now: number): (row: KubeRow) => boolean {
-  const search = compileSearch(kind, filter.text);
-  if (filter.chips.length === 0) return search;
-  const chips = compileChips(kind, filter.chips, now);
-  return row => search(row) && chips(row);
+/** Search, chips and column filters over `columns`. The search part is memoised in compileSearch. */
+export function compileFilter(kind: KubeKind, filter: KubeFilter, now: number, columns: readonly ColumnInfo[] = KIND_COLUMNS[kind]): (row: KubeRow) => boolean {
+  const predicates = [compileSearch(kind, filter.text)];
+  if (filter.columns) predicates.push(compileColumnFilters(kind, columns, filter.columns, now));
+  if (filter.chips.length > 0) predicates.push(compileChips(kind, filter.chips, now));
+  return predicates.length === 1 ? predicates[0] : row => predicates.every(predicate => predicate(row));
 }
 
-/** state.rows matched by the search text only (input of chipCounts). */
+/** state.rows matched by search text AND column filters, chips ignored (input of chipCounts). */
 export function searchedRows(state: KubeViewState): KubeRow[] {
-  return state.rows.filter(compileSearch(state.query.kind, filterOf(state).text));
+  const { text, columns } = activeFilter(state);
+  return state.rows.filter(compileFilter(state.query.kind, { text, chips: [], ...(columns ? { columns } : {}) }, state.now, columnsOf(state)));
 }
 
 /** Columns of the current table; all-namespaces tables of namespaced kinds get a Namespace column after the name. */
 export function columnsOf(state: KubeViewState): ColumnInfo[] {
-  const { kind, namespace } = state.query;
-  const columns = KIND_COLUMNS[kind];
-  if (namespace !== null || !KIND_INFO[kind].namespaced) return columns;
-  const at = columns.findIndex(column => column.key === 'name') + 1;
-  return [...columns.slice(0, at), { key: 'namespace', label: 'Namespace' }, ...columns.slice(at)];
+  return columnsFor(state.query.kind, state.query.namespace);
 }
 
 /** events: newest first; every other kind: arrival order. */
@@ -167,7 +204,7 @@ export function defaultSort(kind: KubeKind): { key: string; descending: boolean 
 
 /** Visible rows: filter applied, then sort. Arrival order without a sort. */
 export function visibleRows(state: KubeViewState): KubeRow[] {
-  const rows = state.rows.filter(compileFilter(state.query.kind, filterOf(state), state.now));
+  const rows = state.rows.filter(compileFilter(state.query.kind, activeFilter(state), state.now, columnsOf(state)));
   const sort = state.sort;
   const column = sort ? columnsOf(state).find(candidate => candidate.key === sort.key) : undefined;
   if (!sort || !column) return rows;
@@ -178,15 +215,34 @@ export function visibleRows(state: KubeViewState): KubeRow[] {
     .map(entry => entry.row);
 }
 
-/** Only kinds with a non-blank text or chips; cut defensively so the vault schema never rejects it. */
+/** Rows as displayed: grouped, collapsed groups folded away. */
+export function tableItems(state: KubeViewState, rows: KubeRow[] = visibleRows(state)): TableItem[] {
+  const grouping = activeGrouping(state);
+  return groupRows(rows, state.query.kind, grouping?.by ?? null, grouping?.collapsed ?? []);
+}
+
+/** Resource rows of tableItems in display order; rows of collapsed groups are not in it. */
+export function navigableRows(state: KubeViewState): KubeRow[] {
+  const rows: KubeRow[] = [];
+  for (const item of tableItems(state)) if (item.type === 'row') rows.push(item.row);
+  return rows;
+}
+
+/** Only kinds with content; cut defensively so the vault schema never rejects it. Raw values, inactive ones included. */
 export function snapshotOf(state: KubeViewState): KubeViewSnapshot {
   const filters: NonNullable<KubeViewSnapshot['filters']> = {};
-  for (const kind of Object.keys(state.filters) as KubeKind[]) {
+  for (const kind of KUBE_KINDS) {
     const filter = state.filters[kind];
-    if (!filter || !isFiltered(filter)) continue;
-    const text = filter.text.trim() !== '' ? filter.text.slice(0, MAX_SEARCH_LENGTH) : undefined;
-    const chips = filter.chips.length > 0 ? filter.chips.slice(0, 16) : undefined;
-    filters[kind] = { ...(text !== undefined ? { text } : {}), ...(chips ? { chips } : {}) };
+    const grouping = state.groups[kind];
+    const text = filter && filter.text.trim() !== '' ? filter.text.slice(0, MAX_SEARCH_LENGTH) : undefined;
+    const chips = filter && filter.chips.length > 0 ? filter.chips.slice(0, 16) : undefined;
+    const columns = filter?.columns ? cleanColumns(Object.entries(filter.columns)) : undefined;
+    const collapsed = grouping ? grouping.collapsed.filter(key => key.length <= MAX_GROUP_KEY_LENGTH).slice(-MAX_COLLAPSED) : [];
+    if (text === undefined && !chips && !columns && !grouping) continue;
+    filters[kind] = {
+      ...(text !== undefined ? { text } : {}), ...(chips ? { chips } : {}), ...(columns ? { columns } : {}),
+      ...(grouping ? { groupBy: grouping.by } : {}), ...(collapsed.length > 0 ? { collapsed } : {}),
+    };
   }
   return {
     query: state.query,
@@ -266,9 +322,79 @@ function withFilter(state: KubeViewState, kind: KubeKind, filter: KubeFilter): K
   return { ...state, filters: { ...state.filters, [kind]: filter } };
 }
 
-/** Sets only the search text of `kind`, keeping its chips. */
-function withText(state: KubeViewState, kind: KubeKind, text: string): KubeViewState {
-  return withFilter(state, kind, { text, chips: state.filters[kind]?.chips ?? [] });
+/** Sets the search text and column filters of `kind`, keeping its chips. */
+function withText(state: KubeViewState, kind: KubeKind, text: string, columns?: Record<string, string>): KubeViewState {
+  return withFilter(state, kind, { text, chips: state.filters[kind]?.chips ?? [], ...(columns && Object.keys(columns).length > 0 ? { columns } : {}) });
+}
+
+/** Non-blank values cut to the schema limits, at most MAX_COLUMN_FILTERS; undefined when nothing is left. */
+function cleanColumns(entries: Array<[string, string]>): Record<string, string> | undefined {
+  const kept = entries.filter(([, value]) => value.trim() !== '').map(([key, value]): [string, string] => [key, value.slice(0, MAX_COLUMN_FILTER_LENGTH)]).slice(0, MAX_COLUMN_FILTERS);
+  return kept.length > 0 ? Object.fromEntries(kept) : undefined;
+}
+
+function crumbOf(state: KubeViewState, label: string): Crumb {
+  const { text, columns } = filterOf(state);
+  return { label, query: state.query, text, ...(columns ? { columns } : {}) };
+}
+
+function setColumnFilter(state: KubeViewState, key: string, value: string): KubeViewState {
+  const kind = state.query.kind;
+  const column = columnsOf(state).find(candidate => candidate.key === key);
+  if (!column || columnFilterKind(kind, column) === 'none') return state;
+  const current = filterOf(state);
+  const old = current.columns?.[key];
+  const text = value.slice(0, MAX_COLUMN_FILTER_LENGTH);
+  let columns: Record<string, string> | undefined;
+  if (text.trim() === '') {
+    if (old === undefined) return state;
+    const rest = { ...current.columns };
+    delete rest[key];
+    columns = Object.keys(rest).length > 0 ? rest : undefined;
+  } else {
+    if (text === old) return state;
+    columns = { ...current.columns, [key]: text };
+  }
+  return changeFilter(state, { text: current.text, chips: current.chips, ...(columns ? { columns } : {}) });
+}
+
+function withGroup(state: KubeViewState, kind: KubeKind, grouping: KubeGrouping | undefined): KubeViewState {
+  const groups = { ...state.groups };
+  if (grouping) groups[kind] = grouping;
+  else delete groups[kind];
+  return { ...state, groups };
+}
+
+function setGroupBy(state: KubeViewState, groupBy: GroupBy | null): KubeViewState {
+  const { kind, namespace } = state.query;
+  const current = state.groups[kind];
+  if (groupBy === null) return current ? withGroup(state, kind, undefined) : state;
+  const option = GROUP_OPTIONS[kind].find(candidate => candidate.id === groupBy);
+  if (!option || (option.allNamespacesOnly && namespace !== null)) return state;
+  if (current?.by === groupBy) return state;
+  return withGroup(state, kind, { by: groupBy, collapsed: [] });
+}
+
+function toggleGroup(state: KubeViewState, key: string): KubeViewState {
+  const grouping = activeGrouping(state);
+  if (!grouping || key.length > MAX_GROUP_KEY_LENGTH) return state;
+  const kind = state.query.kind;
+  if (grouping.collapsed.includes(key)) return withGroup(state, kind, { by: grouping.by, collapsed: grouping.collapsed.filter(candidate => candidate !== key) });
+  const next = withGroup(state, kind, { by: grouping.by, collapsed: [...grouping.collapsed, key].slice(-MAX_COLLAPSED) });
+  // The selected row would be hidden (and reveal would reopen the group): drop the selection instead.
+  const selected = state.selected === null ? undefined : visibleRows(state).find(row => refKey(row.ref) === state.selected);
+  return selected && groupKey(kind, grouping.by, selected) === key ? { ...next, selected: null, container: null } : next;
+}
+
+/** The selected row's group is never collapsed: removes its key from `collapsed`; same state when nothing changes. */
+function reveal(state: KubeViewState): KubeViewState {
+  const grouping = activeGrouping(state);
+  if (!grouping || grouping.collapsed.length === 0 || state.selected === null) return state;
+  const row = state.rows.find(candidate => refKey(candidate.ref) === state.selected);
+  if (!row) return state;
+  const key = groupKey(state.query.kind, grouping.by, row);
+  if (!grouping.collapsed.includes(key)) return state;
+  return withGroup(state, state.query.kind, { by: grouping.by, collapsed: grouping.collapsed.filter(candidate => candidate !== key) });
 }
 
 function changeFilter(state: KubeViewState, filter: KubeFilter): KubeViewState {
@@ -276,8 +402,8 @@ function changeFilter(state: KubeViewState, filter: KubeFilter): KubeViewState {
 }
 
 /**
- * A selection that is no longer visible counts as deleted or hidden. 'rows': it moves to the row at the same visible
- * position, else the last one, else null. 'filter': it becomes null. A key that was never loaded stays.
+ * A selection that is no longer visible counts as deleted or hidden. 'rows': it moves to the row at the same display
+ * position (grouped order), else the last one, else null. 'filter': it becomes null. A key that was never loaded stays.
  */
 function keepSelection(previous: KubeViewState, next: KubeViewState, mode: 'rows' | 'filter'): KubeViewState {
   const selected = next.selected;
@@ -289,9 +415,10 @@ function keepSelection(previous: KubeViewState, next: KubeViewState, mode: 'rows
   const known = (state: KubeViewState): boolean => state.rows.some(row => refKey(row.ref) === selected);
   if (!known(next) && !known(previous)) return next;
   if (mode === 'filter') return { ...next, selected: null, container: null };
-  const index = visibleRows(previous).findIndex(row => refKey(row.ref) === selected);
-  if (index === -1 || remaining.length === 0) return { ...next, selected: null, container: null };
-  return { ...next, selected: refKey(remaining[Math.min(index, remaining.length - 1)].ref), container: null };
+  const index = navigableRows(previous).findIndex(row => refKey(row.ref) === selected);
+  const displayed = navigableRows(next);
+  if (index === -1 || displayed.length === 0) return { ...next, selected: null, container: null };
+  return { ...next, selected: refKey(displayed[Math.min(index, displayed.length - 1)].ref), container: null };
 }
 
 /** Moves to another table: rows are cleared until the first rows event for the new query arrives. */
@@ -304,7 +431,7 @@ function drill(state: KubeViewState): KubeViewState {
   const row = visibleRows(state).find(candidate => refKey(candidate.ref) === state.selected);
   if (!row) return state;
   if (row.ref.kind === 'pods') return { ...state, containersOf: row, container: row.containers?.[0] ?? null };
-  const crumbs = (): Crumb[] => [...state.crumbs, { label: `${KIND_INFO[row.ref.kind].kind} ${row.ref.name}`, query: state.query, text: filterOf(state).text }];
+  const crumbs = (): Crumb[] => [...state.crumbs, crumbOf(state, `${KIND_INFO[row.ref.kind].kind} ${row.ref.name}`)];
   if (row.ref.kind === 'nodes') {
     return withText(withQuery(state, { kind: 'pods', namespace: null, selector: { node: row.ref.name } }, crumbs()), 'pods', '');
   }
@@ -320,7 +447,7 @@ function back(state: KubeViewState): KubeViewState {
   if (state.containersOf) return { ...state, containersOf: null, container: null };
   const crumb = state.crumbs[state.crumbs.length - 1];
   if (!crumb) return state;
-  return withText(withQuery(state, crumb.query, state.crumbs.slice(0, -1)), crumb.query.kind, crumb.text);
+  return withText(withQuery(state, crumb.query, state.crumbs.slice(0, -1)), crumb.query.kind, crumb.text, crumb.columns);
 }
 
 /** The snapshot holds only crumb labels, so restored crumbs fall back to the pod table of the same namespace. */
@@ -328,13 +455,21 @@ function restore(state: KubeViewState, snapshot: KubeViewSnapshot): KubeViewStat
   const fallback: KubeQuery = { kind: 'pods', namespace: snapshot.query.namespace };
   const crumbs = snapshot.crumbs.map(label => ({ label, query: fallback, text: '' }));
   const filters: Partial<Record<KubeKind, KubeFilter>> = {};
+  const groups: Partial<Record<KubeKind, KubeGrouping>> = {};
   for (const kind of Object.keys(snapshot.filters ?? {}) as KubeKind[]) {
     const saved = snapshot.filters?.[kind];
     const text = (saved?.text ?? '').slice(0, MAX_SEARCH_LENGTH);
     const chips = limitChips(kind, saved?.chips ?? []);
-    if (text.trim() !== '' || chips.length > 0) filters[kind] = { text, chips };
+    // columnsFor(kind, null) includes 'namespace': the filter just stays inactive while a namespace is selected.
+    const known = columnsFor(kind, null).filter(column => columnFilterKind(kind, column) !== 'none').map(column => column.key);
+    const columns = cleanColumns(Object.entries(saved?.columns ?? {}).filter(([key]) => known.includes(key)));
+    if (text.trim() !== '' || chips.length > 0 || columns) filters[kind] = { text, chips, ...(columns ? { columns } : {}) };
+    const by = saved?.groupBy;
+    if (by && GROUP_OPTIONS[kind].some(option => option.id === by)) {
+      groups[kind] = { by, collapsed: [...new Set(saved?.collapsed ?? [])].filter(key => key.length <= MAX_GROUP_KEY_LENGTH).slice(0, MAX_COLLAPSED) };
+    }
   }
-  return { ...withQuery(state, snapshot.query, crumbs, snapshot.selected ?? null), dock: snapshot.dock, filters, sort: defaultSort(snapshot.query.kind) };
+  return { ...withQuery(state, snapshot.query, crumbs, snapshot.selected ?? null), dock: snapshot.dock, filters, groups, sort: defaultSort(snapshot.query.kind) };
 }
 
 type SortValue = number | string;

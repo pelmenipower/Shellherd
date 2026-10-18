@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNativeSurfaceBlock } from '../../native-surface';
 import { KUBE_COMMANDS, type CommandGroup, type KubeCommand } from '../../kube-commands';
-import type { KubeViewState } from '../../kube-view';
-import { SEARCH_HELP } from '../../../../shared/kube-filter';
+import { columnsOf, type KubeViewState } from '../../kube-view';
+import { FILTER_HELP, FILTER_KIND_LABEL, FILTER_NOTE, GROUP_NOTE, GROUP_OPTIONS, TEXT_FILTER_NOTE, columnFilterKind, primaryFilterColumn } from '../../kube-columns';
 import { CHIPS } from '../../../../shared/kube-status';
 import { KIND_INFO } from '../../../../shared/kubernetes';
 
@@ -14,7 +14,7 @@ interface HelpOverlayProps {
   onClose: () => void;
 }
 
-/** Modal with every key and `:` command; unavailable entries stay visible with the reason. */
+/** Modal with every key and the filters of the current kind; unavailable entries stay visible with the reason. */
 export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
   const [search, setSearch] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -27,20 +27,22 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
   const reasonOf = (command: KubeCommand) => command.unavailable?.({ state, readOnly });
   const hotkeys = KUBE_COMMANDS.filter(command => command.keys.length > 0
     && matches([command.description, command.keys.join(' '), command.bindings.join(' ')].join(' ')));
-  const commands = KUBE_COMMANDS.filter(command => command.command
-    && matches([command.command?.syntax, command.command?.example, command.description].join(' ')));
-
   const kind = state.query.kind;
   const label = KIND_INFO[kind].label;
-  const forms = SEARCH_HELP.forms.filter(item => matches([item.form, item.description, item.example].join(' ')));
-  const qualifiers = SEARCH_HELP.qualifiers[kind].filter(item => matches(`${item.name}: ${item.description}`));
-  const numeric = SEARCH_HELP.numeric[kind];
-  const numericText = numeric ? `Zahlen: ${numeric.join(', ')}` : '';
-  const showNumeric = numericText !== '' && matches(numericText);
-  const chips = CHIPS[kind].filter(chip => matches(`${chip.id} ${chip.label}`));
-  const noChips = CHIPS[kind].length === 0 && matches('Keine Status-Filter.');
-  const showSyntax = matches(SEARCH_HELP.syntax);
-  const showNote = matches(SEARCH_HELP.note);
+  const nameColumn = primaryFilterColumn(kind) === 'message' ? 'Meldung' : 'Name';
+  const intro = `Unter jedem Spaltenkopf steht ein Filterfeld. / springt in das Feld „${nameColumn}“.`;
+  const showIntro = matches(intro);
+  const forms = FILTER_HELP.filter(item => matches([item.form, item.description, item.example].join(' ')));
+  const showNote = matches(FILTER_NOTE);
+  const columns = columnsOf(state).map(column => ({ column, art: columnFilterKind(kind, column) }))
+    .filter(item => item.art !== 'none' && matches(`${item.column.label} ${FILTER_KIND_LABEL[item.art as keyof typeof FILTER_KIND_LABEL]}`));
+  const chipText = CHIPS[kind].map(chip => chip.label).join(' · ');
+  const noChips = CHIPS[kind].length === 0;
+  const showChips = matches(noChips ? 'Keine Status-Filter.' : chipText);
+  const groupText = ['keine', ...GROUP_OPTIONS[kind].map(option => option.label)].join(' · ');
+  const showGroups = matches(groupText);
+  const showGroupNote = matches(GROUP_NOTE);
+  const showText = matches(TEXT_FILTER_NOTE);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // The view also listens for keys; Escape must only close this dialog.
@@ -52,7 +54,7 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
       <div role="dialog" aria-modal="true" aria-label="Hilfe zur Cluster-Ansicht" className="kube-modal kube-help"
         onMouseDown={event => event.stopPropagation()} onKeyDown={onKeyDown}>
         <div className="kube-help-head">
-          <h2>Tasten und Befehle</h2>
+          <h2>Tasten und Filter</h2>
           <input ref={inputRef} type="search" placeholder="Suchen …" aria-label="Hilfe durchsuchen" value={search}
             onChange={event => setSearch(event.target.value)} />
           <button type="button" onClick={onClose}>Schließen</button>
@@ -82,26 +84,8 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
             })}
           </div>
           <div>
-            <h3>Befehle (:)</h3>
-            <dl>
-              {commands.map(command => {
-                const reason = reasonOf(command);
-                return (
-                  <div key={command.id} className={`kube-help-row${reason ? ' kube-help-off' : ''}`} title={reason}>
-                    <dt><code>{command.command?.syntax}</code></dt>
-                    <dd>
-                      {command.description}
-                      <span className="kube-muted"> · Beispiel: <code>{command.command?.example}</code></span>
-                      {reason && <span className="kube-muted"> – {reason}</span>}
-                    </dd>
-                  </div>
-                );
-              })}
-            </dl>
-          </div>
-          <div>
-            <h3>Suche</h3>
-            {showSyntax && <p><code>{SEARCH_HELP.syntax}</code></p>}
+            <h3>Filter</h3>
+            {showIntro && <p className="kube-muted">{intro}</p>}
             <dl>
               {forms.map(item => (
                 <div key={item.form} className="kube-help-row">
@@ -113,34 +97,37 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
                 </div>
               ))}
             </dl>
-            {showNote && <p className="kube-muted">{SEARCH_HELP.note}</p>}
-            {(qualifiers.length > 0 || showNumeric) && (
+            {showNote && <p className="kube-muted">{FILTER_NOTE}</p>}
+            {columns.length > 0 && (
               <section>
-                <h4>Qualifier für {label}</h4>
+                <h4>Spaltenfilter für {label}</h4>
                 <dl>
-                  {qualifiers.map(item => (
-                    <div key={item.name} className="kube-help-row">
-                      <dt><code>{item.name}:</code></dt>
-                      <dd>{item.description}</dd>
+                  {columns.map(({ column, art }) => (
+                    <div key={column.key} className="kube-help-row">
+                      <dt>{column.label}</dt>
+                      <dd>{FILTER_KIND_LABEL[art as keyof typeof FILTER_KIND_LABEL]}</dd>
                     </div>
                   ))}
                 </dl>
-                {showNumeric && <p className="kube-muted">{numericText}</p>}
               </section>
             )}
-            {(chips.length > 0 || noChips) && (
+            {showChips && (
               <section>
                 <h4>Status-Filter für {label}</h4>
-                {noChips ? <p className="kube-muted">Keine Status-Filter.</p> : (
-                  <dl>
-                    {chips.map(chip => (
-                      <div key={chip.id} className="kube-help-row">
-                        <dt><code>{chip.id}</code></dt>
-                        <dd>{chip.label}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
+                <p>{noChips ? 'Keine Status-Filter.' : chipText}</p>
+              </section>
+            )}
+            {(showGroups || showGroupNote) && (
+              <section>
+                <h4>Gruppieren für {label}</h4>
+                {showGroups && <p>{groupText}</p>}
+                {showGroupNote && <p className="kube-muted">{GROUP_NOTE}</p>}
+              </section>
+            )}
+            {showText && (
+              <section>
+                <h4>Textfilter</h4>
+                <p className="kube-muted">{TEXT_FILTER_NOTE}</p>
               </section>
             )}
           </div>
