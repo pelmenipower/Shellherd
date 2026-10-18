@@ -1,5 +1,5 @@
-import { CONTAINER_REF, MAX_VMID, MIN_VMID } from '../../shared/containers';
-import type { ContainerAction, ContainerTarget, RuntimeKind, TerminalTarget } from '../../shared/containers';
+import { CONTAINER_REF, INVENTORY_ACTIONS, inventoryRefValid, MAX_VMID, MIN_VMID } from '../../shared/containers';
+import type { ContainerAction, ContainerRuntime, ContainerTarget, InventoryAction, InventoryKind, InventoryRef, RuntimeKind, TerminalTarget } from '../../shared/containers';
 import type { SshConnectionNode } from '../../shared/vault/types';
 
 /** Invalid targets or actions; the message is safe to show. */
@@ -81,4 +81,49 @@ export function actionArgv(target: ContainerTarget, action: ContainerAction): st
   if (!ACTIONS[target.kind].includes(action)) throw new ContainerInputError('Diese Aktion ist hier nicht möglich.');
   if (target.kind === 'container') return [target.runtime, action, ref(target.ref)];
   return [target.kind === 'lxc' ? 'pct' : 'qm', action, vmid(target.vmid)];
+}
+
+function runtimeOf(runtime: string): ContainerRuntime {
+  if (runtime !== 'docker' && runtime !== 'podman') throw new ContainerInputError('Ungültige Container-Angabe.');
+  return runtime;
+}
+
+const KIND_WORD: Record<InventoryKind, string> = { containers: 'container', images: 'image', volumes: 'volume', networks: 'network' };
+
+/** Read-only list command of one inventory kind; Docker prints JSON lines, Podman one JSON array. */
+export function inventoryArgv(runtime: ContainerRuntime, kind: InventoryKind): string[] {
+  const rt = runtimeOf(runtime);
+  const docker = rt === 'docker';
+  const format = docker ? ['--format', '{{json .}}'] : ['--format', 'json'];
+  switch (kind) {
+    case 'containers': return docker ? [rt, 'ps', '-a', '--no-trunc', ...format] : [rt, 'ps', '-a', ...format];
+    case 'images': return docker ? [rt, 'images', '--no-trunc', ...format] : [rt, 'images', ...format];
+    case 'volumes': return [rt, 'volume', 'ls', ...format];
+    case 'networks': return docker ? [rt, 'network', 'ls', '--no-trunc', ...format] : [rt, 'network', 'ls', ...format];
+    default: throw new ContainerInputError('Ungültige Container-Angabe.');
+  }
+}
+
+function checkedRef(target: InventoryRef): string {
+  if (!inventoryRefValid(target)) throw new ContainerInputError('Ungültige Container-Angabe.');
+  return target.ref;
+}
+
+export function inspectArgv(target: InventoryRef): string[] {
+  const value = checkedRef(target);
+  return [target.runtime, KIND_WORD[target.kind], 'inspect', value];
+}
+
+/** Never adds force, volume or prune flags; order of checks: action, runtime, ref. */
+export function inventoryActionArgv(target: InventoryRef, action: InventoryAction): string[] {
+  const allowed = (INVENTORY_ACTIONS as Record<string, readonly InventoryAction[] | undefined>)[target.kind];
+  if (!allowed || !allowed.includes(action)) throw new ContainerInputError('Diese Aktion ist hier nicht möglich.');
+  const rt = runtimeOf(target.runtime);
+  const value = checkedRef(target);
+  if (action !== 'remove') return [rt, action, value];
+  switch (target.kind) {
+    case 'images': return [rt, 'rmi', value];
+    case 'volumes': return [rt, 'volume', 'rm', value];
+    default: return [rt, 'rm', value];
+  }
 }
