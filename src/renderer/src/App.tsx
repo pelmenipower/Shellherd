@@ -193,9 +193,21 @@ export default function App() {
   openVaultFileRef.current = openVaultFile;
   useEffect(() => {
     const open = (filePath: string): void => openVaultFileRef.current(filePath);
-    void window.desktopApi.vaultLaunchFile().then(filePath => { if (filePath) open(filePath); }).catch(() => {});
+    // A file from Explorer wins; otherwise the start goes straight to the vault opened last.
+    void window.desktopApi.vaultLaunchFile().then(async filePath => {
+      if (filePath) { open(filePath); return; }
+      const last = await window.desktopApi.lastVaultFile();
+      if (last && screenRef.current === 'home') open(last);
+    }).catch(() => {});
     return window.desktopApi.onVaultOpenFile(open);
   }, []);
+  // The open screen preselects the vault opened last; "Andere Vault-Datei auswählen" still changes it.
+  useEffect(() => {
+    if (screen !== 'open' || selectedVaultPath) return;
+    let current = true;
+    void window.desktopApi.lastVaultFile().then(filePath => { if (current && filePath) setSelectedVaultPath(previous => previous || filePath); }).catch(() => {});
+    return () => { current = false; };
+  }, [screen, selectedVaultPath]);
   // Files dropped anywhere the page does not handle them itself (the SFTP server side does).
   useEffect(() => {
     const hasFiles = (event: DragEvent): boolean => Boolean(event.dataTransfer?.types.includes('Files'));
@@ -981,6 +993,9 @@ export default function App() {
             <label>
               Passwort
               <input
+                // With a preselected vault only the password is left to type.
+                key={selectedVaultPath ? 'with-file' : 'without-file'}
+                autoFocus={Boolean(selectedVaultPath)}
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(event) =>
