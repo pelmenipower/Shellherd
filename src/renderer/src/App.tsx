@@ -193,7 +193,12 @@ export default function App() {
   openVaultFileRef.current = openVaultFile;
   useEffect(() => {
     const open = (filePath: string): void => openVaultFileRef.current(filePath);
-    void window.desktopApi.vaultLaunchFile().then(filePath => { if (filePath) open(filePath); }).catch(() => {});
+    // A file from Explorer wins; otherwise the start goes straight to the vault opened last.
+    void window.desktopApi.vaultLaunchFile().then(async filePath => {
+      if (filePath) { open(filePath); return; }
+      const last = await window.desktopApi.lastVaultFile();
+      if (last && screenRef.current === 'home') open(last);
+    }).catch(() => {});
     return window.desktopApi.onVaultOpenFile(open);
   }, []);
   // The open screen preselects the vault opened last; "Andere Vault-Datei auswählen" still changes it.
