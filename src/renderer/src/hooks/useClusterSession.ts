@@ -9,7 +9,7 @@ import { initialKubeView, kubeViewReducer, type KubeViewAction, type KubeViewSta
  */
 export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot, defaultNamespace?: string | null) {
   const [state, dispatch] = useReducer(kubeViewReducer, undefined, (): KubeViewState => {
-    const fresh = initialKubeView(defaultNamespace ?? 'default');
+    const fresh = initialKubeView(defaultNamespace ?? null);
     return initial ? kubeViewReducer(fresh, { type: 'restore', snapshot: initial }) : fresh;
   });
   const [viewId, setViewId] = useState<string | null>(null);

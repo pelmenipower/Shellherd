@@ -252,7 +252,7 @@ suite('KubeSessions', () => {
     expect(eventsOf(world, 'overview', late)[0].nodes.map(tile => tile.name)).toEqual(['n1']);
   });
 
-  it('opens in the vault namespace, else the kubeconfig context namespace, else default', async () => {
+  it('opens in the vault namespace, else the kubeconfig context namespace, else all namespaces', async () => {
     const withVault = setup();
     withVault.cluster.namespace = 'ops';
     const a = withVault.sessions.open(1, 'c1');
@@ -272,7 +272,9 @@ suite('KubeSessions', () => {
     }) });
     const c = plain.sessions.open(1, 'c1');
     await settle();
-    expect(statusesOf(plain, c.viewId).at(-1)?.namespace).toBe('default');
+    // No namespace configured anywhere: the tab shows all namespaces instead of only "default".
+    expect(statusesOf(plain, c.viewId).at(-1)?.state).toBe('ready');
+    expect(statusesOf(plain, c.viewId).at(-1)?.namespace).toBeUndefined();
   });
 
   it('reports a forbidden table at once and a generic failure after three, never with raw error text', async () => {
