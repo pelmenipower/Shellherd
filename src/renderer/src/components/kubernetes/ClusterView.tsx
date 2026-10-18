@@ -13,6 +13,7 @@ import { attentionChip } from '../../../../shared/kube-status';
 import { NodeStrip } from './NodeStrip';
 import { ProblemBanner } from './ProblemBanner';
 import { ResourceTable } from './ResourceTable';
+import { copiedMessage } from '../../kube-copy';
 import { DetailDock } from './DetailDock';
 import { HelpOverlay } from './HelpOverlay';
 import { ConfirmAction, type PendingAction } from './ConfirmAction';
@@ -160,7 +161,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     if (!onPopout) { say('Hier lässt sich kein Tab öffnen.'); return; }
     if (!terminalMode) { say('Als Tab öffnen gibt es nur für Logs und Shell.'); return; }
     if (!podRef || !container) { say('Wähle einen Pod mit Container.'); return; }
-    openTab({ namespace: podRef.namespace ?? '', pod: podRef.name, container, mode: terminalMode });
+    openTab({ namespace: podRef.namespace ?? '', pod: podRef.name, container, mode: terminalMode, ...(terminalMode !== 'shell' && state.logFormat === 'raw' ? { format: 'raw' as const } : {}) });
   };
 
   const moveContainer = (delta: number) => {
@@ -339,7 +340,9 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
         <DetailDock connection={connection} tabId={tabId} visible={visible} open={state.dockOpen} mode={state.dock}
           previous={previous} armed={armed} selected={selectedRow?.ref ?? null} podRef={podRef} podRow={podRow} container={container} readOnly={readOnly}
           detail={detail} onMode={mode => dispatch({ type: 'dock', mode })} onArm={() => { setArmedFor(armKey); dispatch({ type: 'dock', mode: 'shell' }); }}
-          onToggle={() => dispatch({ type: 'toggleDock' })} onPopout={onPopout ? popout : undefined} epoch={epoch + dockReloads} onMenu={(target, x, y) => openMenu(target, x, y)} />
+          onToggle={() => dispatch({ type: 'toggleDock' })} onPopout={onPopout ? popout : undefined} epoch={epoch + dockReloads} onMenu={(target, x, y) => openMenu(target, x, y)}
+          logFormat={state.logFormat} onLogFormat={format => dispatch({ type: 'setLogFormat', format })} onSay={say}
+          onCopy={(text, label) => { window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text)), () => say('Kopieren fehlgeschlagen.')); }} />
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} label="Kontextmenü" entries={menuEntries(menu)} onClose={() => setMenu(null)} />}
       {help && <HelpOverlay state={state} readOnly={readOnly} onClose={() => setHelp(false)} />}

@@ -18,7 +18,7 @@ export const KubeActionRequestSchema = z.object({ viewId, ref: KubeRefSchema, ac
   replicas: z.number().int().min(0).max(MAX_REPLICAS).optional() }).strict();
 export const KubeProbeRequestSchema = z.object({ connectionId: z.string().min(1).max(256) }).strict();
 export const KubeTerminalTargetSchema: z.ZodType<KubeTerminalTarget> = z.object({ namespace: KubeNameSchema, pod: KubeNameSchema, container: KubeNameSchema,
-  mode: z.enum(['logs', 'previous', 'shell']) }).strict();
+  mode: z.enum(['logs', 'previous', 'shell']), format: z.enum(['compact', 'raw']).optional() }).strict();
 const DockModeSchema: z.ZodType<DockMode> = z.enum(['logs', 'shell', 'events', 'yaml', 'describe']);
 const KubeFilterSnapshotSchema = z.object({
   text: z.string().max(200).optional(),
@@ -31,4 +31,5 @@ const KubeFilterSnapshotSchema = z.object({
 }).strict();
 export const KubeViewSnapshotSchema: z.ZodType<KubeViewSnapshot> = z.object({ query: KubeQuerySchema, crumbs: z.array(z.string().max(300)).max(8),
   selected: z.string().max(600).optional(), dock: DockModeSchema,
-  filters: z.partialRecord(z.enum(KUBE_KINDS), KubeFilterSnapshotSchema).optional() }).strict();
+  filters: z.partialRecord(z.enum(KUBE_KINDS), KubeFilterSnapshotSchema).optional(),
+  logFormat: z.enum(['compact', 'raw']).optional() }).strict();

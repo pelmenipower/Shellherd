@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KIND_COLUMNS, KUBE_KINDS, type KubeKind, type KubeRow } from '../../shared/kubernetes';
 import {
-  EMPTY_VALUE, FILTER_HELP, FILTER_KIND_LABEL, GROUP_OPTIONS, cellValues, columnFilterKind, columnValues, columnsFor, compileColumnFilters,
+  EMPTY_VALUE, FILTER_HELP, facetValues, FILTER_KIND_LABEL, GROUP_OPTIONS, cellValues, columnFilterKind, columnValues, columnsFor, compileColumnFilters,
   groupKey, groupRows, isValidColumnFilter, parseAgeFilter, parseNumberFilter, primaryFilterColumn,
 } from './kube-columns';
 
@@ -259,5 +259,39 @@ describe('help texts', () => {
   it('exports the contract texts', () => {
     expect(FILTER_HELP).toHaveLength(4);
     expect(FILTER_KIND_LABEL).toEqual({ text: 'Text', select: 'Auswahl', number: 'Zahl', age: 'Alter' });
+  });
+});
+
+describe('facetValues', () => {
+  const rows = [
+    row('pods', 'api-1', { status: 'Running' }, {}, 'shop'),
+    row('pods', 'api-2', { status: 'Pending' }, {}, 'shop'),
+    row('pods', 'db-1', { status: 'Running' }, {}, 'data'),
+    row('pods', 'db-2', { status: 'Running' }, {}, 'data'),
+  ];
+  const all = () => true;
+  const ns = col('pods', 'namespace');
+
+  it('counts values under the other filters, own filter ignored', () => {
+    expect(facetValues(rows, 'pods', ns, undefined, NOW, all)).toEqual([
+      { value: 'data', label: 'data (2)', count: 2 }, { value: 'shop', label: 'shop (2)', count: 2 },
+    ]);
+    expect(facetValues(rows, 'pods', ns, { namespace: 'shop' }, NOW, all).map(o => o.count)).toEqual([2, 2]);
+    expect(facetValues(rows, 'pods', ns, { name: 'api' }, NOW, all)).toEqual([{ value: 'shop', label: 'shop (2)', count: 2 }]);
+  });
+  it('keeps the own selected value with 0', () => {
+    expect(facetValues(rows, 'pods', ns, { name: 'api', namespace: 'data' }, NOW, all)).toEqual([
+      { value: 'data', label: 'data (0)', count: 0 }, { value: 'shop', label: 'shop (2)', count: 2 },
+    ]);
+  });
+  it('shows counts in the label and (ohne) for empty cells', () => {
+    const withEmpty = [...rows, row('pods', 'x', {}, {}, 'shop')];
+    const result = facetValues(withEmpty, 'pods', col('pods', 'status'), undefined, NOW, all);
+    expect(result.map(o => o.label)).toEqual(['Pending (1)', 'Running (3)', '(ohne) (1)']);
+    expect(result[2].value).toBe(EMPTY_VALUE);
+  });
+  it('applies otherPredicate (chips and search)', () => {
+    const result = facetValues(rows, 'pods', col('pods', 'status'), undefined, NOW, r => r.ref.name.startsWith('db'));
+    expect(result).toEqual([{ value: 'Running', label: 'Running (2)', count: 2 }]);
   });
 });

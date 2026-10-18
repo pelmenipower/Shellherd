@@ -399,6 +399,29 @@ describe('dockTerminalKey', () => {
   });
 });
 
+describe('log format', () => {
+  it('defaults to compact and is set per tab', () => {
+    const state = initialKubeView('shop');
+    expect(state.logFormat).toBe('compact');
+    expect(kubeViewReducer(state, { type: 'setLogFormat', format: 'raw' }).logFormat).toBe('raw');
+    expect(kubeViewReducer(state, { type: 'setLogFormat', format: 'compact' })).toBe(state);
+  });
+  it('is in the snapshot only when raw and is restored', () => {
+    const state = initialKubeView('shop');
+    expect(snapshotOf(state).logFormat).toBeUndefined();
+    const raw = kubeViewReducer(state, { type: 'setLogFormat', format: 'raw' });
+    expect(snapshotOf(raw).logFormat).toBe('raw');
+    expect(kubeViewReducer(state, { type: 'restore', snapshot: snapshotOf(raw) }).logFormat).toBe('raw');
+    expect(kubeViewReducer(raw, { type: 'restore', snapshot: snapshotOf(state) }).logFormat).toBe('compact');
+  });
+  it('reopens log streams on a format change but never the shell', () => {
+    expect(dockTerminalKey('p', 'c', 'logs', 0, 'raw')).not.toBe(dockTerminalKey('p', 'c', 'logs', 0, 'compact'));
+    expect(dockTerminalKey('p', 'c', 'previous', 0, 'raw')).not.toBe(dockTerminalKey('p', 'c', 'previous', 0));
+    expect(dockTerminalKey('p', 'c', 'logs', 0)).toBe(dockTerminalKey('p', 'c', 'logs', 0, 'compact'));
+    expect(dockTerminalKey('p', 'c', 'shell', 0, 'raw')).toBe(dockTerminalKey('p', 'c', 'shell', 3, 'compact'));
+  });
+});
+
 describe('openQuery, sortBy and container choice', () => {
   const pod = row('pods', 'api-1', { containers: ['app', 'sidecar'] });
   const podKey = refKey(pod.ref);

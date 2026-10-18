@@ -161,7 +161,9 @@ export interface KubeProbeRequest { connectionId: string }
 export interface KubeProbeResult { source: string; contexts: string[]; currentContext?: string; clusterName?: string }
 
 export type KubeTerminalMode = 'logs' | 'previous' | 'shell';
-export interface KubeTerminalTarget { namespace: string; pod: string; container: string; mode: KubeTerminalMode }
+export interface KubeTerminalTarget { namespace: string; pod: string; container: string; mode: KubeTerminalMode;
+  /** Log rendering for the logs and previous modes; compact when absent. */
+  format?: 'compact' | 'raw' }
 
 export type DockMode = 'logs' | 'shell' | 'events' | 'yaml' | 'describe';
 /** Group-by options of the cluster table; the per-kind subset is GROUP_OPTIONS in kube-columns.ts. */
@@ -185,4 +187,4 @@ export interface KubeFilterSnapshot {
 }
 /** Saved state of a cluster tab in a workspace. */
 export interface KubeViewSnapshot { query: KubeQuery; crumbs: string[]; selected?: string; dock: DockMode;
-  filters?: Partial<Record<KubeKind, KubeFilterSnapshot>> }
+  filters?: Partial<Record<KubeKind, KubeFilterSnapshot>>; logFormat?: 'compact' | 'raw' }

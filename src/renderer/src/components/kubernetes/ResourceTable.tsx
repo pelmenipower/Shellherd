@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent, type RefObject } from 'react';
 import { KIND_INFO, KUBE_KINDS, refKey, type ColumnInfo, type KubeKind, type KubeRow } from '../../../../shared/kubernetes';
-import { activeFilter, activeGrouping, columnsOf, filterOf, formatAge, formatUsage, isFiltered, searchedRows, sparkline, tableItems, type KubeViewAction, type KubeViewState } from '../../kube-view';
-import { EMPTY_VALUE, GROUP_OPTIONS, columnFilterKind, columnValues, isValidColumnFilter } from '../../kube-columns';
+import { activeFilter, activeGrouping, columnsOf, compileFilter, filterOf, formatAge, formatUsage, isFiltered, searchedRows, sparkline, tableItems, type KubeViewAction, type KubeViewState } from '../../kube-view';
+import { EMPTY_VALUE, GROUP_OPTIONS, columnFilterKind, facetValues, isValidColumnFilter, type FacetOption } from '../../kube-columns';
 import { CHIPS, attentionChip, chipCounts } from '../../../../shared/kube-status';
 import { rowMenuTarget } from '../../kube-menu-run';
 import type { MenuTarget } from '../../kube-menus';
@@ -72,6 +72,18 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
     ? [{ key: 'name', label: 'Container' }, { key: 'image', label: 'Image' }]
     : columnsOf(state);
   const now = state.now || Date.now();
+  // Facets of all select filters, computed once per input change (not per row render): each counts the rows that pass
+  // all other column filters plus chips and search text.
+  const facets = useMemo(() => {
+    const result: Record<string, FacetOption[]> = {};
+    if (inContainers) return result;
+    const otherPredicate = compileFilter(kind, { text: active.text, chips: active.chips }, state.now, columns);
+    for (const column of columns) {
+      if (columnFilterKind(kind, column) === 'select') result[column.key] = facetValues(state.rows, kind, column, active.columns, state.now, otherPredicate);
+    }
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.rows, kind, active.text, active.chips, active.columns, state.now, state.query.namespace, inContainers]);
   const windowed = !inContainers && items.length > WINDOW_THRESHOLD;
   const first = windowed ? Math.max(0, Math.floor(scroll.top / ROW_HEIGHT) - OVERSCAN) : 0;
   const last = windowed ? Math.min(items.length, first + Math.ceil(scroll.height / ROW_HEIGHT) + 2 * OVERSCAN) : items.length;
@@ -175,7 +187,7 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
                 <tr className="kube-filter-row">
                   {columns.map(column => (
                     <th key={column.key} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}>
-                      <FilterField kind={kind} column={column} current={filter.columns?.[column.key] ?? ''} rows={state.rows}
+                      <FilterField kind={kind} column={column} current={filter.columns?.[column.key] ?? ''} options={facets[column.key]}
                         dispatch={dispatch} tableRef={tableRef} />
                     </th>
                   ))}
@@ -250,7 +262,8 @@ interface FilterFieldProps {
   column: ColumnInfo;
   /** Raw stored value of this column's filter. */
   current: string;
-  rows: readonly KubeRow[];
+  /** Facet options of a select column. */
+  options?: readonly FacetOption[];
   dispatch: (action: KubeViewAction) => void;
   tableRef: RefObject<HTMLDivElement | null>;
 }
@@ -264,13 +277,12 @@ function returnFocus(event: KeyboardEvent<HTMLElement>, tableRef: RefObject<HTML
   tableRef.current?.focus({ preventScroll: true });
 }
 
-function FilterField({ kind, column, current, rows, dispatch, tableRef }: FilterFieldProps) {
+function FilterField({ kind, column, current, options = [], dispatch, tableRef }: FilterFieldProps) {
   const filterKind = columnFilterKind(kind, column);
   const key = column.key;
   const isSelect = filterKind === 'select';
-  // Options come from all rows of the query, not the filtered ones, so a chosen value never leaves only itself.
-  const options = useMemo(() => (isSelect ? columnValues(kind, rows, key, current) : []), [isSelect, kind, rows, key, current]);
-  if (filterKind === 'none') return null;
+  // Columns without a field keep an empty placeholder of the same height so the row does not jump.
+  if (filterKind === 'none') return <span className="kube-col-filter kube-col-filter-empty" aria-hidden="true" />;
   const set = (value: string) => dispatch({ type: 'setColumnFilter', key, value });
   if (isSelect) {
     return (
@@ -278,7 +290,7 @@ function FilterField({ kind, column, current, rows, dispatch, tableRef }: Filter
         onKeyDown={event => returnFocus(event, tableRef)}
         onChange={event => { set(event.target.value); tableRef.current?.focus({ preventScroll: true }); }}>
         <option value="">alle</option>
-        {options.map(option => <option key={option} value={option}>{option === EMPTY_VALUE ? '(ohne)' : option}</option>)}
+        {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     );
   }
