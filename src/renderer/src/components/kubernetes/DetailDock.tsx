@@ -3,6 +3,9 @@ import { KIND_COLUMNS, READ_ONLY_MESSAGE, refKey, type DockMode, type KubeDetail
 import type { TerminalConnection } from '../../terminal-tabs';
 import { dockTerminalKey, formatAge } from '../../kube-view';
 import { TerminalPanel } from '../TerminalPanel';
+import '../../kubernetes-dock.css';
+import { liveSessions } from '../../session-registry';
+import { eventsTsv } from '../../kube-copy';
 import { isKeyboardContextMenu, isMenuKey, menuHandlers, type MenuOpener } from '../../kube-menu-trigger';
 
 const DOCK_TABS: { mode: DockMode; label: string; key: string }[] = [
@@ -45,13 +48,20 @@ interface DetailDockProps {
   /** Changes when the connection came back; remounts the log or shell terminal. */
   epoch: number;
   onMenu?: MenuOpener;
+  /** Log format of the dock's log streams. */
+  logFormat: 'compact' | 'raw';
+  onLogFormat: (format: 'compact' | 'raw') => void;
+  /** Puts `text` on the clipboard and reports it; `label` names the content in the status line. */
+  onCopy: (text: string, label: string) => void;
+  /** Reports a status line (nothing to copy). */
+  onSay: (message: string) => void;
 }
 
 type DetailResult = { id: string; data?: KubeDetail; error?: string };
 
 /** Bottom dock: logs and shell as embedded terminal, events and manifests as text. Follows the selection. */
 export function DetailDock(props: DetailDockProps) {
-  const { connection, tabId, visible, open, mode, previous, armed, selected, podRef, podRow, container, readOnly, detail, onMode, onArm, onToggle, onPopout, epoch, onMenu } = props;
+  const { connection, tabId, visible, open, mode, previous, armed, selected, podRef, podRow, container, readOnly, detail, onMode, onArm, onToggle, onPopout, epoch, onMenu, logFormat, onLogFormat, onCopy, onSay } = props;
   const dockRef = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [result, setResult] = useState<DetailResult | null>(null);
@@ -73,7 +83,7 @@ export function DetailDock(props: DetailDockProps) {
 
   const terminalKind: KubeTerminalMode | null = mode === 'logs' ? (previous ? 'previous' : 'logs') : mode === 'shell' ? 'shell' : null;
   const target: KubeTerminalTarget | null = terminalKind && podRef && container
-    ? { namespace: podRef.namespace ?? '', pod: podRef.name, container, mode: terminalKind }
+    ? { namespace: podRef.namespace ?? '', pod: podRef.name, container, mode: terminalKind, ...(terminalKind !== 'shell' && logFormat === 'raw' ? { format: 'raw' as const } : {}) }
     : null;
   const terminalConnection: TerminalConnection | null = target ? { ...connection, kube: target } : null;
 
@@ -98,6 +108,21 @@ export function DetailDock(props: DetailDockProps) {
 
   const currentResult = result?.id === resultId ? result : null;
 
+  const shellWaiting = terminalKind === 'shell' && !armed;
+  const copyLabel = terminalKind === 'shell' ? 'Shell' : terminalKind === 'previous' ? 'Vorherige Logs' : terminalKind === 'logs' ? 'Logs' : mode === 'yaml' ? 'YAML' : mode === 'describe' ? 'Describe' : 'Events';
+  const copyText = (): string => {
+    if (terminalKind) return liveSessions.get(`${tabId}:dock`)?.terminal?.allText(5000) ?? '';
+    const data = currentResult?.data;
+    if (data?.mode === 'events') return eventsTsv(data.rows, Date.now());
+    return data?.text ?? '';
+  };
+  const nothingToCopy = terminalKind ? !target || shellWaiting : !currentResult?.data || (currentResult.data.mode === 'events' ? currentResult.data.rows.length === 0 : currentResult.data.text === '');
+  const copy = () => {
+    const text = copyText();
+    if (text.trim() === '') { onSay('Nichts zu kopieren.'); return; }
+    onCopy(text, copyLabel);
+  };
+
   return (
     <section ref={dockRef} className={`kube-dock${open ? '' : ' kube-dock-collapsed'}`} style={open ? { height } : undefined} aria-label="Details">
       {open && (
@@ -116,6 +141,13 @@ export function DetailDock(props: DetailDockProps) {
         {terminalKind && target && onPopout && (
           <button type="button" className="kube-dock-popout" onClick={onPopout}>Als Tab öffnen</button>
         )}
+        {(terminalKind === 'logs' || terminalKind === 'previous') && (
+          <div className="kube-dock-format" role="group" aria-label="Log-Darstellung">
+            <button type="button" aria-pressed={logFormat === 'compact'} onClick={() => onLogFormat('compact')}>Kompakt</button>
+            <button type="button" aria-pressed={logFormat === 'raw'} onClick={() => onLogFormat('raw')}>Roh</button>
+          </div>
+        )}
+        <button type="button" className="kube-dock-copy" disabled={nothingToCopy} title={nothingToCopy ? 'Nichts zu kopieren.' : undefined} onClick={copy}>Kopieren</button>
         <button type="button" className="kube-dock-toggle" aria-expanded={open} aria-label={open ? 'Panel einklappen' : 'Panel ausklappen'} onClick={onToggle}>
           {open ? '▾' : '▴'}
         </button>
@@ -134,7 +166,7 @@ export function DetailDock(props: DetailDockProps) {
             </div>
           ) : terminalConnection && target && (
             <div className="kube-dock-terminal">
-              <TerminalPanel key={dockTerminalKey(refKey(podRef), container, terminalKind, epoch)} connection={terminalConnection} tabId={`${tabId}:dock`}
+              <TerminalPanel key={dockTerminalKey(refKey(podRef), container, terminalKind, epoch, target.format ?? 'compact')} connection={terminalConnection} tabId={`${tabId}:dock`}
                 visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} />
             </div>
           )

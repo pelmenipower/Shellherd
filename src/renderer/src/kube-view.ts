@@ -2,7 +2,9 @@ import { compileSearch, EMPTY_FILTER, MAX_SEARCH_LENGTH, type KubeFilter } from 
 import { compileChips, knownChips } from '../../shared/kube-status';
 import { columnFilterKind, columnsFor, compileColumnFilters, groupKey, groupRows, GROUP_OPTIONS, type KubeGrouping, type TableItem } from './kube-columns';
 import { KIND_COLUMNS, KIND_INFO, KUBE_KINDS, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH, queryKey, refKey } from '../../shared/kubernetes';
-import type { ColumnInfo, ClusterStatus, DockMode, GroupBy, KubeEvent, KubeKind, KubeProblem, KubeQuery, KubeRef, KubeRow, KubeTerminalMode, KubeViewSnapshot, NodeTile, UsageHistory } from '../../shared/kubernetes';
+import type { ColumnInfo, ClusterStatus, DockMode, GroupBy, KubeEvent, KubeKind, KubeProblem, KubeQuery, KubeRef, KubeRow, KubeTerminalMode, KubeTerminalTarget, KubeViewSnapshot, NodeTile, UsageHistory } from '../../shared/kubernetes';
+
+type LogFormat = NonNullable<KubeTerminalTarget['format']>;
 
 /** One drill-down level; `query` is the table to return to on back. */
 export interface Crumb { label: string; query: KubeQuery; /** Search text of the table left behind; back restores it. */ text: string;
@@ -33,6 +35,8 @@ export interface KubeViewState {
   container: string | null;
   dock: DockMode;
   dockOpen: boolean;
+  /** How log streams are shown in the dock; part of the terminal key. */
+  logFormat: LogFormat;
   nodes: NodeTile[];
   problems: KubeProblem[];
   namespaces: string[];
@@ -61,6 +65,7 @@ export type KubeViewAction =
   | { type: 'jump'; ref: KubeRef }                // from a problem or node tile
   | { type: 'dock'; mode: DockMode }
   | { type: 'toggleDock' }
+  | { type: 'setLogFormat'; format: LogFormat }
   | { type: 'selectContainer'; name: string }
   | { type: 'restore'; snapshot: KubeViewSnapshot };
 
@@ -71,7 +76,7 @@ const GI = 1024 ** 3;
 export function initialKubeView(namespace: string | null): KubeViewState {
   return {
     status: null, query: { kind: 'pods', namespace }, crumbs: [], rows: [], loading: true, trouble: null, pendingNamespace: true, filters: {}, groups: {}, now: 0, sort: null, selected: null,
-    containersOf: null, container: null, dock: 'logs', dockOpen: false, nodes: [], problems: [], namespaces: [], usage: {},
+    containersOf: null, container: null, dock: 'logs', dockOpen: false, logFormat: 'compact', nodes: [], problems: [], namespaces: [], usage: {},
   };
 }
 
@@ -138,6 +143,7 @@ function reduce(state: KubeViewState, action: KubeViewAction): KubeViewState {
     }
     case 'dock': return { ...state, dock: action.mode, dockOpen: true };
     case 'toggleDock': return { ...state, dockOpen: !state.dockOpen };
+    case 'setLogFormat': return action.format === state.logFormat ? state : { ...state, logFormat: action.format };
     case 'selectContainer': return { ...state, container: action.name };
     case 'restore': return restore(state, action.snapshot);
   }
@@ -249,6 +255,7 @@ export function snapshotOf(state: KubeViewState): KubeViewSnapshot {
     crumbs: state.crumbs.slice(-8).map(crumb => crumb.label.slice(0, 300)),
     ...(state.selected ? { selected: state.selected } : {}),
     dock: state.dock,
+    ...(state.logFormat === 'raw' ? { logFormat: 'raw' as const } : {}),
     ...(Object.keys(filters).length > 0 ? { filters } : {}),
   };
 }
@@ -469,7 +476,7 @@ function restore(state: KubeViewState, snapshot: KubeViewSnapshot): KubeViewStat
       groups[kind] = { by, collapsed: [...new Set(saved?.collapsed ?? [])].filter(key => key.length <= MAX_GROUP_KEY_LENGTH).slice(0, MAX_COLLAPSED) };
     }
   }
-  return { ...withQuery(state, snapshot.query, crumbs, snapshot.selected ?? null), dock: snapshot.dock, filters, groups, sort: defaultSort(snapshot.query.kind) };
+  return { ...withQuery(state, snapshot.query, crumbs, snapshot.selected ?? null), dock: snapshot.dock, logFormat: snapshot.logFormat === 'raw' ? 'raw' : 'compact', filters, groups, sort: defaultSort(snapshot.query.kind) };
 }
 
 type SortValue = number | string;
@@ -498,9 +505,9 @@ export function dockContainer(podRow: KubeRow | null, chosen: string | null): st
   return podRow?.containers?.[0] ?? null;
 }
 
-/** React key of the dock terminal: a reconnect (epoch) restarts log streams, a shell is never reopened by itself. */
-export function dockTerminalKey(pod: string, container: string, mode: KubeTerminalMode, epoch: number): string {
-  return mode === 'shell' ? `${pod}/${container}/shell` : `${pod}/${container}/${mode}/${epoch}`;
+/** React key of the dock terminal: a reconnect (epoch) or a format change restarts log streams, a shell is never reopened by itself. */
+export function dockTerminalKey(pod: string, container: string, mode: KubeTerminalMode, epoch: number, format: LogFormat = 'compact'): string {
+  return mode === 'shell' ? `${pod}/${container}/shell` : `${pod}/${container}/${mode}/${format}/${epoch}`;
 }
 
 /** The pod the dock follows (drilled-into pod, else the selected pod row), its container and the shell arm key. */
