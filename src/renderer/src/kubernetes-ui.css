@@ -132,6 +132,6 @@
 .kube-col-filter-clear, .kube-text-chip-clear { position: absolute; right: 1px; top: 1px; min-height: 0; height: 18px; padding: 0 3px; border: 0; background: none; color: var(--ui-muted); }
 .kube-text-chip-clear { position: static; height: auto; padding: 0 2px; }
 .kube-filter-invalid { border-color: var(--ui-danger); }
-.kube-group-row td { background: var(--ui-raised); color: var(--ui-muted); cursor: pointer; font-weight: 500; }
+.kube-group-row td { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--ui-raised); color: var(--ui-muted); cursor: pointer; font-weight: 500; }
 .kube-group-by { display: inline-flex; align-items: center; gap: 4px; }
 .kube-group-by select { width: auto; height: 22px; padding: 0 4px; font-size: 11px; }

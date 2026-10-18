@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent, type RefObject } from 'react';
 import { KIND_INFO, KUBE_KINDS, refKey, type ColumnInfo, type KubeKind, type KubeRow } from '../../../../shared/kubernetes';
 import { activeFilter, activeGrouping, columnsOf, filterOf, formatAge, formatUsage, isFiltered, searchedRows, sparkline, tableItems, type KubeViewAction, type KubeViewState } from '../../kube-view';
 import { EMPTY_VALUE, GROUP_OPTIONS, columnFilterKind, columnValues, isValidColumnFilter } from '../../kube-columns';
@@ -132,7 +132,12 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
             )}
             <label className="kube-group-by">Gruppieren nach
               <select aria-label="Gruppieren nach" value={grouping?.by ?? ''}
-                onChange={event => dispatch({ type: 'setGroupBy', groupBy: GROUP_OPTIONS[kind].find(option => option.id === event.target.value)?.id ?? null })}>
+                onKeyDown={event => returnFocus(event, tableRef)}
+                onChange={event => {
+                  dispatch({ type: 'setGroupBy', groupBy: GROUP_OPTIONS[kind].find(option => option.id === event.target.value)?.id ?? null });
+                  // A select that keeps focus swallows j/k and type-ahead would change the choice again.
+                  tableRef.current?.focus({ preventScroll: true });
+                }}>
                 <option value="">keine</option>
                 {GROUP_OPTIONS[kind].map(option => {
                   const blocked = option.allNamespacesOnly === true && state.query.namespace !== null;
@@ -251,6 +256,14 @@ interface FilterFieldProps {
 }
 
 /** One cell of the filter row; `data-column-filter` is the hook ClusterView's `/` focuses. */
+/** Enter and Escape hand the focus back to the table so the hotkeys work again. */
+function returnFocus(event: KeyboardEvent<HTMLElement>, tableRef: RefObject<HTMLDivElement | null>): void {
+  if (event.key !== 'Enter' && event.key !== 'Escape') return;
+  event.preventDefault();
+  event.stopPropagation();
+  tableRef.current?.focus({ preventScroll: true });
+}
+
 function FilterField({ kind, column, current, rows, dispatch, tableRef }: FilterFieldProps) {
   const filterKind = columnFilterKind(kind, column);
   const key = column.key;
@@ -261,7 +274,9 @@ function FilterField({ kind, column, current, rows, dispatch, tableRef }: Filter
   const set = (value: string) => dispatch({ type: 'setColumnFilter', key, value });
   if (isSelect) {
     return (
-      <select data-column-filter={key} aria-label={`Filter ${column.label}`} value={current} onChange={event => set(event.target.value)}>
+      <select data-column-filter={key} aria-label={`Filter ${column.label}`} value={current}
+        onKeyDown={event => returnFocus(event, tableRef)}
+        onChange={event => { set(event.target.value); tableRef.current?.focus({ preventScroll: true }); }}>
         <option value="">alle</option>
         {options.map(option => <option key={option} value={option}>{option === EMPTY_VALUE ? '(ohne)' : option}</option>)}
       </select>
@@ -275,12 +290,7 @@ function FilterField({ kind, column, current, rows, dispatch, tableRef }: Filter
       <input type="text" size={1} data-column-filter={key} aria-label={`Filter ${column.label}`} placeholder="Filter …" maxLength={100}
         spellCheck={false} autoComplete="off" value={current} aria-invalid={!valid} className={valid ? undefined : 'kube-filter-invalid'} title={title}
         onChange={event => set(event.target.value)}
-        onKeyDown={event => {
-          if (event.key !== 'Enter' && event.key !== 'Escape') return;
-          event.preventDefault();
-          event.stopPropagation();
-          tableRef.current?.focus({ preventScroll: true });
-        }} />
+        onKeyDown={event => returnFocus(event, tableRef)} />
       {current && <button type="button" className="kube-col-filter-clear" aria-label={`Filter ${column.label} leeren`} onClick={() => set('')}>×</button>}
     </span>
   );

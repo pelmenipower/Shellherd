@@ -239,6 +239,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
       case 'filter': {
         const field = rootRef.current?.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-column-filter="${primaryFilterColumn(state.query.kind)}"]`);
         field?.focus({ preventScroll: true });
+        field?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         if (field instanceof HTMLInputElement) field.select();
         return;
       }

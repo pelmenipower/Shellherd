@@ -11,18 +11,18 @@ export const READ_ONLY_MESSAGE = 'Dieser Cluster ist schreibgeschützt.';
 export const KUBE_KINDS = ['pods', 'deployments', 'statefulsets', 'daemonsets', 'jobs', 'cronjobs', 'services', 'ingresses', 'nodes', 'events'] as const;
 export type KubeKind = typeof KUBE_KINDS[number];
 
-export interface KindInfo { label: string; apiVersion: string; kind: string; namespaced: boolean; command: string }
+export interface KindInfo { label: string; apiVersion: string; kind: string; namespaced: boolean }
 export const KIND_INFO: Record<KubeKind, KindInfo> = {
-  pods: { label: 'Pods', apiVersion: 'v1', kind: 'Pod', namespaced: true, command: 'pods' },
-  deployments: { label: 'Deployments', apiVersion: 'apps/v1', kind: 'Deployment', namespaced: true, command: 'deploy' },
-  statefulsets: { label: 'StatefulSets', apiVersion: 'apps/v1', kind: 'StatefulSet', namespaced: true, command: 'sts' },
-  daemonsets: { label: 'DaemonSets', apiVersion: 'apps/v1', kind: 'DaemonSet', namespaced: true, command: 'ds' },
-  jobs: { label: 'Jobs', apiVersion: 'batch/v1', kind: 'Job', namespaced: true, command: 'jobs' },
-  cronjobs: { label: 'CronJobs', apiVersion: 'batch/v1', kind: 'CronJob', namespaced: true, command: 'cronjobs' },
-  services: { label: 'Services', apiVersion: 'v1', kind: 'Service', namespaced: true, command: 'svc' },
-  ingresses: { label: 'Ingress', apiVersion: 'networking.k8s.io/v1', kind: 'Ingress', namespaced: true, command: 'ing' },
-  nodes: { label: 'Nodes', apiVersion: 'v1', kind: 'Node', namespaced: false, command: 'nodes' },
-  events: { label: 'Events', apiVersion: 'v1', kind: 'Event', namespaced: true, command: 'events' },
+  pods: { label: 'Pods', apiVersion: 'v1', kind: 'Pod', namespaced: true },
+  deployments: { label: 'Deployments', apiVersion: 'apps/v1', kind: 'Deployment', namespaced: true },
+  statefulsets: { label: 'StatefulSets', apiVersion: 'apps/v1', kind: 'StatefulSet', namespaced: true },
+  daemonsets: { label: 'DaemonSets', apiVersion: 'apps/v1', kind: 'DaemonSet', namespaced: true },
+  jobs: { label: 'Jobs', apiVersion: 'batch/v1', kind: 'Job', namespaced: true },
+  cronjobs: { label: 'CronJobs', apiVersion: 'batch/v1', kind: 'CronJob', namespaced: true },
+  services: { label: 'Services', apiVersion: 'v1', kind: 'Service', namespaced: true },
+  ingresses: { label: 'Ingress', apiVersion: 'networking.k8s.io/v1', kind: 'Ingress', namespaced: true },
+  nodes: { label: 'Nodes', apiVersion: 'v1', kind: 'Node', namespaced: false },
+  events: { label: 'Events', apiVersion: 'v1', kind: 'Event', namespaced: true },
 };
 
 export interface KubeRef { kind: KubeKind; namespace?: string; name: string }
