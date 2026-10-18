@@ -253,10 +253,15 @@ export function linkUsage(runtime: ContainerRuntime, rows: Record<InventoryKind,
 
 const SECRET_NAME = /PASS|PASSWORD|PASSWD|PWD|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|CREDENTIAL/i;
 
-/** See C10. Unparsable input comes back unchanged. */
+/** Fallback for unparsable input: masks NAME=value pairs with a secret-sounding name; other text stays. */
+function maskEnvText(text: string): string {
+  return text.replace(/([A-Za-z_][A-Za-z0-9_.-]*)=([^"\r\n]*)/g, (match, name: string) => SECRET_NAME.test(name) ? `${name}=***` : match);
+}
+
+/** See C10. Unparsable input is masked line-wise (NAME=value) instead of being returned as is. */
 export function maskInspect(text: string): string {
   let value: unknown;
-  try { value = JSON.parse(text); } catch { return text; }
+  try { value = JSON.parse(text); } catch { return maskEnvText(text); }
   const walk = (node: unknown, parent: string | undefined): void => {
     if (Array.isArray(node)) { for (const entry of node) walk(entry, parent); return; }
     if (!node || typeof node !== 'object') return;

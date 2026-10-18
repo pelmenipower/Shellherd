@@ -308,7 +308,17 @@ describe('maskInspect', () => {
     const out = JSON.parse(maskInspect(JSON.stringify({ Other: { Env: ['TOKEN=x'] } })));
     expect(out.Other.Env).toEqual(['TOKEN=x']);
   });
-  it('returns unparsable input unchanged', () => {
+  it('returns unparsable input without env entries unchanged', () => {
     for (const text of ['', 'not json', '{"a":']) expect(maskInspect(text)).toBe(text);
+  });
+  it('masks secret env entries in unparsable input', () => {
+    const text = 'WARNING: something odd\n[{"Config":{"Env":["PATH=/usr/bin","DB_PASSWORD=geheim","API_KEY=abc def"]}\nSECRET_X=1';
+    const out = maskInspect(text);
+    expect(out).toContain('"DB_PASSWORD=***"');
+    expect(out).toContain('"API_KEY=***"');
+    expect(out).toContain('\nSECRET_X=***');
+    expect(out).toContain('"PATH=/usr/bin"');
+    expect(out).toContain('WARNING: something odd');
+    expect(out).not.toContain('geheim');
   });
 });

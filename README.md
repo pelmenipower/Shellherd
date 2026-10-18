@@ -151,7 +151,9 @@ Grenzen:
 - Die Seitenleiste stoppt Container weiterhin ohne Nachfrage; nur die Ansicht fragt.
 - Inspect maskiert nur die Werte in `Config.Env`, deren Name sensibel klingt. Labels,
   `Cmd` und Mounts bleiben unverändert sichtbar, ein Geheimnis in `Cmd` ist also lesbar.
-- Podman läuft rootless, also nur mit den Containern des SSH-Benutzers.
+  Zugangsdaten in Werten wie `DATABASE_URL=postgres://u:p@…` werden nicht maskiert,
+  weil nur die Namen geprüft werden.
+- Ohne sudo zeigt Podman nur die Container des SSH-Benutzers (rootless).
 - Ein zweiter Tab desselben Hosts pollt doppelt. Mit `sudo` im Passwortmodus meldet
   sich jeder Poll viermal per sudo an; das steht im Auth-Log des Hosts.
 
