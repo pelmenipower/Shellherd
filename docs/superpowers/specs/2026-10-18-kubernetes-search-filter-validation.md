@@ -1,5 +1,7 @@
 # Kubernetes – Suchen und Filtern – Validierung
 
+Ab 0.8.0 entfallen Suchfeld, `:filter`, `:status` und die Befehlszeile; der Suchtext bleibt als Textfilter aus Menüs. Siehe `2026-10-18-kubernetes-column-filters-validation.md`.
+
 Stand: 2026-10-18 · Validierung: Opus · Bezug: `2026-10-18-kubernetes-search-filter-design.md` (Spec) und `docs/superpowers/plans/2026-10-18-kubernetes-search-filter.md` (Plan)
 
 **Dieses Dokument ist bindend und hat Vorrang vor Plan und Spec.** Wo es schweigt, gilt die Spec. Der Umfang aus „Umfang (festgelegt)“ der Spec bleibt unverändert (drin: `F`, `:filter`; nicht drin: Highlighting, `age<`, „Rollout läuft“, Ingress „Ohne Adresse“, „Ähnliche ausblenden“, Problem-Banner „In der Tabelle zeigen“, Reiter-Punkt).

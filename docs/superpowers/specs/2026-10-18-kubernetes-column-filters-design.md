@@ -1,5 +1,7 @@
 # Kubernetes – Spaltenfilter und Gruppierung – Design
 
+Bindend ist `2026-10-18-kubernetes-column-filters-validation.md`.
+
 Stand: 2026-10-18 · Erweitert „Suchen und Filtern“ (0.7.0) · Auslöser: Rückmeldung des Nutzers
 
 > „Die Befehle oben rechts mit `/` will ich nicht haben. Ich will normale Tabellenfilter, z. B. beim Namen etwas eingeben und es filtern, oder Namespace. Auch Gruppierfunktionen wären hilfreich.“

@@ -125,7 +125,7 @@ Diese Plugins würden auf diesem Rechner statt auf cp1 laufen.
 Von oben nach unten:
 
 1. **Kopfzeile:** Cluster-Name, Badge „Produktion“ und Badge „Nur lesen“, Breadcrumb des Drill-downs,
-   Namespace-Auswahl (inklusive „alle“), Leiste für `/` Filter und `:` Befehl, ein **?**-Symbol und der Verbindungsstatus
+   Namespace-Auswahl (inklusive „alle“), ~~Leiste für `/` Filter und `:` Befehl~~ (entfällt ab 0.8.0, siehe `2026-10-18-kubernetes-column-filters-validation.md`), ein **?**-Symbol und der Verbindungsstatus
    (verbinde · bereit über k8s-cp1 · getrennt – verbinde neu…).
 2. **Node-Streifen:** eine Kachel pro Node mit Ready-Status, CPU und RAM als Balken. Die Auslastung kommt aus `metrics.k8s.io`, das alle 15 s abgefragt wird.
    Fehlt die Metrics-API, zeigen die Kacheln nur den Status, dazu den dezenten Hinweis „Auslastung nicht verfügbar“.
@@ -189,10 +189,9 @@ Die Tasten gelten, sobald der Fokus in der Tabelle liegt. Die Maus bietet übera
 | `↑↓` / `j k` | Auswahl bewegen |
 | `Enter` | Drill-down |
 | `Esc` / `Backspace` | eine Ebene zurück |
-| `/` | Suche: Freitext, `"Phrase"`, `!term`, `key=value`, `feld:wert`, `restarts>3`; `Esc` leert sie |
+| `/` | Name filtern (Events: Meldung) |
 | `w` | Nur Auffälliges ein/aus (Events: nur Warning) |
-| `F` | Suche und Status-Filter des Reiters zurücksetzen |
-| `:` | Befehl, mit Autovervollständigung |
+| `F` | Alle Filter des Reiters zurücksetzen |
 | `1`–`9`, `0` | Reiter direkt wählen |
 | `l` `s` `e` `y` `d` | Bereich: Logs / Shell / Events / YAML / Describe |
 | `p` | Logs des vorherigen Containers |
@@ -203,11 +202,11 @@ Die Tasten gelten, sobald der Fokus in der Tabelle liegt. Die Maus bietet übera
 | `Ctrl+Shift+T` | Logs oder Shell als Tab herauslösen |
 | `?` | Hilfe-Übersicht |
 
-Befehle: `:pods`, `:deploy`, `:sts`, `:ds`, `:jobs`, `:cronjobs`, `:svc`, `:ing`, `:nodes`, `:events`,
+Befehle (entfallen ab 0.8.0, siehe `2026-10-18-kubernetes-column-filters-validation.md`): `:pods`, `:deploy`, `:sts`, `:ds`, `:jobs`, `:cronjobs`, `:svc`, `:ing`, `:nodes`, `:events`,
 `:ns <name|all>`, `:restart`, `:scale <n>`, `:delete`, `:help`.
 
-**Hilfe-Übersicht.** `?`, `:help` oder das **?**-Symbol öffnen eine Übersicht mit zwei Spalten: Hotkeys nach Bereich
-(Navigation, Ansicht, Aktionen) und Befehle mit Syntax und Beispiel. Oben steht ein Suchfeld, `Esc` schließt die Übersicht.
+**Hilfe-Übersicht.** `?`, `:help` oder das **?**-Symbol öffnen eine Übersicht mit zwei Spalten: Tasten nach Bereich
+(Navigation, Ansicht, Aktionen) und Filter mit Formen und Beispielen (ab 0.8.0 statt der Befehle). Oben steht ein Suchfeld, `Esc` schließt die Übersicht.
 Aktionen, die gerade nicht verfügbar sind (bei „Nur lesen“ oder im aktuellen Reiter), stehen ausgegraut da, jeweils mit Begründung.
 
 Hotkeys, Befehle, Autovervollständigung und Hilfe kommen aus **einer** Registry (`kube-commands.ts`).
