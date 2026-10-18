@@ -1,3 +1,4 @@
+import { LogFormatter } from './log-format';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { RequestOptions } from 'node:https';
@@ -218,9 +219,15 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
     const response = await sendRequest(url, options);
     if (response.status !== 200) throw logStatusError(response.status, target.mode);
 
+    const formatter = new LogFormatter(target.format ?? 'compact');
     for await (const chunk of response.body) {
       if (finished) break;
-      io.data(Buffer.from(chunk));
+      const text = formatter.feed(Buffer.from(chunk));
+      if (text) io.data(Buffer.from(text));
+    }
+    if (!finished) {
+      const rest = formatter.flush();
+      if (rest) io.data(Buffer.from(rest));
     }
     finish(0);
   };
