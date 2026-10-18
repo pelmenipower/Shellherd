@@ -531,3 +531,7 @@ Die letzte Bedingung gilt, weil `setNamespace` den Drill-down verwerfen würde. 
 **Gate nach jeder Welle:** `npm run typecheck` und `npm test` grün, bevor die nächste Welle startet. Konflikte zwischen den Dateien gibt es nur zwischen den Wellen, nie innerhalb einer Welle:
 - `kube-menus*` und `ClusterView`/`ResourceTable` ändert T4 nur mechanisch (Welle 2); die Funktionen bauen T6 bzw. T7 (Wellen 3 und 4).
 - `ClusterView.tsx` kompiliert nach Welle 3 auch ohne T7, weil `runKey` einen `default`-Zweig hat und `runCommand` die neuen `ParsedCommand`-Varianten nicht behandeln muss.
+
+## Nachtrag nach dem Review
+
+**C10, angepasst:** Im Container-Modus verschiebt `keepSelection` weder Auswahl noch Container. Damit bleibt der geöffnete Pod stabil, auch wenn ein Filter ihn verbirgt. Diese Regel stammt aus dem Opus-Review (I1) und gilt vor C10.
