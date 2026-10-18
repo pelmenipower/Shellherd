@@ -41,7 +41,11 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
   }, []);
 
   const filter = filterOf(state);
-  const active = activeFilter(state);
+  // Memoized so a pruned column filter keeps its identity and the facets are not recomputed on every render.
+  const activeRaw = activeFilter(state);
+  const columnsKey = JSON.stringify(activeRaw.columns ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const active = useMemo(() => activeRaw, [activeRaw.text, activeRaw.chips, columnsKey]);
   const grouping = activeGrouping(state);
   // Rows plus group header rows; all are ROW_HEIGHT high, so the window works on items.
   // eslint-disable-next-line react-hooks/exhaustive-deps

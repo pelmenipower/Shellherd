@@ -91,3 +91,40 @@ describe('LogFormatter compact', () => {
     expect(out).toBe('23:59:59.900 a\r\n23:59:59.950 b\r\n2026-10-15 00:00:00.100 c\r\n00:00:01.000 d\r\n');
   });
 });
+
+describe('LogFormatter control characters and partial lines', () => {
+  it('turns decoded newlines into CRLF with an indent and tabs into spaces', () => {
+    expect(feed('compact', '{"level":"info","msg":"a\\nb\\r\\nc\\rd\\te"}\n')).toBe('INFO  a\r\n    b\r\n    c\r\n    d e\r\n');
+  });
+
+  it('replaces ESC and other control characters from JSON values', () => {
+    const out = feed('compact', '{"msg":"\\u001b[2Jx\\u0007\\u009b\\u007f","level":"\\u001b[31mwarn"}\n');
+    expect(out).not.toMatch(/[\x07\x7f\x80-\x9f]/);
+    expect(out.replace(/\x1b\[0m|\x1b\[33m/g, '')).not.toContain('\x1b');
+    expect(out).toContain('\ufffd[2Jx');
+  });
+
+  it('sanitizes extras too', () => {
+    const out = feed('compact', '{"msg":"m","record":{"user_name":"\\u001b]0;x\\u0007"}}\n');
+    expect(out.replace(/\x1b\[90m|\x1b\[0m/g, '')).not.toContain('\x1b');
+  });
+
+  it('does not split a surrogate pair when truncating the query', () => {
+    const out = feed('compact', `{"msg":"m","record":{"query":"${'a'.repeat(199)}😀"}}\n`);
+    expect(out).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+  });
+
+  it('passes a partial line that is not JSON through immediately, once', () => {
+    const formatter = new LogFormatter('compact');
+    expect(formatter.feed(Buffer.from('progress 10%\r'))).toBe('progress 10%\r');
+    expect(formatter.feed(Buffer.from('progress 20%\nnext\n'))).toBe('progress 20%\r\nnext\r\n');
+  });
+
+  it('flushes a partial JSON line unformatted once it exceeds 64 KiB and passes the rest through', () => {
+    const formatter = new LogFormatter('compact');
+    const big = `{"msg":"${'x'.repeat(70 * 1024)}`;
+    expect(formatter.feed(Buffer.from(big))).toBe(big);
+    expect(formatter.feed(Buffer.from('tail\n{"msg":"ok"}\n'))).toBe('tail\r\nok\r\n');
+    expect(formatter.flush()).toBe('');
+  });
+});

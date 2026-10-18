@@ -5,7 +5,7 @@ import { dockTerminalKey, formatAge } from '../../kube-view';
 import { TerminalPanel } from '../TerminalPanel';
 import '../../kubernetes-dock.css';
 import { liveSessions } from '../../session-registry';
-import { eventsTsv } from '../../kube-copy';
+import { capText, eventsTsv } from '../../kube-copy';
 import { isKeyboardContextMenu, isMenuKey, menuHandlers, type MenuOpener } from '../../kube-menu-trigger';
 
 const DOCK_TABS: { mode: DockMode; label: string; key: string }[] = [
@@ -15,6 +15,7 @@ const DOCK_TABS: { mode: DockMode; label: string; key: string }[] = [
   { mode: 'yaml', label: 'YAML', key: 'y' },
   { mode: 'describe', label: 'Describe', key: 'd' },
 ];
+const MAX_COPY_CHARS = 4 * 1024 * 1024 - 1024;
 const MIN_HEIGHT = 120;
 const DEFAULT_HEIGHT = 260;
 /** Stable identity: TerminalPanel's effect depends on it, so a new function would reconnect. */
@@ -52,7 +53,7 @@ interface DetailDockProps {
   logFormat: 'compact' | 'raw';
   onLogFormat: (format: 'compact' | 'raw') => void;
   /** Puts `text` on the clipboard and reports it; `label` names the content in the status line. */
-  onCopy: (text: string, label: string) => void;
+  onCopy: (text: string, label: string, info?: { lines?: number; shortened?: boolean }) => void;
   /** Reports a status line (nothing to copy). */
   onSay: (message: string) => void;
 }
@@ -118,9 +119,11 @@ export function DetailDock(props: DetailDockProps) {
   };
   const nothingToCopy = terminalKind ? !target || shellWaiting : !currentResult?.data || (currentResult.data.mode === 'events' ? currentResult.data.rows.length === 0 : currentResult.data.text === '');
   const copy = () => {
-    const text = copyText();
-    if (text.trim() === '') { onSay('Nichts zu kopieren.'); return; }
-    onCopy(text, copyLabel);
+    const full = copyText();
+    if (full.trim() === '') { onSay('Nichts zu kopieren.'); return; }
+    // The clipboard IPC rejects over 4 MiB: keep the newest part and say so.
+    const { text, shortened } = capText(full, MAX_COPY_CHARS);
+    onCopy(text, copyLabel, { ...(currentResult?.data?.mode === 'events' && !terminalKind ? { lines: currentResult.data.rows.length } : {}), ...(shortened ? { shortened } : {}) });
   };
 
   return (

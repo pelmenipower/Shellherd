@@ -50,7 +50,7 @@ export function shellOf(tab: TerminalTab | undefined): AiTerminalContext['shell'
   return protocol === 'ssh' || protocol === 'powershell' || protocol === 'cmd' ? protocol : null;
 }
 
-const kubeKey = (kube: KubeTerminalTarget | undefined): string => kube ? [kube.namespace, kube.pod, kube.container, kube.mode].join('\n') : '';
+const kubeKey = (kube: KubeTerminalTarget | undefined): string => kube ? [kube.namespace, kube.pod, kube.container, kube.mode, kube.format ?? ''].join('\n') : '';
 
 export function sameTarget(a: TerminalConnection, b: TerminalConnection): boolean {
   return a.id === b.id && a.view === b.view && (a.target ? targetKey(a.target) : '') === (b.target ? targetKey(b.target) : '')
