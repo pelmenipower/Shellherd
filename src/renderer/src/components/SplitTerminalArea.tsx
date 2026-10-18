@@ -7,6 +7,7 @@ import { dockTab, dockZone, mergePane, moveTab, paneRects, panes, resizeBounds, 
 import { TerminalPanel } from './TerminalPanel';
 import { RdpPanel } from './RdpPanel';
 import { FilesPanel } from './FilesPanel';
+import { ContainerView } from './containers/ContainerView';
 import { ClusterView } from './kubernetes/ClusterView';
 import { sshConnectionForNode } from '../kube-ssh';
 import type { KubeViewSnapshot } from '../../../shared/kubernetes';
@@ -394,6 +395,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           style: region ? { ...rectangle(region), top: `calc(${region.top}% + 32px)`, height: `calc(${region.height}% - 32px)` } : undefined,
           onFocus: () => { if (region) onFocus(region.pane.id); if (selected !== tab.id) onSelect(tab.id); }, onStatusChange: onStatus,
           adopt: tab.adopt, initialStatus: tab.status };
+        if (tab.connection.view === 'containers') return <ContainerView key={tab.id} tabId={tab.id} connection={tab.connection} visible={panel.visible}
+          focused={panel.focused} style={panel.style} onFocus={panel.onFocus} onStatusChange={onStatus} onPopout={onPopout} />;
         if (tab.connection.protocol === 'sftp') return <FilesPanel key={tab.id} {...panel} />;
         if (tab.connection.protocol === 'kubernetes' && !tab.connection.kube) {
           return <ClusterView key={tab.id} tabId={tab.id} connection={tab.connection} visible={panel.visible} focused={panel.focused} style={panel.style}

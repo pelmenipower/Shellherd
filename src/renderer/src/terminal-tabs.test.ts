@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
-import { containerConnection, containerTabName, emptyTerminalTabs, isRunning, kubeTabName, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, containerTabName, containerViewConnection, emptyTerminalTabs, isRunning, kubeTabName, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
 import type { TerminalTab, TerminalTabsState } from './terminal-tabs';
 const connection = { id: 'ssh', name: 'Server', protocol: 'ssh' as const, address: 'synthetic@example.test:22' };
 function opened(): TerminalTabsState {
@@ -124,5 +124,30 @@ describe('kubernetes tabs', () => {
     expect(shellOf(tab({ ...cluster, kube: { ...logs, mode: 'shell' } }))).toBe('ssh');
     expect(shellOf(tab({ ...cluster, kube: logs }))).toBeNull();
     expect(shellOf(tab(cluster))).toBeNull();
+  });
+});
+
+describe('container view tabs', () => {
+  const tab = (conn: TerminalTab['connection']): TerminalTab => ({ id: 't', connection: conn, ordinal: 1, status: 'connected' });
+  it('builds the view connection for SSH and for this computer', () => {
+    expect(containerViewConnection('h1', 'srv', 'admin@srv')).toEqual({ id: 'h1', name: 'srv · Container', protocol: 'ssh', address: 'admin@srv', view: 'containers' });
+    expect(containerViewConnection(LOCAL_CONTAINER_HOST, 'Dieser Computer', 'lokal')).toEqual({ id: LOCAL_CONTAINER_HOST, name: 'Dieser Computer · Container', protocol: 'cmd', address: 'lokal', view: 'containers' });
+  });
+  it('has no shell, also for the local view', () => {
+    expect(shellOf(tab(containerViewConnection('h1', 'srv', 'a')))).toBeNull();
+    expect(shellOf(tab(containerViewConnection(LOCAL_CONTAINER_HOST, 'x', 'lokal')))).toBeNull();
+  });
+  it('keeps files, containers and the plain tab apart and counts ordinals per kind', () => {
+    const plain = { id: 'h1', name: 'srv', protocol: 'ssh' as const, address: 'a' };
+    const files = toTerminalConnection({ id: 'h1', type: 'connection', protocol: 'ssh', name: 'srv', host: 'srv', port: 22, username: 'u', authentication: { method: 'agent' }, tags: [] } as never, true);
+    const view = containerViewConnection('h1', 'srv', 'a');
+    expect(sameTarget(files, view)).toBe(false);
+    expect(sameTarget(plain, view)).toBe(false);
+    expect(sameTarget(view, containerViewConnection('h1', 'srv', 'a'))).toBe(true);
+    let state = reduce(emptyTerminalTabs, { type: 'open', id: 'p', connection: plain });
+    state = reduce(state, { type: 'open', id: 'v1', connection: view });
+    state = reduce(state, { type: 'open', id: 'v2', connection: view });
+    expect(state.tabs.map(t => t.ordinal)).toEqual([1, 1, 2]);
+    expect(state.tabs[1].connection.view).toBe('containers');
   });
 });
