@@ -19,10 +19,7 @@ interface ContainerChildrenProps extends Omit<ContainerTreeProps, 'state' | 'onE
 
 const STATE_LABEL = { running: 'läuft', paused: 'pausiert', stopped: 'gestoppt' } as const;
 
-type Guest = Extract<DiscoveredItem, { kind: 'lxc' | 'vm' }>;
-const isGuest = (item: DiscoveredItem): item is Guest => item.kind === 'lxc' || item.kind === 'vm';
-
-type MenuTarget = { x: number; y: number } & ({ item: Guest } | { runtime: ContainerRuntime });
+type MenuTarget = { x: number; y: number } & ({ item: DiscoveredItem } | { runtime: ContainerRuntime });
 
 export function ContainerChildren({ hostId, hostName, discovery, depth, disabled, onOpen, onOpenView, onAction, onRefresh }: ContainerChildrenProps) {
   const [menu, setMenu] = useState<MenuTarget | null>(null);
@@ -36,7 +33,7 @@ export function ContainerChildren({ hostId, hostName, discovery, depth, disabled
   const groups = groupItems(discovery.result);
   if (!runtimes.length && !groups.length) return wrap(<p className="tree-empty container-note" style={indent}>
     {discovery.result.runtimes.includes('proxmox') ? 'Keine Proxmox-Gäste gefunden.' : 'Keine Container-Laufzeit gefunden.'}</p>);
-  const guestEntries = (item: Guest): ContextMenuEntry[] => [
+  const guestEntries = (item: DiscoveredItem): ContextMenuEntry[] => [
     ...itemCommands(item).map((command): ContextMenuEntry => ({ kind: 'item', label: command.label,
       onSelect: () => command.run === 'shell' || command.run === 'logs' ? onOpen(hostId, item, command.run) : onAction(hostId, item, command.run, command.confirm) })),
     { kind: 'separator' },
@@ -80,7 +77,7 @@ export function ContainerChildren({ hostId, hostName, discovery, depth, disabled
     {groups.map(group => <li key={group.key}>
       <div className="container-group" style={indent}>{group.label}</div>
       {group.problem && <p className="tree-error container-note" style={{ paddingLeft: `${depth * 14 + 40}px` }}>{group.problem}</p>}
-      <ul>{group.items.filter(isGuest).map(item => {
+      <ul>{group.items.map(item => {
         const key = itemKey(item);
         const busy = discovery.busy.includes(key);
         const notice = discovery.notice?.key === key ? discovery.notice.message : undefined;

@@ -4,7 +4,7 @@ import type { ContainerAction, ContainerRuntime, DiscoveredItem, DiscoveryResult
 export interface ContainerTreeProps {
   state: ContainerTreeState;
   onExpand: (hostId: string) => void;
-  /** Focuses an open view of this host and runtime or opens one; `newTab` always opens another. Optional until App wires it (wave 3). */
+  /** Focuses an open view of this host and runtime or opens one; `newTab` always opens another. */
   onOpenView?: (hostId: string, runtime: ContainerRuntime, newTab?: boolean) => void;
   /** Proxmox guests only: shell or serial console. */
   onOpen: (hostId: string, item: DiscoveredItem, mode: TerminalTargetMode) => void;

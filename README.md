@@ -113,9 +113,10 @@ seriellen Schnittstelle.
 Das Kontextmenü der Proxmox-Gäste enthält `Shell öffnen`, `Starten`,
 `Herunterfahren` und `Stoppen`. Ein hartes Stoppen einer VM fragt vorher nach.
 
-`Dieser Computer` zeigt `Docker-Ansicht` und `Podman-Ansicht`, sofern die jeweilige CLI installiert ist.
-Das wird nach dem Entsperren des Vaults geprüft und lässt sich über das Kontextmenü
-der freien Fläche im Verbindungsbaum (`Lokale Laufzeiten suchen`) wiederholen.
+`Dieser Computer` zeigt `Docker-Ansicht` und `Podman-Ansicht`, sofern die jeweilige
+CLI installiert ist. Das wird nach dem Entsperren des Vaults geprüft und lässt sich
+über das Kontextmenü der freien Fläche im Verbindungsbaum (`Lokale Laufzeiten suchen`)
+wiederholen.
 
 Der SSH-Benutzer braucht Zugriff auf Docker über die Gruppe `docker`; für Proxmox
 muss er die Befehle als root ausführen können. Alternativ führt die Option
@@ -138,8 +139,10 @@ oder für den eigenen Rechner über `Lokale Container-Ansicht öffnen` (Übersch
 `Dieser Computer` oder freie Fläche im Verbindungsbaum). Die Ansicht hat vier Reiter:
 Container, Images, Volumes und Netzwerke. Jeder Reiter hat Spaltenfilter, Chips,
 Gruppierung und Sortierung; Filter und Gruppierung bleiben je Reiter erhalten, `F`
-setzt die Filter zurück. Ein Tab aus der Seitenleiste ist fest auf seine Laufzeit gesetzt; der freie Tab aus dem Kontextmenü der Verbindung hat einen Umschalter im Kopf. Die Liste aktualisiert sich alle 10 Sekunden, solange der Tab
-sichtbar ist, sowie nach jeder Aktion und mit `F5`.
+setzt die Filter zurück. Ein Tab aus der Seitenleiste ist fest auf seine Laufzeit
+gesetzt. Der freie Tab (`Container-Ansicht öffnen`, `Lokale Container-Ansicht öffnen`)
+hat einen Umschalter im Kopf, wenn Docker und Podman installiert sind. Die Liste
+aktualisiert sich alle 10 Sekunden, solange der Tab sichtbar ist, sowie nach jeder Aktion und mit `F5`.
 
 Das Dock unter der Tabelle zeigt Logs (`l`), eine Shell (`s`, startet erst auf
 Knopfdruck, nur bei laufenden Containern) und Inspect (`i`). Bei Images, Volumes und
@@ -157,6 +160,8 @@ Grenzen:
 - Ohne sudo zeigt Podman nur die Container des SSH-Benutzers (rootless).
 - Ein zweiter Tab desselben Hosts pollt doppelt. Mit `sudo` im Passwortmodus meldet
   sich jeder Poll viermal per sudo an; das steht im Auth-Log des Hosts.
+- Fehlt die Laufzeit eines festen Tabs auf dem Host, zeigt der Tab einen Fehler, fragt
+  aber im Hintergrund weiter die andere Laufzeit ab.
 
 ## Kubernetes
 
