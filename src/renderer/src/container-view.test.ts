@@ -45,6 +45,37 @@ describe('initial state', () => {
   });
 });
 
+describe('pinned runtime', () => {
+  const podmanInv = (): ContainerInventory => inventory(abc(), { runtime: 'podman', runtimes: ['docker', 'podman'] });
+  it('starts with pinned and requestedRuntime set, free without', () => {
+    expect(initialContainerViewState(NOW, 'podman')).toMatchObject({ pinned: 'podman', requestedRuntime: 'podman' });
+    expect(initialContainerViewState(NOW)).toMatchObject({ pinned: null, requestedRuntime: null });
+  });
+  it('rejects a mismatching inventory on an empty state', () => {
+    const state = run(initialContainerViewState(NOW, 'podman'), { type: 'setInventory', inventory: inventory(abc()) });
+    expect(state.error).toBe('Podman wurde auf diesem Host nicht gefunden.');
+    expect(state.inventory).toBeNull();
+    expect(state.loading).toBe(false);
+    expect(tabStatus(state)).toBe('error');
+  });
+  it('keeps inventory and selection on a mismatch after loading', () => {
+    const loadedState = run(initialContainerViewState(NOW, 'podman'), { type: 'setInventory', inventory: podmanInv() }, { type: 'select', uid: 'docker:containers:b' });
+    const next = run(loadedState, { type: 'setInventory', inventory: inventory(abc()) });
+    expect(next.inventory).toBe(loadedState.inventory);
+    expect(next.selected).toBe('docker:containers:b');
+    expect(next.error).toBe('Podman wurde auf diesem Host nicht gefunden.');
+  });
+  it('accepts the matching runtime normally', () => {
+    const state = run(initialContainerViewState(NOW, 'podman'), { type: 'setInventory', inventory: podmanInv() });
+    expect(state.error).toBeNull();
+    expect(state.inventory?.runtime).toBe('podman');
+  });
+  it('ignores setRuntime when pinned', () => {
+    const state = initialContainerViewState(NOW, 'docker');
+    expect(containerViewReducer(state, { type: 'setRuntime', runtime: 'podman' })).toBe(state);
+  });
+});
+
 describe('selection after a poll', () => {
   it('stays on the uid when rows move', () => {
     const state = run(loaded(abc()), { type: 'select', uid: 'docker:containers:b' },
