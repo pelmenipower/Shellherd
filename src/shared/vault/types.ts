@@ -204,6 +204,8 @@ export interface WorkspacePane {
   activeConnectionId?: string;
   /** Positions in `connectionIds` of SSH connections opened as file browser instead of terminal. */
   fileBrowsers?: number[];
+  /** Positions in `connectionIds` of SSH connections opened as container view. */
+  containerViews?: number[];
   containerTabs?: WorkspaceContainerTab[];
   kubeTabs?: WorkspaceKubeTab[];
 }
