@@ -48,6 +48,36 @@ describe('pods', () => {
   });
 });
 
+describe('pod status order and tone', () => {
+  const statusOf = (status: object) => toRow('pods', pod(status));
+  it('shows status.reason before the terminated reason for evicted pods', () => {
+    expect(statusOf({ phase: 'Failed', reason: 'Evicted', containerStatuses: [{ name: 'api', ready: false, restartCount: 0, state: { terminated: { reason: 'ContainerStatusUnknown' } } }] }))
+      .toMatchObject({ tone: 'bad', cells: { status: 'Evicted' } });
+    expect(statusOf({ phase: 'Failed', reason: 'NodeLost' })).toMatchObject({ tone: 'bad', cells: { status: 'NodeLost' } });
+  });
+
+  it('ignores status.reason for running and succeeded pods', () => {
+    expect(statusOf({ phase: 'Running', reason: 'Foo', containerStatuses: [{ name: 'api', ready: true, restartCount: 0 }] })).toMatchObject({ tone: 'ok', cells: { status: 'Running' } });
+    expect(statusOf({ phase: 'Succeeded', reason: 'Foo' })).toMatchObject({ tone: 'muted', cells: { status: 'Completed' } });
+  });
+
+  it('lets deletionTimestamp win over status.reason', () => {
+    const base = pod({ phase: 'Failed', reason: 'Evicted' });
+    const terminating = { ...base, metadata: { ...base.metadata, deletionTimestamp: '2026-10-16T09:30:00Z' } };
+    expect(toRow('pods', terminating)).toMatchObject({ cells: { status: 'Terminating' } });
+  });
+
+  it('marks unknown and previously unlisted reasons as bad', () => {
+    const waiting = (reason: string) => statusOf({ phase: 'Pending', containerStatuses: [{ name: 'api', ready: false, restartCount: 0, state: { waiting: { reason } } }] });
+    expect(waiting('CreateContainerError')).toMatchObject({ tone: 'bad' });
+    expect(waiting('RunContainerError')).toMatchObject({ tone: 'bad' });
+    expect(waiting('ErrImageNeverPull')).toMatchObject({ tone: 'bad' });
+    expect(waiting('Foo')).toMatchObject({ tone: 'bad' });
+    expect(waiting('ContainerCreating')).toMatchObject({ tone: 'warn' });
+    expect(statusOf({})).toMatchObject({ tone: 'bad', cells: { status: 'Unknown' } });
+  });
+});
+
 describe('workloads', () => {
   it('maps a deployment with selector and replicas', () => {
     const row = toRow('deployments', { metadata: { name: 'api', namespace: 'shop', uid: 'd1', creationTimestamp: '2026-10-01T00:00:00Z' },
@@ -91,7 +121,21 @@ describe('workloads', () => {
 
   it('falls back to startTime for a job without completionTime', () => {
     expect(toRow('jobs', { metadata: { name: 'backup', namespace: 'shop', uid: 'j2' }, spec: {}, status: { startTime: '2026-10-16T06:00:00Z', failed: 1 } }))
-      .toMatchObject({ tone: 'bad', cells: { completions: '0/1', lastRun: '2026-10-16T06:00:00Z' } });
+      .toMatchObject({ tone: 'warn', cells: { status: 'Pending', completions: '0/1', lastRun: '2026-10-16T06:00:00Z' } });
+  });
+
+  it('derives the job status from conditions, suspend, active and succeeded', () => {
+    const job = (spec: object, status: object) => toRow('jobs', { metadata: { name: 'j', namespace: 'shop', uid: 'jx' }, spec, status });
+    const cond = (type: string, value = 'True') => ({ conditions: [{ type, status: value }] });
+    expect(job({}, cond('Failed'))).toMatchObject({ tone: 'bad', cells: { status: 'Failed' } });
+    expect(job({}, { ...cond('Complete'), succeeded: 1 })).toMatchObject({ tone: 'ok', cells: { status: 'Complete' } });
+    expect(job({}, { conditions: [{ type: 'Failed', status: 'True' }, { type: 'Complete', status: 'True' }] })).toMatchObject({ cells: { status: 'Failed' } });
+    expect(job({}, cond('Failed', 'False'))).toMatchObject({ tone: 'warn', cells: { status: 'Pending' } });
+    expect(job({ suspend: true }, { active: 1 })).toMatchObject({ tone: 'muted', cells: { status: 'Suspended' } });
+    expect(job({}, { active: 2 })).toMatchObject({ tone: 'warn', cells: { status: 'Running' } });
+    expect(job({ completions: 2 }, { succeeded: 2 })).toMatchObject({ tone: 'ok', cells: { status: 'Complete' } });
+    expect(job({}, { failed: 1 })).toMatchObject({ tone: 'warn', cells: { status: 'Pending' } });
+    expect(job({}, {})).toMatchObject({ tone: 'warn', cells: { status: 'Pending' } });
   });
 
   it('maps a cronjob with schedule and last schedule time', () => {
@@ -131,6 +175,12 @@ describe('nodes', () => {
     expect(toRow('nodes', { metadata: { name: 'w2', uid: 'n3' }, spec: { unschedulable: true },
       status: { conditions: [{ type: 'Ready', status: 'True' }] } }))
       .toMatchObject({ tone: 'warn', cells: { status: 'Ready,SchedulingDisabled' } });
+  });
+
+  it('sets pressure on every node row, also empty', () => {
+    expect(toRow('nodes', { metadata: { name: 'w1', uid: 'n1' }, status: { conditions: [{ type: 'Ready', status: 'True' }, { type: 'MemoryPressure', status: 'True' }, { type: 'PIDPressure', status: 'True' }] } })?.pressure)
+      .toEqual(['MemoryPressure', 'PIDPressure']);
+    expect(toRow('nodes', { metadata: { name: 'w2', uid: 'n2' }, status: {} })?.pressure).toEqual([]);
   });
 
   it('leaves out usage fields in the tile without metrics', () => {

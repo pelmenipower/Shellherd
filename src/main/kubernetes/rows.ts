@@ -1,5 +1,7 @@
 import { KIND_INFO } from '../../shared/kubernetes';
 import type { KubeKind, KubeRef, KubeRow, NodeTile, RowTone } from '../../shared/kubernetes';
+import { jobTone, podTone } from '../../shared/kube-status';
+import type { JobStatus } from '../../shared/kube-status';
 import type { KubeObject } from './api';
 
 type Dict = Record<string, unknown>;
@@ -44,10 +46,6 @@ function ownerOf(kind: KubeKind, meta: Dict, namespace: string | undefined): Kub
   return mapped ? { kind: mapped, namespace, name } : undefined;
 }
 
-const BAD_STATES = new Set(['CrashLoopBackOff', 'ImagePullBackOff', 'ErrImagePull', 'InvalidImageName', 'OOMKilled', 'Error',
-  'CreateContainerConfigError', 'Failed']);
-const WARN_STATES = new Set(['Pending', 'ContainerCreating', 'PodInitializing']);
-const MUTED_STATES = new Set(['Completed', 'Terminating']);
 const ROLE_PREFIX = 'node-role.kubernetes.io/';
 const PRESSURE = ['MemoryPressure', 'DiskPressure', 'PIDPressure'];
 
@@ -68,18 +66,16 @@ export function podStatus(pod: KubeObject): { ready: string; status: string; res
 
   const waiting = firstReason('waiting');
   const terminated = firstReason('terminated');
+  const statusReason = text(status.reason);
   let reason: string;
   if (rec(pod.metadata).deletionTimestamp) reason = 'Terminating';
+  else if (statusReason && phase !== 'Succeeded' && phase !== 'Running') reason = statusReason;
   else if (waiting) reason = waiting;
   else if (phase !== 'Succeeded' && terminated) reason = terminated;
   else if (phase === 'Succeeded') reason = 'Completed';
   else reason = phase ?? 'Unknown';
 
-  let tone: RowTone;
-  if (BAD_STATES.has(reason)) tone = 'bad';
-  else if (MUTED_STATES.has(reason)) tone = 'muted';
-  else if (WARN_STATES.has(reason) || (phase === 'Running' && readyCount < containers.length)) tone = 'warn';
-  else tone = 'ok';
+  const tone = podTone(reason, phase === 'Running' && readyCount < containers.length);
 
   return { ready: `${readyCount}/${containers.length}`, status: reason, restarts, tone };
 }
@@ -143,6 +139,17 @@ export function parseMemory(value: string | undefined): number {
   const match = /^(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti|Pi|k|M|G|T|P)?$/.exec(value ?? '');
   if (!match) return 0;
   return Math.round(Number(match[1]) * (match[2] ? MEMORY_UNITS[match[2]] : 1));
+}
+
+function jobStatus(spec: Dict, status: Dict, completions: number, succeeded: number): JobStatus {
+  const conditions = list(status.conditions).map(rec);
+  const isTrue = (type: string) => conditions.some(c => c.type === type && c.status === 'True');
+  if (isTrue('Failed')) return 'Failed';
+  if (isTrue('Complete')) return 'Complete';
+  if (spec.suspend === true) return 'Suspended';
+  if ((count(status.active) ?? 0) > 0) return 'Running';
+  if (conditions.length === 0 && succeeded >= completions) return 'Complete';
+  return 'Pending';
 }
 
 function workloadCells(kind: KubeKind, object: KubeObject, row: KubeRow): void {
@@ -211,13 +218,14 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
     case 'jobs': {
       const completions = count(spec.completions) ?? 1;
       const succeeded = count(status.succeeded) ?? 0;
-      const failed = count(status.failed) ?? 0;
       row.cells.completions = `${succeeded}/${completions}`;
       const matchLabels = labelMap(rec(spec.selector).matchLabels);
       if (Object.keys(matchLabels).length > 0) row.selector = matchLabels;
       const lastRun = stamp(status.completionTime) ?? stamp(status.startTime);
       if (lastRun) row.cells.lastRun = lastRun;
-      row.tone = succeeded >= completions ? 'ok' : failed > 0 ? 'bad' : 'warn';
+      const state = jobStatus(spec, status, completions, succeeded);
+      row.cells.status = state;
+      row.tone = jobTone(state);
       break;
     }
     case 'cronjobs': {
@@ -250,6 +258,7 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
       row.cells.roles = facts.roles.length > 0 ? facts.roles.join(',') : '—';
       row.cells.version = text(rec(status.nodeInfo).kubeletVersion) ?? '—';
       row.unschedulable = unschedulable;
+      row.pressure = facts.pressure;
       const ip = nodeIp(object);
       if (ip) row.ip = ip;
       row.tone = !facts.ready ? 'bad' : facts.pressure.length > 0 || unschedulable ? 'warn' : 'ok';
