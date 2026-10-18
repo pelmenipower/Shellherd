@@ -59,6 +59,8 @@ export interface KubeRow {
   suspended?: boolean;
   /** Nodes. */
   unschedulable?: boolean;
+  /** Nodes: MemoryPressure / DiskPressure / PIDPressure conditions that are True; always set on node rows. */
+  pressure?: string[];
   /** Events: the object concerned; `ref` only when its kind maps to a KubeKind. */
   involved?: { kind: string; name: string; ref?: KubeRef };
 }
@@ -74,8 +76,8 @@ export const KIND_COLUMNS: Record<KubeKind, ColumnInfo[]> = {
     { key: 'image', label: 'Image' }, { key: 'age', label: 'Alter', age: true }],
   daemonsets: [{ key: 'name', label: 'Name' }, { key: 'ready', label: 'Ready' }, { key: 'upToDate', label: 'Aktuell', numeric: true },
     { key: 'image', label: 'Image' }, { key: 'age', label: 'Alter', age: true }],
-  jobs: [{ key: 'name', label: 'Name' }, { key: 'completions', label: 'Abgeschlossen' }, { key: 'lastRun', label: 'Letzter Lauf', age: true },
-    { key: 'age', label: 'Alter', age: true }],
+  jobs: [{ key: 'name', label: 'Name' }, { key: 'completions', label: 'Abgeschlossen' }, { key: 'status', label: 'Status' },
+    { key: 'lastRun', label: 'Letzter Lauf', age: true }, { key: 'age', label: 'Alter', age: true }],
   cronjobs: [{ key: 'name', label: 'Name' }, { key: 'schedule', label: 'Zeitplan' }, { key: 'lastRun', label: 'Letzter Lauf', age: true },
     { key: 'age', label: 'Alter', age: true }],
   services: [{ key: 'name', label: 'Name' }, { key: 'type', label: 'Typ' }, { key: 'clusterIp', label: 'Cluster-IP' },
@@ -163,4 +165,7 @@ export interface KubeTerminalTarget { namespace: string; pod: string; container:
 
 export type DockMode = 'logs' | 'shell' | 'events' | 'yaml' | 'describe';
 /** Saved state of a cluster tab in a workspace. */
-export interface KubeViewSnapshot { query: KubeQuery; crumbs: string[]; selected?: string; dock: DockMode }
+/** Saved filter of one kind; both fields optional, absent = empty. */
+export interface KubeFilterSnapshot { text?: string; chips?: string[] }
+export interface KubeViewSnapshot { query: KubeQuery; crumbs: string[]; selected?: string; dock: DockMode;
+  filters?: Partial<Record<KubeKind, KubeFilterSnapshot>> }
