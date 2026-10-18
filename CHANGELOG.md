@@ -9,6 +9,7 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 - Container-Ansicht für Docker und Podman, pro SSH-Verbindung und für „Dieser Computer“: Rechtsklick → „Container-Ansicht öffnen“ (lokal „Lokale Container-Ansicht öffnen“). Reiter Container, Images, Volumes und Netzwerke mit Spaltenfiltern, Chips, Gruppierung, Sortierung, Kontextmenüs und Tastenkürzeln; Filter und Gruppierung gelten je Reiter. Die Liste aktualisiert sich alle 10 Sekunden, solange der Tab sichtbar ist, und mit `F5`.
 - Dock mit Logs, Shell und Inspect; Inspect maskiert Env-Werte mit sensiblen Namen. Starten läuft ohne Nachfrage, Stoppen, Neu starten und Entfernen fragen vorher nach, beim Entfernen muss man den Namen eintippen.
 - Container-Ansichten von SSH-Hosts werden in Workspaces gespeichert.
+- Seitenleiste: Unter SSH-Verbindungen und „Dieser Computer“ erscheinen statt Container-Listen die Einträge „Docker-Ansicht“ und „Podman-Ansicht“ (nur für installierte Laufzeiten). Ein Klick öffnet die Ansicht oder fokussiert den offenen Tab; „Docker-Ansicht öffnen“ im Kontextmenü öffnet einen weiteren. Die Tabs sind fest auf ihre Laufzeit gesetzt und werden mit ihr im Workspace gespeichert. Proxmox-Gäste bleiben unverändert.
 
 ## [0.8.0] – 2026-10-18
 

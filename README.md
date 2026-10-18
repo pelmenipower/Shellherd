@@ -101,18 +101,21 @@ folgt in einem weiteren Schritt.
 
 ## Container und VMs
 
-Beim Aufklappen einer SSH-Verbindung erkennt Terminus Docker- und Podman-Container
-sowie Proxmox-LXC-Container und -VMs. Jedes Aufklappen lädt die Liste neu. Auf dem
-Server wird nichts installiert. Doppelklick oder Enter öffnet eine Shell nur in
-laufenden Containern und LXC-Containern. VMs bieten über das Kontextmenü
-`Serielle Konsole` an; das funktioniert nur mit einer seriellen Schnittstelle.
-Das Kontextmenü enthält `Shell öffnen`, bei Docker und Podman `Logs folgen`, bei
-Containern `Starten`, `Stoppen` und `Neu starten` sowie bei Proxmox `Starten`,
+Beim Aufklappen einer SSH-Verbindung erkennt Terminus, ob Docker und Podman
+installiert sind, und zeigt je Laufzeit einen Eintrag `Docker-Ansicht` bzw.
+`Podman-Ansicht`; ein Klick öffnet die Container-Ansicht oder wechselt zu einem
+bereits offenen Tab. Ein weiterer Tab entsteht über das Kontextmenü des Eintrags
+(`Docker-Ansicht öffnen`). Proxmox-LXC-Container und -VMs erscheinen weiterhin als
+Liste. Jedes Aufklappen lädt neu. Auf dem Server wird nichts installiert.
+Doppelklick oder Enter öffnet eine Shell nur in laufenden LXC-Containern. VMs
+bieten über das Kontextmenü `Serielle Konsole` an; das funktioniert nur mit einer
+seriellen Schnittstelle.
+Das Kontextmenü der Proxmox-Gäste enthält `Shell öffnen`, `Starten`,
 `Herunterfahren` und `Stoppen`. Ein hartes Stoppen einer VM fragt vorher nach.
 
-`Dieser Computer` zeigt lokales Docker Desktop oder Podman, sofern es antwortet.
+`Dieser Computer` zeigt `Docker-Ansicht` und `Podman-Ansicht`, sofern die jeweilige CLI installiert ist.
 Das wird nach dem Entsperren des Vaults geprüft und lässt sich über das Kontextmenü
-der freien Fläche im Verbindungsbaum (`Lokale Container suchen`) wiederholen.
+der freien Fläche im Verbindungsbaum (`Lokale Laufzeiten suchen`) wiederholen.
 
 Der SSH-Benutzer braucht Zugriff auf Docker über die Gruppe `docker`; für Proxmox
 muss er die Befehle als root ausführen können. Alternativ führt die Option
@@ -135,8 +138,7 @@ oder für den eigenen Rechner über `Lokale Container-Ansicht öffnen` (Übersch
 `Dieser Computer` oder freie Fläche im Verbindungsbaum). Die Ansicht hat vier Reiter:
 Container, Images, Volumes und Netzwerke. Jeder Reiter hat Spaltenfilter, Chips,
 Gruppierung und Sortierung; Filter und Gruppierung bleiben je Reiter erhalten, `F`
-setzt die Filter zurück. Sind Docker und Podman installiert, wechselt ein Umschalter
-im Kopf die Laufzeit. Die Liste aktualisiert sich alle 10 Sekunden, solange der Tab
+setzt die Filter zurück. Ein Tab aus der Seitenleiste ist fest auf seine Laufzeit gesetzt; der freie Tab aus dem Kontextmenü der Verbindung hat einen Umschalter im Kopf. Die Liste aktualisiert sich alle 10 Sekunden, solange der Tab
 sichtbar ist, sowie nach jeder Aktion und mit `F5`.
 
 Das Dock unter der Tabelle zeigt Logs (`l`), eine Shell (`s`, startet erst auf
@@ -148,7 +150,6 @@ sich nicht entfernen.
 
 Grenzen:
 
-- Die Seitenleiste stoppt Container weiterhin ohne Nachfrage; nur die Ansicht fragt.
 - Inspect maskiert nur die Werte in `Config.Env`, deren Name sensibel klingt. Labels,
   `Cmd` und Mounts bleiben unverändert sichtbar, ein Geheimnis in `Cmd` ist also lesbar.
   Zugangsdaten in Werten wie `DATABASE_URL=postgres://u:p@…` werden nicht maskiert,

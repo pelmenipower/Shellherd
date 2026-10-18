@@ -1,6 +1,6 @@
 # Container- und VM-Integration (Docker, Podman, Proxmox) — Design
 
-> Hinweis: Die Container-Ansicht (Tabelle mit Reitern, Dock, Aktionen mit Dialog) steht in [2026-10-18-container-view-design.md](2026-10-18-container-view-design.md). Diese Spec gilt für die Seitenleiste weiter.
+> Hinweis: Die Container-Ansicht (Tabelle mit Reitern, Dock, Aktionen mit Dialog) steht in [2026-10-18-container-view-design.md](2026-10-18-container-view-design.md). Diese Spec gilt für die Seitenleiste weiter. Die Seitenleiste für Docker und Podman regelt seit 2026-10-18 `2026-10-18-container-view-entries-design.md`: Einträge „Docker-Ansicht“/„Podman-Ansicht“ statt Container-Listen.
 
 Stand: 2026-10-14 · Phase 1 · Vorbild: [XPipe](https://github.com/xpipe-io/xpipe) (nur Ideen, kein Code und keine Abhängigkeit)
 
