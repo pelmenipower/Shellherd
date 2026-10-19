@@ -3,6 +3,7 @@ import type { Workflow } from '../../../shared/vault/types';
 import type { TerminalTab } from '../terminal-tabs';
 import { shellOf, tabLabel } from '../terminal-tabs';
 import { fillWorkflow, searchWorkflows, workflowParams } from '../workflows';
+import { useT } from '../i18n';
 import { typeIntoTerminal } from '../terminal-input';
 import { useNativeSurfaceBlock } from '../native-surface';
 import '../workflows-ui.css';
@@ -20,6 +21,7 @@ const shellLabels = { ssh: 'SSH', powershell: 'PowerShell', cmd: 'CMD' } as cons
 
 /** Search saved commands, fill their placeholders and type them into the active terminal (without Enter). */
 export function WorkflowPalette({ workflows, tabs, activeTabId, onClose, onManage }: WorkflowPaletteProps) {
+  const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [query, setQuery] = useState('');
@@ -51,9 +53,9 @@ export function WorkflowPalette({ workflows, tabs, activeTabId, onClose, onManag
   return (
     <dialog ref={dialogRef} className="workflow-palette" aria-labelledby={`${id}-title`} onCancel={event => { event.preventDefault(); if (chosen) setChosen(null); else onClose(); }}
       onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
-      <h2 id={`${id}-title`} className="workflow-title">Workflows{tab && shell ? <small> → {tabLabel(tab, tabs)}</small> : <small> · kein Terminal ausgewählt</small>}</h2>
+      <h2 id={`${id}-title`} className="workflow-title">{t('workflows:title')}{tab && shell ? <small> → {tabLabel(tab, tabs)}</small> : <small> · {t('workflows:palette.noTerminal')}</small>}</h2>
       {!chosen ? <>
-        <input autoFocus className="workflow-search" type="search" placeholder="Workflow suchen (Name, Tag, Befehl) …" value={query} aria-label="Workflow suchen"
+        <input autoFocus className="workflow-search" type="search" placeholder={t('workflows:palette.searchPlaceholder')} value={query} aria-label={t('workflows:palette.searchLabel')}
           aria-controls={`${id}-list`} aria-activedescendant={results[index] ? `${id}-${results[index].id}` : undefined}
           onChange={event => setQuery(event.target.value)}
           onKeyDown={event => {
@@ -61,7 +63,7 @@ export function WorkflowPalette({ workflows, tabs, activeTabId, onClose, onManag
             if (event.key === 'ArrowUp') { event.preventDefault(); setIndex(value => Math.max(0, value - 1)); }
             if (event.key === 'Enter') { event.preventDefault(); choose(results[index]); }
           }} />
-        <ul id={`${id}-list`} className="workflow-list" role="listbox" aria-label="Workflows">
+        <ul id={`${id}-list`} className="workflow-list" role="listbox" aria-label={t('workflows:title')}>
           {results.map((workflow, position) => <li key={workflow.id} id={`${id}-${workflow.id}`} role="option" aria-selected={position === index}
             className={workflow.shell && shell && workflow.shell !== shell ? 'is-other-shell' : undefined}
             onMouseEnter={() => setIndex(position)} onClick={() => choose(workflow)}>
@@ -71,7 +73,7 @@ export function WorkflowPalette({ workflows, tabs, activeTabId, onClose, onManag
             <code>{workflow.command}</code>
             {workflow.description && <small>{workflow.description}</small>}
           </li>)}
-          {!results.length && <li className="workflow-empty">{workflows.length ? 'Kein Workflow passt zur Suche.' : 'Noch keine Workflows gespeichert.'}</li>}
+          {!results.length && <li className="workflow-empty">{workflows.length ? t('workflows:palette.noMatch') : t('workflows:palette.noneSaved')}</li>}
         </ul>
       </> : <form className="workflow-params" onSubmit={event => { event.preventDefault(); type(preview); }}>
         <p><strong>{chosen.workflow.name}</strong>{chosen.workflow.description && <> · {chosen.workflow.description}</>}</p>
@@ -80,15 +82,15 @@ export function WorkflowPalette({ workflows, tabs, activeTabId, onClose, onManag
             onChange={event => setChosen({ ...chosen, values: { ...chosen.values, [name]: event.target.value } })} /></label>)}
         <code className="workflow-preview">{preview}</code>
         <div className="workflow-actions">
-          <button type="button" className="secondary-button" onClick={() => setChosen(null)}>Zurück</button>
-          <button type="button" className="secondary-button" onClick={() => void window.desktopApi.writeClipboardText(preview).then(onClose).catch(() => setMessage('Kopieren fehlgeschlagen.'))}>Kopieren</button>
-          <button type="submit" className="primary-button" disabled={!shell}>Eintippen</button>
+          <button type="button" className="secondary-button" onClick={() => setChosen(null)}>{t('workflows:dialog.back')}</button>
+          <button type="button" className="secondary-button" onClick={() => void window.desktopApi.writeClipboardText(preview).then(onClose).catch(() => setMessage(t('workflows:palette.copyFailed')))}>{t('common:actions.copy')}</button>
+          <button type="submit" className="primary-button" disabled={!shell}>{t('workflows:palette.type')}</button>
         </div>
       </form>}
       {message && <p className="field-error" role="alert">{message}</p>}
       <footer className="workflow-footer">
-        <span>↑↓ wählen · Enter eintippen (ohne Ausführen) · Esc schließen</span>
-        {onManage && <button type="button" className="secondary-button" onClick={onManage}>Workflows verwalten</button>}
+        <span>{t('workflows:palette.hints')}</span>
+        {onManage && <button type="button" className="secondary-button" onClick={onManage}>{t('workflows:palette.manage')}</button>}
       </footer>
     </dialog>
   );
