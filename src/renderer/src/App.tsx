@@ -26,14 +26,14 @@ import { FolderEditor } from './components/FolderEditor';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
-import { containerConnection, containerViewConnection, isRunning, tabLabel, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, containerViewConnection, isRunning, sameTarget, tabLabel, toTerminalConnection } from './terminal-tabs';
 import type { TerminalConnection, TerminalTab } from './terminal-tabs';
 import { newClusterFromSsh } from './cluster-form';
 import type { KubeProbeResult, KubeViewSnapshot } from '../../shared/kubernetes';
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
 import { connectionAddress, connectionsIn, disabledNotice, NEW_CONNECTION_KINDS, skippedNotice } from '../../shared/vault/connections';
 import { LOCAL_CONTAINER_HOST, LOCAL_HOST_NAME, toTarget } from '../../shared/containers';
-import type { ContainerAction, DiscoveredItem, TerminalTargetMode } from '../../shared/containers';
+import type { ContainerAction, ContainerRuntime, DiscoveredItem, TerminalTargetMode } from '../../shared/containers';
 import type { ContainerTreeProps } from './container-tree';
 import { useContainerDiscovery } from './hooks/useContainerDiscovery';
 import { LocalContainers } from './components/LocalContainers';
@@ -668,15 +668,22 @@ export default function App() {
     });
   }
 
-  function openContainerView(hostId: string): void {
+  function openContainerView(hostId: string, runtime?: ContainerRuntime, reuse = false): void {
     const host = hostId === LOCAL_CONTAINER_HOST ? undefined : vault && findNode(vault.nodes, hostId);
     if (hostId !== LOCAL_CONTAINER_HOST && !(host?.type === 'connection' && host.protocol === 'ssh')) return;
     if (host?.type === 'connection' && host.disabled) { setError(disabledNotice(host)); return; }
     navigateEditor(() => {
-      if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
       const name = host?.type === 'connection' ? host.name : LOCAL_HOST_NAME;
       const address = host?.type === 'connection' ? connectionAddress(host) : 'lokal';
-      terminals.open(containerViewConnection(hostId, name, address));
+      const connection = containerViewConnection(hostId, name, address, runtime);
+      if (reuse) {
+        // Focus an open view of the same host and runtime (the active one first) before the session limit applies.
+        const matches = terminals.tabs.filter(tab => sameTarget(tab.connection, connection));
+        const open = matches.find(tab => tab.id === terminals.activeTabId) ?? matches[0];
+        if (open) { terminals.select(open.id); setEditorOpen(false); setEditorDirty(false); setError(null); return; }
+      }
+      if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
+      terminals.open(connection);
       setEditorOpen(false); setEditorDirty(false); setError(null);
     });
   }
@@ -684,6 +691,7 @@ export default function App() {
   const containerTree: ContainerTreeProps = {
     state: containerDiscovery.state,
     onExpand: id => void containerDiscovery.load(id),
+    onOpenView: (id, runtime, newTab) => openContainerView(id, runtime, !newTab),
     onOpen: openContainer,
     onAction: (id: string, item: DiscoveredItem, action: ContainerAction, confirm?: string) => { if (!confirm || window.confirm(confirm)) void containerDiscovery.act(id, item, action); },
   };
@@ -802,10 +810,10 @@ export default function App() {
             <div className="sidebar-form-actions"><button type="button" onClick={() => setShowFolderForm(false)} disabled={busy}>Abbrechen</button>
               <button type="submit" disabled={busy || !canCreateFolder || !folderName.trim()}>Anlegen</button></div>
           </form>}
-          <LocalContainers containers={containerTree} disabled={busy} onOpenView={openContainerView} />
+          <LocalContainers containers={containerTree} disabled={busy} onOpenView={id => openContainerView(id)} />
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy} containers={containerTree}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); setError(null); })}
-            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} onOpenContainerView={openContainerView} />
+            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} onOpenContainerView={id => openContainerView(id)} />
           {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu. Über „Neu“ oder Rechtsklick wählst du die Verbindungsart.</p><button type="button" className="secondary-button" onClick={() => newConnection()}>Neue SSH-Verbindung</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}${!terminals.tabs.length ? ' no-terminals' : ''}`}>

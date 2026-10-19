@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { INVENTORY_KINDS, containerViewHostName, type InventoryAction, type InventoryRow, type TerminalTarget } from '../../../../shared/containers';
+import { INVENTORY_KINDS, RUNTIME_LABEL, containerViewHostName, type InventoryAction, type InventoryRow, type TerminalTarget } from '../../../../shared/containers';
 import type { SshStatus } from '../../../../shared/ssh';
 import { containerConnection, type TerminalConnection } from '../../terminal-tabs';
 import { useContainerInventory } from '../../hooks/useContainerInventory';
@@ -42,11 +42,10 @@ const NOTICE_MS = 6000;
 const TICK_MS = 5000;
 const NO_POPOUT = 'Hier lässt sich kein Tab öffnen.';
 const KIND_TABS = { containers: 'Container', images: 'Images', volumes: 'Volumes', networks: 'Netzwerke' } as const;
-const RUNTIME_LABEL = { docker: 'Docker', podman: 'Podman' } as const;
 
 /** Container tab: header, chip bar, table and dock for one SSH host or this computer. */
 export function ContainerView({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, onPopout }: ContainerViewProps) {
-  const [state, dispatch] = useReducer(containerViewReducer, undefined, () => initialContainerViewState(Date.now()));
+  const [state, dispatch] = useReducer(containerViewReducer, undefined, () => initialContainerViewState(Date.now(), connection.runtime ?? null));
   const { reload } = useContainerInventory(connection.id, state.requestedRuntime, visible, dispatch);
   const rootRef = useRef<HTMLElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -247,9 +246,9 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
     <section ref={rootRef} className={`kube-view${focused ? ' focused-pane' : ''}`} style={style} hidden={!visible}
       id={`containers-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} onPointerDown={onFocus} onFocusCapture={onFocus} onKeyDown={onKeyDown}>
       <header className="kube-header">
-        <div className="kube-title"><strong>{hostName}</strong></div>
+        <div className="kube-title"><strong>{state.pinned ? `${hostName} · ${RUNTIME_LABEL[state.pinned]}` : hostName}</strong></div>
         <nav className="ctr-kinds" onContextMenu={event => event.preventDefault()}>
-          {inventory && inventory.runtimes.length > 1 && (
+          {state.pinned === null && inventory && inventory.runtimes.length > 1 && (
             <label className="kube-ns">
               <span>Laufzeit</span>
               <select value={inventory.runtime} aria-label="Laufzeit" onChange={event => dispatch({ type: 'setRuntime', runtime: event.target.value === 'podman' ? 'podman' : 'docker' })}>

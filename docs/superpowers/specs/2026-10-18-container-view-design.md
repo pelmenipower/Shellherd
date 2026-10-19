@@ -7,6 +7,8 @@ Stand: 2026-10-18 · Branch `claude/feature/container-view` (ab `claude/feature/
 Recherche mit Datei- und Zeilenbelegen: `.superpowers/sdd/container-view-research.md` (Abschnitte 1–3). Diese Spec ist bindend, die Recherche erklärt sie.
 Weiter bindend: `2026-10-14-container-integration-design.md` (Seitenleiste, sudo, Befehlsbau) sowie die Regeln der Kubernetes-Specs zu Kontextmenüs, Spaltenfiltern und Dock, soweit sie hier übernommen werden.
 
+> Die Seitenleiste für Docker und Podman regelt seit 2026-10-18 `2026-10-18-container-view-entries-design.md`: Einträge „Docker-Ansicht“/„Podman-Ansicht“ statt Container-Listen.
+
 ## 1. Ziel und Erfolgskriterien
 
 Pro SSH-Host und für „Dieser Computer“ gibt es einen Tab **Container-Ansicht**. Er arbeitet wie der Cluster-Tab: Tabelle mit Spaltenfiltern, Chips, Gruppierung und Sortierung, Kontextmenüs, Tastenkürzel, Hilfe und ein Dock mit Logs, Shell und Inspect.

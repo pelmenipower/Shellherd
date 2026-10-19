@@ -1,6 +1,6 @@
 // Pure reducer of the container view: inventory, per-kind filters/chips/sort/grouping, selection and dock.
 import type { ContainerDockMode, ContainerInventory, ContainerRuntime, InventoryKind, InventoryRow } from '../../shared/containers';
-import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
+import { LOCAL_CONTAINER_HOST, RUNTIME_LABEL } from '../../shared/containers';
 import { columnsFor, compileColumnFilters, groupOptionsFor, groupRows, type ContainerColumn, type GroupId, type TableItem } from './container-columns';
 import { compileChips, knownChips } from './container-status';
 
@@ -13,6 +13,8 @@ export interface ContainerViewState {
   inventory: ContainerInventory | null;
   /** Runtime asked for; null = default (first found). */
   requestedRuntime: ContainerRuntime | null;
+  /** Runtime fixed by the tab; null = free, the header shows the switcher. */
+  pinned: ContainerRuntime | null;
   kind: InventoryKind;
   views: Record<InventoryKind, KindView>;
   /** uid of the selected row. */
@@ -60,9 +62,9 @@ const MAX_KEY_LENGTH = 300;
 
 const emptyView = (): KindView => ({ filters: {}, chips: [], sort: null, groupBy: null, collapsed: [] });
 
-export function initialContainerViewState(now: number): ContainerViewState {
+export function initialContainerViewState(now: number, pinned: ContainerRuntime | null = null): ContainerViewState {
   return {
-    inventory: null, requestedRuntime: null, kind: 'containers',
+    inventory: null, requestedRuntime: pinned, pinned, kind: 'containers',
     views: { containers: emptyView(), images: emptyView(), volumes: emptyView(), networks: emptyView() },
     selected: null, dock: 'logs', dockOpen: true, armed: null, epoch: 0, loading: true, error: null, busy: [], now,
   };
@@ -81,12 +83,15 @@ function reduce(state: ContainerViewState, action: ContainerViewAction): Contain
   switch (action.type) {
     case 'loading': return state.loading || (action.quiet && state.inventory !== null) ? state : { ...state, loading: true };
     case 'setInventory': {
+      if (state.pinned !== null && action.inventory.runtime !== state.pinned) {
+        return { ...state, loading: false, error: `${RUNTIME_LABEL[state.pinned]} wurde auf diesem Host nicht gefunden.` };
+      }
       const runtimeChanged = state.inventory !== null && state.inventory.runtime !== action.inventory.runtime;
       const next: ContainerViewState = { ...state, inventory: action.inventory, loading: false, error: null, ...(runtimeChanged ? { selected: null } : {}) };
       return runtimeChanged ? next : keepSelection(state, next, 'rows');
     }
     case 'fail': return { ...state, loading: false, error: action.message };
-    case 'setRuntime': return { ...state, requestedRuntime: action.runtime, loading: true, selected: null };
+    case 'setRuntime': if (state.pinned !== null) return state; return { ...state, requestedRuntime: action.runtime, loading: true, selected: null };
     case 'setKind': {
       if (action.kind === state.kind) return state;
       const dock = action.kind !== 'containers' && (state.dock === 'logs' || state.dock === 'shell') ? 'inspect' : state.dock;

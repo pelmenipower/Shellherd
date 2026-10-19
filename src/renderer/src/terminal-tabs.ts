@@ -3,8 +3,8 @@ import type { TabConnection, TransferSession } from '../../shared/windows';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import type { SshStatus } from '../../shared/ssh';
 import { connectionAddress } from '../../shared/vault/connections';
-import { CONTAINER_VIEW_SUFFIX, LOCAL_CONTAINER_HOST, targetKey } from '../../shared/containers';
-import type { TerminalTarget } from '../../shared/containers';
+import { LOCAL_CONTAINER_HOST, containerViewTabName, targetKey } from '../../shared/containers';
+import type { ContainerRuntime, TerminalTarget } from '../../shared/containers';
 import type { AiTerminalContext } from '../../shared/ai';
 import type { KubeTerminalTarget, KubeViewSnapshot } from '../../shared/kubernetes';
 
@@ -33,8 +33,8 @@ export function containerConnection(hostId: string, hostName: string, address: s
 }
 
 /** Tab for the container view of an SSH connection or of this computer (`hostId` = LOCAL_CONTAINER_HOST). */
-export function containerViewConnection(hostId: string, hostName: string, address: string): TerminalConnection {
-  return { id: hostId, name: `${hostName}${CONTAINER_VIEW_SUFFIX}`, protocol: hostId === LOCAL_CONTAINER_HOST ? 'cmd' : 'ssh', address, view: 'containers' };
+export function containerViewConnection(hostId: string, hostName: string, address: string, runtime?: ContainerRuntime): TerminalConnection {
+  return { id: hostId, name: containerViewTabName(hostName, runtime), protocol: hostId === LOCAL_CONTAINER_HOST ? 'cmd' : 'ssh', address, view: 'containers', ...(runtime ? { runtime } : {}) };
 }
 
 /** Tab for a pod's logs, previous logs or shell; the cluster name keeps it apart from other clusters. */
@@ -58,7 +58,7 @@ export function shellOf(tab: TerminalTab | undefined): AiTerminalContext['shell'
 const kubeKey = (kube: KubeTerminalTarget | undefined): string => kube ? [kube.namespace, kube.pod, kube.container, kube.mode, kube.format ?? ''].join('\n') : '';
 
 export function sameTarget(a: TerminalConnection, b: TerminalConnection): boolean {
-  return a.id === b.id && a.view === b.view && (a.target ? targetKey(a.target) : '') === (b.target ? targetKey(b.target) : '')
+  return a.id === b.id && a.view === b.view && (a.runtime ?? '') === (b.runtime ?? '') && (a.target ? targetKey(a.target) : '') === (b.target ? targetKey(b.target) : '')
     && kubeKey(a.kube) === kubeKey(b.kube);
 }
 export interface TerminalTab {
@@ -90,15 +90,15 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
   switch (action.type) {
     case 'open': {
       if (state.tabs.length >= MAX_SSH_SESSIONS || state.tabs.some(tab => tab.id === action.id)) return state;
-      const { id, name, protocol, address, view, target, kube } = action.connection;
+      const { id, name, protocol, address, view, runtime, target, kube } = action.connection;
       const ordinal = Math.max(0, ...state.tabs.filter(tab => sameTarget(tab.connection, action.connection)).map(tab => tab.ordinal)) + 1;
-      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(target ? { target } : {}), ...(kube ? { kube } : {}) }, ordinal, status: 'connecting' }], activeTabId: action.id };
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(runtime ? { runtime } : {}), ...(target ? { target } : {}), ...(kube ? { kube } : {}) }, ordinal, status: 'connecting' }], activeTabId: action.id };
     }
     case 'adopt': {
       if (state.tabs.some(tab => tab.id === action.id)) return state;
-      const { id, name, protocol, address, view, target, kube } = action.connection;
+      const { id, name, protocol, address, view, runtime, target, kube } = action.connection;
       const ordinal = Math.max(0, ...state.tabs.filter(tab => sameTarget(tab.connection, action.connection)).map(tab => tab.ordinal)) + 1;
-      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(target ? { target } : {}), ...(kube ? { kube } : {}) }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(runtime ? { runtime } : {}), ...(target ? { target } : {}), ...(kube ? { kube } : {}) }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
     }
     case 'select':
       return action.id === null || state.tabs.some(tab => tab.id === action.id) ? { ...state, activeTabId: action.id } : state;

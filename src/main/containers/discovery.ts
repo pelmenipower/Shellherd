@@ -2,9 +2,9 @@ import { INVENTORY_KINDS, LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import type { ContainerAction, ContainerHostId, ContainerInventory, ContainerRuntime, ContainerTarget, DiscoveredItem, DiscoveryResult, InventoryAction, InventoryKind, InventoryRef, InventoryRow, RuntimeKind } from '../../shared/containers';
 import type { ConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import { publicError } from '../ssh/session';
-import { actionArgv, ContainerInputError, inspectArgv, inventoryActionArgv, inventoryArgv, listArgv, PROBE_COMMAND, sudoSetting } from './commands';
+import { actionArgv, ContainerInputError, inspectArgv, inventoryActionArgv, inventoryArgv, listArgv, localProbeArgv, PROBE_COMMAND, sudoSetting } from './commands';
 import { linkUsage, maskInspect, parseContainerRows, parseImageRows, parseNetworkRows, parseVolumeRows } from './inventory-parsers';
-import { describeFailure, parseContainerList, parsePctList, parseProbe, parseQmList } from './parsers';
+import { describeFailure, parsePctList, parseProbe, parseQmList } from './parsers';
 import type { RunResult } from './parsers';
 import { HostAccessError } from './runner';
 import { runWithSudo } from './sudo-run';
@@ -63,11 +63,7 @@ export class ContainerDiscovery {
       return await this.withHost(connection, async host => {
         const tools = parseProbe(probeOutput(await host.run(PROBE_COMMAND, LIST_TIMEOUT)));
         const result: DiscoveryResult = { runtimes: [], items: [], problems: {} };
-        for (const runtime of ['docker', 'podman'] as const) {
-          if (!tools.has(runtime)) continue;
-          result.runtimes.push(runtime);
-          this.collect(result, runtime, await runWithSudo(host, connection, listArgv(runtime), LIST_TIMEOUT, this.sudoRejections), text => parseContainerList(runtime, text));
-        }
+        for (const runtime of ['docker', 'podman'] as const) if (tools.has(runtime)) result.runtimes.push(runtime);
         if (tools.has('pct') || tools.has('qm')) {
           result.runtimes.push('proxmox');
           if (tools.has('pct')) this.collect(result, 'proxmox', await runWithSudo(host, connection, listArgv('lxc'), LIST_TIMEOUT, this.sudoRejections), parsePctList);
@@ -167,11 +163,9 @@ export class ContainerDiscovery {
   private async listLocal(): Promise<DiscoveryResult> {
     const result: DiscoveryResult = { runtimes: [], items: [], problems: {} };
     for (const runtime of ['docker', 'podman'] as const) {
-      const argv = listArgv(runtime);
+      const argv = localProbeArgv(runtime);
       const run = await this.dependencies.runLocal(argv[0], argv.slice(1), LIST_TIMEOUT);
-      if (run.notFound) continue;
-      result.runtimes.push(runtime);
-      this.collect(result, runtime, run, text => parseContainerList(runtime, text));
+      if (!run.notFound) result.runtimes.push(runtime);
     }
     return result;
   }

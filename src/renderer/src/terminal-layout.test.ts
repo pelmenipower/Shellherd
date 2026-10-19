@@ -207,6 +207,24 @@ describe('workspaces with container views', () => {
     expect(restored.tabs[1].connection.name).toBe('server01 · Container');
     expect(restored.tabs[2].connection.target).toEqual(shell);
   });
+  it('saves a fixed runtime as object and round-trips it', () => {
+    const tabs = [tab('a', containerViewConnection('h1', 'server01', 'admin@server01', 'docker')), tab('b', containerViewConnection('h1', 'server01', 'admin@server01'))];
+    const saved = savedLayout({ type: 'pane', id: 'p', tabIds: ['a', 'b'], activeTabId: 'a' }, tabs);
+    expect(saved).toMatchObject({ containerViews: [{ index: 0, runtime: 'docker' }, 1] });
+    const restored = restoreLayout(saved, () => host as never, () => 'u');
+    expect(restored.tabs[0].connection.runtime).toBe('docker');
+    expect(restored.tabs[0].connection.name).toBe('server01 · Docker');
+    expect('runtime' in restored.tabs[1].connection).toBe(false);
+  });
+  it('restores object entries with and without runtime', () => {
+    const podman = restoreLayout({ type: 'pane', connectionIds: ['h1'], containerViews: [{ index: 0, runtime: 'podman' }] }, () => host as never, () => 'u');
+    expect(podman.tabs[0].connection.name).toBe('server01 · Podman');
+    expect(podman.tabs[0].connection.runtime).toBe('podman');
+    const bare = restoreLayout({ type: 'pane', connectionIds: ['h1'], containerViews: [0] }, () => host as never, () => 'u');
+    expect(bare.tabs[0].connection.runtime).toBeUndefined();
+    const obj = restoreLayout({ type: 'pane', connectionIds: ['h1'], containerViews: [{ index: 0 }] }, () => host as never, () => 'u');
+    expect(obj.tabs[0].connection.name).toBe('server01 · Container');
+  });
   it('falls back to a normal tab for a non-SSH connection and lets containerTabs win over containerViews', () => {
     const fallback = restoreLayout({ type: 'pane', connectionIds: ['r1'], containerViews: [0] }, id => id === 'r1' ? rdp as never : undefined, () => 'u');
     expect(fallback.tabs[0].connection.view).toBeUndefined();
