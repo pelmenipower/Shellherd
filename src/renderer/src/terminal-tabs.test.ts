@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
-import { containerConnection, containerTabName, containerViewConnection, emptyTerminalTabs, isRunning, kubeTabName, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, containerTabName, containerViewConnection, emptyTerminalTabs, isRunning, kubeTabName, planContainerView, reusableTab, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
 import type { TerminalTab, TerminalTabsState } from './terminal-tabs';
 const connection = { id: 'ssh', name: 'Server', protocol: 'ssh' as const, address: 'synthetic@example.test:22' };
 function opened(): TerminalTabsState {
@@ -170,5 +170,31 @@ describe('container view tabs', () => {
   it('keeps the runtime when adopting a tab', () => {
     const state = reduce(emptyTerminalTabs, { type: 'adopt', id: 'x', connection: containerViewConnection('h1', 'srv', 'a', 'podman'), status: 'connected', adopt: {} });
     expect(state.tabs[0].connection.runtime).toBe('podman');
+  });
+  const mk = (id: string, conn: TerminalTab['connection']): TerminalTab => ({ id, connection: conn, ordinal: 1, status: 'connected' });
+  const docker = containerViewConnection('h1', 'srv', 'a', 'docker');
+  const filler = (n: number): TerminalTab[] => Array.from({ length: n }, (_, i) => mk(`f${i}`, { id: `x${i}`, name: 'x', protocol: 'ssh', address: 'a' }));
+  it('reusableTab prefers the active match, else the first', () => {
+    const tabs = [mk('a', docker), mk('b', docker)];
+    expect(reusableTab(tabs, 'b', docker)?.id).toBe('b');
+    expect(reusableTab(tabs, null, docker)?.id).toBe('a');
+    expect(reusableTab(tabs, 'zzz', docker)?.id).toBe('a');
+    expect(reusableTab([], null, docker)).toBeUndefined();
+  });
+  it('reusableTab never matches another runtime, files or terminal tabs', () => {
+    const plain = { id: 'h1', name: 'srv', protocol: 'ssh' as const, address: 'a' };
+    const files = { ...plain, protocol: 'sftp' as const, view: 'files' as const };
+    const tabs = [mk('d', docker), mk('p', plain), mk('f', files)];
+    expect(reusableTab(tabs, 'd', containerViewConnection('h1', 'srv', 'a', 'podman'))).toBeUndefined();
+    expect(reusableTab(tabs, 'd', containerViewConnection('h1', 'srv', 'a'))).toBeUndefined();
+    expect(reusableTab([mk('p', plain), mk('f', files)], null, docker)).toBeUndefined();
+  });
+  it('planContainerView focuses before the limit and honors reuse', () => {
+    const full = [...filler(MAX_SSH_SESSIONS - 1), mk('v', docker)];
+    expect(planContainerView(full, null, docker, true)).toEqual({ kind: 'focus', tabId: 'v' });
+    expect(planContainerView(filler(MAX_SSH_SESSIONS), null, docker, true)).toEqual({ kind: 'limit' });
+    expect(planContainerView(full, null, docker, false)).toEqual({ kind: 'limit' });
+    expect(planContainerView(filler(2), null, docker, true)).toEqual({ kind: 'open' });
+    expect(planContainerView([...filler(2), mk('v', docker)], null, docker, false)).toEqual({ kind: 'open' });
   });
 });
