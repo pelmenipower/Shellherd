@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Client } from 'ssh2';
 import type { ConnectionNode } from '../../shared/vault/types';
 import type { SftpEvent } from '../../shared/sftp';
+import { AppError, type CodedError } from '../../shared/errors';
 import { FileError, localFileSystem } from './file-system';
 import { SftpSessionManager } from './sftp-session';
 import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
@@ -87,6 +88,17 @@ describe('SFTP connection failures', () => {
     await vi.waitFor(() => expect(clients[0].connect).toHaveBeenCalled());
     clients[0].emit('error', Object.assign(new Error('connect ECONNREFUSED 1.2.3.4:22'), { code: 'ECONNREFUSED' }));
     expect(events.at(-1)).toEqual({ ownerId: 1, event: { type: 'status', sessionId, status: 'error', error: { code: 'ssh.connectionRefused', detail: 'connect ECONNREFUSED 1.2.3.4:22' }, code: 'refused' } });
+  });
+
+  it('truncates a long error detail and cause details to 500 characters', async () => {
+    const { manager, events, clients } = setup();
+    manager.open(1, 'files');
+    await vi.waitFor(() => expect(clients[0].connect).toHaveBeenCalled());
+    const long = 'y'.repeat(600);
+    clients[0].emit('error', new AppError('ssh.failed', undefined, long, [{ label: 'host', error: { code: 'ssh.failed', detail: long } }]));
+    const sent = (events.at(-1)!.event as { error?: CodedError }).error!;
+    expect(sent.detail).toHaveLength(500);
+    expect(sent.causes![0].error.detail).toHaveLength(500);
   });
 
   it('reports closed-by-server when the client closes on its own', async () => {

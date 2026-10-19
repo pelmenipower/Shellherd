@@ -42,7 +42,7 @@
   "tree": {
     "aria": "Connections and folders",
     "searchAria": "Search connections",
-    "searchPlaceholder": "Search connections …",
+    "searchPlaceholder": "Search connections…",
     "empty": "No matching connections or folders.",
     "menuLabel": "Actions for {{name}}",
     "menuCreate": "Create new",
@@ -111,7 +111,7 @@
     "emptyHint": "Save your terminal layout as a workspace.",
     "saveLayout": "Save layout",
     "saveLayoutNamed": "Save layout: {{name}}",
-    "saveAs": "Save as …",
+    "saveAs": "Save as…",
     "closeWorkspace": "Close workspace",
     "nameRequired": "Enter a workspace name.",
     "saveFailed": "Not saved.",
@@ -124,7 +124,7 @@
     "addTitle": "Add connection as tab",
     "searchLabel": "Add connection",
     "searchAria": "Search connection for new tab",
-    "searchPlaceholder": "Name, host or folder …",
+    "searchPlaceholder": "Name, host or folder…",
     "noMatch": "No matching connection.",
     "noneSaved": "No connection saved yet. Create one via “New”."
   }

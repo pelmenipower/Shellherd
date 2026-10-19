@@ -14,6 +14,14 @@ describe('splitAccount', () => {
   });
 });
 
+describe('rdpStatusError limits', () => {
+  it('truncates a long helper text to 500 characters', () => {
+    const long = 'x'.repeat(600);
+    expect(rdpStatusError('error', long)?.detail).toHaveLength(500);
+    expect(rdpStatusError('disconnected', long)?.detail).toHaveLength(500);
+  });
+});
+
 describe('rdpStatusError', () => {
   it('keeps the native helper text only as detail of a core.rdp* code', () => {
     expect(rdpStatusError('error', 'Zeitüberschreitung')).toEqual({ code: 'core.rdpFailed', detail: 'Zeitüberschreitung' });

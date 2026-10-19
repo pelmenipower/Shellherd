@@ -41,7 +41,7 @@
     "download": "Download",
     "uploadMove": "Upload and delete locally",
     "downloadMove": "Download and delete from server",
-    "rights": "Permissions …",
+    "rights": "Permissions…",
     "copyPath": "Copy path",
     "selected": "{{selected}} of {{total}} selected",
     "selectedSize": "{{selected}} of {{total}} selected · {{size}}",
@@ -86,7 +86,7 @@
     "hint": "Saving in the editor uploads the file automatically.",
     "state": {
       "open": "Open in editor – saving uploads",
-      "uploading": "Uploading …",
+      "uploading": "Uploading…",
       "saved": "Uploaded",
       "conflict": "Changed on the server",
       "error": "Upload failed"

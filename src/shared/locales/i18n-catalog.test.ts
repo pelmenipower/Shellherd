@@ -80,7 +80,7 @@ describe('i18n catalogs', () => {
     }
   });
 
-  it('(f) has no three dots, no leading Bitte/Please and matching quote styles', () => {
+  it('(f) has no three dots, no leading Bitte/Please, no space before the en-US ellipsis and matching quote styles', () => {
     for (const locale of LOCALES) {
       for (const ns of NAMESPACES) {
         for (const [key, value] of Object.entries(catalog(locale, ns))) {
@@ -88,6 +88,8 @@ describe('i18n catalogs', () => {
           const where = `${locale} ${ns}:${key}`;
           expect(text, where).not.toContain('...');
           expect(text, where).not.toMatch(/^(bitte|please) /i);
+          // en-US writes the ellipsis without a space before it (de-DE keeps its own style)
+          if (locale === 'en-US') expect(text, where).not.toContain(' …');
           if (locale === 'en-US') expect(text, where).not.toContain('„');
           else expect(text, where).not.toMatch(/(^|[\s(])“/);
         }

@@ -4,7 +4,7 @@ import { pipeline } from 'node:stream/promises';
 import { posix } from 'node:path';
 import { Client } from 'ssh2';
 import type { SFTPWrapper } from 'ssh2';
-import { type CodedError } from '../../shared/errors';
+import { limitError, type CodedError } from '../../shared/errors';
 import type { ConnectionNode } from '../../shared/vault/types';
 import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
 import type { EditorChoice } from '../../shared/sftp';
@@ -297,6 +297,6 @@ export class SftpSessionManager {
     session.edits?.closeAll();
     session.client.destroy();
     session.status = status;
-    this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error } : {}), ...(code ? { code } : {}) });
+    this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error: limitError(error) } : {}), ...(code ? { code } : {}) });
   }
 }

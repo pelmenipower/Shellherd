@@ -104,7 +104,7 @@
       "succeeded": "Connection test succeeded",
       "failed": "Connection test failed",
       "error": "The test failed.",
-      "running": "Testing …",
+      "running": "Testing…",
       "button": "Test connection",
       "title": "Checks the entered data without saving"
     },
@@ -139,7 +139,7 @@
       "down": "Move {{label}} down",
       "remove": "Remove {{label}}",
       "add": "Add SSH connection",
-      "choose": "Choose …",
+      "choose": "Choose…",
       "noneLeft": "No other SSH connections"
     },
     "kubeconfig": {
@@ -151,7 +151,7 @@
     "context": {
       "label": "Context",
       "read": "Read contexts",
-      "reading": "Reading …",
+      "reading": "Reading…",
       "readFailed": "The contexts could not be read."
     },
     "namespace": {

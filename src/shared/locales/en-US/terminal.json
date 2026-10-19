@@ -44,7 +44,7 @@
     "failed": "The command could not be typed."
   },
   "rdp": {
-    "resizing": "Adjusting resolution …",
+    "resizing": "Adjusting resolution…",
     "hiddenWhileMenu": "Remote desktop hidden while a menu is open.",
     "actions": {
       "ctrlAltDel": { "label": "{{ctrl}}+{{alt}}+{{del}}", "hint": "Security options" },
@@ -114,30 +114,30 @@
       "auth": "Signing in",
       "shell": "Opening shell"
     },
-    "title": "Connecting to {{name}} …",
+    "title": "Connecting to {{name}}…",
     "cancel": "Cancel",
     "total": "Total {{time}}",
     "seconds": "{{value}} s",
-    "waitingHostKey": "Waiting for you to confirm the server key …",
-    "slowServer": "The server is slow to respond …",
-    "slowGeneric": "Taking longer than usual …",
+    "waitingHostKey": "Waiting for you to confirm the server key…",
+    "slowServer": "The server is slow to respond…",
+    "slowGeneric": "Taking longer than usual…",
     "agoSeconds": "{{seconds}} s ago",
     "agoMinutes": "{{minutes}} min ago"
   },
   "statusWord": {
     "short": {
-      "connecting": "Connecting …",
+      "connecting": "Connecting…",
       "connected": "Connected",
       "closed": "Disconnected",
       "error": "Error"
     },
     "long": {
-      "connecting": "Connecting …",
+      "connecting": "Connecting…",
       "connected": "Connected",
       "closed": "Disconnected",
       "error": "Connection failed"
     },
-    "connectingTo": "Connecting to {{name}} …",
+    "connectingTo": "Connecting to {{name}}…",
     "withProtocol": "{{protocol}}: {{word}}"
   },
   "disconnected": {

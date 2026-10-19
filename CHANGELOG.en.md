@@ -14,12 +14,12 @@ Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails 
 ## [0.11.0] – 2026-10-19
 
 - New color scheme “Bernese Copper”: the accent is now copper instead of cyan, matching the Shellherd mark. Surfaces and text are a touch warmer; copper is used only for focus, selection and actions, and yellow, green and red only for states.
-- Connecting in steps: if connecting takes longer than 0.4 seconds, the terminal shows “Reaching server”, “Verifying server key”, “Signing in” and “Opening shell” with the time per step and a hint when the server answers slowly. `Esc` cancels.
-- Understandable connection errors: a card in the terminal names the cause and the next step (sign-in rejected, server not responding, server key changed and more) and offers `Edit connection`, `Connect again` or `Copy fingerprint`; `Details` shows the raw text.
+- Connecting in steps: if connecting takes longer than 0.4 seconds, the terminal shows “Reaching server”, “Checking server key”, “Signing in” and “Opening shell” with the time per step and a hint when the server answers slowly. `Esc` cancels.
+- Understandable connection errors: a card in the terminal names the cause and the next step (sign-in rejected, server not responding, server key changed and more) and offers `Edit connection`, `Reconnect` or `Copy fingerprint`; `Details` shows the raw text.
 - Disconnected sessions: the output stays in place, a bar shows how long ago the disconnect happened, and `Reconnect` (`Enter`) starts over. This also applies to RDP and the file view.
 - Notices at the bottom right come in three levels: errors stay until you close them, info and success notices disappear after 5 and 3 seconds (a bar shows the time left). Error messages appear right at the field or in the area instead of only at the top of the window.
-- Save buttons show “Saving …” and “Saved” without changing their width. Write errors of the vault file name the reason (read-only, locked, folder missing, drive full).
-- Cluster view: the table stays readable while reconnecting. A status bar shows “Live” with the age of the data, while reconnecting the host and the attempt, and afterwards “Reconnected via …”. Actions are locked until then.
+- Save buttons show “Saving…” and “Saved” without changing their width. Write errors of the vault file name the reason (read-only, locked, folder missing, drive full).
+- Cluster view: the table stays readable while reconnecting. A status bar shows “Live” with the age of the data, while reconnecting the host and the attempt, and afterwards “Reconnected via <host>”. Actions are locked until then.
 - Container view: while an action runs, the status cell shows the target state (“stopping”, “restarting”) instead of fading the row.
 - Consistent texts: prompts without “please”, “…” as a single character, one status vocabulary for tabs, terminal, RDP and file view. Status dots have the same size everywhere, and arrows on banners and docks are icons instead of text characters.
 - If connecting is waiting for you to confirm the server key, the card says so instead of warning about a slow connection.
@@ -48,14 +48,14 @@ Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails 
 
 - Kubernetes table with column filters: text (contains), selection for namespace, status, type, node and roles, numbers (`>3`, `<=5`, `3`) and age (`<10m`, `>1h`, `<2d`). `/` jumps to the name filter (events: message), `F` resets all filters of the tab.
 - “Group by” (e.g. namespace, node, status, owner) with collapsible groups; filters and grouping are kept per tab and in the workspace.
-- The command line at the top right (`/` search and `:` commands such as `:ns`, `:filter`, `:status`) is gone. Namespaces without pods are reachable through “all” and the namespace filter. Text filters from the context menu (e.g. `app=api`) appear as a “Filter: …” chip.
+- The command line at the top right (`/` search and `:` commands such as `:ns`, `:filter`, `:status`) is gone. Namespaces without pods are reachable through “all” and the namespace filter. Text filters from the context menu (e.g. `app=api`) appear as a “Filter” chip.
 - The last opened vault file is preselected on start.
 - A cluster tab without a configured namespace starts with all namespaces.
 
 ## [0.7.0] – 2026-10-18
 
 - Kubernetes search: multiple terms (AND), `"phrase"`, `!exclusion`, `key=value` and `key!=value` for labels, `field:value` qualifiers and number comparisons (`restarts>3`, `count>=5`); the help (`?`) lists syntax and qualifiers per tab.
-- Chip bar with status filters and counts per tab; `w` shows only notable items, `F` resets search and chips, `:filter` and `:status` set them by command, and the context menu offers “Show only …”. Search and chips are kept per tab.
+- Chip bar with status filters and counts per tab; `w` shows only notable items, `F` resets search and chips, `:filter` and `:status` set them by command, and the context menu offers “Show only <filter>”. Search and chips are kept per tab.
 - Jobs show their status, pods also Evicted and Unknown, nodes a hint under pressure.
 - Events are sorted by “Last seen” descending by default.
 

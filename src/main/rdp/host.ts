@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { screen } from 'electron';
 import type { BrowserWindow, Rectangle } from 'electron';
-import { AppError } from '../../shared/errors';
+import { AppError, truncateDetail } from '../../shared/errors';
 import type { CodedError } from '../../shared/errors';
 import type { RdpAction, RdpEvent, RdpOpenRequest, RdpStatus, RdpSurfaceMode, ViewportRect } from '../../shared/rdp';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
@@ -37,8 +37,8 @@ interface Session {
 
 /** Failure reason of a helper status; the helper's own (German) text is only ever the detail. */
 export function rdpStatusError(status: 'disconnected' | 'error', text?: string): CodedError | undefined {
-  if (status === 'error') return { code: 'core.rdpFailed', ...(text ? { detail: text } : {}) };
-  return text ? { code: 'core.rdpDisconnected', detail: text } : undefined;
+  if (status === 'error') return { code: 'core.rdpFailed', ...(text ? { detail: truncateDetail(text) } : {}) };
+  return text ? { code: 'core.rdpDisconnected', detail: truncateDetail(text) } : undefined;
 }
 
 /** Splits `DOMAIN\user`; UPNs (`user@domain`) stay a plain user name. */

@@ -742,6 +742,18 @@ describe('SSH connection steps and failure codes', () => {
     expect(JSON.stringify({ ...failure.error, detail: undefined })).not.toContain('SHA256');
   });
 
+  it('truncates a long error detail and cause details to 500 characters', async () => {
+    const long = 'z'.repeat(600);
+    manager = new SshSessionManager({ getConnection: () => connection, spawnShell: noShell,
+      verifyHost: async () => { throw new AppError('ssh.failed', undefined, long, [{ label: 'host', error: { code: 'ssh.failed', detail: long } }]); },
+      emit: (_owner, event) => events.push(event) });
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('error'));
+    const error = statusEvents().at(-1)!.error!;
+    expect(error.detail).toHaveLength(500);
+    expect(error.causes![0].error.detail).toHaveLength(500);
+  });
+
   it('reports auth for a refused password', async () => {
     connection.authentication = { method: 'password', password: 'wrong-synthetic-secret' };
     await manager.connect(1, prepare());

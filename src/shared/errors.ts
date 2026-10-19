@@ -16,6 +16,14 @@ export function truncateDetail(text: string): string {
   return text.length > MAX_DETAIL ? `${text.slice(0, MAX_DETAIL - 1)}…` : text;
 }
 
+/** Truncates `detail` of an error and of its causes to MAX_DETAIL (for events that bypass encodeError). */
+export function limitError(error: CodedError): CodedError {
+  const limited: CodedError = { ...error };
+  if (limited.detail) limited.detail = truncateDetail(limited.detail);
+  if (limited.causes) limited.causes = limited.causes.map(({ label, error: child }) => ({ label, error: child.detail ? { ...child, detail: truncateDetail(child.detail) } : child }));
+  return limited;
+}
+
 /** `§<code>` or `§<code> {"params":{…},"detail":"…","causes":[{"label":"…","error":{…}}]}`; detail truncated. */
 export function encodeError(code: ErrorCode, params?: ErrorParams, detail?: string, causes?: ErrorCause[]): string {
   const payload: { params?: ErrorParams; detail?: string; causes?: ErrorCause[] } = {};

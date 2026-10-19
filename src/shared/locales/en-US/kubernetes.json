@@ -1,5 +1,5 @@
 {
-  "loading": "Loading …",
+  "loading": "Loading…",
   "viewNotOpen": "The view is not open.",
   "filter": {
     "empty": "(none)"
@@ -31,7 +31,7 @@
     },
     "note": "All filters apply together, case does not matter. Invalid input is marked red and does not filter. F resets all filters of the tab; the grouping stays.",
     "groupNote": "Groups are sorted by name, “(none)” comes last. Clicking the group row expands and collapses it; j and k skip group rows.",
-    "textFilterNote": "Context menus set text filters such as app=api or owner:nightly. They appear as a “Filter: …” chip at the start of the bar and can be removed with ×.",
+    "textFilterNote": "Context menus set text filters such as app=api or owner:nightly. They appear as a “Filter” chip at the start of the bar and can be removed with ×.",
     "numberKind": "Number",
     "ageKind": "Age"
   },
@@ -173,7 +173,7 @@
     "contextMenu": "Context menu"
   },
   "status": {
-    "connecting": "connecting …",
+    "connecting": "connecting…",
     "readyVia": "ready via {{host}}",
     "ready": "ready",
     "failed": "Connection failed."
@@ -237,7 +237,7 @@
     "numberHint": "Number: >3, >=3, <3, <=3, =3 or 3",
     "ageHint": "Age: <10m, >1h, <2d (units s, m, h, d)",
     "invalidFilter": "Invalid, does not filter. {{hint}}",
-    "filterPlaceholder": "Filter …",
+    "filterPlaceholder": "Filter…",
     "noEntries": "No entries.",
     "noMatches": "No matches for the filters."
   },
@@ -246,7 +246,7 @@
     "noChips": "No status filters.",
     "label": "Cluster view help",
     "title": "Keys and filters",
-    "searchPlaceholder": "Search …",
+    "searchPlaceholder": "Search…",
     "searchLabel": "Search help",
     "keys": "Keys",
     "filters": "Filters",
@@ -257,16 +257,16 @@
     "textFilter": "Text filter"
   },
   "connbar": {
-    "connecting": "Connecting …",
-    "connectingVia": "Connecting via {{host}} …",
-    "reconnecting": "Reconnecting …",
+    "connecting": "Connecting…",
+    "connectingVia": "Connecting via {{host}}…",
+    "reconnecting": "Reconnecting…",
     "notConnected": "Not connected",
     "live": "Live",
     "recovered": "Reconnected via {{host}}",
     "hostSilent": "{{host}} is not responding. {{retry}}",
     "attempt": "{{way}} (attempt {{count}})",
     "ageFresh": "just updated",
-    "ageSeconds": "as of {{count}} s ago",
-    "ageMinutes": "as of {{count}} min ago"
+    "ageSeconds": "updated {{count}} s ago",
+    "ageMinutes": "updated {{count}} min ago"
   }
 }

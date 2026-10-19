@@ -101,10 +101,10 @@ editor fills the work area while the terminals keep running in the background.
 
 `Save` in the header updates the active workspace or asks for a name the
 first time you save. Changes are marked there with `changed`.
-The workspace menu contains Open, Rename, Delete and `Save as …`.
+The workspace menu contains Open, Rename, Delete and `Save as…`.
 What is saved: the layout, size ratios, connection references
 and the active connection per pane, in the encrypted vault. Terminal output
-is not saved. `Save as …` creates another definition;
+is not saved. `Save as…` creates another definition;
 selecting an entry in the menu only changes the active workspace once you open it.
 `Open workspace` replaces the current tabs and starts at most 16 sessions.
 If sessions are running, a confirmation appears according to the vault setting.
@@ -207,9 +207,9 @@ events and describe stay allowed. Every change asks for confirmation. For
 production you have to type the resource name before the button becomes active.
 
 The cluster tab shows nodes, workloads, pods and events live. A status bar below the
-header shows the state: “Live” with the age of the data (“Updated 12 s ago”); while
-reconnecting, in yellow, the host and the attempt (“Connecting via k8s-cp2 … (attempt 2)”);
-afterwards, briefly in green, “Reconnected via …”. The table stays readable and unchanged
+header shows the state: “Live” with the age of the data (“updated 12 s ago”); while
+reconnecting, in yellow, the host and the attempt (“Connecting via k8s-cp2… (attempt 2)”);
+afterwards, briefly in green, “Reconnected via <host>”. The table stays readable and unchanged
 during this and is no longer greyed out; actions that change something or need a connection
 are locked until the cluster is reachable again. `Enter` drills down,
 for example from a deployment through its pods to the containers, `Esc` goes back
@@ -224,7 +224,7 @@ Above, a chip bar shows status filters with a counter (pods for example “Runni
 “Error”, “Not ready”, “With restarts”; jobs “Running”, “Succeeded”, “Failed”;
 events “Warning”, “Normal”, “Last 5 min”). Chips within a group combine with OR,
 groups with each other with AND; `w` shows only what needs attention (for events only warnings).
-Text filters from the context menu (e.g. `app=api`) appear as a “Filter: …” chip and can
+Text filters from the context menu (e.g. `app=api`) appear as a “Filter” chip and can
 be removed with ×. “Group by” (e.g. namespace, node, status, owner) combines rows
 into groups that can be expanded and collapsed with a click. Each tab
 remembers its filters and grouping, also in the workspace. Namespaces without pods are reached via “all”
@@ -252,13 +252,13 @@ Shellherd shows problems where they occur.
 - **In the pane:** If something fails in an area (sidebar, menu, terminal), a card with title, cause and button appears there.
 - **Bottom right:** Background events appear as a notice. Errors stay until you close them. Info notices (5 seconds) and success notices (3 seconds) disappear on their own; a thin bar shows the time left, and it pauses while the mouse is over it or the window is hidden. At most three notices are visible.
 
-**Connecting:** If connecting takes longer than 0.4 seconds, the pane shows the steps “Reaching server”, “Verifying server key”, “Signing in” and “Opening shell” with the time per step. `Esc` or `Cancel` aborts. If the server answers slowly, a hint appears.
+**Connecting:** If connecting takes longer than 0.4 seconds, the pane shows the steps “Reaching server”, “Checking server key”, “Signing in” and “Opening shell” with the time per step. `Esc` or `Cancel` aborts. If the server answers slowly, a hint appears.
 
-**Errors:** If the connection fails, the card names the cause (for example “Sign-in rejected”, “Server not responding”, “Server key has changed”) and the next step. Depending on the case, `Edit connection`, `Connect again` or `Copy fingerprint` are offered; `Details` shows the server's raw text.
+**Errors:** If the connection fails, the card names the cause (for example “Sign-in rejected”, “Server not responding”, “Server key has changed”) and the next step. Depending on the case, `Edit connection`, `Reconnect` or `Copy fingerprint` are offered; `Details` shows the server's raw text.
 
 **Disconnected:** If the server ends the session or it drops, the output stays visible. A bar at the bottom says how long ago that was and offers `Reconnect` (`Enter`). This also applies to RDP and the file view.
 
-**Saving:** Buttons show “Saving …” and then briefly “Saved” without changing their width. If saving the vault file fails, the notice names the reason (read-only, locked by another program, folder missing, drive full). For container actions, the status column shows the target state (“stopping”, “restarting”) until the list has refreshed.
+**Saving:** Buttons show “Saving…” and then briefly “Saved” without changing their width. If saving the vault file fails, the notice names the reason (read-only, locked by another program, folder missing, drive full). For container actions, the status column shows the target state (“stopping”, “restarting”) until the list has refreshed.
 
 ## Server keys
 

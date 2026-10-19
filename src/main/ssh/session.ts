@@ -9,7 +9,7 @@ import type { ConnectionNode, LocalConnectionNode, LocalShellProtocol, SshConnec
 import { AI_CLI_TOOLS, aiCliCommandLine } from '../../shared/ai-cli';
 import { locateCommand } from './locate';
 import type { SshEvent, SshPrepareRequest, SshStatus, SshStep, TerminalSize } from '../../shared/ssh';
-import { AppError, MAX_DETAIL } from '../../shared/errors';
+import { AppError, MAX_DETAIL, limitError } from '../../shared/errors';
 import type { CodedError } from '../../shared/errors';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
@@ -435,7 +435,7 @@ export class SshSessionManager {
   private clearKey(session: Session): void { session.key?.fill(0); session.key = undefined; }
 
   private status(session: Session, status: SshStatus, error?: CodedError, code?: ConnectionErrorCode): void {
-    this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error } : {}), ...(code ? { code } : {}) });
+    this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error: limitError(error) } : {}), ...(code ? { code } : {}) });
   }
 
   /** Steps go to the owner and only while the session is active. */
