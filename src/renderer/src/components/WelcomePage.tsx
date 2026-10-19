@@ -59,7 +59,7 @@ export function WelcomePage({ vaultName, version, onShowReleaseNotes, connection
   );
 }
 
-/** Lets Explorer open `.term` vault files with Terminus (per user, no administrator rights). */
+/** Lets Explorer open `.term` vault files with Shellherd (per user, no administrator rights). */
 export function FileTypeSetting() {
   const [registered, setRegistered] = useState<boolean | null>(null);
   const [pending, setPending] = useState(false);
@@ -68,14 +68,14 @@ export function FileTypeSetting() {
   const change = (register: boolean): void => {
     setPending(true); setMessage(null);
     void (register ? window.desktopApi.fileTypeRegister() : window.desktopApi.fileTypeUnregister())
-      .then(() => { setRegistered(register); setMessage(register ? '.term-Dateien öffnen sich jetzt per Doppelklick oder Rechtsklick → „Mit Terminus öffnen“.' : 'Die Verknüpfung wurde entfernt.'); })
+      .then(() => { setRegistered(register); setMessage(register ? '.term-Dateien öffnen sich jetzt per Doppelklick oder Rechtsklick → „Mit Shellherd öffnen“.' : 'Die Verknüpfung wurde entfernt.'); })
       .catch(() => setMessage('Die Verknüpfung konnte nicht geändert werden.'))
       .finally(() => setPending(false));
   };
   if (registered === null) return null;
   return (
     <div className="file-type-setting">
-      <span>{registered ? 'Terminus ist mit .term-Dateien verknüpft.' : 'Vault-Dateien (.term) per Doppelklick im Explorer öffnen:'}</span>
+      <span>{registered ? 'Shellherd ist mit .term-Dateien verknüpft.' : 'Vault-Dateien (.term) per Doppelklick im Explorer öffnen:'}</span>
       <button type="button" className="secondary-button" disabled={pending} onClick={() => change(!registered)}>
         {registered ? 'Verknüpfung entfernen' : 'In Windows einbinden'}</button>
       {message && <small role="status">{message}</small>}
