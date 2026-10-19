@@ -3,6 +3,8 @@ import type { AiProvider, AiProviderKind, AiSettings } from '../../../shared/vau
 import { AiProviderSchema } from '../../../shared/vault/schema';
 import { AI_PROVIDER_KINDS } from '../../../shared/ai';
 import { useNativeSurfaceBlock } from '../native-surface';
+import { errorText } from '../error-text';
+import { t } from '../i18n';
 import '../assistant-ui.css';
 
 interface AiSettingsDialogProps {
@@ -13,8 +15,7 @@ interface AiSettingsDialogProps {
 }
 
 const kinds = Object.keys(AI_PROVIDER_KINDS) as AiProviderKind[];
-const cleanError = (error: unknown): string => error instanceof Error
-  ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Der Test ist fehlgeschlagen.';
+const cleanError = (error: unknown): string => errorText(error);
 
 function newProvider(kind: AiProviderKind): AiProvider {
   const defaults = AI_PROVIDER_KINDS[kind];
@@ -104,7 +105,7 @@ export function AiSettingsDialog({ settings, busy, onSave, onClose }: AiSettings
             const provider = validDraft();
             if (!provider) return;
             setTesting(true); setMessage(null);
-            void window.desktopApi.aiTest(provider).then(answer => setMessage({ ok: true, text: `Verbindung steht. Antwort: ${answer}` }))
+            void window.desktopApi.aiTest(provider).then(answer => setMessage({ ok: true, text: answer ? t('assistant:test.ok', { answer }) : t('assistant:test.emptyAnswer') }))
               .catch(error => setMessage({ ok: false, text: cleanError(error) })).finally(() => setTesting(false));
           }}>{testing ? 'Teste …' : 'Testen'}</button>
           <button type="submit" className="primary-button" disabled={busy || testing}>Speichern</button>

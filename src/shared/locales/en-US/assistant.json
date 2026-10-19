@@ -1,1 +1,6 @@
-{}
+{
+  "test": {
+    "ok": "Connected. Answer: {{answer}}",
+    "emptyAnswer": "(empty answer)"
+  }
+}

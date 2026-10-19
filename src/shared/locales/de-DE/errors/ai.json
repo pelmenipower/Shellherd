@@ -1,3 +1,25 @@
 {
-  "ai": {}
+  "ai": {
+    "noProvider": "Es ist noch kein KI-Anbieter eingerichtet.",
+    "busy": "Warte, bis eine Antwort fertig ist.",
+    "requestRunning": "Diese Anfrage läuft bereits.",
+    "requestFailed": "Die KI-Anfrage ist fehlgeschlagen.",
+    "invalidRequest": "Ungültige KI-Anfrage.",
+    "azureEndpointMissing": "Gib den Endpoint der Azure-Ressource an.",
+    "endpointInvalid": "Der Endpoint ist keine gültige URL.",
+    "noHttp": "Dieser Anbieter nutzt keine HTTP-Schnittstelle.",
+    "unreachable": "Der Anbieter ist nicht erreichbar. Prüfe URL und Netzwerk.",
+    "noResponse": "Der Anbieter hat keine Antwort geliefert.",
+    "keyMissing": "Hinterlege einen API-Schlüssel für Anthropic.",
+    "refused": "Das Modell hat die Anfrage abgelehnt.",
+    "anthropicUnreachable": "Anthropic ist nicht erreichbar. Prüfe Netzwerk und Proxy.",
+    "anthropicFailed": "Die Anfrage an Anthropic ist fehlgeschlagen.",
+    "keyRejected": "Der Anbieter lehnt den API-Schlüssel ab.",
+    "notFound": "Modell oder Endpoint wurde nicht gefunden. Prüfe Modellname, Deployment und URL.",
+    "rateLimited": "Zu viele Anfragen oder Kontingent erschöpft. Warte kurz.",
+    "serverError": "Der Anbieter hat einen Serverfehler gemeldet ({{status}}).",
+    "rejected": "Der Anbieter hat die Anfrage abgelehnt ({{status}}).",
+    "testTimeout": "Keine Antwort innerhalb von 30 Sekunden.",
+    "testFailed": "Der Test ist fehlgeschlagen."
+  }
 }

@@ -3,11 +3,11 @@ import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { AiProviderSchema } from '../../shared/vault/schema';
 import type { AiCatalog } from '../../shared/ai';
+import { AppError } from '../../shared/errors';
 import { requireSshSender } from '../ssh/ipc';
 import { vaultSessionManager } from '../vault/ipc';
 import type { WindowRegistry } from '../windows';
 import { AssistantService } from './assistant';
-import { AiError } from './providers';
 
 const MessageSchema = z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(64 * 1024) }).strict();
 const AskSchema = z.object({
@@ -20,11 +20,11 @@ const CancelSchema = z.object({ requestId: z.string().uuid() }).strict();
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
-  if (!result.success) throw new Error('Ungültige KI-Anfrage.');
+  if (!result.success) throw new AppError('ai.invalidRequest');
   return result.data;
 }
 
-const userError = (error: unknown): Error => new Error(error instanceof AiError ? error.message : 'Die KI-Anfrage ist fehlgeschlagen.');
+const userError = (error: unknown): Error => error instanceof AppError ? error : new AppError('ai.requestFailed');
 
 export function registerAiIpcHandlers(registry: WindowRegistry): { service: AssistantService; broadcast: () => void } {
   const service = new AssistantService({

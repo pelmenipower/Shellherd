@@ -1,4 +1,5 @@
 import type { AiProviderKind } from './vault/types';
+import type { CodedError } from './errors';
 
 /** Provider as windows see it: never the API key. */
 export interface AiProviderInfo { id: string; name: string; kind: AiProviderKind; model: string }
@@ -19,7 +20,7 @@ export interface AiAskRequest {
 export type AiEvent =
   | { type: 'delta'; requestId: string; text: string }
   | { type: 'done'; requestId: string }
-  | { type: 'error'; requestId: string; message: string };
+  | { type: 'error'; requestId: string; error: CodedError };
 
 export const AI_PROVIDER_KINDS: Record<AiProviderKind, { label: string; model: string; baseUrl?: string; hint: string }> = {
   openai: { label: 'OpenAI-kompatibel', model: 'gpt-4o-mini', baseUrl: 'https://api.openai.com/v1',

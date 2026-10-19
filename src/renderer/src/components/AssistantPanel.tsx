@@ -5,6 +5,7 @@ import { shellOf, tabLabel } from '../terminal-tabs';
 import { typeIntoTerminal } from '../terminal-input';
 import { liveSessions } from '../session-registry';
 import { compactMessage, historyForRequest, insertableCommand, isFinished, outputMessage, parseAnswer, questionMessage, SCREEN_LINES } from '../assistant-chat';
+import { errorText } from '../error-text';
 import '../assistant-ui.css';
 
 interface AssistantPanelProps {
@@ -107,9 +108,9 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
     requests.current.set(requestId, { tabId, entryId: answer.id, text: '' });
     void window.desktopApi.aiAsk({ requestId, ...(provider ? { providerId: provider.id } : {}), messages: history,
       context: { shell: targetShell, target: `${target.connection.name}, ${target.connection.address}` } })
-      .catch((error: Error) => {
+      .catch((error: unknown) => {
         requests.current.delete(requestId);
-        updateEntry(tabId, answer.id, { pending: false, error: error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') });
+        updateEntry(tabId, answer.id, { pending: false, error: errorText(error) });
       });
   }, [provider, update, updateEntry]);
 
@@ -126,7 +127,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
       return;
     }
     requests.current.delete(event.requestId);
-    if (event.type === 'error') { updateEntry(request.tabId, request.entryId, { pending: false, error: event.message }); return; }
+    if (event.type === 'error') { updateEntry(request.tabId, request.entryId, { pending: false, error: errorText(event.error) }); return; }
     updateEntry(request.tabId, request.entryId, { pending: false });
     const command = parseAnswer(request.text).find(segment => segment.type === 'command' && segment.complete);
     const access = liveSessions.get(request.tabId)?.terminal;
