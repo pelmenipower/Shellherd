@@ -253,9 +253,27 @@ export function linkUsage(runtime: ContainerRuntime, rows: Record<InventoryKind,
 
 const SECRET_NAME = /PASS|PASSWORD|PASSWD|PWD|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|CREDENTIAL/i;
 
-/** Fallback for unparsable input: masks NAME=value pairs with a secret-sounding name; other text stays. */
+/** Start of a NAME= pair; the lookbehind keeps the scan linear on long runs of name characters. */
+const ENV_NAME = /(?<![A-Za-z0-9_.-])([A-Za-z_][A-Za-z0-9_.-]*)=/g;
+/** Value right after a quote: runs to the closing quote or the line end, escapes included. */
+const QUOTED_VALUE = /(?:\\.|[^"\\\r\n])*/y;
+/** Value in free text: runs to whitespace or a quote. */
+const BARE_VALUE = /[^\s"]*/y;
+
+/** Fallback for unparsable input: masks values of secret-sounding NAME=value pairs; a non-secret value is searched for further pairs. */
 function maskEnvText(text: string): string {
-  return text.replace(/([A-Za-z_][A-Za-z0-9_.-]*)=([^"\r\n]*)/g, (match, name: string) => SECRET_NAME.test(name) ? `${name}=***` : match);
+  let out = '';
+  let from = 0;
+  ENV_NAME.lastIndex = 0;
+  for (let match = ENV_NAME.exec(text); match; match = ENV_NAME.exec(text)) {
+    if (!SECRET_NAME.test(match[1])) continue;
+    const value = match.index > 0 && text[match.index - 1] === '"' ? QUOTED_VALUE : BARE_VALUE;
+    value.lastIndex = ENV_NAME.lastIndex;
+    value.exec(text);
+    out += `${text.slice(from, ENV_NAME.lastIndex)}***`;
+    from = ENV_NAME.lastIndex = value.lastIndex;
+  }
+  return out + text.slice(from);
 }
 
 /** See C10. Unparsable input is masked line-wise (NAME=value) instead of being returned as is. */

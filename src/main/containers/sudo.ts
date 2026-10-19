@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 /** A fresh token per command; hex only, so sudo's `%` escapes never apply. */
-export function createSudoMarker(kind: 'sudo' | 'ready'): string {
+export function createSudoMarker(kind: 'sudo' | 'ready' | 'list'): string {
   return `[terminus-${kind}-${randomBytes(8).toString('hex')}]`;
 }
 
