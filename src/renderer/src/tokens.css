@@ -1,0 +1,88 @@
+/* Single source for colour, size, layer and motion. Every other stylesheet uses var(--…) only. */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --color-bg-stage: #070b14;                  /* terminal, code, manifest */
+  --color-bg-app: #090e17;                    /* window background, view bar */
+  --color-bg-panel: #111925;                  /* bars, sidebar, dialogs, menus */
+  --color-bg-raised: #182334;                 /* controls, row hover */
+  --color-bg-hover: #233045;                  /* button hover, tab hover, "on" chips */
+  --color-bg-input: #0b111c;
+  --color-bg-selected: #183245;               /* persistent selection, aria-pressed */
+  --color-bg-active: rgb(103 232 249 / 14%);  /* active view tab, menu item focus, badges */
+  --color-bg-drop: rgb(103 232 249 / 22%);    /* single drop target (row, tab, pane) */
+  --color-bg-tint: rgb(103 232 249 / 6%);     /* soft highlight (release box, whole drop area) */
+  --color-overlay: rgb(255 255 255 / 8%);     /* neutral hover on dense rows, tags, hairlines */
+  --color-backdrop: rgb(2 6 15 / 72%);
+
+  /* Lines */
+  --color-border: #29374b;
+  --color-border-strong: #496078;
+
+  /* Text */
+  --color-text: #e2eaf4;
+  --color-text-muted: #a7b7cb;
+  --color-text-code: #dce9f8;
+
+  /* Accent */
+  --color-accent: #67e8f9;
+  --color-accent-hover: #a5f3fc;
+  --color-on-accent: #072733;
+  --color-selection-bg: #164e63;
+  --color-selection-text: #ecfeff;
+
+  /* States */
+  --color-ok: #4ade80;
+  --color-warn: #fcd34d;
+  --color-warn-border: #6b5520;
+  --color-danger: #fda4af;          /* text */
+  --color-danger-strong: #fb7185;   /* dots, icons */
+  --color-danger-text: #fecdd3;     /* text on danger surface */
+  --color-danger-bg: #341c25;
+  --color-danger-bg-hover: #512333;
+  --color-danger-border: #713442;
+
+  /* Spacing (stage 2 maps literals onto it) */
+  --space-2xs: 2px; --space-xs: 4px; --space-sm: 6px; --space-md: 8px;
+  --space-lg: 12px; --space-xl: 16px; --space-2xl: 20px; --space-3xl: 24px; --space-4xl: 32px;
+
+  /* Radii */
+  --radius-sm: 4px; --radius-md: 5px; --radius-lg: 8px; --radius-pill: 999px;
+
+  /* Type */
+  --font-ui: 'Inter Variable', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 14px; --fs-xl: 18px; --fs-2xl: 22px;
+
+  /* Controls and bars */
+  --control-xs: 24px; --control-sm: 28px; --control-md: 32px; --control-lg: 36px;
+  --bar-sm: 24px; --bar-md: 32px; --bar-lg: 44px;
+
+  /* Layers */
+  --layer-sticky: 1; --layer-handle: 10; --layer-chrome: 25; --layer-drag: 45;
+  --layer-header: 60; --layer-popover: 70; --layer-menu: 80; --layer-modal: 90; --layer-toast: 100;
+
+  /* Elevation and focus */
+  --shadow-overlay: 0 10px 28px rgb(0 0 0 / 45%);
+  --focus-outline: 2px solid var(--color-accent);
+  --focus-offset: 2px;
+  --focus-inset: inset 0 0 0 1px var(--color-accent);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 120ms; --dur-fade: 150ms; --dur-popover: 160ms; --dur-hint: 180ms; --dur-modal: 200ms;
+  --dur-pulse: 1000ms;
+
+  /* Aliases, removed in 1.0 */
+  --ui-bg: var(--color-bg-app); --ui-panel: var(--color-bg-panel); --ui-raised: var(--color-bg-raised);
+  --ui-border: var(--color-border); --ui-text: var(--color-text); --ui-muted: var(--color-text-muted);
+  --ui-accent: var(--color-accent); --ui-danger: var(--color-danger);
+  --surface: var(--color-bg-panel); --surface-raised: var(--color-bg-raised); --surface-hover: var(--color-bg-hover);
+  --border: var(--color-border); --text: var(--color-text); --text-muted: var(--color-text-muted); --accent: var(--color-accent);
+  --ui-radius: var(--radius-md); --ui-control-height: var(--control-md); --ui-input-height: var(--control-lg);
+}
+
+@keyframes tm-pulse { 50% { opacity: .35; } }

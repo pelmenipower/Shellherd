@@ -13,10 +13,12 @@ interface ConfirmDialogProps {
   busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  /** Skip the open animation (for confirmations a key can trigger). */
+  instant?: boolean;
 }
 
 export function ConfirmDialog({ title, description, busy, onCancel, onConfirm, confirmLabel = 'Endgültig löschen',
-  cancelLabel = 'Abbrechen', destructive = true, alternateLabel, onAlternate }: ConfirmDialogProps) {
+  cancelLabel = 'Abbrechen', destructive = true, alternateLabel, onAlternate, instant }: ConfirmDialogProps) {
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -28,7 +30,7 @@ export function ConfirmDialog({ title, description, busy, onCancel, onConfirm, c
   }, []);
 
   return (
-    <dialog ref={dialogRef} className="confirm-dialog compact-confirm" aria-labelledby={`${id}-title`}
+    <dialog ref={dialogRef} className="confirm-dialog compact-confirm" data-instant={instant ? '' : undefined} aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-description`} onCancel={(event) => {
         event.preventDefault();
         if (!busy) onCancel();
