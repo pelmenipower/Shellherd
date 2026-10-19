@@ -1,5 +1,7 @@
 # Kubernetes – Suchen und Filtern – Design
 
+Ab 0.8.0 entfallen Suchfeld, `:filter`, `:status` und die Befehlszeile; der Suchtext bleibt als Textfilter aus Menüs. Siehe `2026-10-18-kubernetes-column-filters-validation.md`.
+
 Stand: 2026-10-18 · Erweiterung von Stufe 1 und den Kontextmenüs · Analyse: Fable · Validierung: Opus (Anhang `-validation.md`, sobald vorhanden, bindend)
 
 Umgesetzt in Version 0.7.0. Bindend ist der Anhang `-validation.md`; wo diese Spec abweicht (z. B. Events-Standardsortierung „Zuletzt ↓“ statt „Warnungen oben“, Hotkeys `w` und `F`, `:filter`, `:status`), gilt der Anhang und der Code (`SEARCH_HELP`, `CHIPS`).
