@@ -3,6 +3,7 @@ import { KIND_COLUMNS, READ_ONLY_MESSAGE, refKey, type DockMode, type KubeDetail
 import type { TerminalConnection } from '../../terminal-tabs';
 import { dockTerminalKey, formatAge } from '../../kube-view';
 import { TerminalPanel } from '../TerminalPanel';
+import { isKeyboardContextMenu, isMenuKey, menuHandlers, type MenuOpener } from '../../kube-menu-trigger';
 
 const DOCK_TABS: { mode: DockMode; label: string; key: string }[] = [
   { mode: 'logs', label: 'Logs', key: 'l' },
@@ -31,6 +32,8 @@ interface DetailDockProps {
   selected: KubeRef | null;
   /** The pod whose logs or shell are shown, and its container. */
   podRef: KubeRef | null;
+  /** Full pod row, for the container entries of the dock menu (C12). */
+  podRow?: KubeRow | null;
   container: string | null;
   readOnly: boolean;
   detail: (ref: KubeRef, mode: KubeDetailMode) => Promise<KubeDetail>;
@@ -41,13 +44,14 @@ interface DetailDockProps {
   onPopout?: (() => void) | undefined;
   /** Changes when the connection came back; remounts the log or shell terminal. */
   epoch: number;
+  onMenu?: MenuOpener;
 }
 
 type DetailResult = { id: string; data?: KubeDetail; error?: string };
 
 /** Bottom dock: logs and shell as embedded terminal, events and manifests as text. Follows the selection. */
 export function DetailDock(props: DetailDockProps) {
-  const { connection, tabId, visible, open, mode, previous, armed, selected, podRef, container, readOnly, detail, onMode, onArm, onToggle, onPopout, epoch } = props;
+  const { connection, tabId, visible, open, mode, previous, armed, selected, podRef, podRow, container, readOnly, detail, onMode, onArm, onToggle, onPopout, epoch, onMenu } = props;
   const dockRef = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [result, setResult] = useState<DetailResult | null>(null);
@@ -99,7 +103,7 @@ export function DetailDock(props: DetailDockProps) {
       {open && (
         <div className="kube-dock-handle" role="separator" aria-orientation="horizontal" aria-label="Höhe ändern" onPointerDown={startResize} />
       )}
-      <div className="kube-dock-bar">
+      <div className="kube-dock-bar" {...menuHandlers(onMenu, { type: 'dock', mode, pod: podRow ?? null, container, previous })}>
         <div role="tablist" className="kube-dock-tabs">
           {DOCK_TABS.map(tab => (
             <button key={tab.mode} type="button" role="tab" aria-selected={mode === tab.mode} className={mode === tab.mode ? 'kube-dock-tab kube-dock-tab-on' : 'kube-dock-tab'}
@@ -137,15 +141,33 @@ export function DetailDock(props: DetailDockProps) {
         ) : !selected ? <p className="kube-placeholder">Wähle eine Zeile.</p>
         : !currentResult ? <p className="kube-placeholder">Lade …</p>
         : currentResult.error ? <p className="kube-placeholder error-message">{currentResult.error}</p>
-        : currentResult.data?.mode === 'events' ? <EventsTable rows={currentResult.data.rows} />
-        : currentResult.data ? <pre className="kube-manifest">{currentResult.data.text}</pre>
+        : currentResult.data?.mode === 'events' ? <EventsTable rows={currentResult.data.rows} onMenu={onMenu} />
+        : currentResult.data ? <ManifestText mode={currentResult.data.mode} text={currentResult.data.text} onMenu={onMenu} />
         : null}
       </div>
     </section>
   );
 }
 
-function EventsTable({ rows }: { rows: KubeRow[] }) {
+function ManifestText({ mode, text, onMenu }: { mode: KubeDetail['mode']; text: string; onMenu: MenuOpener | undefined }) {
+  if (mode !== 'yaml' && mode !== 'describe') return <pre className="kube-manifest">{text}</pre>;
+  return (
+    <pre className="kube-manifest" tabIndex={0}
+      onContextMenu={event => {
+        if (!onMenu) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (isKeyboardContextMenu(event)) return;
+        onMenu({ type: 'dockText', mode, text, selection: window.getSelection()?.toString() ?? '' }, event.clientX, event.clientY);
+      }}
+      onKeyDown={event => {
+        if (!isMenuKey(event)) return;
+        menuHandlers(onMenu, { type: 'dockText', mode, text, selection: window.getSelection()?.toString() ?? '' }).onKeyDown(event);
+      }}>{text}</pre>
+  );
+}
+
+function EventsTable({ rows, onMenu }: { rows: KubeRow[]; onMenu: MenuOpener | undefined }) {
   const columns = KIND_COLUMNS.events;
   const now = Date.now();
   if (rows.length === 0) return <p className="kube-placeholder">Keine Ereignisse.</p>;
@@ -156,7 +178,7 @@ function EventsTable({ rows }: { rows: KubeRow[] }) {
       </thead>
       <tbody>
         {rows.map(row => (
-          <tr key={row.uid} className={`kube-tone-${row.tone}`}>
+          <tr key={row.uid} className={`kube-tone-${row.tone}`} tabIndex={onMenu ? 0 : undefined} {...menuHandlers(onMenu, { type: 'dockEvent', row })}>
             {columns.map(column => {
               const value = row.cells[column.key];
               return <td key={column.key}>{column.age ? formatAge(String(value ?? ''), now) : String(value ?? '–')}</td>;

@@ -22,7 +22,9 @@ export interface KubeApi {
   read(ref: KubeRef): Promise<KubeObject>;
   eventsFor(ref: KubeRef): Promise<KubeObject[]>;
   mergePatch(ref: KubeRef, body: object): Promise<void>;
-  remove(ref: KubeRef): Promise<void>;
+  remove(ref: KubeRef, options?: { propagationPolicy?: 'Background' | 'Foreground' | 'Orphan' }): Promise<void>;
+  /** Creates a batch/v1 Job named jobName from the CronJob's jobTemplate, owned by the CronJob. */
+  createJobFrom(cron: KubeRef, jobName: string): Promise<void>;
   /** null: metrics.k8s.io is not served. */
   nodeMetrics(): Promise<MetricsSample[] | null>;
   podMetrics(namespace: string | null): Promise<MetricsSample[] | null>;

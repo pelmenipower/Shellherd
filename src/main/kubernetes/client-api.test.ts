@@ -5,7 +5,7 @@ import { KubeConfig, KubernetesObjectApi, Watch } from '@kubernetes/client-node'
 import { describe, expect, it, vi } from 'vitest';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
 import { KubeApiError } from './api';
-import { createKubeApi, isAltnameError, openLogs, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
+import { createKubeApi, isAltnameError, manualJobBody, openLogs, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
 import type { LogRequest } from './client-api';
 
 function testConfig(server = 'https://k8s.example:6443'): KubeConfig {
@@ -287,6 +287,50 @@ describe('createKubeApi client reuse', () => {
       await api.list('pods', 'shop');
       expect(spy).toHaveBeenCalledTimes(1);
       expect(fakeClient.read).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('manualJobBody', () => {
+  const cron = {
+    metadata: { name: 'backup', namespace: 'shop', uid: 'u-1', resourceVersion: '9', labels: { app: 'x' } },
+    spec: { schedule: '* * * * *', jobTemplate: { metadata: { labels: { a: 'b' }, annotations: { n: 'v' }, name: 'ignored' }, spec: { template: { spec: {} } } } },
+  };
+
+  it('builds an owned batch/v1 job from the template', () => {
+    expect(manualJobBody(cron, 'backup-manual-1')).toEqual({
+      apiVersion: 'batch/v1', kind: 'Job',
+      metadata: {
+        name: 'backup-manual-1', namespace: 'shop', labels: { a: 'b' },
+        annotations: { n: 'v', 'cronjob.kubernetes.io/instantiate': 'manual' },
+        ownerReferences: [{ apiVersion: 'batch/v1', kind: 'CronJob', name: 'backup', uid: 'u-1', controller: true, blockOwnerDeletion: true }],
+      },
+      spec: { template: { spec: {} } },
+    });
+  });
+
+  it('omits labels when the template has none and rejects incomplete cronjobs', () => {
+    const bare = { ...cron, spec: { jobTemplate: { spec: { x: 1 } } } };
+    const body = manualJobBody(bare, 'j') as { metadata: Record<string, unknown> };
+    expect('labels' in body.metadata).toBe(false);
+    expect(() => manualJobBody({ ...cron, metadata: { name: 'backup', namespace: 'shop' } }, 'j')).toThrow(KubeApiError);
+    expect(() => manualJobBody({ metadata: cron.metadata, spec: {} }, 'j')).toThrow(KubeApiError);
+  });
+});
+
+describe('createKubeApi remove and createJobFrom', () => {
+  it('passes the propagation policy at position 6 and creates with the field manager', async () => {
+    const cronObject = { metadata: { name: 'backup', namespace: 'shop', uid: 'u' }, spec: { jobTemplate: { spec: { t: 1 } } } };
+    const fakeClient = { delete: vi.fn(async () => ({})), create: vi.fn(async () => ({})), read: vi.fn(async () => cronObject) };
+    const spy = vi.spyOn(KubernetesObjectApi, 'makeApiClient').mockReturnValue(fakeClient as never);
+    try {
+      const api = createKubeApi(testConfig());
+      await api.remove({ kind: 'jobs', namespace: 'shop', name: 'j' }, { propagationPolicy: 'Background' });
+      expect(fakeClient.delete).toHaveBeenCalledWith(expect.objectContaining({ kind: 'Job' }), undefined, undefined, undefined, undefined, 'Background');
+      await api.createJobFrom({ kind: 'cronjobs', namespace: 'shop', name: 'backup' }, 'backup-manual-1');
+      expect(fakeClient.create).toHaveBeenCalledWith(expect.objectContaining({ kind: 'Job' }), undefined, undefined, 'terminus');
     } finally {
       spy.mockRestore();
     }

@@ -74,6 +74,7 @@ class FakeApi implements KubeApi {
   watches: WatchRecord[] = [];
   patches: object[] = [];
   removed: KubeRef[] = [];
+  created: { cron: KubeRef; jobName: string }[] = [];
   terminals: { target: KubeTerminalTarget; size: { cols: number; rows: number } }[] = [];
   streams: { close: Mock }[] = [];
 
@@ -106,6 +107,10 @@ class FakeApi implements KubeApi {
 
   async remove(ref: KubeRef): Promise<void> {
     this.removed.push(ref);
+  }
+
+  async createJobFrom(cron: KubeRef, jobName: string): Promise<void> {
+    this.created.push({ cron, jobName });
   }
 
   async nodeMetrics(): Promise<MetricsSample[] | null> {

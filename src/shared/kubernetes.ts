@@ -51,6 +51,16 @@ export interface KubeRow {
   node?: string;
   /** Deployments and StatefulSets: desired replicas, for scale. */
   replicas?: number;
+  /** Pods: Deployment (via ReplicaSet), StatefulSet, DaemonSet or Job; jobs: CronJob. */
+  owner?: KubeRef;
+  /** Pods: status.podIP; nodes: InternalIP. */
+  ip?: string;
+  /** CronJobs. */
+  suspended?: boolean;
+  /** Nodes. */
+  unschedulable?: boolean;
+  /** Events: the object concerned; `ref` only when its kind maps to a KubeKind. */
+  involved?: { kind: string; name: string; ref?: KubeRef };
 }
 
 export interface ColumnInfo { key: string; label: string; numeric?: boolean; age?: boolean; usage?: 'cpu' | 'memory' }
@@ -85,6 +95,7 @@ export interface NodeTile {
   /** Conditions MemoryPressure / DiskPressure / PIDPressure that are True. */
   pressure: string[];
   unschedulable: boolean;
+  ip?: string;
   /** Share of allocatable, 0..1; absent without metrics. */
   cpu?: number;
   memory?: number;
@@ -126,10 +137,18 @@ export type KubeEvent =
 
 export type KubeDetailMode = 'yaml' | 'describe' | 'events';
 export type KubeDetail = { mode: 'yaml' | 'describe'; text: string } | { mode: 'events'; rows: KubeRow[] };
-export type KubeAction = 'restart' | 'scale' | 'delete';
+export type KubeAction = 'restart' | 'scale' | 'delete' | 'cordon' | 'uncordon' | 'suspend' | 'resume' | 'trigger';
 export const ACTION_KINDS: Record<KubeAction, KubeKind[]> = {
-  restart: ['deployments', 'statefulsets', 'daemonsets'], scale: ['deployments', 'statefulsets'], delete: ['pods'],
+  restart: ['deployments', 'statefulsets', 'daemonsets'], scale: ['deployments', 'statefulsets'], delete: ['pods', 'jobs'],
+  cordon: ['nodes'], uncordon: ['nodes'], suspend: ['cronjobs'], resume: ['cronjobs'], trigger: ['cronjobs'],
 };
+export const NOT_CONNECTED_MESSAGE = 'Der Cluster ist gerade nicht verbunden.';
+
+/** Name of a job started by hand from a CronJob: `<cron>-manual-<unix>`, cut to 63 chars, DNS-1123, never ending in '-'. The suffix always stays whole. */
+export function manualJobName(cron: string, unix: number): string {
+  const suffix = `-manual-${unix}`;
+  return cron.slice(0, 63 - suffix.length).replace(/[-.]+$/, '') + suffix;
+}
 
 export interface KubeOpenRequest { clusterId: string }
 export interface KubeViewRequest { viewId: string }

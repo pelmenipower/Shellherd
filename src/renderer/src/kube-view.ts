@@ -40,6 +40,8 @@ export type KubeViewAction =
   | { type: 'move'; delta: number }              // within visibleRows
   | { type: 'drill' }                             // Enter on the selected row
   | { type: 'back' }
+  | { type: 'openQuery'; query: KubeQuery; crumb: string }   // push the current query as crumb, show `query`
+  | { type: 'sortBy'; sort: { key: string; descending: boolean } | null }
   | { type: 'jump'; ref: KubeRef }                // from a problem or node tile
   | { type: 'dock'; mode: DockMode }
   | { type: 'toggleDock' }
@@ -67,7 +69,9 @@ export function kubeViewReducer(state: KubeViewState, action: KubeViewAction): K
       const previous = state.sort?.key === action.key ? state.sort : null;
       return { ...state, sort: previous ? { key: action.key, descending: !previous.descending } : { key: action.key, descending: false } };
     }
-    case 'select': return { ...state, selected: action.key };
+    case 'select': return action.key === state.selected ? state : { ...state, selected: action.key, container: null };
+    case 'openQuery': return { ...withQuery(state, action.query, [...state.crumbs, { label: action.crumb, query: state.query }]), filter: '' };
+    case 'sortBy': return { ...state, sort: action.sort };
     case 'move': {
       const rows = visibleRows(state);
       if (rows.length === 0) return state;
@@ -75,7 +79,8 @@ export function kubeViewReducer(state: KubeViewState, action: KubeViewAction): K
       // Without a selection, +1 starts at the first row and -1 at the last.
       const from = current === -1 ? (action.delta > 0 ? -1 : rows.length) : current;
       const index = Math.min(rows.length - 1, Math.max(0, from + action.delta));
-      return { ...state, selected: refKey(rows[index].ref) };
+      const selected = refKey(rows[index].ref);
+      return selected === state.selected ? state : { ...state, selected, container: null };
     }
     case 'drill': return drill(state);
     case 'back': return back(state);
@@ -190,8 +195,8 @@ function keepSelection(previous: KubeViewState, next: KubeViewState): KubeViewSt
   if (!wasPresent || isPresent) return next;
   const index = visibleRows(previous).findIndex(row => refKey(row.ref) === selected);
   const remaining = visibleRows(next);
-  if (index === -1 || remaining.length === 0) return { ...next, selected: null };
-  return { ...next, selected: refKey(remaining[Math.min(index, remaining.length - 1)].ref) };
+  if (index === -1 || remaining.length === 0) return { ...next, selected: null, container: null };
+  return { ...next, selected: refKey(remaining[Math.min(index, remaining.length - 1)].ref), container: null };
 }
 
 /** Moves to another table: rows are cleared until the first rows event for the new query arrives. */
@@ -208,7 +213,11 @@ function drill(state: KubeViewState): KubeViewState {
   if (row.ref.kind === 'nodes') {
     return withQuery(state, { kind: 'pods', namespace: null, selector: { node: row.ref.name } }, crumbs());
   }
-  if (row.ref.kind === 'events' || !row.selector) return state;
+  if (row.ref.kind === 'cronjobs') {
+    const jobs = withQuery(state, { kind: 'jobs', namespace: row.ref.namespace ?? state.query.namespace }, crumbs());
+    return { ...jobs, filter: row.ref.name };
+  }
+  if (row.ref.kind === 'events' || Object.keys(row.selector ?? {}).length === 0) return state;
   const query: KubeQuery = { kind: 'pods', namespace: row.ref.namespace ?? state.query.namespace, selector: { labels: { ...row.selector } } };
   return withQuery(state, query, crumbs());
 }
@@ -245,7 +254,25 @@ function compareValues(a: SortValue, b: SortValue): number {
   return String(a).localeCompare(String(b));
 }
 
+/** Container for the dock: the chosen one if the pod has it, else the pod's first container. */
+export function dockContainer(podRow: KubeRow | null, chosen: string | null): string | null {
+  if (chosen && podRow?.containers?.includes(chosen)) return chosen;
+  return podRow?.containers?.[0] ?? null;
+}
+
 /** React key of the dock terminal: a reconnect (epoch) restarts log streams, a shell is never reopened by itself. */
 export function dockTerminalKey(pod: string, container: string, mode: KubeTerminalMode, epoch: number): string {
   return mode === 'shell' ? `${pod}/${container}/shell` : `${pod}/${container}/${mode}/${epoch}`;
+}
+
+/** The pod the dock follows (drilled-into pod, else the selected pod row), its container and the shell arm key. */
+export function dockSelection(containersOf: KubeRow | null, selectedRow: KubeRow | null, chosen: string | null): { podRow: KubeRow | null; container: string | null; armKey: string | null } {
+  const podRow = containersOf ?? (selectedRow?.ref.kind === 'pods' ? selectedRow : null);
+  const container = dockContainer(podRow, chosen);
+  return { podRow, container, armKey: podRow && container ? `${refKey(podRow.ref)}/${container}` : null };
+}
+
+/** A shell arm only holds while the dock still shows the key it was armed for; once the key moves away it is gone for good. */
+export function settleArm(armedFor: string | null, armKey: string | null): string | null {
+  return armedFor !== null && armedFor === armKey ? armedFor : null;
 }

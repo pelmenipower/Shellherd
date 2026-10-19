@@ -155,6 +155,14 @@ eine Ebene zurück. Unten öffnet sich ein Bereich für Logs (`l`), Shell (`s`),
 (`e`), YAML (`y`) und Describe (`d`). `/` filtert, `:` führt Befehle aus wie `:ns all`
 oder `:deploy`, und `?` zeigt die Hilfe mit allen Hotkeys und Befehlen.
 
+Rechtsklick oder `Shift+F10` öffnet im Cluster-Tab ein Kontextmenü, auch auf Node-Kacheln,
+Problemen und dem unteren Bereich. Es kopiert Namen, Namespace, `kubectl`-Befehle sowie
+YAML und Describe (so maskiert, wie sie angezeigt werden), springt zu Besitzer, Node und
+beteiligtem Objekt und öffnet über `SSH-Verbindung öffnen` die passende Vault-Verbindung
+zur Node. Neu sind Fortsetzen, Anhalten und `Jetzt ausführen…` für CronJobs sowie
+`Node sperren (cordon)…` und `Node freigeben (uncordon)…`; alle fragen nach und sind bei
+„Nur lesen“ gesperrt. `drain` gibt es nur als kopierbaren Befehl.
+
 Die kubeconfig liegt nur im Speicher des Hauptprozesses und wird nicht auf die
 Festplatte geschrieben. Der Tunnel zum API-Server lauscht nur auf `127.0.0.1`.
 Secret-Daten sind in der YAML-Ansicht maskiert.

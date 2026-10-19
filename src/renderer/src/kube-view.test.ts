@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ClusterStatus, KubeEvent, KubeKind, KubeRow, NodeTile, UsageHistory } from '../../shared/kubernetes';
 import { KIND_INFO, refKey } from '../../shared/kubernetes';
-import { dockTerminalKey, formatAge, formatUsage, initialKubeView, kubeViewReducer, matchesFilter, snapshotOf, sparkline, visibleRows } from './kube-view';
+import { dockContainer, dockSelection, dockTerminalKey, settleArm, formatAge, formatUsage, initialKubeView, kubeViewReducer, matchesFilter, snapshotOf, sparkline, visibleRows } from './kube-view';
 import type { KubeViewState } from './kube-view';
 
 /** Namespaced kinds default to namespace 'shop'; cluster-scoped kinds get no namespace. */
@@ -392,5 +392,139 @@ describe('dockTerminalKey', () => {
     expect(dockTerminalKey('pods/shop/api-2', 'api', 'shell', 0)).not.toBe(key);
     expect(dockTerminalKey('pods/shop/api-1', 'sidecar', 'shell', 0)).not.toBe(key);
     expect(dockTerminalKey('pods/shop/api-1', 'api', 'logs', 0)).not.toBe(key);
+  });
+});
+
+describe('openQuery, sortBy and container choice', () => {
+  const pod = row('pods', 'api-1', { containers: ['app', 'sidecar'] });
+  const podKey = refKey(pod.ref);
+
+  it('openQuery pushes the current query as crumb and back restores it', () => {
+    let state = rowsEvent(kubeViewReducer(initialKubeView('shop'), { type: 'setKind', kind: 'deployments' }), [row('deployments', 'api')]);
+    state = kubeViewReducer(state, { type: 'filter', text: 'x' });
+    state = kubeViewReducer(state, { type: 'sort', key: 'name' });
+    const before = state.query;
+    state = kubeViewReducer(state, { type: 'openQuery', query: { kind: 'jobs', namespace: 'shop' }, crumb: 'CronJob nightly' });
+    expect(state.query).toEqual({ kind: 'jobs', namespace: 'shop' });
+    expect(state.crumbs).toEqual([{ label: 'CronJob nightly', query: before }]);
+    expect(state.selected).toBeNull();
+    expect(state.filter).toBe('');
+    expect(state.rows).toEqual([]);
+    expect(state.loading).toBe(true);
+    expect(state.sort).toEqual({ key: 'name', descending: false });
+    state = kubeViewReducer(state, { type: 'back' });
+    expect(state.query).toEqual(before);
+    expect(state.crumbs).toEqual([]);
+  });
+
+  it('openQuery leaves containersOf', () => {
+    let state = rowsEvent(initialKubeView('shop'), [pod]);
+    state = kubeViewReducer(state, { type: 'select', key: podKey });
+    state = kubeViewReducer(state, { type: 'drill' });
+    state = kubeViewReducer(state, { type: 'openQuery', query: { kind: 'events', namespace: 'shop' }, crumb: 'Pod api-1' });
+    expect(state.containersOf).toBeNull();
+    expect(state.container).toBeNull();
+  });
+
+  it('sortBy sets the sort and null restores arrival order', () => {
+    let state = rowsEvent(initialKubeView('shop'), [row('pods', 'c'), row('pods', 'a'), row('pods', 'b')]);
+    state = kubeViewReducer(state, { type: 'sortBy', sort: { key: 'name', descending: false } });
+    expect(visibleRows(state).map(r => r.ref.name)).toEqual(['a', 'b', 'c']);
+    state = kubeViewReducer(state, { type: 'sortBy', sort: { key: 'name', descending: true } });
+    expect(visibleRows(state).map(r => r.ref.name)).toEqual(['c', 'b', 'a']);
+    state = kubeViewReducer(state, { type: 'sortBy', sort: null });
+    expect(state.sort).toBeNull();
+    expect(visibleRows(state).map(r => r.ref.name)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('selectContainer works without drill-down and resets only when the selection changes', () => {
+    const other = row('pods', 'api-2', { containers: ['app'] });
+    let state = rowsEvent(initialKubeView('shop'), [pod, other]);
+    state = kubeViewReducer(state, { type: 'select', key: podKey });
+    state = kubeViewReducer(state, { type: 'selectContainer', name: 'sidecar' });
+    expect(state.containersOf).toBeNull();
+    expect(state.container).toBe('sidecar');
+    expect(kubeViewReducer(state, { type: 'select', key: podKey }).container).toBe('sidecar');
+    expect(kubeViewReducer(state, { type: 'select', key: refKey(other.ref) }).container).toBeNull();
+    expect(kubeViewReducer(state, { type: 'move', delta: 1 }).container).toBeNull();
+    expect(kubeViewReducer(state, { type: 'jump', ref: other.ref }).container).toBeNull();
+    expect(kubeViewReducer(state, { type: 'setKind', kind: 'nodes' }).container).toBeNull();
+    expect(kubeViewReducer(state, { type: 'setNamespace', namespace: 'x' }).container).toBeNull();
+  });
+
+  it('container resets when keepSelection moves the selection, not when rows just update', () => {
+    const other = row('pods', 'api-2', { containers: ['app'] });
+    let state = rowsEvent(initialKubeView('shop'), [pod, other]);
+    state = kubeViewReducer(state, { type: 'select', key: podKey });
+    state = kubeViewReducer(state, { type: 'selectContainer', name: 'sidecar' });
+    expect(rowsEvent(state, [pod], { reset: false }).container).toBe('sidecar');
+    const moved = rowsEvent(state, [], { reset: false, deletes: [pod.uid] });
+    expect(moved.selected).toBe(refKey(other.ref));
+    expect(moved.container).toBeNull();
+  });
+
+  it('dockContainer prefers a valid choice, else the first container', () => {
+    expect(dockContainer(pod, 'sidecar')).toBe('sidecar');
+    expect(dockContainer(pod, 'gone')).toBe('app');
+    expect(dockContainer(pod, null)).toBe('app');
+    expect(dockContainer(row('pods', 'x'), null)).toBeNull();
+    expect(dockContainer(null, 'app')).toBeNull();
+  });
+
+  it('dockSelection honours the chosen container without a drill-down (I-1)', () => {
+    const state = kubeViewReducer(rowsEvent(initialKubeView('shop'), [pod]), { type: 'select', key: refKey(pod.ref) });
+    const chosen = kubeViewReducer(state, { type: 'selectContainer', name: 'sidecar' });
+    expect(chosen.containersOf).toBeNull();
+    const selected = visibleRows(chosen).find(r => refKey(r.ref) === chosen.selected) ?? null;
+    expect(dockSelection(chosen.containersOf, selected, chosen.container)).toMatchObject({ container: 'sidecar', armKey: `${refKey(pod.ref)}/sidecar` });
+    expect(dockSelection(null, selected, null).container).toBe('app');
+    expect(dockSelection(null, row('deployments', 'd'), null)).toEqual({ podRow: null, container: null, armKey: null });
+  });
+
+  it('an armed shell does not come back when the selection returns to the armed pod (C-1)', () => {
+    const other = row('pods', 'api-2', { containers: ['app'] });
+    let state = rowsEvent(initialKubeView('shop'), [pod, other]);
+    state = kubeViewReducer(state, { type: 'select', key: refKey(pod.ref) });
+    let stored: string | null = null;
+    const render = (): string | null => {
+      const selected = visibleRows(state).find(r => refKey(r.ref) === state.selected) ?? null;
+      const { armKey } = dockSelection(state.containersOf, selected, state.container);
+      const settled = settleArm(stored, armKey);
+      stored = settled; // ClusterView writes the settled value back during render
+      return settled;
+    };
+    stored = dockSelection(null, pod, null).armKey; // click on "Shell öffnen"
+    expect(render()).toBe(`${refKey(pod.ref)}/app`);
+    state = kubeViewReducer(state, { type: 'move', delta: 1 });
+    expect(render()).toBeNull();
+    state = kubeViewReducer(state, { type: 'move', delta: -1 });
+    expect(state.selected).toBe(refKey(pod.ref));
+    expect(render()).toBeNull();
+  });
+
+  it('settleArm keeps only a matching key', () => {
+    expect(settleArm('a/b', 'a/b')).toBe('a/b');
+    expect(settleArm('a/b', 'a/c')).toBeNull();
+    expect(settleArm('a/b', null)).toBeNull();
+    expect(settleArm(null, null)).toBeNull();
+  });
+
+  it('drill does nothing for an empty selector map', () => {
+    const svc = row('services', 'ext', { selector: {} });
+    let state = rowsEvent(kubeViewReducer(initialKubeView('shop'), { type: 'setKind', kind: 'services' }), [svc]);
+    state = kubeViewReducer(state, { type: 'select', key: refKey(svc.ref) });
+    expect(kubeViewReducer(state, { type: 'drill' })).toBe(state);
+  });
+
+  it('drill on a CronJob opens its jobs with a crumb and a name filter', () => {
+    const cron = row('cronjobs', 'nightly');
+    let state = rowsEvent(kubeViewReducer(initialKubeView('shop'), { type: 'setKind', kind: 'cronjobs' }), [cron]);
+    state = kubeViewReducer(state, { type: 'select', key: refKey(cron.ref) });
+    state = kubeViewReducer(state, { type: 'drill' });
+    expect(state.query).toEqual({ kind: 'jobs', namespace: 'shop' });
+    expect(state.crumbs.map(c => c.label)).toEqual(['CronJob nightly']);
+    expect(state.filter).toBe('nightly');
+    state = kubeViewReducer(state, { type: 'back' });
+    expect(state.query).toEqual({ kind: 'cronjobs', namespace: 'shop' });
   });
 });

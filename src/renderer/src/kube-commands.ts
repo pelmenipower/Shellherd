@@ -1,9 +1,9 @@
-import { ACTION_KINDS, KIND_INFO, KUBE_KINDS, KUBE_NAME, MAX_REPLICAS, READ_ONLY_MESSAGE, refKey, type KubeAction, type KubeKind } from '../../shared/kubernetes';
+import { ACTION_KINDS, KIND_INFO, KUBE_KINDS, KUBE_NAME, MAX_REPLICAS, NOT_CONNECTED_MESSAGE, READ_ONLY_MESSAGE, refKey, type KubeAction, type KubeKind, type KubeRef, type KubeRow } from '../../shared/kubernetes';
 import { visibleRows, type KubeViewState } from './kube-view';
 
 export type CommandGroup = 'Navigation' | 'Ansicht' | 'Aktionen';
 export type CommandId = 'down' | 'up' | 'drill' | 'back' | 'filter' | 'command' | 'tab' | 'logs' | 'shell' | 'events' | 'yaml'
-  | 'describe' | 'previous' | 'restart' | 'scale' | 'delete' | 'toggleDock' | 'popout' | 'help' | 'kind' | 'namespace';
+  | 'describe' | 'previous' | 'menu' | 'restart' | 'scale' | 'delete' | 'toggleDock' | 'popout' | 'help' | 'kind' | 'namespace';
 export interface CommandContext { state: KubeViewState; readOnly: boolean }
 export interface KubeCommand {
   id: CommandId;
@@ -19,17 +19,48 @@ export interface KubeCommand {
   unavailable?: (context: CommandContext) => string | undefined;
 }
 
-const hasSelection = (state: KubeViewState): boolean =>
-  state.selected !== null && visibleRows(state).some(row => refKey(row.ref) === state.selected);
+/** The row an action would hit: the pod drilled into, else the selected row. */
+const selectedRow = (state: KubeViewState): KubeRow | null =>
+  state.containersOf ?? visibleRows(state).find(row => refKey(row.ref) === state.selected) ?? null;
+
+/** Pods that cannot take logs or a shell right now. */
+export const podNotRunning = (row: KubeRow | null): boolean => row?.cells.status === 'Completed' || row?.cells.status === 'Terminating';
 
 const onlyForPods = (context: CommandContext): string | undefined =>
   context.state.query.kind === 'pods' || context.state.containersOf !== null ? undefined : 'Nur für Pods.';
 
-const actionUnavailable = (action: KubeAction, wrongKind: string) => (context: CommandContext): string | undefined => {
+const WRONG_KIND: Record<KubeAction, string> = {
+  restart: 'Nur für Deployments, StatefulSets und DaemonSets.', scale: 'Nur für Deployments und StatefulSets.', delete: 'Nur für Pods und Jobs.',
+  cordon: 'Nur für Nodes.', uncordon: 'Nur für Nodes.', suspend: 'Nur für CronJobs.', resume: 'Nur für CronJobs.', trigger: 'Nur für CronJobs.',
+};
+
+export interface ActionContext {
+  ref: KubeRef | null;
+  readOnly: boolean;
+  connected: boolean;
+  /** Kind of the current table, used when ref is null. */
+  kind?: KubeKind;
+}
+
+/** Undefined when the action may run on ref; otherwise the German reason. Order: readOnly, connected, kind (ref.kind, else context.kind), ref. */
+export function actionReason(action: KubeAction, context: ActionContext): string | undefined {
   if (context.readOnly) return READ_ONLY_MESSAGE;
-  if (!ACTION_KINDS[action].includes(context.state.query.kind)) return wrongKind;
-  if (!hasSelection(context.state)) return 'Wähle zuerst eine Zeile.';
+  if (!context.connected) return NOT_CONNECTED_MESSAGE;
+  const kind = context.ref?.kind ?? context.kind;
+  if (kind && !ACTION_KINDS[action].includes(kind)) return WRONG_KIND[action];
+  if (!context.ref) return 'Wähle zuerst eine Zeile.';
   return undefined;
+}
+
+const actionUnavailable = (action: KubeAction) => (context: CommandContext): string | undefined => actionReason(action, {
+  ref: selectedRow(context.state)?.ref ?? null, readOnly: context.readOnly, connected: context.state.status?.state === 'ready',
+  kind: context.state.containersOf ? 'pods' : context.state.query.kind,
+});
+
+const shellUnavailable = (context: CommandContext): string | undefined => {
+  if (context.readOnly) return READ_ONLY_MESSAGE;
+  if (context.state.status?.state !== 'ready') return NOT_CONNECTED_MESSAGE;
+  return onlyForPods(context) ?? (podNotRunning(selectedRow(context.state)) ? 'Der Pod läuft nicht.' : undefined);
 };
 
 export const KUBE_COMMANDS: KubeCommand[] = [
@@ -37,6 +68,7 @@ export const KUBE_COMMANDS: KubeCommand[] = [
   { id: 'up', group: 'Navigation', description: 'Zeile nach oben', keys: ['↑', 'k'], bindings: ['k', 'ArrowUp'] },
   { id: 'drill', group: 'Navigation', description: 'Öffnen: Ressource, Pods eines Workloads oder Container', keys: ['Enter'], bindings: ['Enter'] },
   { id: 'back', group: 'Navigation', description: 'Eine Ebene zurück', keys: ['Esc', '⌫'], bindings: ['Escape', 'Backspace'] },
+  { id: 'menu', group: 'Navigation', description: 'Kontextmenü der Zeile öffnen', keys: ['Shift+F10'], bindings: ['Shift+F10', 'ContextMenu', 'Shift+ContextMenu'] },
   { id: 'tab', group: 'Navigation', description: 'Tab wechseln (1–9, 0 für den zehnten)', keys: ['1–9', '0'], bindings: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'] },
   { id: 'command', group: 'Navigation', description: 'Befehlszeile öffnen', keys: [':'], bindings: [':'] },
   { id: 'kind', group: 'Navigation', description: 'Ressourcentyp wechseln', keys: [], bindings: [],
@@ -49,7 +81,7 @@ export const KUBE_COMMANDS: KubeCommand[] = [
   { id: 'logs', group: 'Ansicht', description: 'Logs des Pods anzeigen', keys: ['l'], bindings: ['l'], unavailable: onlyForPods },
   { id: 'previous', group: 'Ansicht', description: 'Logs des vorherigen Containers anzeigen', keys: ['p'], bindings: ['p'], unavailable: onlyForPods },
   { id: 'shell', group: 'Ansicht', description: 'Shell im Container öffnen', keys: ['s'], bindings: ['s'],
-    unavailable: context => context.readOnly ? READ_ONLY_MESSAGE : onlyForPods(context) },
+    unavailable: shellUnavailable },
   { id: 'events', group: 'Ansicht', description: 'Ereignisse anzeigen', keys: ['e'], bindings: ['e'] },
   { id: 'yaml', group: 'Ansicht', description: 'YAML anzeigen', keys: ['y'], bindings: ['y'] },
   { id: 'describe', group: 'Ansicht', description: 'Describe anzeigen', keys: ['d'], bindings: ['d'] },
@@ -57,13 +89,13 @@ export const KUBE_COMMANDS: KubeCommand[] = [
   { id: 'popout', group: 'Ansicht', description: 'Ansicht in eigenem Fenster öffnen', keys: ['Ctrl+Shift+T'], bindings: ['Ctrl+Shift+T'] },
   { id: 'restart', group: 'Aktionen', description: 'Workload neu starten', keys: ['r'], bindings: ['r'],
     command: { name: 'restart', syntax: ':restart', example: ':restart' },
-    unavailable: actionUnavailable('restart', 'Nur für Deployments, StatefulSets und DaemonSets.') },
+    unavailable: actionUnavailable('restart') },
   { id: 'scale', group: 'Aktionen', description: 'Replikate skalieren', keys: ['S'], bindings: ['S'],
     command: { name: 'scale', syntax: ':scale <0–1000>', example: ':scale 3' },
-    unavailable: actionUnavailable('scale', 'Nur für Deployments und StatefulSets.') },
-  { id: 'delete', group: 'Aktionen', description: 'Pod löschen', keys: ['Ctrl+d'], bindings: ['Ctrl+d'],
+    unavailable: actionUnavailable('scale') },
+  { id: 'delete', group: 'Aktionen', description: 'Pod oder Job löschen', keys: ['Ctrl+d'], bindings: ['Ctrl+d'],
     command: { name: 'delete', syntax: ':delete', example: ':delete' },
-    unavailable: actionUnavailable('delete', 'Nur für Pods.') },
+    unavailable: actionUnavailable('delete') },
 ];
 
 export function bindingOf(event: { key: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean }): string {
@@ -72,7 +104,7 @@ export function bindingOf(event: { key: string; ctrlKey: boolean; shiftKey: bool
     event.ctrlKey ? 'Ctrl' : '',
     event.altKey ? 'Alt' : '',
     event.metaKey ? 'Meta' : '',
-    event.shiftKey && modifiers ? 'Shift' : '',
+    event.shiftKey && (modifiers || event.key.length > 1) ? 'Shift' : '',
     event.key,
   ].filter(Boolean).join('+');
 }

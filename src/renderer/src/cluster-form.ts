@@ -67,3 +67,13 @@ export function validateCluster(node: KubernetesConnectionNode, nodes: VaultNode
   if (node.kubeconfig.source === 'path') return kubeconfigPathError(node.kubeconfig.path);
   return null;
 }
+
+/** First access host of the cluster that resolves to an enabled SSH connection, or null. */
+export function firstActiveAccessHost(nodes: VaultNode[], cluster: KubernetesConnectionNode): SshConnectionNode | null {
+  const connections = flattenConnections(nodes);
+  for (const id of cluster.accessHosts) {
+    const access = connections.find(candidate => candidate.id === id);
+    if (access && access.protocol === 'ssh' && !access.disabled) return access;
+  }
+  return null;
+}

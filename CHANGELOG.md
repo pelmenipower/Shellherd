@@ -4,6 +4,12 @@ Alle nennenswerten Änderungen an Terminus. Die Versionsnummer folgt [Semantic V
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.6.0] – 2026-10-16
+
+- Kubernetes-Kontextmenüs: Rechtsklick und `Shift+F10` auf Zeilen, Container, Node-Kacheln, Probleme, Spaltenköpfe, den unteren Bereich und den Hintergrund des Cluster-Tabs.
+- Kopieren (Name, Namespace, `kubectl`-Befehle, YAML, Describe) und Sprünge zu Besitzer, Node, Namespace und beteiligtem Objekt; „SSH-Verbindung öffnen“ findet die passende Vault-Verbindung zur Node.
+- Neue Aktionen mit Bestätigung: CronJob fortsetzen, anhalten und jetzt ausführen, Node sperren (cordon) und freigeben (uncordon); `drain` nur als kopierbarer Befehl.
+
 ## [0.5.0] – 2026-10-16
 
 - Kubernetes-Cluster (Stufe 1): Einrichtung aus einer SSH-Verbindung („Als Kubernetes-Cluster einrichten…“), Zugang über SSH-Tunnel mit Failover über weitere Zugangs-Hosts; Cluster-Tab mit Live-Tabelle für Nodes, Workloads, Pods und Events, Drill-down, Logs, Shell, YAML, Describe, Restart, Scale und Löschen mit Bestätigung; Produktions- und Nur-lesen-Modus.
