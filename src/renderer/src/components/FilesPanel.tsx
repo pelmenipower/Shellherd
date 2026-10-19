@@ -223,7 +223,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
         onCancel={jobId => sessionId && void window.desktopApi.sftpCancel({ sessionId, jobId }).catch(() => {})}
         onClear={() => { setJobs(current => current.filter(job => !isFinished(job))); if (sessionId) void window.desktopApi.sftpClearFinished({ sessionId }).catch(() => {}); }} />}
       {conflict && visible && <ConflictDialog conflict={conflict} onAnswer={answer} />}
-      {pendingDelete && <ConfirmDialog busy={busy}
+      {pendingDelete && <ConfirmDialog busy={busy} instant
         title={pendingDelete.names.length === 1 ? `„${pendingDelete.names[0]}“ löschen?` : `${pendingDelete.names.length} Einträge löschen?`}
         description={pendingDelete.side === 'local' ? 'Die Einträge werden in den Papierkorb verschoben.'
           : 'Die Einträge werden auf dem Server endgültig gelöscht, Ordner mit ihrem gesamten Inhalt. Das kann nicht rückgängig gemacht werden.'}
