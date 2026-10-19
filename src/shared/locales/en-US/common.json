@@ -1,0 +1,58 @@
+{
+  "actions": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save",
+    "delete": "Delete",
+    "remove": "Remove",
+    "rename": "Rename",
+    "copy": "Copy",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "retry": "Try again",
+    "open": "Open",
+    "edit": "Edit",
+    "reload": "Reload"
+  },
+  "status": {
+    "connecting": "Connecting…",
+    "connected": "Connected",
+    "closed": "Connection closed",
+    "failed": "Connection failed",
+    "saving": "Saving…"
+  },
+  "wait": "One moment…",
+  "truncated": "(truncated)",
+  "none": "none",
+  "planned": "planned",
+  "thisComputer": "This computer",
+  "errorWithDetail": "{{message}} Details: {{detail}}",
+  "count": {
+    "sessions_one": "{{count}} session",
+    "sessions_other": "{{count}} sessions",
+    "tabs_one": "{{count}} tab",
+    "tabs_other": "{{count}} tabs",
+    "views_one": "{{count}} view",
+    "views_other": "{{count}} views",
+    "connections_one": "{{count}} connection",
+    "connections_other": "{{count}} connections",
+    "windows_one": "{{count}} window",
+    "windows_other": "{{count}} windows"
+  },
+  "keys": {
+    "ctrl": "Ctrl",
+    "shift": "Shift",
+    "alt": "Alt",
+    "space": "Space",
+    "del": "Del"
+  },
+  "shortcuts": {
+    "palette": "Ctrl+Shift+Space",
+    "assistant": "Ctrl+Shift+K"
+  },
+  "commandGroups": {
+    "navigation": "Navigation",
+    "view": "View",
+    "actions": "Actions"
+  }
+}

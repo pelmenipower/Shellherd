@@ -1,0 +1,58 @@
+{
+  "actions": {
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "save": "Speichern",
+    "delete": "Löschen",
+    "remove": "Entfernen",
+    "rename": "Umbenennen",
+    "copy": "Kopieren",
+    "connect": "Verbinden",
+    "disconnect": "Trennen",
+    "retry": "Erneut versuchen",
+    "open": "Öffnen",
+    "edit": "Bearbeiten",
+    "reload": "Neu laden"
+  },
+  "status": {
+    "connecting": "Verbindet …",
+    "connected": "Verbunden",
+    "closed": "Verbindung beendet",
+    "failed": "Verbindung fehlgeschlagen",
+    "saving": "Speichert …"
+  },
+  "wait": "Einen Moment …",
+  "truncated": "(gekürzt)",
+  "none": "keine",
+  "planned": "geplant",
+  "thisComputer": "Dieser Computer",
+  "errorWithDetail": "{{message}} Details: {{detail}}",
+  "count": {
+    "sessions_one": "{{count}} Sitzung",
+    "sessions_other": "{{count}} Sitzungen",
+    "tabs_one": "{{count}} Tab",
+    "tabs_other": "{{count}} Tabs",
+    "views_one": "{{count}} Ansicht",
+    "views_other": "{{count}} Ansichten",
+    "connections_one": "{{count}} Verbindung",
+    "connections_other": "{{count}} Verbindungen",
+    "windows_one": "{{count}} Fenster",
+    "windows_other": "{{count}} Fenster"
+  },
+  "keys": {
+    "ctrl": "Strg",
+    "shift": "Umschalt",
+    "alt": "Alt",
+    "space": "Leertaste",
+    "del": "Entf"
+  },
+  "shortcuts": {
+    "palette": "Strg+Umschalt+Leertaste",
+    "assistant": "Strg+Umschalt+K"
+  },
+  "commandGroups": {
+    "navigation": "Navigation",
+    "view": "Ansicht",
+    "actions": "Aktionen"
+  }
+}

@@ -16,6 +16,8 @@ function subscribe<T>(channel: string, listener: (value: T) => void): () => void
   return () => ipcRenderer.removeListener(channel, handler);
 }
 
+const localeArg = process.argv.find(arg => arg.startsWith('--shellherd-locale='))?.slice('--shellherd-locale='.length);
+
 const desktopApi: DesktopApi = {
   windowReady: () => ipcRenderer.invoke('window:ready'),
   windowCloseReady: () => ipcRenderer.invoke('window:close-ready'),
@@ -50,6 +52,10 @@ const desktopApi: DesktopApi = {
   fileTypeStatus: () => ipcRenderer.invoke('app:file-type-status'),
   fileTypeRegister: () => ipcRenderer.invoke('app:file-type-register'),
   fileTypeUnregister: () => ipcRenderer.invoke('app:file-type-unregister'),
+  initialLocale: localeArg === 'en-US' ? 'en-US' : 'de-DE',
+  getLanguage: () => ipcRenderer.invoke('app:get-language'),
+  setLanguage: setting => ipcRenderer.invoke('app:set-language', setting),
+  onLocaleChanged: listener => subscribe('app:locale-changed', listener),
   readClipboardText: () => ipcRenderer.invoke('clipboard:read-text'),
   writeClipboardText: text => ipcRenderer.invoke('clipboard:write-text', text),
   sshPrepare: request => ipcRenderer.invoke('ssh:prepare', request),

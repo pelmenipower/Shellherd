@@ -1,0 +1,8 @@
+{
+  "core": {
+    "unknown": "Ein unerwarteter Fehler ist aufgetreten.",
+    "invalidRequest": "Die Anfrage ist ungültig.",
+    "vaultLocked": "Es ist kein Vault entsperrt.",
+    "mainWindowOnly": "Diese Aktion ist nur im Hauptfenster erlaubt."
+  }
+}

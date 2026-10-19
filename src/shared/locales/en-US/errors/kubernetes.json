@@ -1,0 +1,6 @@
+{
+  "kubernetes": {
+    "readOnly": "This cluster is read-only.",
+    "notConnected": "The cluster is not connected right now."
+  }
+}

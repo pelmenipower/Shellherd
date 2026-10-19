@@ -1,0 +1,6 @@
+{
+  "containers": {
+    "sudoRejected": "The sudo password was rejected.",
+    "sudoNotCached": "sudo does not cache the login (timestamp_timeout=0). Set up NOPASSWD."
+  }
+}

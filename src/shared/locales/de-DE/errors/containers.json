@@ -1,0 +1,6 @@
+{
+  "containers": {
+    "sudoRejected": "Das sudo-Passwort wurde abgelehnt.",
+    "sudoNotCached": "sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein."
+  }
+}

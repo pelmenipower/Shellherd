@@ -1,0 +1,8 @@
+{
+  "core": {
+    "unknown": "An unexpected error occurred.",
+    "invalidRequest": "The request is invalid.",
+    "vaultLocked": "No vault is unlocked.",
+    "mainWindowOnly": "This action is only allowed in the main window."
+  }
+}

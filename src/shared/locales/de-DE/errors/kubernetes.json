@@ -1,0 +1,6 @@
+{
+  "kubernetes": {
+    "readOnly": "Dieser Cluster ist schreibgeschützt.",
+    "notConnected": "Der Cluster ist gerade nicht verbunden."
+  }
+}
