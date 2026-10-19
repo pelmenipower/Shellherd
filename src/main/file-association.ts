@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { isAbsolute, win32 } from 'node:path';
+import { AppError } from '../shared/errors';
 
 /** New vaults use `.term`; `.terminus` files from earlier versions still open. */
 export const VAULT_EXTENSIONS = ['.term', '.terminus'] as const;
@@ -78,10 +79,10 @@ export class FileAssociation {
   }
 
   async register(): Promise<void> {
-    if (process.platform !== 'win32') throw new Error('Die Dateiverknüpfung gibt es nur unter Windows.');
+    if (process.platform !== 'win32') throw new AppError('core.fileAssociationWindowsOnly');
     try {
       for (const args of registryEntries(this.command, iconValue(this.iconPath ?? this.execPath))) await reg(args);
-    } catch { throw new Error('Die Dateiverknüpfung konnte nicht eingetragen werden.'); }
+    } catch { throw new AppError('core.fileAssociationFailed'); }
     // Only after every add succeeded; cleanup failures never fail the registration.
     for (const args of legacyRegistryDeletes()) await reg(args).catch(() => {});
   }

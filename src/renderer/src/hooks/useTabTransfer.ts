@@ -8,6 +8,7 @@ import type { LiveView } from '../terminal-views';
 import type { AdoptedSession, TerminalConnection, TerminalTab } from '../terminal-tabs';
 import { isRunning } from '../terminal-tabs';
 import { liveSessions } from '../session-registry';
+import { errorText } from '../error-text';
 
 interface Terminals {
   tabs: TerminalTab[];
@@ -19,9 +20,6 @@ interface Views {
   insertView: (name: string, layout: LiveLayout) => void;
   removeView: (id: string) => void;
 }
-
-const errorText = (error: unknown): string => error instanceof Error
-  ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Der Tab konnte nicht verschoben werden.';
 
 /** Moves tabs between windows without reconnecting and receives tabs from other windows. */
 export function useTabTransfer(terminals: Terminals, views: Views, onError: (message: string) => void) {
@@ -57,7 +55,7 @@ export function useTabTransfer(terminals: Terminals, views: Views, onError: (mes
     try {
       await window.desktopApi.transferView({ name: view.name, layout: view.layout, tabs: moving, target });
     } catch (error) {
-      onError(errorText(error));
+      onError(errorText(error, 'Der Tab konnte nicht verschoben werden.'));
       return false;
     }
     for (const tab of moving) if (tab.session) liveSessions.markTransferred(tab.session.sessionId);
@@ -73,7 +71,7 @@ export function useTabTransfer(terminals: Terminals, views: Views, onError: (mes
         ...(live ? { session: { kind: live.kind, sessionId: live.sessionId } } : {}),
         ...(live?.snapshot ? { snapshot: live.snapshot() } : {}) });
     } catch (error) {
-      onError(errorText(error));
+      onError(errorText(error, 'Der Tab konnte nicht verschoben werden.'));
       return false;
     }
     if (live) liveSessions.markTransferred(live.sessionId);

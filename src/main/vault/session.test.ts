@@ -177,8 +177,7 @@ describe('VaultSessionManager', () => {
 
     await expect(
       manager.save(snapshot.vault),
-    ).rejects.toThrow(
-      'Es ist kein Vault entsperrt.',
+    ).rejects.toThrow(expect.objectContaining({ code: 'core.vaultLocked' })
     );
   });
 });

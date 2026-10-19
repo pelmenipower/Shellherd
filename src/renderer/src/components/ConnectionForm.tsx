@@ -10,7 +10,17 @@ import { CONNECTION_ICONS } from '../../../shared/vault/appearance';
 import { ConnectionIcon, connectionIconLabels } from './ConnectionIcon';
 import { PROTOCOLS } from '../../../shared/vault/connections';
 import { AI_CLI_TOOLS } from '../../../shared/ai-cli';
-import type { ConnectionTestResult } from '../../../shared/connection-test';
+import type { ConnectionTestResult, ConnectionTestStepId } from '../../../shared/connection-test';
+import { errorText } from '../error-text';
+import { useT } from '../i18n';
+
+const STEP_LABEL_KEYS = {
+  clusterTest: 'connection:test.steps.clusterTest', startFolder: 'connection:test.steps.startFolder', command: 'connection:test.steps.command',
+  toolFound: 'connection:test.steps.toolFound', programFound: 'connection:test.steps.programFound', hostGiven: 'connection:test.steps.hostGiven',
+  nameResolved: 'connection:test.steps.nameResolved', portReachable: 'connection:test.steps.portReachable', login: 'connection:test.steps.login',
+  userGiven: 'connection:test.steps.userGiven', hostKey: 'connection:test.steps.hostKey', credentials: 'connection:test.steps.credentials',
+  sftp: 'connection:test.steps.sftp',
+} as const satisfies Record<ConnectionTestStepId, string>;
 
 const newTitles: Record<ConnectionProtocol, string> = {
   ssh: 'Neue SSH-Verbindung', sftp: 'Neue SFTP-Verbindung (Dateien)', rdp: 'Neue Remotedesktop-Verbindung (RDP)',
@@ -41,6 +51,7 @@ interface ConnectionFormProps {
 
 export function ConnectionForm({ connection, isNew = false, protocol: requestedProtocol, nodes, initialParentId, busy, onSave, onCancel, onDelete, onConnect,
   onDirtyChange, onSaveAndConnect, onPickKey, onTest }: ConnectionFormProps) {
+  const { t } = useT();
   const prefix = useId();
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const submittingRef = useRef(false);
@@ -68,7 +79,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
     }
     setTest({ running: true });
     try { setTest({ running: false, result: await onTest(node) }); }
-    catch (caught) { setTest({ running: false, error: caught instanceof Error ? caught.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Der Test ist fehlgeschlagen.' }); }
+    catch (caught) { setTest({ running: false, error: errorText(caught, 'Der Test ist fehlgeschlagen.') }); }
   }
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
@@ -195,8 +206,8 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
         {error && !error.field && <p className="field-error" role="alert">{error.message}</p>}
         {test && !test.running && <div className={`connection-test ${test.result?.ok ? 'is-ok' : 'is-failed'}`} role="status">
           <strong>{test.error ?? (test.result?.ok ? 'Verbindungstest erfolgreich' : 'Verbindungstest fehlgeschlagen')}</strong>
-          {test.result && <ol>{test.result.steps.map(step => <li key={step.label} className={step.ok ? 'is-ok' : 'is-failed'}>
-            <span aria-hidden="true">{step.ok ? '✓' : '✕'}</span><span>{step.label}{step.detail && <small>{step.detail}</small>}</span>
+          {test.result && <ol>{test.result.steps.map(step => <li key={step.step} className={step.ok ? 'is-ok' : 'is-failed'}>
+            <span aria-hidden="true">{step.ok ? '✓' : '✕'}</span><span>{t(STEP_LABEL_KEYS[step.step], step.params)}{step.note && <small>{errorText(step.note)}</small>}{step.detail && <small>{step.detail}</small>}</span>
           </li>)}</ol>}
         </div>}
         <div className="form-actions editor-action-bar">

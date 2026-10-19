@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { splitAccount } from './host';
+import { rdpStatusError, splitAccount } from './host';
 
 describe('splitAccount', () => {
   it('splits DOMAIN\\user and keeps UPNs and plain names intact', () => {
@@ -11,5 +11,16 @@ describe('splitAccount', () => {
   });
   it('does not treat a leading backslash as an empty domain', () => {
     expect(splitAccount('\\admin')).toEqual({ username: '\\admin' });
+  });
+});
+
+describe('rdpStatusError', () => {
+  it('keeps the native helper text only as detail of a core.rdp* code', () => {
+    expect(rdpStatusError('error', 'Zeitüberschreitung')).toEqual({ code: 'core.rdpFailed', detail: 'Zeitüberschreitung' });
+    expect(rdpStatusError('error')).toEqual({ code: 'core.rdpFailed' });
+    expect(rdpStatusError('disconnected', 'Getrennt')).toEqual({ code: 'core.rdpDisconnected', detail: 'Getrennt' });
+  });
+  it('reports nothing for a plain disconnect', () => {
+    expect(rdpStatusError('disconnected')).toBeUndefined();
   });
 });

@@ -5,6 +5,7 @@ import { connect } from 'node:net';
 import { Client } from 'ssh2';
 import type { ConnectionNode, SftpConnectionNode, SshConnectionNode } from '../shared/vault/types';
 import type { ConnectionTestResult, ConnectionTestStep } from '../shared/connection-test';
+import type { CodedError } from '../shared/errors';
 import { isRemoteConnection } from '../shared/vault/connections';
 import { sshConnectConfig } from './ssh/client-config';
 import { localShellCommand, publicError } from './ssh/session';
@@ -33,47 +34,49 @@ function probe(host: string, port: number): Promise<void> {
 
 const resolveHost = async (host: string): Promise<string> => (await lookup(host)).address;
 
-function networkError(error: unknown): string {
+function networkError(error: unknown): CodedError {
   const code = (error as NodeJS.ErrnoException)?.code;
-  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'Der Hostname ist unbekannt. Prüfe die Schreibweise oder den DNS.';
-  if (code === 'ECONNREFUSED') return 'Der Server lehnt die Verbindung auf diesem Port ab.';
-  if (code === 'ETIMEDOUT' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH') return 'Keine Antwort. Eine Firewall oder ein falscher Port ist wahrscheinlich.';
-  return 'Der Server ist nicht erreichbar.';
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return { code: 'core.testHostUnknown' };
+  if (code === 'ECONNREFUSED') return { code: 'core.testConnectionRefused' };
+  if (code === 'ETIMEDOUT' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH') return { code: 'core.testNoResponse' };
+  return { code: 'core.testUnreachable' };
 }
 
 /** Checks a (possibly unsaved) connection step by step and disconnects right after. Secrets are never returned. */
 export async function testConnection(node: ConnectionNode, dependencies: ConnectionTestDependencies): Promise<ConnectionTestResult> {
   const steps: ConnectionTestStep[] = [];
   const done = (): ConnectionTestResult => ({ ok: steps.every(step => step.ok), steps });
-  if (node.protocol === 'kubernetes') { steps.push({ label: 'Verbindungstest', ok: false, detail: 'Für Cluster gibt es noch keinen Verbindungstest.' }); return done(); }
+  if (node.protocol === 'kubernetes') { steps.push({ step: 'clusterTest', ok: false, note: { code: 'core.testClusterUnsupported' } }); return done(); }
   if (!isRemoteConnection(node)) {
     const cwd = node.workingDirectory?.trim() || homedir();
     const folder = await stat(cwd).catch(() => null);
-    steps.push(folder?.isDirectory() ? { label: 'Startordner vorhanden', ok: true, detail: cwd } : { label: 'Startordner vorhanden', ok: false, detail: `„${cwd}“ existiert nicht.` });
+    steps.push(folder?.isDirectory() ? { step: 'startFolder', ok: true, detail: cwd } : { step: 'startFolder', ok: false, note: { code: 'core.testFolderMissing', params: { path: cwd } } });
     if (node.protocol === 'aicli') {
-      if (node.tool === 'custom') { steps.push({ label: 'Befehl', ok: true, detail: 'Eigene Befehle werden erst beim Start geprüft.' }); return done(); }
+      if (node.tool === 'custom') { steps.push({ step: 'command', ok: true, note: { code: 'core.testCustomCommand' } }); return done(); }
       const tool = AI_CLI_TOOLS[node.tool];
       const found = await (dependencies.locate ?? locateCommand)(tool.command);
-      steps.push(found ? { label: `${tool.label} gefunden`, ok: true, detail: found } : { label: `${tool.label} gefunden`, ok: false, detail: `Nicht installiert. Installation: ${tool.install}` });
+      const params = { tool: tool.label };
+      steps.push(found ? { step: 'toolFound', params, ok: true, detail: found }
+        : { step: 'toolFound', params, ok: false, note: { code: 'core.testNotInstalled', params: { install: tool.install } } });
       return done();
     }
     const { file } = localShellCommand(node.protocol);
     const program = await stat(file).catch(() => null);
-    steps.push({ label: 'Programm gefunden', ok: Boolean(program?.isFile()), detail: file });
+    steps.push({ step: 'programFound', ok: Boolean(program?.isFile()), detail: file });
     return done();
   }
-  if (!node.host.trim()) { steps.push({ label: 'Host angegeben', ok: false, detail: 'Bitte gib einen Host ein.' }); return done(); }
+  if (!node.host.trim()) { steps.push({ step: 'hostGiven', ok: false, note: { code: 'core.testHostMissing' } }); return done(); }
   try {
     const address = await (dependencies.resolve ?? resolveHost)(node.host);
-    steps.push({ label: 'Name aufgelöst', ok: true, detail: address === node.host ? undefined : `${node.host} → ${address}` });
-  } catch (error) { steps.push({ label: 'Name aufgelöst', ok: false, detail: networkError(error) }); return done(); }
+    steps.push({ step: 'nameResolved', ok: true, detail: address === node.host ? undefined : `${node.host} → ${address}` });
+  } catch (error) { steps.push({ step: 'nameResolved', ok: false, note: networkError(error) }); return done(); }
   if (node.protocol === 'rdp') {
-    try { await (dependencies.probePort ?? probe)(node.host, node.port); steps.push({ label: `Port ${node.port} erreichbar`, ok: true }); }
-    catch (error) { steps.push({ label: `Port ${node.port} erreichbar`, ok: false, detail: networkError(error) }); return done(); }
-    steps.push({ label: 'Anmeldung', ok: true, detail: 'Benutzer und Passwort prüft der Remotedesktop erst beim Verbinden.' });
+    try { await (dependencies.probePort ?? probe)(node.host, node.port); steps.push({ step: 'portReachable', params: { port: node.port }, ok: true }); }
+    catch (error) { steps.push({ step: 'portReachable', params: { port: node.port }, ok: false, note: networkError(error) }); return done(); }
+    steps.push({ step: 'login', ok: true, note: { code: 'core.testRdpCredentials' } });
     return done();
   }
-  if (!node.username?.trim()) { steps.push({ label: 'Benutzer angegeben', ok: false, detail: 'Bitte gib einen Benutzernamen ein.' }); return done(); }
+  if (!node.username?.trim()) { steps.push({ step: 'userGiven', ok: false, note: { code: 'core.testUserMissing' } }); return done(); }
   await testSsh(node, dependencies, steps);
   return done();
 }
@@ -85,7 +88,7 @@ function testSsh(node: SshConnectionNode | SftpConnectionNode, dependencies: Con
     let reached = false;
     let keyChecked = false;
     let key: Buffer | undefined;
-    const finish = (failure?: { label: string; detail: string }): void => {
+    const finish = (failure?: Pick<ConnectionTestStep, 'step' | 'params' | 'note'>): void => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
@@ -95,35 +98,35 @@ function testSsh(node: SshConnectionNode | SftpConnectionNode, dependencies: Con
       resolve();
     };
     const fail = (error: unknown): void => {
-      if (!reached) finish({ label: `Port ${node.port} erreichbar`, detail: networkError(error) });
-      else if (!keyChecked) finish({ label: 'Server-Schlüssel geprüft', detail: publicError(error) });
-      else finish({ label: 'Anmeldung', detail: publicError(error) });
+      if (!reached) finish({ step: 'portReachable', params: { port: node.port }, note: networkError(error) });
+      else if (!keyChecked) finish({ step: 'hostKey', note: publicError(error) });
+      else finish({ step: 'login', note: publicError(error) });
     };
     const timer = setTimeout(() => fail(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT', level: 'client-timeout' })), TIMEOUT);
-    client.on('connect', () => { reached = true; steps.push({ label: `Port ${node.port} erreichbar`, ok: true }); });
+    client.on('connect', () => { reached = true; steps.push({ step: 'portReachable', params: { port: node.port }, ok: true }); });
     client.on('error', fail);
     client.on('close', () => finish());
     client.once('ready', () => {
-      steps.push({ label: 'Anmeldung', ok: true, detail: `als ${node.username}` });
+      steps.push({ step: 'login', ok: true, detail: node.username });
       if (node.protocol !== 'sftp') { finish(); return; }
       client.sftp((error, sftp) => {
-        if (error) { finish({ label: 'SFTP verfügbar', detail: 'Der Server bietet kein SFTP an.' }); return; }
+        if (error) { finish({ step: 'sftp', note: { code: 'core.testNoSftp' } }); return; }
         sftp.end();
-        steps.push({ label: 'SFTP verfügbar', ok: true });
+        steps.push({ step: 'sftp', ok: true });
         finish();
       });
     });
     void sshConnectConfig(node, (hostKey, callback) => {
       void dependencies.verifyHost(node.host, node.port, hostKey, () => !finished).then(valid => {
         keyChecked = valid;
-        if (valid) steps.push({ label: 'Server-Schlüssel geprüft', ok: true });
-        else finish({ label: 'Server-Schlüssel geprüft', detail: 'Der Server-Schlüssel wurde nicht bestätigt.' });
+        if (valid) steps.push({ step: 'hostKey', ok: true });
+        else finish({ step: 'hostKey', note: { code: 'core.testHostKeyRejected' } });
         callback(valid && !finished);
-      }).catch(error => { finish({ label: 'Server-Schlüssel geprüft', detail: publicError(error) }); callback(false); });
+      }).catch(error => { finish({ step: 'hostKey', note: publicError(error) }); callback(false); });
     }).then(({ config, key: privateKey }) => {
       key = privateKey;
       if (finished) { key?.fill(0); return; }
       client.connect({ ...config, readyTimeout: TIMEOUT, keepaliveInterval: 0 });
-    }).catch(error => finish({ label: 'Anmeldedaten gelesen', detail: publicError(error) }));
+    }).catch(error => finish({ step: 'credentials', note: publicError(error) }));
   });
 }

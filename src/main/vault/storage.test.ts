@@ -84,7 +84,7 @@ describe('vault storage', () => {
 
     await expect(
       loadVault(filePath, 'password'),
-    ).rejects.toThrow('kein gültiges JSON');
+    ).rejects.toThrow(expect.objectContaining({ code: 'core.vaultFileNotJson' }));
   });
 
   it('rejects an incorrect password', async () => {
@@ -97,6 +97,6 @@ describe('vault storage', () => {
 
     await expect(
       loadVault(savedPath, 'wrong-password'),
-    ).rejects.toThrow();
+    ).rejects.toThrow(expect.objectContaining({ code: 'core.wrongPassword' }));
   });
 });

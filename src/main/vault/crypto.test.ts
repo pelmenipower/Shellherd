@@ -34,7 +34,7 @@ describe('vault encryption', () => {
 
     await expect(
       decryptVault(encrypted, 'falsches passwort'),
-    ).rejects.toThrow();
+    ).rejects.toThrow(expect.objectContaining({ code: 'core.wrongPassword' }));
   });
 
   it('detects a manipulated payload', async () => {
@@ -49,7 +49,7 @@ describe('vault encryption', () => {
 
     await expect(
       decryptVault(encrypted, 'testpasswort'),
-    ).rejects.toThrow();
+    ).rejects.toThrow(expect.objectContaining({ code: 'core.wrongPassword' }));
   });
 
   it('never stores the plaintext password', async () => {

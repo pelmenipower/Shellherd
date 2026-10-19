@@ -12,7 +12,8 @@ export type VaultConsistencyIssueCode =
 export interface VaultConsistencyIssue {
   code: VaultConsistencyIssueCode;
   path: string;
-  message: string;
+  /** The offending node or connection id. */
+  id: string;
 }
 
 export function validateVaultConsistency(
@@ -66,7 +67,7 @@ function collectNodeIds(
       issues.push({
         code: 'duplicate-node-id',
         path: `${nodePath}.id`,
-        message: `Die ID "${node.id}" wird mehrfach verwendet.`,
+        id: node.id,
       });
     } else {
       nodeIds.add(node.id);
@@ -99,7 +100,7 @@ function validateWorkspaceLayout(
         issues.push({
           code: 'unknown-connection',
           path: `${path}.connectionIds[${index}]`,
-          message: `Die Verbindung "${connectionId}" existiert nicht.`,
+          id: connectionId,
         });
       }
     });
@@ -111,9 +112,7 @@ function validateWorkspaceLayout(
       issues.push({
         code: 'invalid-active-connection',
         path: `${path}.activeConnectionId`,
-        message:
-          `Die aktive Verbindung "${layout.activeConnectionId}" ` +
-          'ist nicht in diesem Terminalbereich geöffnet.',
+        id: layout.activeConnectionId,
       });
     }
 

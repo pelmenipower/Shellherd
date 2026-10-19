@@ -7,7 +7,9 @@ import {
 import { basename, join } from 'node:path';
 import { LastVaultFile } from './last-vault';
 
+import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
+import { mainT } from '../i18n';
 import { VaultSessionManager } from './session';
 import { saveVault } from './storage';
 
@@ -25,7 +27,7 @@ import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron';
 
 function requirePassword(password: unknown): asserts password is string {
   if (typeof password !== 'string' || password.length === 0) {
-    throw new Error('Ein Vault-Passwort ist erforderlich.');
+    throw new AppError('core.vaultPasswordRequired');
   }
 }
 
@@ -51,7 +53,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
   handle(IPC_CHANNELS.selectPrivateKeyFile, async (event): Promise<SelectVaultFileResult> => {
     vaultSessionManager.getSnapshot();
     const parent = BrowserWindow.fromWebContents(event.sender);
-    const options: OpenDialogOptions = { title: 'Privaten SSH-Schlüssel auswählen', properties: ['openFile'] };
+    const options: OpenDialogOptions = { title: mainT('dialogs.privateKey.title'), properties: ['openFile'] };
     const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
     return result.canceled || !result.filePaths[0] ? { canceled: true } : { canceled: false, filePath: result.filePaths[0] };
   });
@@ -72,11 +74,11 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
           : 'vault.term';
 
       const options = {
-        title: 'Shellherd-Vault speichern',
+        title: mainT('dialogs.vaultSave.title'),
         defaultPath: suggestedName,
         filters: [
           {
-            name: 'Shellherd Vault',
+            name: mainT('dialogs.vaultFilter'),
             extensions: ['term', 'terminus'],
           },
         ],
@@ -117,13 +119,13 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         BrowserWindow.fromWebContents(event.sender);
 
       const options: OpenDialogOptions = {
-        title: 'Shellherd-Vault auswählen',
+        title: mainT('dialogs.vaultOpen.title'),
         // Starts in the folder of the last vault; any other file can still be picked.
         ...(await lastVault.get().then(last => last ? { defaultPath: last } : {})),
         properties: ['openFile'],
         filters: [
           {
-            name: 'Shellherd Vault',
+            name: mainT('dialogs.vaultFilter'),
             extensions: ['term', 'terminus'],
           },
         ],
@@ -159,9 +161,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         typeof request.filePath !== 'string' ||
         request.filePath.length === 0
       ) {
-        throw new Error(
-          'Es wurde keine Vault-Datei ausgewählt.',
-        );
+        throw new AppError('core.vaultFileMissing');
       }
 
       const snapshot = await vaultSessionManager.unlock(

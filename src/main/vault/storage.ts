@@ -14,6 +14,7 @@ import {
   decryptVault,
   encryptVault,
 } from './crypto';
+import { AppError } from '../../shared/errors';
 import { EncryptedVaultFileSchema } from '../../shared/vault/schema';
 
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
@@ -87,7 +88,7 @@ export async function backupVaultFile(
     }
   }
 
-  throw new Error('Für die Vault-Sicherung wurde kein freier Dateiname gefunden.');
+  throw new AppError('core.vaultBackupNameTaken');
 }
 
 export async function readEncryptedVaultFile(
@@ -103,9 +104,7 @@ export async function readEncryptedVaultFile(
   try {
     parsed = JSON.parse(serializedVault);
   } catch {
-    throw new Error(
-      'Die ausgewählte Datei enthält kein gültiges JSON.',
-    );
+    throw new AppError('core.vaultFileNotJson');
   }
 
   return EncryptedVaultFileSchema.parse(parsed);

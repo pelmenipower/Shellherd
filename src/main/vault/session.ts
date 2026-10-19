@@ -1,3 +1,4 @@
+import { AppError } from '../../shared/errors';
 import {
   encryptVaultWithKey,
   unlockVault,
@@ -119,9 +120,7 @@ export class VaultSessionManager {
 
   private requireSession(): ActiveVaultSession {
     if (!this.activeSession) {
-      throw new Error(
-        'Es ist kein Vault entsperrt.',
-      );
+      throw new AppError('core.vaultLocked');
     }
 
     return this.activeSession;

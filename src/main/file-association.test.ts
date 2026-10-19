@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { iconValue, launchCommand, legacyRegistryDeletes, pointsToVaultProgId, registryEntries, vaultFileFromArgs } from './file-association';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FileAssociation, iconValue, launchCommand, legacyRegistryDeletes, pointsToVaultProgId, registryEntries, vaultFileFromArgs } from './file-association';
 
 describe('vault file association', () => {
   it('finds an existing vault file among Explorer arguments', () => {
@@ -43,5 +43,14 @@ describe('vault file association', () => {
 
   it('quotes the icon path for DefaultIcon', () => {
     expect(iconValue('C:\\a b\\icon.ico')).toBe('"C:\\a b\\icon.ico",0');
+  });
+});
+
+describe('FileAssociation errors', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('refuses outside Windows with a coded error', async () => {
+    vi.stubGlobal('process', Object.create(process, { platform: { value: 'linux' } }));
+    await expect(new FileAssociation('x', null).register()).rejects.toMatchObject({ code: 'core.fileAssociationWindowsOnly' });
   });
 });

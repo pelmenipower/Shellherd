@@ -106,7 +106,7 @@ describe('addNode', () => {
         },
         'folder-missing',
       ),
-    ).toThrow('wurde nicht gefunden');
+    ).toThrow(expect.objectContaining({ code: 'core.vaultFolderNotFound' }));
   });
 });
 
@@ -200,7 +200,7 @@ describe('updateNode', () => {
         'node-missing',
         (node) => node,
       ),
-    ).toThrow('wurde nicht gefunden');
+    ).toThrow(expect.objectContaining({ code: 'core.vaultNodeNotFound' }));
   });
 });
 
@@ -317,7 +317,7 @@ describe('removeNode', () => {
   it('rejects an unknown node ID', () => {
     expect(() =>
       removeNode([], 'node-missing'),
-    ).toThrow('wurde nicht gefunden');
+    ).toThrow(expect.objectContaining({ code: 'core.vaultNodeNotFound' }));
   });
 });
 
@@ -461,8 +461,8 @@ describe('moveNode', () => {
   });
 
   it('never moves a folder into itself and ignores drops onto the node itself', () => {
-    expect(() => moveNode(tree(), 'f', { kind: 'into', folderId: 'g' })).toThrow('in sich selbst');
-    expect(() => moveNode(tree(), 'f', { kind: 'before', nodeId: 'c' })).toThrow('in sich selbst');
+    expect(() => moveNode(tree(), 'f', { kind: 'into', folderId: 'g' })).toThrow(expect.objectContaining({ code: 'core.vaultFolderIntoItself' }));
+    expect(() => moveNode(tree(), 'f', { kind: 'before', nodeId: 'c' })).toThrow(expect.objectContaining({ code: 'core.vaultFolderIntoItself' }));
     const nodes = tree();
     expect(moveNode(nodes, 'a', { kind: 'before', nodeId: 'a' })).toBe(nodes);
   });

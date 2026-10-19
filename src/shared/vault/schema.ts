@@ -87,7 +87,7 @@ export const AiCliConnectionNodeSchema = z.object({
     tool: z.enum(['claude', 'codex', 'gemini', 'custom']),
     command: z.string().max(1000).refine(command => !/[\r\n]/.test(command)).optional(),
     workingDirectory: z.string().optional(),
-}).refine(node => node.tool !== 'custom' || Boolean(node.command?.trim()), { message: 'Bitte gib den Befehl an.', path: ['command'] });
+}).refine(node => node.tool !== 'custom' || Boolean(node.command?.trim()), { message: 'commandRequired', path: ['command'] });
 
 export const KubernetesConnectionNodeSchema = z.object({
     ...connectionBase,

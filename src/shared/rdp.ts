@@ -1,3 +1,5 @@
+import type { CodedError } from './errors';
+
 /** CSS-pixel rectangle relative to the renderer viewport. */
 export interface ViewportRect { x: number; y: number; width: number; height: number }
 
@@ -15,6 +17,6 @@ export interface RdpActionRequest extends RdpSessionRequest { action: RdpAction 
 
 export type RdpStatus = 'connecting' | 'connected' | 'closed' | 'error';
 export type RdpEvent =
-  | { type: 'status'; sessionId: string; status: RdpStatus; message?: string }
+  | { type: 'status'; sessionId: string; status: RdpStatus; error?: CodedError }
   /** The remote resolution is being changed by a reconnect; the surface is hidden meanwhile. */
   | { type: 'resizing'; sessionId: string; active: boolean };

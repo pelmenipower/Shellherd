@@ -57,6 +57,7 @@ import type { Workflow } from '../../shared/vault/types';
 import { ConnectionForm } from './components/ConnectionForm';
 import { parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
+import { errorText } from './error-text';
 import mark from '../../../resources/mark-64.png';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
@@ -95,19 +96,6 @@ function countConnections(nodes: VaultNode[]): number {
 
     return count + countConnections(node.children);
   }, 0);
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    if (
-      error.message.includes('authenticate') ||
-      error.message.includes('Unsupported state')
-    ) {
-      return 'Das Passwort ist falsch oder die Vault-Datei wurde verändert.';
-    }
-  }
-
-  return 'Der Vault konnte nicht verarbeitet werden.';
 }
 
 export default function App() {
@@ -328,7 +316,7 @@ export default function App() {
       setScreen('vault');
       resetForm();
     } catch (caughtError) {
-      setError(getErrorMessage(caughtError));
+      setError(errorText(caughtError, 'Der Vault konnte nicht verarbeitet werden.'));
     } finally {
       setPassword('');
       setPasswordConfirmation('');
@@ -365,7 +353,7 @@ export default function App() {
       setScreen('vault');
       resetForm();
     } catch (caughtError) {
-      setError(getErrorMessage(caughtError));
+      setError(errorText(caughtError, 'Der Vault konnte nicht verarbeitet werden.'));
     } finally {
       setPassword('');
       setBusy(false);
@@ -386,11 +374,7 @@ export default function App() {
 
       setSelectedVaultPath(result.filePath);
     } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Die Vault-Datei konnte nicht ausgewählt werden.',
-      );
+      setError(errorText(caughtError, 'Die Vault-Datei konnte nicht ausgewählt werden.'));
     } finally {
       setBusy(false);
     }
@@ -456,7 +440,7 @@ export default function App() {
       return true;
     } catch (caughtError) {
       setVault(previousVault);
-      setError(getErrorMessage(caughtError));
+      setError(errorText(caughtError, 'Der Vault konnte nicht verarbeitet werden.'));
       return false;
     } finally {
       saveInProgress.current = false;
@@ -561,7 +545,7 @@ export default function App() {
       setEditorOpen(false);
       setError(restored.skipped ? skippedNotice(restored.skipped) : null);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'Der Workspace konnte nicht geöffnet werden.');
+      setError(errorText(caughtError, 'Der Workspace konnte nicht geöffnet werden.'));
     }
   }
 
@@ -617,7 +601,7 @@ export default function App() {
     if (!vault || busy || ssh?.type !== 'connection' || ssh.protocol !== 'ssh') return;
     if (ssh.disabled) { setError(disabledNotice(ssh)); return; }
     const probe = await window.desktopApi.kubeProbe({ connectionId: sshId }).catch((caught: unknown): KubeProbeResult | null => {
-      setError(caught instanceof Error ? caught.message : 'Der Kubernetes-Cluster konnte nicht geprüft werden.');
+      setError(errorText(caught, 'Der Kubernetes-Cluster konnte nicht geprüft werden.'));
       return null;
     });
     if (!probe) return;
@@ -721,7 +705,7 @@ export default function App() {
     if (!vault || busy) return;
     let nodes: VaultNode[];
     try { nodes = moveNode(vault.nodes, id, target); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Verschieben fehlgeschlagen.'); return; }
+    catch (caught) { setError(errorText(caught, 'Verschieben fehlgeschlagen.')); return; }
     if (nodes !== vault.nodes) await persistVault({ ...vault, nodes });
   }
 

@@ -1,3 +1,4 @@
+import { AppError } from '../errors';
 import { z } from 'zod';
 import { SshConnectionNodeSchema, VaultSchema, VaultSettingsSchema, WorkspaceSchema } from './schema';
 import type { Vault, VaultNode } from './types';
@@ -55,7 +56,7 @@ export function parseVaultDocument(input: unknown): ParsedVault {
     const vault = VaultSchema.parse({ ...legacy, version: CURRENT_VAULT_VERSION, nodes: legacy.nodes.map(migrateNode) });
     return { vault, migratedFrom: 1 };
   }
-  throw new Error(typeof version === 'number' && version > CURRENT_VAULT_VERSION
-    ? `Dieser Vault wurde mit einer neueren Shellherd-Version gespeichert (Format ${version}). Bitte aktualisiere Shellherd.`
-    : 'Das Vault-Format wird nicht unterstützt.');
+  throw typeof version === 'number' && version > CURRENT_VAULT_VERSION
+    ? new AppError('core.vaultVersionTooNew', { version })
+    : new AppError('core.vaultFormatUnsupported');
 }

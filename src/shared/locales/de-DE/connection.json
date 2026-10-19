@@ -1,1 +1,19 @@
-{}
+{
+  "test": {
+    "steps": {
+      "clusterTest": "Verbindungstest",
+      "startFolder": "Startordner vorhanden",
+      "command": "Befehl",
+      "toolFound": "{{tool}} gefunden",
+      "programFound": "Programm gefunden",
+      "hostGiven": "Host angegeben",
+      "nameResolved": "Name aufgelöst",
+      "portReachable": "Port {{port}} erreichbar",
+      "login": "Anmeldung",
+      "userGiven": "Benutzer angegeben",
+      "hostKey": "Server-Schlüssel geprüft",
+      "credentials": "Anmeldedaten gelesen",
+      "sftp": "SFTP verfügbar"
+    }
+  }
+}

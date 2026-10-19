@@ -3,6 +3,7 @@ import type { BrowserWindow, Rectangle } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../shared/ipc';
+import { AppError } from '../shared/errors';
 import { WorkspaceLayoutSchema, WorkspaceViewsSchema } from '../shared/vault/schema';
 import { TerminalTargetSchema } from '../shared/containers-schema';
 import { redactSecrets } from '../shared/vault/connections';
@@ -53,7 +54,7 @@ const ReportSchema = z.object({ requestId: z.string().uuid(), report: z.object(S
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
-  if (!result.success) throw new Error('Ungültige Fensteranfrage.');
+  if (!result.success) throw new AppError('core.invalidWindowRequest');
   return result.data;
 }
 
@@ -106,7 +107,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSeco
       if (target) drop = registry.toClient(target, point);
       else target = createSecondary(tearOffBounds(point, registry.get(from)?.getBounds()));
     }
-    if (!target || target.isDestroyed() || target.webContents.id === from) throw new Error('Kein Zielfenster verfügbar.');
+    if (!target || target.isDestroyed() || target.webContents.id === from) throw new AppError('core.noTargetWindow');
     await registry.whenReady(target.webContents.id);
     return { target, ...(drop ? { drop } : {}) };
   };
@@ -139,10 +140,10 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSeco
     const parsed = parse(ViewTransferSchema, request);
     vaultSessionManager.getSnapshot();
     clearHover(from);
-    if (parsed.tabs.reduce((total, tab) => total + (tab.snapshot?.length ?? 0), 0) > 32 * 1024 * 1024) throw new Error('Die Ansicht ist zu groß zum Verschieben.');
+    if (parsed.tabs.reduce((total, tab) => total + (tab.snapshot?.length ?? 0), 0) > 32 * 1024 * 1024) throw new AppError('core.viewTooLarge');
     // Check every session first so a view never ends up split between two windows.
     for (const tab of parsed.tabs) {
-      if (tab.session && !{ terminal: ssh, rdp, sftp }[tab.session.kind].owns(from, tab.session.sessionId)) throw new Error('Eine Sitzung der Ansicht ist nicht verfügbar.');
+      if (tab.session && !{ terminal: ssh, rdp, sftp }[tab.session.kind].owns(from, tab.session.sessionId)) throw new AppError('core.viewSessionUnavailable');
     }
     const { target } = await resolveTarget(from, parsed.target);
     const incoming: IncomingView = { name: parsed.name, layout: parsed.layout,

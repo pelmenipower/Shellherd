@@ -5,6 +5,7 @@ import type { RdpStatus, ViewportRect } from '../../../shared/rdp';
 import type { SshStatus } from '../../../shared/ssh';
 import { useNativeSurfacesBlocked } from '../native-surface';
 import { liveSessions } from '../session-registry';
+import { errorText } from '../error-text';
 
 interface RdpPanelProps {
   connection: TerminalConnection;
@@ -55,14 +56,14 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
   useEffect(() => {
     let disposed = false;
     let id: string | null = null;
-    const report = (next: RdpStatus, text?: string): void => {
+    const report = (next: RdpStatus, failure?: unknown): void => {
       if (disposed) return;
-      setStatus(next); setMessage(text ?? null); onStatusChange(tabId, next);
+      setStatus(next); setMessage(failure ? errorText(failure) : null); onStatusChange(tabId, next);
     };
     const unsubscribe = window.desktopApi.onRdpEvent(event => {
       if (event.sessionId !== id || disposed) return;
       if (event.type === 'resizing') setResizing(event.active);
-      else report(event.status, event.message);
+      else report(event.status, event.error);
     });
     const attach = (sessionId: string): void => {
       id = sessionId;
@@ -86,7 +87,7 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
         attach(result.sessionId);
         lastBounds.current = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
         syncRef.current();
-      }).catch((error: Error) => report('error', error.message));
+      }).catch((error: unknown) => report('error', error));
     }, 0);
     return () => {
       disposed = true;

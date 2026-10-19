@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, webContents } from 'electron';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { findConnection } from '../ssh/session';
 import { requireSshSender } from '../ssh/ipc';
@@ -20,7 +21,7 @@ const ActionSchema = z.object({ ...session, action: z.enum(RDP_ACTIONS) }).stric
 
 function parse<T>(schema: z.ZodType<T>, request: unknown): T {
   const result = schema.safeParse(request);
-  if (!result.success) throw new Error('Ungültige RDP-Anfrage.');
+  if (!result.success) throw new AppError('core.invalidRdpRequest');
   return result.data;
 }
 
@@ -39,8 +40,8 @@ export function registerRdpIpcHandlers(): RdpSessionManager {
     mode: rdpSurfaceMode(),
     getTarget: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
-      if (connection?.protocol !== 'rdp') throw new Error('Die RDP-Verbindung wurde nicht gefunden.');
-      if (!connection.host.trim()) throw new Error('Bitte speichere einen Host, bevor du die Verbindung startest.');
+      if (connection?.protocol !== 'rdp') throw new AppError('core.rdpNotFound');
+      if (!connection.host.trim()) throw new AppError('core.rdpHostMissing');
       return { host: connection.host, port: connection.port, username: connection.username, domain: connection.rdp.domain,
         password: connection.password || undefined, clipboard: connection.rdp.clipboard };
     },

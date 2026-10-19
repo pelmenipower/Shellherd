@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { VaultNode } from '../../../shared/vault/types';
 import { flattenConnections } from '../cluster-form';
 import type { ConnectionFields } from '../connection-form';
+import { errorText } from '../error-text';
 
 interface ClusterFormProps {
   /** Prefix for element ids, shared with the surrounding ConnectionForm. */
@@ -42,7 +43,7 @@ export function ClusterForm({ idPrefix, fields, nodes, busy, error, onChange }: 
       setContexts(result.contexts);
     } catch (caught) {
       setContexts([]);
-      setProbeError(caught instanceof Error ? caught.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Die Contexts konnten nicht gelesen werden.');
+      setProbeError(errorText(caught, 'Die Contexts konnten nicht gelesen werden.'));
     } finally { setProbing(false); }
   }
 
