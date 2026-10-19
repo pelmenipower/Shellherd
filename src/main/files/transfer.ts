@@ -25,7 +25,7 @@ export async function planTransfer(from: FileSystem, to: FileSystem, sources: st
   const items: PlannedItem[] = [];
   let skipped = 0;
   const add = (item: PlannedItem): void => {
-    if (items.length >= MAX_PLANNED) throw new FileError(`Mehr als ${MAX_PLANNED} Dateien und Ordner auf einmal werden nicht übertragen.`);
+    if (items.length >= MAX_PLANNED) throw new FileError('files.tooManyPlanned', { max: MAX_PLANNED });
     items.push(item);
   };
   const walk = async (dir: string, target: string): Promise<void> => {
@@ -44,7 +44,7 @@ export async function planTransfer(from: FileSystem, to: FileSystem, sources: st
   for (const source of sources) {
     checkAborted(signal);
     const entry = await from.stat(source);
-    if (!entry) throw new FileError(`„${from.basename(source)}“ wurde nicht gefunden.`);
+    if (!entry) throw new FileError('files.sourceNotFound', { name: from.basename(source) });
     const name = from.basename(source);
     const target = to.join(targetDir, name);
     if (entry.type === 'directory') {
@@ -66,12 +66,12 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
     job.current = item.name;
     const existing = await to.stat(item.target);
     if (item.type === 'directory') {
-      if (existing && existing.type !== 'directory') throw new FileError(`„${item.name}“ existiert im Ziel bereits als Datei.`);
+      if (existing && existing.type !== 'directory') throw new FileError('files.existsAsFile', { name: item.name });
       if (!existing) await to.mkdir(item.target);
       continue;
     }
     if (existing) {
-      if (existing.type === 'directory') throw new FileError(`„${item.name}“ existiert im Ziel bereits als Ordner.`);
+      if (existing.type === 'directory') throw new FileError('files.existsAsDirectory', { name: item.name });
       let choice = policy;
       if (!choice) {
         const answer = await hooks.conflict({ name: item.name, source: { size: item.size, modified: item.modified },

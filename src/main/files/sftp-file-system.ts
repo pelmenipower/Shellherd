@@ -47,7 +47,7 @@ export function sftpFileSystem(sftp: SFTPWrapper): RemoteFileSystem {
     realpath: path => call<string>(callback => sftp.realpath(path, callback)),
     list: async dir => {
       const list = await call<{ filename: string; attrs: Attributes }[]>(callback => sftp.readdir(dir, callback));
-      if (list.length > MAX_ENTRIES) throw new FileError(`Der Ordner enthält mehr als ${MAX_ENTRIES} Einträge.`);
+      if (list.length > MAX_ENTRIES) throw new FileError('files.tooManyEntries', { max: MAX_ENTRIES });
       const visible = list.filter(item => item.filename !== '.' && item.filename !== '..');
       return mapLimit(visible, 16, async item => (item.attrs.mode & TYPE_MASK) === LINK
         ? remoteEntry(item.filename, item.attrs, await stat(posix.join(dir, item.filename)).catch(() => null))
@@ -72,7 +72,7 @@ export async function removeRemote(fs: RemoteFileSystem, path: string, signal?: 
   if (!entry) return;
   const walk = async (dir: string): Promise<void> => {
     for (const child of await fs.list(dir)) {
-      if (signal?.aborted) throw new FileError('Löschen abgebrochen.');
+      if (signal?.aborted) throw new FileError('files.deleteCanceled');
       const childPath = fs.join(dir, child.name);
       if (child.type === 'directory') await walk(childPath);
       else await fs.removeFile(childPath);

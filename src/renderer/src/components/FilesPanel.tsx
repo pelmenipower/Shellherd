@@ -5,6 +5,8 @@ import type { SshStatus } from '../../../shared/ssh';
 import type { ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob } from '../../../shared/sftp';
 import type { FileSide } from '../file-browser';
 import { formatDate, formatSize, ipcErrorText, isFinished, jobPercent, joinPath } from '../file-browser';
+import { errorText } from '../error-text';
+import { useT } from '../i18n';
 import { liveSessions } from '../session-registry';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -105,7 +107,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     };
     const unsubscribe = window.desktopApi.onSftpEvent(event => {
       if (event.sessionId !== id || disposed) return;
-      if (event.type === 'status') { if (event.status === 'connected') connected(); else report(event.status, event.message); }
+      if (event.type === 'status') { if (event.status === 'connected') connected(); else report(event.status, event.error ? errorText(event.error) : undefined); }
       else if (event.type === 'conflict') setConflict(event.conflict);
       else if (event.type === 'edit') {
         const { edit, closed } = event;
@@ -238,6 +240,8 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
 }
 
 function TransferQueue({ jobs, activeCount, onCancel, onClear }: { jobs: TransferJob[]; activeCount: number; onCancel: (jobId: string) => void; onClear: () => void }) {
+  const { t } = useT();
+  const jobLabel = (job: TransferJob): string => job.entryCount > 1 ? t('files:transfer.entries', { count: job.entryCount }) : job.label;
   return (
     <section className="transfer-queue" aria-label="Übertragungen">
       <header><strong>Übertragungen</strong><span>{activeCount ? `${activeCount} aktiv` : 'alle erledigt'}</span>
@@ -246,14 +250,14 @@ function TransferQueue({ jobs, activeCount, onCancel, onClear }: { jobs: Transfe
         {[...jobs].reverse().map(job => <li key={job.id} className={`transfer-job is-${job.state}`}>
           <span className="transfer-direction" title={job.direction === 'upload' ? 'Hochladen' : 'Herunterladen'}>{job.direction === 'upload' ? '↑' : '↓'}</span>
           <div className="transfer-main">
-            <div className="transfer-title"><strong>{job.label}</strong>{job.move && <small>verschieben</small>}<span className="transfer-target" title={job.targetDir}>→ {job.targetDir}</span></div>
-            <progress max={100} value={jobPercent(job)} aria-label={`Fortschritt ${job.label}`} />
+            <div className="transfer-title"><strong>{jobLabel(job)}</strong>{job.move && <small>verschieben</small>}<span className="transfer-target" title={job.targetDir}>→ {job.targetDir}</span></div>
+            <progress max={100} value={jobPercent(job)} aria-label={`Fortschritt ${jobLabel(job)}`} />
             <small>{stateLabels[job.state]}
               {job.totalFiles > 0 && ` · ${job.doneFiles} von ${job.totalFiles} Dateien`}
               {job.totalBytes > 0 && ` · ${formatSize(job.doneBytes)} von ${formatSize(job.totalBytes)}`}
               {job.skippedFiles > 0 && ` · ${job.skippedFiles} übersprungen`}
               {job.current && ` · ${job.current}`}
-              {job.message && ` · ${job.message}`}</small>
+              {job.error && ` · ${errorText(job.error)}`}</small>
           </div>
           {!isFinished(job) && <button type="button" className="secondary-button" onClick={() => onCancel(job.id)}>Abbrechen</button>}
         </li>)}
@@ -277,7 +281,7 @@ function EditList({ edits, onOpen, onUpload, onClose }: { edits: EditedFile[]; o
           <div className="transfer-main">
             <div className="transfer-title"><strong>{edit.name}</strong><span className="transfer-target" title={edit.remotePath}>{edit.remotePath}</span></div>
             <small role="status">{editLabels[edit.state]}{edit.state === 'saved' && edit.savedAt ? ` um ${timeFormat.format(edit.savedAt)}` : ''}
-              {edit.message && ` · ${edit.message}`}</small>
+              {edit.error && ` · ${errorText(edit.error)}`}</small>
           </div>
           {edit.state === 'conflict' && <button type="button" className="secondary-button" title="Die Serverversion wird durch deine Fassung ersetzt" onClick={() => onUpload(edit.id)}>Trotzdem hochladen</button>}
           {edit.state === 'error' && <button type="button" className="secondary-button" onClick={() => onUpload(edit.id)}>Erneut hochladen</button>}

@@ -1,1 +1,6 @@
-{}
+{
+  "transfer": {
+    "entries_one": "{{count}} Eintrag",
+    "entries_other": "{{count}} Einträge"
+  }
+}

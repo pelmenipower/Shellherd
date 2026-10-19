@@ -4,13 +4,14 @@ import { pipeline } from 'node:stream/promises';
 import { posix } from 'node:path';
 import { Client } from 'ssh2';
 import type { SFTPWrapper } from 'ssh2';
+import { type CodedError } from '../../shared/errors';
 import type { ConnectionNode } from '../../shared/vault/types';
 import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
 import type { EditorChoice } from '../../shared/sftp';
 import type { ConflictChoice, DirectoryListing, SftpEvent, SftpSessionState, SftpStatus, SftpTransferRequest, TransferConflict, TransferJob } from '../../shared/sftp';
 import { sshConnectConfig } from '../ssh/client-config';
 import { publicError } from '../ssh/session';
-import { FileError, fileErrorText } from './file-system';
+import { FileError, fileError } from './file-system';
 import type { FileSystem } from './file-system';
 import { removeRemote, sftpFileSystem } from './sftp-file-system';
 import type { RemoteFileSystem } from './sftp-file-system';
@@ -59,10 +60,10 @@ export class SftpSessionManager {
   constructor(private readonly dependencies: SftpDependencies) {}
 
   open(ownerId: number, connectionId: string): { sessionId: string } {
-    if (this.sessions.size >= MAX_SFTP_SESSIONS) throw new FileError(`Maximal ${MAX_SFTP_SESSIONS} Dateiverbindungen gleichzeitig. Schließe zuerst einen Tab.`);
+    if (this.sessions.size >= MAX_SFTP_SESSIONS) throw new FileError('files.maxSessions', { max: MAX_SFTP_SESSIONS });
     const connection = this.dependencies.getConnection(connectionId);
-    if (connection.protocol !== 'sftp' && connection.protocol !== 'ssh') throw new FileError('Diese Verbindung unterstützt keine Dateiübertragung.');
-    if (!connection.host.trim() || !connection.username?.trim()) throw new FileError('Bitte speichere Host und Benutzername, bevor du die Verbindung startest.');
+    if (connection.protocol !== 'sftp' && connection.protocol !== 'ssh') throw new FileError('files.noTransferSupport');
+    if (!connection.host.trim() || !connection.username?.trim()) throw new FileError('files.missingHostOrUser');
     const client = this.dependencies.createClient?.() ?? new Client();
     const session: Session = { id: randomUUID(), ownerId, connectionId, client, status: 'connecting', jobs: [] };
     this.sessions.set(session.id, session);
@@ -78,7 +79,7 @@ export class SftpSessionManager {
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
           .then(valid => {
-            if (!valid && this.active(session)) this.finish(session, 'error', 'Der Server-Schlüssel wurde nicht bestätigt.');
+            if (!valid && this.active(session)) this.finish(session, 'error', { code: 'files.hostKeyRejected' });
             callback(valid && this.active(session));
           }).catch(error => { this.finish(session, 'error', publicError(error)); callback(false); });
       });
@@ -88,7 +89,7 @@ export class SftpSessionManager {
         this.clearKey(session);
         session.client.sftp((error: Error | undefined, sftp: SFTPWrapper) => {
           if (!this.active(session)) { sftp?.end(); return; }
-          if (error) { this.finish(session, 'error', 'Der Server bietet kein SFTP an.'); return; }
+          if (error) { this.finish(session, 'error', { code: 'files.noSftp' }); return; }
           sftp.on('close', () => this.finish(session, 'closed'));
           session.fs = sftpFileSystem(sftp);
           session.edits = new RemoteEdits(session.fs, { openFile: this.dependencies.openFile, pollInterval: this.dependencies.editPollInterval,
@@ -107,13 +108,13 @@ export class SftpSessionManager {
 
   private owned(ownerId: number, id: string): Session {
     const session = this.sessions.get(id);
-    if (!session || session.ownerId !== ownerId) throw new FileError('Die Dateiverbindung ist nicht verfügbar.');
+    if (!session || session.ownerId !== ownerId) throw new FileError('files.sessionUnavailable');
     return session;
   }
 
   private remote(ownerId: number, id: string): RemoteFileSystem {
     const session = this.owned(ownerId, id);
-    if (!session.fs) throw new FileError('Die Dateiverbindung ist noch nicht bereit.');
+    if (!session.fs) throw new FileError('files.sessionNotReady');
     return session.fs;
   }
 
@@ -131,7 +132,7 @@ export class SftpSessionManager {
   async delete(ownerId: number, id: string, paths: string[]): Promise<void> {
     const fs = this.remote(ownerId, id);
     for (const path of paths) {
-      if (posix.normalize(path) === '/') throw new FileError('Das Wurzelverzeichnis kann nicht gelöscht werden.');
+      if (posix.normalize(path) === '/') throw new FileError('files.rootDelete');
       await removeRemote(fs, path);
     }
   }
@@ -157,7 +158,7 @@ export class SftpSessionManager {
   /** Creates an empty file; an existing file is never replaced. */
   async createFile(ownerId: number, id: string, path: string): Promise<void> {
     const fs = this.remote(ownerId, id);
-    if (await fs.lstat(path)) throw new FileError('Ein Eintrag mit diesem Namen existiert bereits.');
+    if (await fs.lstat(path)) throw new FileError('files.exists');
     await pipeline(Readable.from([]), fs.write(path));
   }
   editOpen(ownerId: number, id: string, editId: string): Promise<void> { return this.editor(ownerId, id).reopen(editId); }
@@ -168,10 +169,10 @@ export class SftpSessionManager {
   /** Queues a transfer; jobs of a connection run one after another. */
   transfer(ownerId: number, request: SftpTransferRequest): { jobId: string } {
     const session = this.owned(ownerId, request.sessionId);
-    if (!session.fs) throw new FileError('Die Dateiverbindung ist noch nicht bereit.');
+    if (!session.fs) throw new FileError('files.sessionNotReady');
     const names = request.sources.map(source => request.direction === 'upload' ? this.dependencies.local.basename(source) : posix.basename(source));
     const job: TransferJob = { id: randomUUID(), direction: request.direction, move: request.move, targetDir: request.targetDir,
-      label: names.length === 1 ? names[0] : `${names.length} Einträge`, state: 'queued',
+      label: names[0] ?? '', entryCount: names.length, state: 'queued',
       totalBytes: 0, doneBytes: 0, totalFiles: 0, doneFiles: 0, skippedFiles: 0 };
     const entry: Job = { job, sources: request.sources, controller: new AbortController(), lastEmit: 0 };
     session.jobs.push(entry);
@@ -213,7 +214,7 @@ export class SftpSessionManager {
       job.state = 'done';
     } catch (error) {
       job.state = error instanceof TransferCanceled || controller.signal.aborted ? 'canceled' : 'error';
-      if (job.state === 'error') job.message = fileErrorText(error);
+      if (job.state === 'error') job.error = fileError(error);
     } finally {
       job.current = undefined;
       session.running = undefined;
@@ -279,7 +280,7 @@ export class SftpSessionManager {
   owns(ownerId: number, id: string): boolean { return this.sessions.get(id)?.ownerId === ownerId; }
   hasOwner(ownerId: number): boolean { return [...this.sessions.values()].some(session => session.ownerId === ownerId); }
 
-  private finish(session: Session, status: 'closed' | 'error', message?: string): void {
+  private finish(session: Session, status: 'closed' | 'error', error?: CodedError): void {
     if (!this.active(session)) return;
     this.sessions.delete(session.id);
     this.clearKey(session);
@@ -288,6 +289,6 @@ export class SftpSessionManager {
     session.edits?.closeAll();
     session.client.destroy();
     session.status = status;
-    this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(message ? { message } : {}) });
+    this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error } : {}) });
   }
 }

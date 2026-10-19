@@ -3,6 +3,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { spawn } from 'node:child_process';
 import { extname, win32 } from 'node:path';
 import { z } from 'zod';
+import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import type { EditorChoice } from '../../shared/sftp';
 import { writeFile } from 'node:fs/promises';
@@ -10,7 +11,7 @@ import type { KnownHosts } from '../ssh/known-hosts';
 import { requireSshSender } from '../ssh/ipc';
 import { findConnection } from '../ssh/session';
 import { vaultSessionManager } from '../vault/ipc';
-import { FileError, fileErrorText, localFileSystem, localPlaces } from './file-system';
+import { FileError, fileError, localFileSystem, localPlaces } from './file-system';
 import { SftpSessionManager } from './sftp-session';
 
 const noNul = (value: string) => !value.includes('\0');
@@ -54,7 +55,7 @@ export async function openForEditing(path: string, editor: EditorChoice = 'defau
 
 function parse<T>(schema: z.ZodType<T>, request: unknown): T {
   const result = schema.safeParse(request);
-  if (!result.success) throw new Error('Ungültige Dateianfrage.');
+  if (!result.success) throw new AppError('files.invalidRequest');
   return result.data;
 }
 
@@ -64,7 +65,7 @@ function handle<T>(channel: string, schema: z.ZodType<T>, run: (ownerId: number,
     const ownerId = requireSshSender(event);
     vaultSessionManager.getSnapshot();
     const parsed = parse(schema, request);
-    try { return await run(ownerId, parsed); } catch (error) { throw new Error(fileErrorText(error)); }
+    try { return await run(ownerId, parsed); } catch (error) { throw AppError.from(fileError(error)); }
   });
 }
 
@@ -72,7 +73,7 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
   const manager = new SftpSessionManager({
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
-      if (!connection) throw new FileError('Die Verbindung wurde nicht gefunden.');
+      if (!connection) throw new FileError('files.connectionNotFound');
       return connection;
     },
     verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),

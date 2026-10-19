@@ -33,7 +33,7 @@ function memory(files: Record<string, string | null>, modified = 1000): FileSyst
   };
 }
 
-const newJob = (move = false): TransferJob => ({ id: 'job', direction: 'upload', move, label: 'x', targetDir: '/target', state: 'running',
+const newJob = (move = false): TransferJob => ({ id: 'job', direction: 'upload', move, label: 'x', entryCount: 1, targetDir: '/target', state: 'running',
   totalBytes: 0, doneBytes: 0, totalFiles: 0, doneFiles: 0, skippedFiles: 0 });
 const hooks = (conflict: TransferHooks['conflict'] = async () => ({ choice: 'overwrite', applyToAll: false })): TransferHooks => ({ progress: () => {}, conflict });
 const signal = () => new AbortController().signal;
@@ -101,6 +101,6 @@ describe('file transfer', () => {
   it('refuses to replace a folder with a file', async () => {
     const from = memory({ '/a': 'file' });
     const to = memory({ '/target': null, '/target/a': null });
-    await expect(transfer(from, to, ['/a'])).rejects.toThrow('als Ordner');
+    await expect(transfer(from, to, ['/a'])).rejects.toMatchObject({ code: 'files.existsAsDirectory' });
   });
 });

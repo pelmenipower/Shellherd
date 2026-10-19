@@ -1,3 +1,4 @@
+import { errorText } from './error-text';
 import type { FileEntry, TransferJob } from '../../shared/sftp';
 
 export type FileSide = 'local' | 'remote';
@@ -96,9 +97,9 @@ export function jobPercent(job: TransferJob): number {
 
 export function isFinished(job: TransferJob): boolean { return job.state !== 'queued' && job.state !== 'running'; }
 
-/** Electron prefixes errors from the main process; the window shows only the message. */
+/** Coded main errors become catalog text; foreign errors lose Electron's prefix. */
 export function ipcErrorText(error: unknown, fallback = 'Die Dateiaktion ist fehlgeschlagen.'): string {
-  return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : fallback;
+  return errorText(error, fallback);
 }
 
 /** Octal text (`644`, `0755`) to permission bits; null when invalid. */

@@ -1,4 +1,5 @@
 /** Shared types of the file browser (SFTP now, FTP later). */
+import type { CodedError } from './errors';
 
 export const MAX_SFTP_SESSIONS = 16;
 
@@ -30,7 +31,10 @@ export interface TransferJob {
   direction: TransferDirection;
   /** Delete each source after it was copied. */
   move: boolean;
+  /** Name of the first entry. */
   label: string;
+  /** Number of requested sources. */
+  entryCount: number;
   targetDir: string;
   state: TransferState;
   totalBytes: number;
@@ -39,7 +43,7 @@ export interface TransferJob {
   doneFiles: number;
   skippedFiles: number;
   current?: string;
-  message?: string;
+  error?: CodedError;
 }
 
 export interface TransferConflict {
@@ -58,11 +62,11 @@ export interface EditedFile {
   state: 'open' | 'uploading' | 'saved' | 'conflict' | 'error';
   /** Last successful upload, milliseconds since 1970. */
   savedAt?: number;
-  message?: string;
+  error?: CodedError;
 }
 
 export type SftpEvent =
-  | { type: 'status'; sessionId: string; status: SftpStatus; message?: string }
+  | { type: 'status'; sessionId: string; status: SftpStatus; error?: CodedError }
   | { type: 'edit'; sessionId: string; edit: EditedFile; closed?: boolean }
   | { type: 'transfer'; sessionId: string; job: TransferJob }
   | { type: 'conflict'; sessionId: string; conflict: TransferConflict };

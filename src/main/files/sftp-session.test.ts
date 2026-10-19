@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Client } from 'ssh2';
 import type { ConnectionNode } from '../../shared/vault/types';
 import type { SftpEvent } from '../../shared/sftp';
-import { localFileSystem } from './file-system';
+import { FileError, localFileSystem } from './file-system';
 import { SftpSessionManager } from './sftp-session';
 import { permissionText, remoteEntry } from './sftp-file-system';
 
@@ -17,7 +17,7 @@ function setup() {
   const events: { ownerId: number; event: SftpEvent }[] = [];
   const clients: (EventEmitter & { connect: ReturnType<typeof vi.fn>; destroy: ReturnType<typeof vi.fn> })[] = [];
   const manager = new SftpSessionManager({
-    getConnection: id => { const node = nodes[id]; if (!node) throw new Error('Die Verbindung wurde nicht gefunden.'); return node; },
+    getConnection: id => { const node = nodes[id]; if (!node) throw new FileError('files.connectionNotFound'); return node; },
     verifyHost: async () => true,
     emit: (ownerId, event) => events.push({ ownerId, event }),
     local: localFileSystem,
@@ -37,17 +37,17 @@ describe('SFTP sessions', () => {
     const result = manager.open(1, 'files');
     expect(JSON.stringify(result)).not.toContain('synthetic-secret');
     await vi.waitFor(() => expect(clients[0].connect).toHaveBeenCalledWith(expect.objectContaining({ host: 'example.test', password: 'synthetic-secret' })));
-    expect(() => manager.open(1, 'desktop')).toThrow('keine Dateiübertragung');
+    expect(() => manager.open(1, 'desktop')).toThrow(expect.objectContaining({ code: 'files.noTransferSupport' }));
     manager.closeAll();
   });
 
   it('belongs to one window at a time and follows a tab into another window', () => {
     const { manager, events } = setup();
     const { sessionId } = manager.open(1, 'files');
-    expect(() => manager.state(2, sessionId)).toThrow('nicht verfügbar');
+    expect(() => manager.state(2, sessionId)).toThrow(expect.objectContaining({ code: 'files.sessionUnavailable' }));
     expect(manager.transferOwner(1, sessionId, 2)).toBe('connecting');
     expect(manager.owns(2, sessionId)).toBe(true);
-    expect(() => manager.close(1, sessionId)).toThrow('nicht verfügbar');
+    expect(() => manager.close(1, sessionId)).toThrow(expect.objectContaining({ code: 'files.sessionUnavailable' }));
     manager.close(2, sessionId);
     expect(events.at(-1)).toEqual({ ownerId: 2, event: { type: 'status', sessionId, status: 'closed' } });
   });
@@ -55,8 +55,8 @@ describe('SFTP sessions', () => {
   it('refuses file actions before the connection is ready', async () => {
     const { manager } = setup();
     const { sessionId } = manager.open(1, 'files');
-    await expect(manager.list(1, sessionId, '/')).rejects.toThrow('noch nicht bereit');
-    expect(() => manager.transfer(1, { sessionId, direction: 'download', sources: ['/a'], targetDir: 'C:\\', move: false })).toThrow('noch nicht bereit');
+    await expect(manager.list(1, sessionId, '/')).rejects.toMatchObject({ code: 'files.sessionNotReady' });
+    expect(() => manager.transfer(1, { sessionId, direction: 'download', sources: ['/a'], targetDir: 'C:\\', move: false })).toThrow(expect.objectContaining({ code: 'files.sessionNotReady' }));
     manager.closeAll();
   });
 
