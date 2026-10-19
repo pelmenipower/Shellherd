@@ -8,6 +8,7 @@ import { basename, join } from 'node:path';
 import { LastVaultFile } from './last-vault';
 
 import { IPC_CHANNELS } from '../../shared/ipc';
+import { vaultWriteMessage } from '../../shared/vault/write-errors';
 import { VaultSessionManager } from './session';
 import { saveVault } from './storage';
 
@@ -185,9 +186,16 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
       _event,
       request: SaveCurrentVaultRequest,
     ): Promise<VaultSessionResult> => {
-      const result = await vaultSessionManager.save(
-        request.vault,
-      );
+      let result: VaultSessionResult;
+      try {
+        result = await vaultSessionManager.save(
+          request.vault,
+        );
+      } catch (error) {
+        // Fixed German cause without path or raw text; unknown errors pass through.
+        const message = vaultWriteMessage((error as NodeJS.ErrnoException)?.code);
+        throw message ? new Error(message) : error;
+      }
       onVaultChange();
       return result;
     },
