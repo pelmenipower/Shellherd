@@ -103,7 +103,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
   useNativeSurfaceBlock(Boolean(draggedTabId) || menuPane !== null || externalHover !== null || viewDragging);
   /**
    * Dragging a view tab: drop on another view tab to reorder, outside the window to detach the whole
-   * view, or over another Terminus window to dock it there as a view. A plain click still selects.
+   * view, or over another Shellherd window to dock it there as a view. A plain click still selects.
    */
   const beginViewDrag = (view: { id: string; name: string }, event: ReactPointerEvent<HTMLButtonElement>): void => {
     if (busy || event.button !== 0 || !event.isPrimary || !viewControls) return;

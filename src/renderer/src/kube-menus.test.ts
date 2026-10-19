@@ -448,7 +448,7 @@ describe('A8 events', () => {
   it('disables the jumps for a foreign kind with the reason (C5)', () => {
     const entries = rowMenu(event({ kind: 'ReplicaSet', name: 'api-5d8f' }));
     for (const id of ['involved', 'involved-events', 'involved-describe']) {
-      expect(find(entries, id)).toMatchObject({ disabled: true, hint: 'Objekte vom Typ ReplicaSet zeigt Terminus nicht an.' });
+      expect(find(entries, id)).toMatchObject({ disabled: true, hint: 'Objekte vom Typ ReplicaSet zeigt Shellherd nicht an.' });
     }
     expect(find(entries, 'copy-object').run).toMatchObject({ text: 'ReplicaSet/api-5d8f' });
   });
@@ -723,7 +723,7 @@ describe('K dock content', () => {
   });
   it('disables the jump for a foreign object kind', () => {
     const ev = row('events', 'e', { cells: { message: 'm' }, involved: { kind: 'Lease', name: 'l' } });
-    expect(find(menu({ type: 'dockEvent', row: ev }), 'involved')).toMatchObject({ disabled: true, hint: 'Objekte vom Typ Lease zeigt Terminus nicht an.' });
+    expect(find(menu({ type: 'dockEvent', row: ev }), 'involved')).toMatchObject({ disabled: true, hint: 'Objekte vom Typ Lease zeigt Shellherd nicht an.' });
   });
 });
 

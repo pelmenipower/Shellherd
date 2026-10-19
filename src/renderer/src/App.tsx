@@ -57,6 +57,7 @@ import type { Workflow } from '../../shared/vault/types';
 import { ConnectionForm } from './components/ConnectionForm';
 import { parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
+import mark from '../../../resources/mark-64.png';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
 
@@ -179,7 +180,7 @@ export default function App() {
     : undefined;
   const canCreateFolder = selectedNodeId === null || selectedNode?.type === 'folder';
 
-  // Vault files opened from Explorer: at start and while Terminus runs.
+  // Vault files opened from Explorer: at start and while Shellherd runs.
   const screenRef = useRef(screen);
   screenRef.current = screen;
   // Explorer and drag and drop: an open vault is locked first, after a confirmation.
@@ -754,7 +755,7 @@ export default function App() {
           aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed(value => !value)}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
         </button>
-        <div className="header-vault" title={vaultPath ?? undefined}><span className="brand-word">Terminus</span><strong>{vault.name}</strong></div>
+        <div className="header-vault" title={vaultPath ?? undefined}><img className="brand-icon" src={mark} alt="" /><span className="brand-word">Shellherd</span><strong>{vault.name}</strong></div>
         <WorkspaceControls workspaces={vault.workspaces} busy={busy} hasTabs={terminals.tabs.length > 0}
           activeId={activeWorkspaceId} dirty={workspaceDirty} onSave={saveWorkspace}
           onOpen={id => navigateEditor(() => openWorkspace(id))} onRename={renameWorkspace} onDelete={deleteWorkspace}
@@ -866,8 +867,8 @@ export default function App() {
       {fileDropHint}
       <section className="welcome-card">
         <div className="brand large-brand">
-          <span className="brand-mark"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m4 6 6 6-6 6m9 0h7" /></svg></span>
-          <span>Terminus</span>
+          <img className="brand-mark" src={mark} alt="" />
+          <span>Shellherd</span>
         </div>
 
         {screen === 'home' && (
@@ -1054,7 +1055,7 @@ export default function App() {
           </form>
         )}
 
-        <footer>Terminus {version}</footer>
+        <footer>Shellherd {version}</footer>
       </section>
     </main>
   );

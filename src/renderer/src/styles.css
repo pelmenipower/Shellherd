@@ -44,7 +44,7 @@ label { font-size: var(--fs-sm); font-weight: 500; color: var(--color-text-muted
 .app-shell { display: grid; min-height: 100dvh; place-items: center; padding: var(--space-24); }
 .welcome-card { width: min(440px, 100%); padding: var(--space-24); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-panel); }
 .brand { display: flex; gap: var(--space-10); align-items: center; font-size: var(--fs-lg); font-weight: 600; }
-.brand-mark { display: grid; place-items: center; width: var(--control-sm); height: var(--control-sm); color: var(--color-accent); }
+.brand-mark { width: var(--control-lg); height: var(--control-lg); object-fit: contain; }
 .large-brand { margin-bottom: var(--space-24); }
 .welcome-card h1 { margin-bottom: var(--space-12); }
 .welcome-card h2 { margin-bottom: var(--space-4); }
@@ -58,6 +58,7 @@ label { font-size: var(--fs-sm); font-weight: 500; color: var(--color-text-muted
 .vault-shell { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
 .app-header { display: flex; align-items: center; gap: var(--space-12); flex: 0 0 var(--bar-lg); padding: 0 var(--space-10); border-bottom: 1px solid var(--color-border); background: var(--color-bg-panel); position: relative; z-index: var(--layer-header); }
 .header-vault { display: flex; align-items: center; gap: var(--space-16); min-width: 0; max-width: 32%; }
+.brand-icon { width: var(--control-xs); height: var(--control-xs); flex: 0 0 auto; object-fit: contain; }
 .header-vault strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .brand-word { color: var(--color-text-muted); font-size: var(--fs-sm); }
 .lock-button { margin-left: auto; flex: 0 0 auto; }
