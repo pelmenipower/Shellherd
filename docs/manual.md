@@ -67,11 +67,27 @@ Right-click pastes the clipboard text into the terminal you clicked.
 Pasting goes through xterm and respects the server's bracketed paste mode.
 The usual copy and paste shortcuts remain available.
 
-## Language
+## Settings
 
-Shellherd follows the system language by default: German on a German Windows, English otherwise. The `Language` setting on the start card and on the welcome page offers `System`, `Deutsch` and `English`. A change takes effect immediately in all windows, without a restart. The choice is stored in `settings.json` in the user data folder (`%APPDATA%\Shellherd\settings.json`), not in the vault.
+The gear on the right of the header opens the settings, as does `Ctrl+,`. Before unlocking, the `Settings` link at the bottom of the start card leads there. Every value applies immediately; there is no “Save”. Detached windows have no settings of their own; language and the vault setting still apply there. While an RDP session has the focus, shortcuts go to the remote computer, `Ctrl+,` included.
+
+### Language
+
+Shellherd follows the system language by default: German on a German Windows, English otherwise. The `Language` setting under Settings → General offers `System`, `Deutsch` and `English`. A change takes effect immediately in all windows, without a restart. The choice is stored in `settings.json` in the user data folder (`%APPDATA%\Shellherd\settings.json`), not in the vault.
 
 The AI assistant answers in the selected language. kubectl-like output and raw status values stay in English. The installer follows the Windows language.
+
+### File association
+
+`Add to Windows` under Settings → General associates `.term` files with Shellherd: a double-click in Explorer or right-click → “Open with Shellherd” opens the vault. The association applies to the signed-in user only (HKCU) and needs no administrator rights. `Remove association` takes it out again.
+
+### Vault
+
+`Ask before disconnecting running sessions` (default: on) asks before closing a tab or window, locking or switching workspaces ends running sessions. The setting belongs to the vault and is saved encrypted with it; it appears only after unlocking.
+
+### AI providers
+
+Settings → AI assistant shows the number and the default of the configured providers. `Manage providers` opens the provider list, `Done` returns to the settings. The gear in the assistant panel opens the same list; keys are stored encrypted in the vault.
 
 ## Split views and workspaces
 

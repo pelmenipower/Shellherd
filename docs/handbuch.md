@@ -66,13 +66,29 @@ Rechtsklick fügt den Text aus der Zwischenablage in das angeklickte Terminal ei
 Das Einfügen läuft über xterm und berücksichtigt den Bracketed-Paste-Modus des
 Servers. Die üblichen Kopier- und Einfüge-Tastenkürzel bleiben verfügbar.
 
-## Sprache
+## Einstellungen
+
+Das Zahnrad rechts in der Kopfzeile öffnet die Einstellungen, ebenso `Strg+,`. Vor dem Entsperren führt der Link `Einstellungen` unten auf der Startkarte dorthin. Alle Werte gelten sofort, ein „Speichern“ gibt es nicht. Nebenfenster haben keine eigenen Einstellungen; Sprache und Vault-Einstellung gelten dort trotzdem. Hat eine RDP-Sitzung den Fokus, gehen Tastenkürzel an den entfernten Rechner, auch `Strg+,`.
+
+### Sprache
 
 Shellherd gibt es auf Deutsch und Englisch. Standard ist die Systemsprache: Bei deutscher Windows-Anzeigesprache startet Shellherd auf Deutsch, sonst auf Englisch.
 
-Die Einstellung `Sprache` steht auf der Startkarte und auf der Willkommensseite und bietet `System`, `Deutsch` und `English`. Der Wechsel gilt sofort in allen Fenstern, ohne Neustart; offene Sitzungen laufen weiter. Die Wahl liegt in `settings.json` im Benutzerdatenordner (`%APPDATA%\Shellherd`).
+Die Einstellung `Sprache` unter Einstellungen → Allgemein bietet `System`, `Deutsch` und `English`. Der Wechsel gilt sofort in allen Fenstern, ohne Neustart; offene Sitzungen laufen weiter. Die Wahl liegt in `settings.json` im Benutzerdatenordner (`%APPDATA%\Shellherd`).
 
 Fehlermeldungen, Dialoge und Fenstertitel folgen der Sprache, ebenso Datum, Zahlen, Dateigrößen, Sortierung und Suche. Der KI-Assistent antwortet in der gewählten Sprache. Ausgaben im Stil von `kubectl` (etwa `Beschreiben` in der Cluster-Ansicht) und Rohstatus von Servern bleiben englisch. Der Installer folgt der Windows-Sprache.
+
+### Dateiverknüpfung
+
+`In Windows einbinden` unter Einstellungen → Allgemein verknüpft `.term`-Dateien mit Shellherd: Doppelklick im Explorer oder Rechtsklick → „Mit Shellherd öffnen“ öffnet den Vault. Die Verknüpfung gilt nur für den angemeldeten Benutzer (HKCU) und braucht keine Administratorrechte. `Verknüpfung entfernen` nimmt sie wieder heraus.
+
+### Vault
+
+`Vor dem Trennen laufender Sitzungen nachfragen` (Standard: an) fragt nach, bevor das Schließen eines Tabs oder Fensters, das Sperren oder ein Workspace-Wechsel laufende Sitzungen beendet. Die Einstellung gehört zum Vault und wird verschlüsselt mit ihm gespeichert; sie erscheint erst nach dem Entsperren.
+
+### KI-Anbieter
+
+Unter Einstellungen → KI-Assistent stehen Zahl und Standard der eingerichteten Anbieter. `Anbieter verwalten` öffnet die Anbieterliste, `Fertig` führt zurück in die Einstellungen. Dieselbe Liste öffnet auch das Zahnrad im Assistenten-Panel; die Schlüssel liegen verschlüsselt im Vault.
 
 ## Split-Ansichten und Workspaces
 

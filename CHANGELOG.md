@@ -6,7 +6,8 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 
 ## [0.12.0] – 2026-10-19
 
-- Shellherd gibt es jetzt auf Deutsch und Englisch. Standard ist die Windows-Anzeigesprache; auf der Startkarte und der Willkommensseite stellt „Sprache“ auf System, Deutsch oder English um. Der Wechsel gilt sofort in allen Fenstern, offene Sitzungen laufen weiter.
+- Shellherd gibt es jetzt auf Deutsch und Englisch. Standard ist die Windows-Anzeigesprache; unter Einstellungen (Zahnrad in der Kopfzeile, `Strg+,`, auch auf der Startkarte) stellt „Sprache“ auf System, Deutsch oder English um. Der Wechsel gilt sofort in allen Fenstern, offene Sitzungen laufen weiter.
+- Neuer Dialog „Einstellungen“: Sprache, die Dateiverknüpfung mit `.term`, die Nachfrage vor dem Trennen laufender Sitzungen (pro Vault, bisher ohne Schalter) und der Einstieg zu den KI-Anbietern an einem Ort.
 - Fehlermeldungen, Dialoge, Fenstertitel und der KI-Assistent folgen der eingestellten Sprache; der Assistent antwortet in dieser Sprache.
 - Datum, Zahlen, Dateigrößen, Sortierung und Suche richten sich nach der Sprache. Die Ausgabe von „Beschreiben“ in der Cluster-Ansicht nutzt jetzt die englischen Feldnamen wie `kubectl describe`.
 - Der Installer zeigt seine Texte auf Deutsch oder Englisch, passend zur Windows-Sprache. Release-Notes und Handbuch gibt es in beiden Sprachen (`docs/manual.md`).

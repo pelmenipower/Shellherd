@@ -6,7 +6,8 @@ Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails 
 
 ## [0.12.0] – 2026-10-19
 
-- Shellherd is now available in German and English. It follows the Windows display language by default; “Language” on the start card and the welcome page switches between System, Deutsch and English. The change applies to all windows at once, and open sessions keep running.
+- Shellherd is now available in German and English. It follows the Windows display language by default; “Language” in Settings (gear in the header, `Ctrl+,`, also on the start card) switches between System, Deutsch and English. The change applies to all windows at once, and open sessions keep running.
+- New “Settings” dialog: the language, the `.term` file association, the question before disconnecting running sessions (per vault, previously without a switch) and the entry to the AI providers in one place.
 - Error messages, dialogs, window titles and the AI assistant follow the selected language; the assistant answers in that language.
 - Dates, numbers, file sizes, sorting and search follow the language. The “Describe” output in the cluster view now uses English field names like `kubectl describe`.
 - The installer shows its texts in German or English to match the Windows language. Release notes and the manual are available in both languages (`docs/manual.md`).
