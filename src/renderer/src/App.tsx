@@ -49,12 +49,12 @@ import { useTerminalLayout } from './hooks/useTerminalLayout';
 import { useTabTransfer } from './hooks/useTabTransfer';
 import { useViewControls } from './hooks/useViewControls';
 import { fromWorkspaceViews, toWorkspaceViews, workspaceSummary } from './terminal-views';
-import { FileTypeSetting, WelcomePage } from './components/WelcomePage';
+import { WelcomePage } from './components/WelcomePage';
 import { ReleaseNotesDialog } from './components/ReleaseNotes';
 import { AssistantPanel } from './components/AssistantPanel';
 import { AiSettingsDialog } from './components/AiSettingsDialog';
 import { useAssistantToggle } from './hooks/useAssistantToggle';
-import { useCtrlShiftShortcut } from './hooks/useShortcut';
+import { useCtrlShiftShortcut, useCtrlShortcut } from './hooks/useShortcut';
 import { WorkflowPalette } from './components/WorkflowPalette';
 import { WorkflowsDialog } from './components/WorkflowsDialog';
 import type { Workflow } from '../../shared/vault/types';
@@ -63,10 +63,14 @@ import { parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
 import { errorText } from './error-text';
 import { useT } from './i18n';
-import { LanguageSetting } from './components/LanguageSetting';
+import { SettingsDialog } from './components/SettingsDialog';
+import { settingsShortcutAction } from './shortcut-match';
 import mark from '../../../resources/mark-64.png';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
+type AppDialog =
+  | { kind: 'settings'; instant: boolean; focus: 'close' | 'manageAi' }
+  | { kind: 'ai'; backToSettings: boolean };
 
 function createEmptyVault(name: string): Vault {
   const now = new Date().toISOString();
@@ -113,7 +117,8 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const assistant = useAssistantToggle();
-  const [showAiSettings, setShowAiSettings] = useState(false);
+  const [appDialog, setAppDialog] = useState<AppDialog | null>(null);
+  const settingsReturnFocus = useRef<HTMLElement | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [workflowEditor, setWorkflowEditor] = useState<{ initial?: Partial<Workflow> } | null>(null);
   useCtrlShiftShortcut('Space', () => { if (screenRef.current === 'vault') setPaletteOpen(open => !open); });
@@ -187,6 +192,22 @@ export default function App() {
   // Vault files opened from Explorer: at start and while Shellherd runs.
   const screenRef = useRef(screen);
   screenRef.current = screen;
+
+  function openSettings(instant: boolean): void {
+    settingsReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setAppDialog({ kind: 'settings', instant, focus: 'close' });
+  }
+  function closeDialogs(): void {
+    setAppDialog(null);
+    const target = settingsReturnFocus.current;
+    settingsReturnFocus.current = null;
+    if (target) requestAnimationFrame(() => { if (target.isConnected) target.focus(); });
+  }
+  useCtrlShortcut('Comma', () => {
+    const open = [...document.querySelectorAll('dialog[open]')].map(item => item.className);
+    const action = settingsShortcutAction(appDialog?.kind === 'settings', busy, open);
+    if (action === 'open') openSettings(true); else if (action === 'close') closeDialogs();
+  });
   // Explorer and drag and drop: an open vault is locked first, after a confirmation.
   const [pendingVaultFile, setPendingVaultFile] = useState<string | null>(null);
   const [fileDragActive, setFileDragActive] = useState(false);
@@ -599,6 +620,8 @@ export default function App() {
       setVaultPath(null);
       resetForm();
       setScreen('home');
+      setAppDialog(null);
+      settingsReturnFocus.current = null;
       setBusy(false);
     }
   }
@@ -758,6 +781,12 @@ export default function App() {
     return persistVault({ ...vault, nodes: updateNode(vault.nodes, id, node => ({ ...node, name: name.trim() })) });
   }
 
+  const settingsVault = screen === 'vault' ? vault : null;
+  const settingsDialog = appDialog?.kind === 'settings' && <SettingsDialog vault={settingsVault} busy={busy}
+    instant={appDialog.instant} initialFocus={appDialog.focus} onClose={closeDialogs}
+    onManageAi={() => { if (settingsVault) setAppDialog({ kind: 'ai', backToSettings: true }); }}
+    onSaveSettings={settings => settingsVault ? persistVault({ ...settingsVault, settings }) : Promise.resolve(false)} />;
+
   if (screen === 'vault' && vault) {
     const connectionCount = countConnections(vault.nodes);
     const activeWorkspace = vault.workspaces.find(item => item.id === activeWorkspaceId);
@@ -786,6 +815,10 @@ export default function App() {
           if (terminals.hasRunning && vault.settings.confirmBeforeClosingSession) setPendingSshAction({ type: 'lockVault' });
           else void lockVault();
         })}>{t('app:header.lock')}</button>
+        <button className="icon-button settings-button" type="button" aria-haspopup="dialog" aria-label={t('app:header.settings')}
+          title={t('app:header.settingsTitle', { shortcut: t('common:shortcuts.settings') })} onClick={() => openSettings(false)}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+        </button>
       </header>
       {pendingNavigation && <ConfirmDialog title={t('app:dialogs.unsaved.title')} description={t('app:dialogs.unsaved.description')}
         confirmLabel={t('app:dialogs.unsaved.confirm')} busy={busy} onCancel={() => setPendingNavigation(null)} onConfirm={() => {
@@ -867,15 +900,17 @@ export default function App() {
                 onDirtyChange={setEditorDirty} onSave={saveFolder} onDelete={deleteSelectedNode} onCancel={closeEditor} /> : null}
           </aside>}
           {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)}
-            onManageProviders={() => setShowAiSettings(true)} onSaveWorkflow={command => setWorkflowEditor({ initial: { command } })} />}
+            onManageProviders={() => setAppDialog({ kind: 'ai', backToSettings: false })} onSaveWorkflow={command => setWorkflowEditor({ initial: { command } })} />}
         </section>
       </div>
       {paletteOpen && <WorkflowPalette workflows={vault.workflows ?? []} tabs={terminals.tabs} activeTabId={terminals.activeTabId}
         onClose={() => setPaletteOpen(false)} onManage={() => { setPaletteOpen(false); setWorkflowEditor({}); }} />}
       {workflowEditor && <WorkflowsDialog workflows={vault.workflows ?? []} busy={busy} initial={workflowEditor.initial}
         onClose={() => setWorkflowEditor(null)} onSave={workflows => persistVault({ ...vault, workflows })} />}
-      {showAiSettings && <AiSettingsDialog settings={vault.ai} busy={busy} onClose={() => setShowAiSettings(false)}
+      {appDialog?.kind === 'ai' && <AiSettingsDialog settings={vault.ai} busy={busy}
+        onClose={() => appDialog.backToSettings ? setAppDialog({ kind: 'settings', instant: true, focus: 'manageAi' }) : closeDialogs()}
         onSave={settings => persistVault({ ...vault, ai: settings })} />}
+      {settingsDialog}
       <ToastStack />
       <footer className="app-status"><span role="status">{busy ? t('common:status.saving') : saved ? t('app:status.saved') : t('app:status.open')}</span>
         <span>{t('app:status.activeSessions', { count: runningCount })}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>
@@ -888,6 +923,7 @@ export default function App() {
     <main className="app-shell">
       {fileDropHint}
       <ToastStack />
+      {settingsDialog}
       <section className="welcome-card">
         <div className="brand large-brand">
           <img className="brand-mark" src={mark} alt="" />
@@ -924,8 +960,6 @@ export default function App() {
                 {t('app:home.crypto')}
               </span>
             </div>
-            <FileTypeSetting />
-            <LanguageSetting />
           </>
         )}
 
@@ -1073,7 +1107,7 @@ export default function App() {
           </form>
         )}
 
-        <footer>Shellherd {version}</footer>
+        <footer>Shellherd {version} · <button type="button" className="link-button" onClick={() => openSettings(false)}>{t('app:home.settings')}</button></footer>
       </section>
     </main>
   );
