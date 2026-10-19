@@ -78,6 +78,7 @@ export const IPC_CHANNELS = {
   workspaceRestore: 'workspace:restore',
   closeSecondaryWindows: 'window:close-secondaries',
   vaultLaunchFile: 'vault:launch-file',
+  lastVaultFile: 'vault:last-file',
   connectionTest: 'connection:test',
   containersList: 'containers:list',
   containersAction: 'containers:action',
@@ -219,6 +220,8 @@ export interface DesktopApi {
   closeSecondaryWindows: () => Promise<void>;
   /** Vault file Terminus was started with from Explorer; returned once. */
   vaultLaunchFile: () => Promise<string | null>;
+  /** Path of the vault opened last, if the file still exists; preselected on the open screen. */
+  lastVaultFile: () => Promise<string | null>;
   /** Dry run of a possibly unsaved connection. */
   connectionTest: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
   /** Lists containers and Proxmox guests of an SSH connection or of this computer; always fresh. */
