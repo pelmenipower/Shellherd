@@ -3,6 +3,7 @@ import {
   ConnectionNodeSchema,
   EncryptedVaultFileSchema,
   VaultSchema,
+  WorkspacePaneSchema,
 } from './schema';
 import { exampleVault } from './example';
 
@@ -137,5 +138,17 @@ describe('EncryptedVaultFileSchema', () => {
     const result = EncryptedVaultFileSchema.safeParse(file);
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe('WorkspacePaneSchema containerViews', () => {
+  const pane = { type: 'pane', connectionIds: ['a', 'b'] };
+  it('keeps old panes valid and accepts positions', () => {
+    expect(WorkspacePaneSchema.safeParse(pane).success).toBe(true);
+    expect(WorkspacePaneSchema.safeParse({ ...pane, containerViews: [0, 3] }).success).toBe(true);
+  });
+  it('rejects out-of-range positions', () => {
+    expect(WorkspacePaneSchema.safeParse({ ...pane, containerViews: [64] }).success).toBe(false);
+    expect(WorkspacePaneSchema.safeParse({ ...pane, containerViews: [-1] }).success).toBe(false);
   });
 });
