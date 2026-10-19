@@ -1,1 +1,132 @@
-{}
+{
+  "protocols": {
+    "ssh": {
+      "label": "SSH",
+      "short": "SSH"
+    },
+    "sftp": {
+      "label": "SFTP (Dateien)",
+      "short": "SFTP"
+    },
+    "rdp": {
+      "label": "Remotedesktop (RDP)",
+      "short": "RDP"
+    },
+    "powershell": {
+      "label": "PowerShell (lokal)",
+      "short": "PowerShell"
+    },
+    "cmd": {
+      "label": "Eingabeaufforderung CMD (lokal)",
+      "short": "CMD"
+    },
+    "aicli": {
+      "label": "KI-CLI (Claude Code, Codex, Gemini)",
+      "short": "KI-CLI"
+    },
+    "kubernetes": {
+      "label": "Kubernetes-Cluster",
+      "short": "K8s"
+    },
+    "ftp": {
+      "label": "FTP"
+    }
+  },
+  "address": {
+    "local": "Lokal · {{name}}",
+    "customCommand": "Eigener Befehl",
+    "cluster_one": "Cluster · {{count}} Zugang",
+    "cluster_other": "Cluster · {{count}} Zugänge"
+  },
+  "disabled": "deaktiviert",
+  "tree": {
+    "aria": "Verbindungen und Ordner",
+    "searchAria": "Verbindungen suchen",
+    "searchPlaceholder": "Verbindungen suchen …",
+    "empty": "Keine passenden Verbindungen oder Ordner.",
+    "menuLabel": "Aktionen für {{name}}",
+    "menuCreate": "Neu anlegen",
+    "nameRequired": "Gib einen Namen ein.",
+    "renameFailed": "Umbenennen fehlgeschlagen. Bitte erneut versuchen.",
+    "newConnection": "Neue Verbindung",
+    "newConnectionIn": "Neue Verbindung in „{{name}}“",
+    "newConnectionBeside": "Neue Verbindung daneben",
+    "newFolder": "Neuer Ordner",
+    "findRuntimes": "Lokale Laufzeiten suchen",
+    "openLocalView": "Lokale Container-Ansicht öffnen",
+    "connectAll": "Alle verbinden",
+    "connectAllHint": "öffnet jede Verbindung als Tab",
+    "openFiles": "Dateien öffnen (SFTP)",
+    "openAccessHost": "Zugangs-Host per SSH öffnen",
+    "noAccessHost": "Kein aktiver Zugangs-Host.",
+    "setupCluster": "Als Kubernetes-Cluster einrichten…",
+    "showRuntimes": "Laufzeiten anzeigen",
+    "openContainerView": "Container-Ansicht öffnen",
+    "enable": "Aktivieren",
+    "disable": "Deaktivieren",
+    "disableHint": "ausgrauen, nicht mehr öffnen",
+    "expand": "{{name}} aufklappen",
+    "collapse": "{{name}} zuklappen",
+    "runtimesCollapse": "Laufzeiten von {{name}} zuklappen",
+    "runtimesShow": "Laufzeiten von {{name}} anzeigen",
+    "renameFolder": "Ordner umbenennen",
+    "renameConnection": "Verbindung umbenennen",
+    "ok": "OK",
+    "connectNamed": "{{name}} verbinden",
+    "connectTitle": "Verbinden (Enter)",
+    "editNamed": "{{name}} bearbeiten",
+    "renameNamed": "{{name}} umbenennen",
+    "renameTitle": "Umbenennen (F2)"
+  },
+  "folderEditor": {
+    "title": "Ordner bearbeiten",
+    "nameLabel": "Ordnername",
+    "commentLabel": "Kommentar",
+    "nameRequired": "Gib einen Ordnernamen ein.",
+    "discard": "Verwerfen",
+    "saveChanges": "Änderungen speichern",
+    "manage": "Ordner verwalten",
+    "manageHint": "Beim Löschen werden auch alle Unterordner und Verbindungen entfernt.",
+    "deleteFolder": "Ordner löschen",
+    "confirmTitle": "Ordner „{{name}}“ löschen?",
+    "confirmDescription": "Der gesamte Inhalt dieses Ordners wird unwiderruflich entfernt. Verbindungen werden auch aus gespeicherten Workspaces entfernt. Aktive SSH-Sessions in diesem Ordner werden beendet."
+  },
+  "workspaces": {
+    "aria": "Workspace-Verwaltung",
+    "menu": "Workspace-Menü",
+    "unsaved": "Ungespeicherter Workspace",
+    "fallbackName": "Workspace",
+    "copyName": "{{name}} Kopie",
+    "dirty": "Layout geändert",
+    "dirtyBadge": "geändert",
+    "nameLabel": "Workspace-Name",
+    "renameLabel": "Workspace umbenennen",
+    "saveAsLabel": "Workspace speichern unter",
+    "savedLabel": "Gespeicherte Workspaces",
+    "selectAria": "Gespeicherter Workspace",
+    "choose": "Workspace auswählen",
+    "contains": "Enthält {{summary}}",
+    "open": "Workspace öffnen",
+    "deleteWorkspace": "Workspace löschen",
+    "emptyHint": "Speichere deine Terminalanordnung als Workspace.",
+    "saveLayout": "Layout speichern",
+    "saveLayoutNamed": "Layout speichern: {{name}}",
+    "saveAs": "Speichern unter …",
+    "closeWorkspace": "Workspace schließen",
+    "nameRequired": "Gib einen Workspace-Namen ein.",
+    "saveFailed": "Speichern fehlgeschlagen. Bitte erneut versuchen.",
+    "deleteFailed": "Löschen fehlgeschlagen. Bitte erneut versuchen.",
+    "confirmTitle": "Gespeicherten Workspace löschen?",
+    "confirmDescription": "„{{name}}“ wird entfernt. Aktive SSH-Sessions bleiben geöffnet."
+  },
+  "picker": {
+    "addNamed": "Verbindung als Tab in Bereich {{number}} hinzufügen",
+    "addTitle": "Verbindung als Tab hinzufügen",
+    "searchLabel": "Verbindung hinzufügen",
+    "searchAria": "Verbindung für neuen Tab suchen",
+    "searchPlaceholder": "Name, Host oder Ordner …",
+    "limit": "Alle 16 Sessions sind belegt. Schließe zuerst einen Tab.",
+    "noMatch": "Keine passende Verbindung.",
+    "noneSaved": "Noch keine Verbindung gespeichert. Lege über „Neu“ eine Verbindung an."
+  }
+}

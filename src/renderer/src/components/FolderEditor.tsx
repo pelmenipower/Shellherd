@@ -1,6 +1,7 @@
 ﻿import { useEffect, useId, useRef, useState } from 'react';
 import type { FolderNode } from '../../../shared/vault/types';
 import { ConfirmDialog } from './ConfirmDialog';
+import { useT } from '../i18n';
 import './editor-ui.css';
 
 interface FolderEditorProps {
@@ -13,6 +14,7 @@ interface FolderEditorProps {
 }
 
 export function FolderEditor({ folder, busy, onSave, onDelete, onDirtyChange, onCancel }: FolderEditorProps) {
+  const { t } = useT();
   const [name, setName] = useState(folder.name);
   const [comment, setComment] = useState(folder.comment ?? '');
   const [saved, setSaved] = useState({ name: folder.name, comment: folder.comment ?? '' });
@@ -25,7 +27,7 @@ export function FolderEditor({ folder, busy, onSave, onDelete, onDirtyChange, on
 
   async function save(): Promise<void> {
     if (busy) return;
-    if (!name.trim()) { setError('Bitte gib einen Ordnernamen ein.'); nameRef.current?.focus(); return; }
+    if (!name.trim()) { setError(t('vault:folderEditor.nameRequired')); nameRef.current?.focus(); return; }
     if (!dirty) return;
     if (await onSave(name, comment)) {
       setSaved({ name: name.trim(), comment: comment.trim() });
@@ -34,34 +36,34 @@ export function FolderEditor({ folder, busy, onSave, onDelete, onDirtyChange, on
   }
 
   return (
-    <section className="node-editor compact-editor" aria-label="Ordner bearbeiten">
-      <h2>Ordner bearbeiten</h2>
+    <section className="node-editor compact-editor" aria-label={t('vault:folderEditor.title')}>
+      <h2>{t('vault:folderEditor.title')}</h2>
       <form noValidate data-editor-form onSubmit={event => { event.preventDefault(); void save(); }}>
-        <label>Ordnername
+        <label>{t('vault:folderEditor.nameLabel')}
           <input ref={nameRef} value={name} onChange={event => { setName(event.target.value); setError(null); }} disabled={busy}
             aria-invalid={!!error || undefined} aria-describedby={error ? errorId : undefined} />
         </label>
         {error && <p className="field-error" id={errorId} role="alert">{error}</p>}
-        <label>Kommentar
+        <label>{t('vault:folderEditor.commentLabel')}
           <textarea value={comment} onChange={event => setComment(event.target.value)} disabled={busy} rows={3} />
         </label>
         <div className="form-actions editor-action-bar">
-          {onCancel && <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>Abbrechen</button>}
+          {onCancel && <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>{t('common:actions.cancel')}</button>}
           <button className="secondary-button" type="button" disabled={busy || !dirty} onClick={() => {
             setName(saved.name); setComment(saved.comment); setError(null);
-          }}>Verwerfen</button>
+          }}>{t('vault:folderEditor.discard')}</button>
           <button className="primary-button" type="submit" disabled={busy || !dirty}>
-            {busy ? 'Speichert ...' : 'Änderungen speichern'}
+            {busy ? t('common:status.saving') : t('vault:folderEditor.saveChanges')}
           </button>
         </div>
       </form>
       <details className="editor-details editor-management">
-        <summary>Ordner verwalten</summary>
-        <p>Beim Löschen werden auch alle Unterordner und Verbindungen entfernt.</p>
-        <button className="danger-button" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Ordner löschen</button>
+        <summary>{t('vault:folderEditor.manage')}</summary>
+        <p>{t('vault:folderEditor.manageHint')}</p>
+        <button className="danger-button" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>{t('vault:folderEditor.deleteFolder')}</button>
       </details>
-      {confirmDelete && <ConfirmDialog title={`Ordner „${folder.name}“ löschen?`}
-        description="Der gesamte Inhalt dieses Ordners wird unwiderruflich entfernt. Verbindungen werden auch aus gespeicherten Workspaces entfernt. Aktive SSH-Sessions in diesem Ordner werden beendet."
+      {confirmDelete && <ConfirmDialog title={t('vault:folderEditor.confirmTitle', { name: folder.name })}
+        description={t('vault:folderEditor.confirmDescription')}
         busy={busy} onCancel={() => setConfirmDelete(false)} onConfirm={() => {
           void onDelete().then(success => { if (success) setConfirmDelete(false); });
         }} />}

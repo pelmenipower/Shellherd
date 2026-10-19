@@ -7,8 +7,9 @@ export const AI_CLI_TOOLS: Record<Exclude<AiCliTool, 'custom'>, { label: string;
   gemini: { label: 'Gemini CLI', command: 'gemini', install: 'npm install -g @google/gemini-cli' },
 };
 
-export function aiCliLabel(node: Pick<AiCliConnectionNode, 'tool' | 'command'>): string {
-  return node.tool === 'custom' ? node.command?.trim().split(/\s+/)[0] || 'Eigener Befehl' : AI_CLI_TOOLS[node.tool].label;
+/** Tool name, or the program of a custom command; `null` when a custom command is empty (the caller supplies the text). */
+export function aiCliLabel(node: Pick<AiCliConnectionNode, 'tool' | 'command'>): string | null {
+  return node.tool === 'custom' ? node.command?.trim().split(/\s+/)[0] || null : AI_CLI_TOOLS[node.tool].label;
 }
 
 /** The command typed into cmd.exe; a preset tool is started by name, so PATH decides which copy runs. */

@@ -1,1 +1,132 @@
-{}
+{
+  "protocols": {
+    "ssh": {
+      "label": "SSH",
+      "short": "SSH"
+    },
+    "sftp": {
+      "label": "SFTP (files)",
+      "short": "SFTP"
+    },
+    "rdp": {
+      "label": "Remote Desktop (RDP)",
+      "short": "RDP"
+    },
+    "powershell": {
+      "label": "PowerShell (local)",
+      "short": "PowerShell"
+    },
+    "cmd": {
+      "label": "Command Prompt (CMD, local)",
+      "short": "CMD"
+    },
+    "aicli": {
+      "label": "AI CLI (Claude Code, Codex, Gemini)",
+      "short": "AI CLI"
+    },
+    "kubernetes": {
+      "label": "Kubernetes cluster",
+      "short": "K8s"
+    },
+    "ftp": {
+      "label": "FTP"
+    }
+  },
+  "address": {
+    "local": "Local · {{name}}",
+    "customCommand": "Custom command",
+    "cluster_one": "Cluster · {{count}} access host",
+    "cluster_other": "Cluster · {{count}} access hosts"
+  },
+  "disabled": "disabled",
+  "tree": {
+    "aria": "Connections and folders",
+    "searchAria": "Search connections",
+    "searchPlaceholder": "Search connections …",
+    "empty": "No matching connections or folders.",
+    "menuLabel": "Actions for {{name}}",
+    "menuCreate": "Create new",
+    "nameRequired": "Enter a name.",
+    "renameFailed": "Rename failed. Please try again.",
+    "newConnection": "New connection",
+    "newConnectionIn": "New connection in “{{name}}”",
+    "newConnectionBeside": "New connection alongside",
+    "newFolder": "New folder",
+    "findRuntimes": "Find local runtimes",
+    "openLocalView": "Open local container view",
+    "connectAll": "Connect all",
+    "connectAllHint": "opens every connection as a tab",
+    "openFiles": "Open files (SFTP)",
+    "openAccessHost": "Open access host via SSH",
+    "noAccessHost": "No active access host.",
+    "setupCluster": "Set up as Kubernetes cluster…",
+    "showRuntimes": "Show runtimes",
+    "openContainerView": "Open container view",
+    "enable": "Enable",
+    "disable": "Disable",
+    "disableHint": "grey out, no longer open",
+    "expand": "Expand {{name}}",
+    "collapse": "Collapse {{name}}",
+    "runtimesCollapse": "Collapse runtimes of {{name}}",
+    "runtimesShow": "Show runtimes of {{name}}",
+    "renameFolder": "Rename folder",
+    "renameConnection": "Rename connection",
+    "ok": "OK",
+    "connectNamed": "Connect {{name}}",
+    "connectTitle": "Connect (Enter)",
+    "editNamed": "Edit {{name}}",
+    "renameNamed": "Rename {{name}}",
+    "renameTitle": "Rename (F2)"
+  },
+  "folderEditor": {
+    "title": "Edit folder",
+    "nameLabel": "Folder name",
+    "commentLabel": "Comment",
+    "nameRequired": "Enter a folder name.",
+    "discard": "Discard",
+    "saveChanges": "Save changes",
+    "manage": "Manage folder",
+    "manageHint": "Deleting also removes all subfolders and connections.",
+    "deleteFolder": "Delete folder",
+    "confirmTitle": "Delete folder “{{name}}”?",
+    "confirmDescription": "All contents of this folder will be permanently removed. Connections are also removed from saved workspaces. Active SSH sessions in this folder will be ended."
+  },
+  "workspaces": {
+    "aria": "Workspace management",
+    "menu": "Workspace menu",
+    "unsaved": "Unsaved workspace",
+    "fallbackName": "Workspace",
+    "copyName": "{{name}} copy",
+    "dirty": "Layout changed",
+    "dirtyBadge": "changed",
+    "nameLabel": "Workspace name",
+    "renameLabel": "Rename workspace",
+    "saveAsLabel": "Save workspace as",
+    "savedLabel": "Saved workspaces",
+    "selectAria": "Saved workspace",
+    "choose": "Select workspace",
+    "contains": "Contains {{summary}}",
+    "open": "Open workspace",
+    "deleteWorkspace": "Delete workspace",
+    "emptyHint": "Save your terminal layout as a workspace.",
+    "saveLayout": "Save layout",
+    "saveLayoutNamed": "Save layout: {{name}}",
+    "saveAs": "Save as …",
+    "closeWorkspace": "Close workspace",
+    "nameRequired": "Enter a workspace name.",
+    "saveFailed": "Save failed. Please try again.",
+    "deleteFailed": "Delete failed. Please try again.",
+    "confirmTitle": "Delete saved workspace?",
+    "confirmDescription": "“{{name}}” will be removed. Active SSH sessions stay open."
+  },
+  "picker": {
+    "addNamed": "Add connection as tab in pane {{number}}",
+    "addTitle": "Add connection as tab",
+    "searchLabel": "Add connection",
+    "searchAria": "Search connection for new tab",
+    "searchPlaceholder": "Name, host or folder …",
+    "limit": "All 16 sessions are in use. Close a tab first.",
+    "noMatch": "No matching connection.",
+    "noneSaved": "No connection saved yet. Create one via “New”."
+  }
+}
