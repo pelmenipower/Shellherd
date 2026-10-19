@@ -1,6 +1,6 @@
 import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
 import type { TerminalTab } from './terminal-tabs';
-import { containerConnection, sameTarget, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, containerViewConnection, sameTarget, toTerminalConnection } from './terminal-tabs';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import { connectionAddress } from '../../shared/vault/connections';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
@@ -159,10 +159,11 @@ export function savedLayout(layout: LiveLayout, tabs: TerminalTab[]): WorkspaceL
     .filter(tab => tab.connection.id !== LOCAL_CONTAINER_HOST && !tab.connection.kube);
   const active = layout.activeTabId ? saved.find(tab => tab.id === layout.activeTabId)?.connection.id : undefined;
   const fileBrowsers = saved.flatMap((tab, index) => tab.connection.view === 'files' ? [index] : []);
+  const containerViews = saved.flatMap((tab, index) => tab.connection.view === 'containers' ? [index] : []);
   const containerTabs = saved.flatMap((tab, index) => tab.connection.target ? [{ index, target: tab.connection.target.item, mode: tab.connection.target.mode }] : []);
   const kubeTabs = saved.flatMap((tab, index) => tab.connection.protocol === 'kubernetes' && tab.kubeView ? [{ index, view: tab.kubeView }] : []);
   return { type: 'pane', connectionIds: saved.map(tab => tab.connection.id), ...(active ? { activeConnectionId: active } : {}),
-    ...(fileBrowsers.length ? { fileBrowsers } : {}), ...(containerTabs.length ? { containerTabs } : {}), ...(kubeTabs.length ? { kubeTabs } : {}) };
+    ...(fileBrowsers.length ? { fileBrowsers } : {}), ...(containerViews.length ? { containerViews } : {}), ...(containerTabs.length ? { containerTabs } : {}), ...(kubeTabs.length ? { kubeTabs } : {}) };
 }
 export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => ConnectionNode | undefined, uuid: () => string): { layout: LiveLayout; tabs: TerminalTab[]; activeTabId: string | null; skipped: number } {
   const tabs: TerminalTab[] = [];
@@ -178,7 +179,9 @@ export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => Co
       const container = node.containerTabs?.find(entry => entry.index === index);
       const target = container && connection.protocol === 'ssh'
         ? containerConnection(connection.id, connection.name, connectionAddress(connection), { item: container.target, mode: container.mode })
-        : toTerminalConnection(connection, node.fileBrowsers?.includes(index));
+        : node.containerViews?.includes(index) && connection.protocol === 'ssh'
+          ? containerViewConnection(connection.id, connection.name, connectionAddress(connection))
+          : toTerminalConnection(connection, node.fileBrowsers?.includes(index));
       const kubeView = node.kubeTabs?.find(entry => entry.index === index)?.view;
       tabs.push({ id: tabId, connection: target, ordinal: tabs.filter(tab => sameTarget(tab.connection, target)).length + 1, status: 'connecting',
         ...(kubeView && target.protocol === 'kubernetes' ? { kubeView } : {}) });

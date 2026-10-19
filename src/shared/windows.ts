@@ -8,8 +8,8 @@ export type WindowRole = 'main' | 'secondary';
 /** Tab metadata shared between windows; never credentials. */
 export interface TabConnection {
   id: string; name: string; protocol: ConnectionProtocol; address: string;
-  /** File browser opened for an SSH connection. */
-  view?: 'files';
+  /** File browser ('files') or container view ('containers') of the connection `id`. */
+  view?: 'files' | 'containers';
   /** Container or Proxmox guest on the host `id`. */
   target?: TerminalTarget;
   /** Logs or shell of a pod in the cluster `id`. */

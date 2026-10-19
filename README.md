@@ -127,6 +127,36 @@ Container-Tabs von SSH-Hosts werden in Workspaces gespeichert, lokale Container-
 nicht. Diese Version bietet keinen Datei-Browser in Containern und keine Proxmox-API.
 Kubernetes hat einen eigenen Abschnitt.
 
+### Container-Ansicht
+
+Für Docker und Podman gibt es zusätzlich eine Ansicht im Stil des Cluster-Tabs. Sie
+öffnet sich über das Kontextmenü einer SSH-Verbindung (`Container-Ansicht öffnen`)
+oder für den eigenen Rechner über `Lokale Container-Ansicht öffnen` (Überschrift
+`Dieser Computer` oder freie Fläche im Verbindungsbaum). Die Ansicht hat vier Reiter:
+Container, Images, Volumes und Netzwerke. Jeder Reiter hat Spaltenfilter, Chips,
+Gruppierung und Sortierung; Filter und Gruppierung bleiben je Reiter erhalten, `F`
+setzt die Filter zurück. Sind Docker und Podman installiert, wechselt ein Umschalter
+im Kopf die Laufzeit. Die Liste aktualisiert sich alle 10 Sekunden, solange der Tab
+sichtbar ist, sowie nach jeder Aktion und mit `F5`.
+
+Das Dock unter der Tabelle zeigt Logs (`l`), eine Shell (`s`, startet erst auf
+Knopfdruck, nur bei laufenden Containern) und Inspect (`i`). Bei Images, Volumes und
+Netzwerken gibt es nur Inspect. Starten läuft ohne Nachfrage. Stoppen, Neu starten
+und Entfernen öffnen einen Dialog; beim Entfernen von Containern, Images und Volumes
+muss man den Namen bzw. die Referenz eintippen. Verwendete Images und Volumes lassen
+sich nicht entfernen.
+
+Grenzen:
+
+- Die Seitenleiste stoppt Container weiterhin ohne Nachfrage; nur die Ansicht fragt.
+- Inspect maskiert nur die Werte in `Config.Env`, deren Name sensibel klingt. Labels,
+  `Cmd` und Mounts bleiben unverändert sichtbar, ein Geheimnis in `Cmd` ist also lesbar.
+  Zugangsdaten in Werten wie `DATABASE_URL=postgres://u:p@…` werden nicht maskiert,
+  weil nur die Namen geprüft werden.
+- Ohne sudo zeigt Podman nur die Container des SSH-Benutzers (rootless).
+- Ein zweiter Tab desselben Hosts pollt doppelt. Mit `sudo` im Passwortmodus meldet
+  sich jeder Poll viermal per sudo an; das steht im Auth-Log des Hosts.
+
 ## Kubernetes
 
 Ein Cluster wird aus einer bestehenden SSH-Verbindung eingerichtet: Im Kontextmenü

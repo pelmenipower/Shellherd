@@ -3,7 +3,7 @@ import type { TabConnection, TransferSession } from '../../shared/windows';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import type { SshStatus } from '../../shared/ssh';
 import { connectionAddress } from '../../shared/vault/connections';
-import { LOCAL_CONTAINER_HOST, targetKey } from '../../shared/containers';
+import { CONTAINER_VIEW_SUFFIX, LOCAL_CONTAINER_HOST, targetKey } from '../../shared/containers';
 import type { TerminalTarget } from '../../shared/containers';
 import type { AiTerminalContext } from '../../shared/ai';
 import type { KubeTerminalTarget, KubeViewSnapshot } from '../../shared/kubernetes';
@@ -32,6 +32,11 @@ export function containerConnection(hostId: string, hostName: string, address: s
   return { id: hostId, name: containerTabName(target, hostName), protocol: hostId === LOCAL_CONTAINER_HOST ? 'cmd' : 'ssh', address, target };
 }
 
+/** Tab for the container view of an SSH connection or of this computer (`hostId` = LOCAL_CONTAINER_HOST). */
+export function containerViewConnection(hostId: string, hostName: string, address: string): TerminalConnection {
+  return { id: hostId, name: `${hostName}${CONTAINER_VIEW_SUFFIX}`, protocol: hostId === LOCAL_CONTAINER_HOST ? 'cmd' : 'ssh', address, view: 'containers' };
+}
+
 /** Tab for a pod's logs, previous logs or shell; the cluster name keeps it apart from other clusters. */
 export function kubeTabName(target: KubeTerminalTarget, clusterName: string): string {
   const prefix = target.mode === 'logs' ? 'Logs: ' : target.mode === 'previous' ? 'Vorherige Logs: ' : '';
@@ -43,7 +48,7 @@ export function kubeTabName(target: KubeTerminalTarget, clusterName: string): st
  * also on this computer, where the tab keeps protocol 'cmd' for the local terminal plumbing.
  */
 export function shellOf(tab: TerminalTab | undefined): AiTerminalContext['shell'] | null {
-  if (!tab || tab.connection.view === 'files') return null;
+  if (!tab || tab.connection.view === 'files' || tab.connection.view === 'containers') return null;
   if (tab.connection.kube) return tab.connection.kube.mode === 'shell' ? 'ssh' : null;
   if (tab.connection.target) return 'ssh';
   const { protocol } = tab.connection;

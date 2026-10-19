@@ -1,0 +1,9 @@
+/* Container view: only what kubernetes-ui.css and kubernetes-dock.css do not cover. */
+
+/* Runtime switch and kind tabs share one line in the header. */
+.ctr-kinds { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.ctr-tabs { padding: 0; border-bottom: 0; }
+
+/* A row whose action is running. */
+.ctr-busy { opacity: 0.6; cursor: progress; }
+.ctr-busy td:first-child::after { content: ' …'; }
