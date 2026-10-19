@@ -11,8 +11,16 @@ interface PermissionsDialogProps {
   onApply: (mode: number, recursive: boolean) => void;
 }
 
-const who = [{ id: 'owner', shift: 6 }, { id: 'group', shift: 3 }, { id: 'others', shift: 0 }] as const;
-const what = [{ id: 'read', bit: 4 }, { id: 'write', bit: 2 }, { id: 'execute', bit: 1 }] as const;
+const who = [
+  { id: 'owner', key: 'files:permissions.owner', shift: 6 },
+  { id: 'group', key: 'files:permissions.group', shift: 3 },
+  { id: 'others', key: 'files:permissions.others', shift: 0 },
+] as const;
+const what = [
+  { id: 'read', key: 'files:permissions.read', bit: 4 },
+  { id: 'write', key: 'files:permissions.write', bit: 2 },
+  { id: 'execute', key: 'files:permissions.execute', bit: 1 },
+] as const;
 
 /** chmod for server files: checkboxes and octal value stay in sync. */
 export function PermissionsDialog({ entries, busy, onCancel, onApply }: PermissionsDialogProps) {
@@ -41,12 +49,12 @@ export function PermissionsDialog({ entries, busy, onCancel, onApply }: Permissi
       })}</h2>
       {mixed && <p className="editor-hint">{t('files:permissions.mixed')}</p>}
       <table className="permissions-grid">
-        <thead><tr><th scope="col"><span className="visually-hidden">{t('files:permissions.who')}</span></th>{what.map(item => <th key={item.bit} scope="col">{t(`files:permissions.${item.id}`)}</th>)}</tr></thead>
-        <tbody>{who.map(row => <tr key={row.shift}><th scope="row">{t(`files:permissions.${row.id}`)}</th>
+        <thead><tr><th scope="col"><span className="visually-hidden">{t('files:permissions.who')}</span></th>{what.map(item => <th key={item.bit} scope="col">{t(item.key)}</th>)}</tr></thead>
+        <tbody>{who.map(row => <tr key={row.shift}><th scope="row">{t(row.key)}</th>
           {what.map(column => {
             const bit = column.bit << row.shift;
             return <td key={column.bit}><input type="checkbox"
-              aria-label={t('files:permissions.cell', { who: t(`files:permissions.${row.id}`), what: t(`files:permissions.${column.id}`) })}
+              aria-label={t('files:permissions.cell', { who: t(row.key), what: t(column.key) })}
               checked={(mode & bit) !== 0} disabled={busy} onChange={() => toggle(bit)} /></td>;
           })}
         </tr>)}</tbody>

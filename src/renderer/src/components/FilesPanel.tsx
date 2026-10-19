@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import type { SshStatus } from '../../../shared/ssh';
-import type { ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob } from '../../../shared/sftp';
+import type { ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob, TransferState } from '../../../shared/sftp';
 import type { FileSide } from '../file-browser';
 import { formatDate, formatSize, ipcErrorText, isFinished, jobPercent, joinPath } from '../file-browser';
 import { errorText } from '../error-text';
@@ -33,6 +33,14 @@ interface FilesPanelProps {
 interface FilesSnapshot { local?: string; remote?: string }
 
 const emptyListing: FileListing = { path: null, entries: [], loading: false, error: null };
+const QUEUE_STATE_KEYS = {
+  queued: 'files:queue.state.queued', running: 'files:queue.state.running', done: 'files:queue.state.done',
+  error: 'files:queue.state.error', canceled: 'files:queue.state.canceled',
+} as const satisfies Record<TransferState, string>;
+const EDIT_STATE_KEYS = {
+  open: 'files:edit.state.open', uploading: 'files:edit.state.uploading', saved: 'files:edit.state.saved',
+  conflict: 'files:edit.state.conflict', error: 'files:edit.state.error',
+} as const satisfies Record<EditedFile['state'], string>;
 
 function readSnapshot(adopt?: AdoptedSession): FilesSnapshot {
   try { return adopt?.snapshot ? JSON.parse(adopt.snapshot) as FilesSnapshot : {}; } catch { return {}; }
@@ -255,7 +263,7 @@ function TransferQueue({ jobs, activeCount, onCancel, onClear }: { jobs: Transfe
           <div className="transfer-main">
             <div className="transfer-title"><strong>{jobLabel(job)}</strong>{job.move && <small>{t('files:queue.move')}</small>}<span className="transfer-target" title={job.targetDir}>→ {job.targetDir}</span></div>
             <progress max={100} value={jobPercent(job)} aria-label={t('files:queue.progress', { label: jobLabel(job) })} />
-            <small>{t(`files:queue.state.${job.state}`)}
+            <small>{t(QUEUE_STATE_KEYS[job.state])}
               {job.totalFiles > 0 && ` · ${t('files:queue.files', { done: job.doneFiles, count: job.totalFiles })}`}
               {job.totalBytes > 0 && ` · ${t('files:queue.bytes', { done: formatSize(job.doneBytes), total: formatSize(job.totalBytes) })}`}
               {job.skippedFiles > 0 && ` · ${t('files:queue.skipped', { count: job.skippedFiles })}`}
@@ -279,7 +287,7 @@ function EditList({ edits, onOpen, onUpload, onClose }: { edits: EditedFile[]; o
           <span className="transfer-direction" aria-hidden="true">✎</span>
           <div className="transfer-main">
             <div className="transfer-title"><strong>{edit.name}</strong><span className="transfer-target" title={edit.remotePath}>{edit.remotePath}</span></div>
-            <small role="status">{t(`files:edit.state.${edit.state}`)}{edit.state === 'saved' && edit.savedAt ? ` ${t('files:edit.savedAt', { time: formatDateTime(edit.savedAt, 'time') })}` : ''}
+            <small role="status">{t(EDIT_STATE_KEYS[edit.state])}{edit.state === 'saved' && edit.savedAt ? ` ${t('files:edit.savedAt', { time: formatDateTime(edit.savedAt, 'time') })}` : ''}
               {edit.error && ` · ${errorText(edit.error)}`}</small>
           </div>
           {edit.state === 'conflict' && <button type="button" className="secondary-button" title={t('files:edit.forceTitle')} onClick={() => onUpload(edit.id)}>{t('files:edit.force')}</button>}

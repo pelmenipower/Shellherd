@@ -8,7 +8,13 @@ import { AiError, streamChat } from './providers';
 
 const MAX_PARALLEL = 3;
 
-const PROMPT_LINES = ['data', 'brevity', 'command', 'explain', 'goal', 'afterOutput', 'danger', 'question'] as const;
+const PROMPT_LINES = [
+  'assistant.prompt.data', 'assistant.prompt.brevity', 'assistant.prompt.command', 'assistant.prompt.explain',
+  'assistant.prompt.goal', 'assistant.prompt.afterOutput', 'assistant.prompt.danger', 'assistant.prompt.question',
+] as const;
+const SHELL_KEYS = {
+  ssh: 'assistant.shells.ssh', powershell: 'assistant.shells.powershell', cmd: 'assistant.shells.cmd',
+} as const satisfies Record<AiTerminalContext['shell'], string>;
 
 /**
  * Rules of the terminal assistant. Kept short on purpose: it is sent with every request.
@@ -17,8 +23,8 @@ const PROMPT_LINES = ['data', 'brevity', 'command', 'explain', 'goal', 'afterOut
 export function systemPrompt(context: AiTerminalContext, locale: Locale): string {
   const t = mainTFor(locale);
   return [
-    t('assistant.prompt.intro', { shell: t(`assistant.shells.${context.shell}`), target: context.target }),
-    ...PROMPT_LINES.map(line => t(`assistant.prompt.${line}`)),
+    t('assistant.prompt.intro', { shell: t(SHELL_KEYS[context.shell]), target: context.target }),
+    ...PROMPT_LINES.map(key => t(key)),
   ].join('\n');
 }
 

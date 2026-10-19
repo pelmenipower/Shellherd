@@ -27,11 +27,11 @@ describe('renderer i18n', () => {
     i18n.removeResourceBundle('de-DE', 'probe');
   });
 
-  it('pluralises common:count.sessions in both languages', async () => {
-    expect(t('common:count.sessions', { count: 1 })).toBe('1 Sitzung');
-    expect(t('common:count.sessions', { count: 2 })).toBe('2 Sitzungen');
+  it('pluralises common:count.tabs in both languages', async () => {
+    expect(t('common:count.tabs', { count: 1 })).toBe('1 Tab');
+    expect(t('common:count.tabs', { count: 2 })).toBe('2 Tabs');
     await i18n.changeLanguage('en-US');
-    expect(t('common:count.sessions', { count: 1 })).toBe('1 session');
-    expect(t('common:count.sessions', { count: 2 })).toBe('2 sessions');
+    expect(t('common:count.tabs', { count: 1 })).toBe('1 tab');
+    expect(t('common:count.tabs', { count: 2 })).toBe('2 tabs');
   });
 });

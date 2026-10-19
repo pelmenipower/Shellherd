@@ -49,6 +49,8 @@
     "testRdpCredentials": "Remote Desktop only checks user and password when connecting.",
     "testUserMissing": "Enter a user name.",
     "testNoSftp": "The server does not offer SFTP.",
-    "testHostKeyRejected": "The server key was not confirmed."
+    "testHostKeyRejected": "The server key was not confirmed.",
+    "invalidConnectionData": "The connection data is invalid.",
+    "clipboardTooLarge": "The selected text is too large."
   }
 }

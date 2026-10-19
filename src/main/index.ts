@@ -241,7 +241,7 @@ app.whenReady().then(() => {
     windowRegistry.requireMain(event);
     vaultSessionManager.getSnapshot();
     const parsed = ConnectionNodeSchema.safeParse(request);
-    if (!parsed.success) throw new Error('Bitte prüfe die Verbindungsdaten.');
+    if (!parsed.success) throw new AppError('core.invalidConnectionData');
     return testConnection(parsed.data, { verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive) });
   });
   ipcMain.handle(IPC_CHANNELS.readClipboardText, event => {
@@ -252,7 +252,7 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_CHANNELS.writeClipboardText, (event, text: unknown) => {
     requireSshSender(event);
     vaultSessionManager.getSnapshot();
-    if (typeof text !== 'string' || text.length > 4 * 1024 * 1024) throw new Error('Der markierte Text ist zu groß.');
+    if (typeof text !== 'string' || text.length > 4 * 1024 * 1024) throw new AppError('core.clipboardTooLarge');
     clipboard.writeText(text);
   });
   const { broadcastCatalog } = registerWindowIpcHandlers({

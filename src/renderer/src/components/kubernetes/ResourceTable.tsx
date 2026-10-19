@@ -50,7 +50,7 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
   const grouping = activeGrouping(state);
   // Rows plus group header rows; all are ROW_HEIGHT high, so the window works on items.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const items = useMemo(() => (inContainers ? [] : tableItems(state, rows)), [rows, state.groups, kind, state.query.namespace, inContainers]);
+  const items = useMemo(() => (inContainers ? [] : tableItems(state, rows)), [rows, state.groups, kind, state.query.namespace, inContainers, i18n.language]);
   const selectedIndex = inContainers ? -1 : items.findIndex(item => item.type === 'row' && refKey(item.row.ref) === state.selected);
   // The table view has two sticky header rows (header and filter row), the container list one.
   const headerRows = inContainers ? 1 : 2;

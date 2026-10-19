@@ -54,5 +54,11 @@
       "system": "Reply with the word OK only.",
       "user": "Connection test"
     }
+  },
+  "terminal": {
+    "sudoGaveUp": "[Shellherd] sudo did not respond as expected – please enter it yourself."
+  },
+  "fileAssociation": {
+    "openVerb": "Open with Shellherd"
   }
 }

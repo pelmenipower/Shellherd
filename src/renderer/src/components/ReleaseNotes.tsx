@@ -11,7 +11,9 @@ const formatDate = (date: string): string => formatDateTime(`${date}T12:00:00`, 
 /** "What's new" after an update; dismissed once per version on this computer. */
 export function WhatsNew({ version, onShowAll }: { version: string; onShowAll: () => void }) {
   const { t } = useT();
-  const [notes, setNotes] = useState<Notes[]>(() => notesSince(releasesFor(currentLocale()), version, seenVersion()));
+  const [hidden, setHidden] = useState(false);
+  // Computed per render so a language switch shows the notes in the new language.
+  const notes: Notes[] = hidden ? [] : notesSince(releasesFor(currentLocale()), version, seenVersion());
   if (!notes.length) return null;
   const items = notes.flatMap(release => release.items);
   return (
@@ -20,7 +22,7 @@ export function WhatsNew({ version, onShowAll }: { version: string; onShowAll: (
       <ul>{items.slice(0, 5).map(item => <li key={item}>{item}</li>)}</ul>
       <div className="whats-new-actions">
         {items.length > 5 && <button type="button" className="secondary-button" onClick={onShowAll}>{t('app:releaseNotes.showAll', { count: items.length })}</button>}
-        <button type="button" className="secondary-button" onClick={() => { markVersionSeen(version); setNotes([]); }}>{t('app:releaseNotes.hide')}</button>
+        <button type="button" className="secondary-button" onClick={() => { markVersionSeen(version); setHidden(true); }}>{t('app:releaseNotes.hide')}</button>
       </div>
     </section>
   );

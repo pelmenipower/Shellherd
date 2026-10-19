@@ -3,7 +3,7 @@ import type { ContainerRuntime, InventoryKind, InventoryRow } from '../../shared
 import type { FacetOption, NumberOp } from './kube-columns';
 import { EMPTY_VALUE, parseAgeFilter, parseNumberFilter } from './kube-columns';
 import { formatAge } from './kube-view';
-import { compareText, foldCase } from '../../shared/format';
+import { compareText, foldCase, formatNumber } from '../../shared/format';
 import { t } from './i18n';
 
 export type ColumnFilterKind = 'text' | 'select' | 'number' | 'size' | 'age';
@@ -67,7 +67,7 @@ export function cellValues(row: InventoryRow, key: string): string[] {
   return normalise([String(raw)]);
 }
 
-/** Decimal like Docker: 999 -> '999 B', 142_000_000 -> '142 MB', 1_200_000_000 -> '1.2 GB', 10_500 -> '10.5 kB'. */
+/** Decimal like Docker: 999 -> '999 B', 142_000_000 -> '142 MB', 1_200_000_000 -> '1.2 GB' (en-US; '1,2 GB' in de-DE), 10_500 -> '10.5 kB'. */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
   const units = ['B', 'kB', 'MB', 'GB', 'TB'];

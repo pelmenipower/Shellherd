@@ -8,11 +8,9 @@
     "rename": "Umbenennen",
     "copy": "Kopieren",
     "connect": "Verbinden",
-    "disconnect": "Trennen",
     "retry": "Erneut versuchen",
     "open": "Öffnen",
-    "edit": "Bearbeiten",
-    "reload": "Neu laden"
+    "edit": "Bearbeiten"
   },
   "status": {
     "connecting": "Verbindet …",
@@ -28,22 +26,15 @@
   "thisComputer": "Dieser Computer",
   "errorWithDetail": "{{message}} Details: {{detail}}",
   "count": {
-    "sessions_one": "{{count}} Sitzung",
-    "sessions_other": "{{count}} Sitzungen",
     "tabs_one": "{{count}} Tab",
     "tabs_other": "{{count}} Tabs",
     "views_one": "{{count}} Ansicht",
-    "views_other": "{{count}} Ansichten",
-    "connections_one": "{{count}} Verbindung",
-    "connections_other": "{{count}} Verbindungen",
-    "windows_one": "{{count}} Fenster",
-    "windows_other": "{{count}} Fenster"
+    "views_other": "{{count}} Ansichten"
   },
   "keys": {
     "ctrl": "Strg",
     "shift": "Umschalt",
     "alt": "Alt",
-    "space": "Leertaste",
     "del": "Entf"
   },
   "shortcuts": {

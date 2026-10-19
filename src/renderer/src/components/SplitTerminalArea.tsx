@@ -348,12 +348,12 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           <ConnectionPicker nodes={nodes} disabled={busy} limitReached={tabs.length >= MAX_SSH_SESSIONS} paneNumber={index + 1}
             onConnect={id => onConnect(id, region.pane.id)} />
           <span className="pane-header-spacer" />
-          {tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'ssh' && tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.view !== 'containers' && <button type="button" className="pane-action" disabled={busy || tabs.length >= MAX_SSH_SESSIONS}
+          {/* i18n-ignore: arrow functions, not text */}{tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'ssh' && tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.view !== 'containers' && <button type="button" className="pane-action" disabled={busy || tabs.length >= MAX_SSH_SESSIONS}
             aria-label={t('terminal:area.openFilesAria', { number: index + 1 })} title={t('terminal:area.openFilesTitle')}
             onClick={() => onConnect(tabs.find(tab => tab.id === region.pane.activeTabId)!.connection.id, region.pane.id, true)}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM12 10v6m-3-3 3 3 3-3"/></svg>
           </button>}
-          {tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'rdp' && <button type="button" className="pane-action" disabled={busy}
+          {/* i18n-ignore: arrow function, not text */}{tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'rdp' && <button type="button" className="pane-action" disabled={busy}
             aria-label={t('terminal:area.sendKeysAria', { number: index + 1 })} title={t('terminal:area.sendKeysTitle')} aria-haspopup="menu"
             onClick={event => {
               const rect = event.currentTarget.getBoundingClientRect();

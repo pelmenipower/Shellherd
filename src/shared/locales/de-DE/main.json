@@ -54,5 +54,11 @@
       "system": "Antworte nur mit dem Wort OK.",
       "user": "Verbindungstest"
     }
+  },
+  "terminal": {
+    "sudoGaveUp": "[Shellherd] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben."
+  },
+  "fileAssociation": {
+    "openVerb": "Mit Shellherd öffnen"
   }
 }

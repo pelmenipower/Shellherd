@@ -44,10 +44,13 @@ interface FilePaneProps {
 type Prompt = { kind: 'mkdir'; value: string; error?: string } | { kind: 'file'; value: string; error?: string } | { kind: 'rename'; original: string; value: string; error?: string };
 
 const columns: SortKey[] = ['name', 'size', 'modified'];
+const COLUMN_KEYS = {
+  name: 'files:pane.name', size: 'files:pane.size', modified: 'files:pane.modified',
+} as const satisfies Record<SortKey, string>;
 
 export function FilePane({ tabId, side, title, listing, active, disabled, notice, home, drives, onActivate, onNavigate, onRefresh,
   onMkdir, onRename, onDelete, onCopy, onDrop, onEdit, onCreateFile, onPermissions }: FilePaneProps) {
-  const { t } = useT();
+  const { t, i18n } = useT();
   const [sort, setSort] = useState<SortOrder>({ key: 'name', ascending: true });
   const [selected, setSelected] = useState<string[]>([]);
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -57,7 +60,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const entries = useMemo(() => sortEntries(listing.entries, sort), [listing.entries, sort]);
+  const entries = useMemo(() => sortEntries(listing.entries, sort), [listing.entries, sort, i18n.language]);
   const names = useMemo(() => entries.map(entry => entry.name), [entries]);
   const path = listing.path;
   const parent = path ? parentPath(side, path) : null;
@@ -236,7 +239,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
         <div className="file-row file-row-head" role="row">
           {columns.map(column => <span key={column} role="columnheader" aria-sort={sort.key === column ? (sort.ascending ? 'ascending' : 'descending') : 'none'}>
             <button type="button" tabIndex={-1} onClick={() => setSort(current => ({ key: column, ascending: current.key === column ? !current.ascending : true }))}>
-              {t(`files:pane.${column}`)}{sort.key === column ? (sort.ascending ? ' ▲' : ' ▼') : ''}
+              {t(COLUMN_KEYS[column])}{sort.key === column ? (sort.ascending ? ' ▲' : ' ▼') : ''}
             </button>
           </span>)}
           {side === 'remote' && <span role="columnheader">{t('files:pane.permissions')}</span>}

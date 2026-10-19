@@ -4,7 +4,7 @@ import { SplitTerminalArea } from './components/SplitTerminalArea';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { Toast } from './components/Toast';
 import { errorText } from './error-text';
-import { useT } from './i18n';
+import { t as translate, useT } from './i18n';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
 import { useTerminalLayout } from './hooks/useTerminalLayout';
 import { useTabTransfer } from './hooks/useTabTransfer';
@@ -35,11 +35,12 @@ export function SecondaryWindow() {
   const state = useRef({ tabs: terminals.tabs, views: terminalLayout.viewsState, catalog, replaceViews: terminalLayout.replaceViews, restore: terminals.restore });
   state.current = { tabs: terminals.tabs, views: terminalLayout.viewsState, catalog, replaceViews: terminalLayout.replaceViews, restore: terminals.restore };
 
+  // Effects run once: they use the module-level translate so a later language change is not captured stale.
   useEffect(() => {
     let active = true;
     const unsubscribe = window.desktopApi.onConnectionCatalog(setCatalog);
     window.desktopApi.connectionCatalog().then(value => { if (active) setCatalog(value); })
-      .catch(() => setError(t('app:errors.catalogUnavailable')));
+      .catch(() => setError(translate('app:errors.catalogUnavailable')));
     return () => { active = false; unsubscribe(); };
   }, []);
 
@@ -74,7 +75,7 @@ export function SecondaryWindow() {
       restore(restored.tabs, restored.activeTabId);
       if (restored.skipped) setError(skippedNotice(restored.skipped));
     } catch (caught) {
-      setError(errorText(caught, t('app:errors.windowRestoreFailed')));
+      setError(errorText(caught, translate('app:errors.windowRestoreFailed')));
     }
   }), []);
 

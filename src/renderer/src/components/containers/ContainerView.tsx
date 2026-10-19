@@ -48,7 +48,7 @@ const KIND_TAB_KEYS = {
 
 /** Container tab: header, chip bar, table and dock for one SSH host or this computer. */
 export function ContainerView({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, onPopout }: ContainerViewProps) {
-  const { t } = useT();
+  const { t, i18n } = useT();
   const [state, dispatch] = useReducer(containerViewReducer, undefined, () => initialContainerViewState(Date.now(), connection.runtime ?? null));
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -66,7 +66,7 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
   const modal = help || pending !== null || menu !== null;
   // visibleRows reads exactly these fields of state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const rows = useMemo(() => visibleRows(state), [state.inventory, state.kind, state.views, state.now]);
+  const rows = useMemo(() => visibleRows(state), [state.inventory, state.kind, state.views, state.now, i18n.language]);
   const selected = rows.find(row => row.uid === state.selected) ?? null;
   const commandContext: ContainerCommandContext = { kind: state.kind, row: selected, dock: state.dock, canPopout: Boolean(onPopout) };
   const inventory = state.inventory;

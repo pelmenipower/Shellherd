@@ -164,7 +164,7 @@
     "copied": "Copied: {{text}}",
     "copyFailed": "Copy failed.",
     "production": "Production",
-    "readOnly": "Read only",
+    "readOnly": "Read-only",
     "path": "Path",
     "namespace": "Namespace",
     "allNamespaces": "all",

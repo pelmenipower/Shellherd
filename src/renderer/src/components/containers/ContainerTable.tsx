@@ -35,7 +35,7 @@ interface ContainerTableProps {
 
 /** Chip bar and table. Keys are handled by the view; this component only renders and scrolls. */
 export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: ContainerTableProps) {
-  const { t } = useT();
+  const { t, i18n } = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ top: 0, height: 480 });
   const kind = state.kind;
@@ -57,12 +57,12 @@ export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: Cont
   const columns = useMemo(() => currentColumns(state),
     // currentColumns reads exactly these fields.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.kind, runtime]);
+    [state.kind, runtime, i18n.language]);
   const filterKey = JSON.stringify(view.filters);
   const items = useMemo(() => groupedItems(state, rows),
     // groupedItems reads the view, the kind and the runtime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, view.groupBy, view.collapsed, kind, runtime]);
+    [rows, view.groupBy, view.collapsed, kind, runtime, i18n.language]);
   const selectedIndex = items.findIndex(item => item.type === 'row' && item.row.uid === state.selected);
 
   // Keep the selected row inside the scroll area; the sticky headers cover the first slots.
@@ -92,7 +92,7 @@ export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: Cont
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.inventory, kind, filterKey, view.chips, state.now, columns]);
+  }, [state.inventory, kind, filterKey, view.chips, state.now, columns, i18n.language]);
 
   const now = state.now || Date.now();
   const windowed = items.length > WINDOW_THRESHOLD;
@@ -259,7 +259,7 @@ function FilterField({ column, current, options = [], dispatch, tableRef }: Filt
         onChange={event => { set(event.target.value); tableRef.current?.focus({ preventScroll: true }); }}>
         <option value="">{t('containers:table.all')}</option>
         {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-        {current !== '' && !options.some(option => option.value === current) && <option value={current}>{current}</option>}
+        {/* i18n-ignore: arrow function, not text */}{current !== '' && !options.some(option => option.value === current) && <option value={current}>{current}</option>}
       </select>
     );
   }

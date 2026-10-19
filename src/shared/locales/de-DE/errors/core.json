@@ -49,6 +49,8 @@
     "testRdpCredentials": "Benutzer und Passwort prüft der Remotedesktop erst beim Verbinden.",
     "testUserMissing": "Gib einen Benutzernamen ein.",
     "testNoSftp": "Der Server bietet kein SFTP an.",
-    "testHostKeyRejected": "Der Server-Schlüssel wurde nicht bestätigt."
+    "testHostKeyRejected": "Der Server-Schlüssel wurde nicht bestätigt.",
+    "invalidConnectionData": "Die Verbindungsdaten sind ungültig.",
+    "clipboardTooLarge": "Der markierte Text ist zu groß."
   }
 }

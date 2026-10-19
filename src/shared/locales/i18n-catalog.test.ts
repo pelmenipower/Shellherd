@@ -95,8 +95,7 @@ describe('i18n catalogs', () => {
     }
   });
 
-  // Enabled with the sweep (all keys consumed).
-  it.skip('(d) has no orphaned keys', () => {
+  it('(d) has no orphaned keys', () => {
     const all = sourceFiles(() => true);
     const main = sourceFiles(rel => rel.startsWith('main/'));
     const quoted = (haystack: { text: string }[], literal: string): boolean =>
@@ -116,8 +115,7 @@ describe('i18n catalogs', () => {
     expect(orphans).toEqual([]);
   });
 
-  // Enabled with the sweep (all German literals moved into catalogs).
-  it.skip('(g) has no hard-coded German text in code', () => {
+  it('(g) has no hard-coded German text in code', () => {
     const files = sourceFiles(rel => /^(renderer|main|shared)\//.test(rel) && rel !== 'shared/vault/example.ts');
     const hits: string[] = [];
     for (const { rel, text } of files) {

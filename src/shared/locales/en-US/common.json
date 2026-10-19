@@ -8,11 +8,9 @@
     "rename": "Rename",
     "copy": "Copy",
     "connect": "Connect",
-    "disconnect": "Disconnect",
     "retry": "Try again",
     "open": "Open",
-    "edit": "Edit",
-    "reload": "Reload"
+    "edit": "Edit"
   },
   "status": {
     "connecting": "Connecting…",
@@ -28,22 +26,15 @@
   "thisComputer": "This computer",
   "errorWithDetail": "{{message}} Details: {{detail}}",
   "count": {
-    "sessions_one": "{{count}} session",
-    "sessions_other": "{{count}} sessions",
     "tabs_one": "{{count}} tab",
     "tabs_other": "{{count}} tabs",
     "views_one": "{{count}} view",
-    "views_other": "{{count}} views",
-    "connections_one": "{{count}} connection",
-    "connections_other": "{{count}} connections",
-    "windows_one": "{{count}} window",
-    "windows_other": "{{count}} windows"
+    "views_other": "{{count}} views"
   },
   "keys": {
     "ctrl": "Ctrl",
     "shift": "Shift",
     "alt": "Alt",
-    "space": "Space",
     "del": "Del"
   },
   "shortcuts": {

@@ -15,6 +15,13 @@ Ausnahme sind kleine, klar umrissene Fehlerbehebungen (eine Ursache, wenige Zeil
 - Bewegung nur mit Eintrag im Motion-Gate der Doku: nur `transform`/`opacity`, Kurven und Dauern aus den Tokens, `prefers-reduced-motion` in derselben Datei, nie auf per Tastatur ausgelöste oder 100-mal-am-Tag-Aktionen.
 - `src/renderer/src/design-tokens.test.ts` setzt das durch und läuft mit `npx vitest run`.
 
+## Texte (verbindlich)
+
+- UI-Texte stehen nie als Literal im Code, sondern nur über `t()`/`useT()` aus `src/renderer/src/i18n.ts`. Der Main-Prozess nutzt ausschließlich `mainT`, Fehler gehen als `AppError`-Codes zum Renderer.
+- Neue Keys immer in de-DE und en-US anlegen (`src/shared/locales/`), mit Namespace-Präfix und ohne dynamische Key-Zusammensetzung (Maps mit vollen Literalen).
+- `src/shared/locales/i18n-catalog.test.ts` setzt das durch (Parität, Platzhalter, verwaiste Keys, deutsche Literale im Code). Ausnahmen nur mit `i18n-ignore` und kurzem Grund.
+- Zahlen, Daten und Sortierung nur über `src/shared/format.ts`, nie `localeCompare` oder `new Intl.*` in Komponenten.
+
 ## Prüfen
 
 - `npm run typecheck` und `npx vitest run` müssen vor jedem Commit grün sein.

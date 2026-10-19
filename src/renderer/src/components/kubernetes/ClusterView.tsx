@@ -48,7 +48,7 @@ const TICK_MS = 10_000;
 
 /** Cluster tab: header, node strip, problems, the resource table and the detail dock. */
 export function ClusterView({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, onPopout, initialView, onSnapshot, sshForNode, onOpenSsh }: ClusterViewProps) {
-  const { t } = useT();
+  const { t, i18n } = useT();
   const { state, dispatch, retry, detail, action } = useClusterSession(connection.id, initialView, null);
   const rootRef = useRef<HTMLElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -70,7 +70,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   const filter = filterOf(state);
   // visibleRows reads exactly these fields of state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const rows = useMemo(() => visibleRows(state), [state.rows, state.query.kind, filter.text, filter.chips, filter.columns, state.sort, state.now, state.query.namespace]);
+  const rows = useMemo(() => visibleRows(state), [state.rows, state.query.kind, filter.text, filter.chips, filter.columns, state.sort, state.now, state.query.namespace, i18n.language]);
   const selectedRow = rows.find(row => refKey(row.ref) === state.selected) ?? null;
   // Logs and shell follow the pod: the drilled-into pod, or the selected pod row.
   const { podRow, container, armKey } = dockSelection(state.containersOf, selectedRow, state.container);

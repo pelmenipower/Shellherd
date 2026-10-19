@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { isAbsolute, win32 } from 'node:path';
 import { AppError } from '../shared/errors';
+import { mainT } from './i18n';
 
 /** New vaults use `.term`; `.terminus` files from earlier versions still open. */
 export const VAULT_EXTENSIONS = ['.term', '.terminus'] as const;
@@ -34,7 +35,7 @@ export function registryEntries(command: string, icon: string): string[][] {
     add(PROG_ID, 'Shellherd Vault'),
     add(`${PROG_ID}\\DefaultIcon`, icon),
     add(`${PROG_ID}\\shell`, 'open'),
-    add(`${PROG_ID}\\shell\\open`, 'Mit Shellherd öffnen'),
+    add(`${PROG_ID}\\shell\\open`, mainT('fileAssociation.openVerb')),
     add(`${PROG_ID}\\shell\\open\\command`, command),
   ];
 }

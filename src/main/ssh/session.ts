@@ -25,6 +25,7 @@ import { KUBE_NAME } from '../../shared/kubernetes';
 import type { KubeTerminalMode, KubeTerminalTarget } from '../../shared/kubernetes';
 import { KubeApiError } from '../kubernetes/api';
 import type { KubeStream, TerminalIo } from '../kubernetes/api';
+import { mainT } from '../i18n';
 
 export { agentSocket } from './client-config';
 
@@ -286,7 +287,7 @@ export class SshSessionManager {
   private sudoGaveUp(session: Session): void {
     if (!this.active(session) || !session.sudo) return;
     this.releaseSudoHold(session);
-    this.output(session, Buffer.from('\r\n[Shellherd] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben.\r\n', 'utf8')); // i18n-ignore: needs a main.json key
+    this.output(session, Buffer.from(`\r\n${mainT('terminal.sudoGaveUp')}\r\n`, 'utf8'));
   }
 
   private releaseSudoHold(session: Session): void {
