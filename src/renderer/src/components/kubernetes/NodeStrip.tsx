@@ -39,7 +39,7 @@ export function NodeStrip({ nodes, onJump, onMenu }: NodeStripProps) {
         return (
           <button key={node.name} type="button" role="listitem" className={`kube-node kube-node-${tone}`} title={title}
             onClick={() => onJump(node.name)} {...menuHandlers(onMenu, { type: 'node', tile: node })}>
-            <span className="kube-node-name"><span className={`kube-dot kube-tone-${tone}`} aria-hidden="true">●</span> {labels[index]}</span>
+            <span className="kube-node-name"><span className={`kube-dot kube-tone-${tone}`} aria-hidden="true" /> {labels[index]}</span>
             {node.cpu !== undefined && <Meter label="CPU" value={node.cpu} />}
             {node.memory !== undefined && <Meter label="RAM" value={node.memory} />}
           </button>

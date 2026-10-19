@@ -12,7 +12,7 @@
 .pane-header .terminal-tab[aria-selected='true'] { color: var(--color-text); }
 .pane-header .terminal-tab:hover:not(:disabled) { background: transparent; color: var(--color-text); }
 .pane-header .tab-name { overflow: hidden; text-overflow: ellipsis; }
-.pane-header .tab-status { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--color-text-muted); }
+.pane-header .tab-status { width: var(--size-dot); height: var(--size-dot); flex: 0 0 var(--size-dot); border-radius: 50%; background: var(--color-text-muted); }
 .pane-header .tab-status-connected { background: var(--color-ok); }
 .pane-header .tab-status-connecting { background: var(--color-warn); }
 .pane-header .tab-status-error { background: var(--color-danger-strong); }
@@ -29,6 +29,7 @@
 .split-terminal-stage > .terminal-panel[hidden] { display: none; }
 .split-terminal-stage .terminal-container { flex: 1; width: 100%; min-width: 0; min-height: 0; padding: 0; margin: 0; border: 0; border-radius: 0; overflow: hidden; }
 .terminal-live-status { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.terminal-panel { position: relative; }
 .split-terminal-stage .error-message { flex-shrink: 0; font-size: var(--fs-sm); margin: 0 0 var(--space-4); padding: var(--space-8); max-height: 45%; overflow: auto; }
 .pane-chrome .empty-pane { position: absolute; top: var(--bar-md); inset-inline: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-8); padding: var(--space-12); text-align: center; pointer-events: auto; }
 .empty-pane p { color: var(--color-text-muted); font-size: var(--fs-sm); max-width: 32ch; margin: 0; }

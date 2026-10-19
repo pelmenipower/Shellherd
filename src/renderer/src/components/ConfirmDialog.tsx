@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import './editor-ui.css';
+import { BusyButton } from './BusyButton';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { useT } from '../i18n';
 
@@ -41,9 +42,7 @@ export function ConfirmDialog({ title, description, busy, onCancel, onConfirm, c
       <p id={`${id}-description`}>{description}</p>
       <div className="form-actions">
         <button ref={cancelRef} className="secondary-button" type="button" disabled={busy} onClick={onCancel}>{cancelLabel ?? t('common:actions.cancel')}</button>
-        <button className={destructive ? 'danger-button' : 'primary-button'} type="button" disabled={busy} onClick={onConfirm}>
-          {busy ? t('common:wait') : confirmLabel ?? t('app:dialogs.confirmDefault')}
-        </button>
+        <BusyButton className={destructive ? 'danger-button' : 'primary-button'} type="button" busy={busy} idleLabel={confirmLabel ?? t('app:dialogs.confirmDefault')} onClick={onConfirm} />
         {alternateLabel && onAlternate && <button className="primary-button" type="button" disabled={busy} onClick={onAlternate}>{alternateLabel}</button>}
       </div>
     </dialog>

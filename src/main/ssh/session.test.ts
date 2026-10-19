@@ -9,8 +9,10 @@ import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode } from
 import type { SshEvent, TerminalSize } from '../../shared/ssh';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
 import { KubeApiError, type KubeStream, type TerminalIo } from '../kubernetes/api';
-import { agentSocket, publicError, SshSessionManager, targetExitError } from './session';
+import { agentSocket, classifyError, publicError, SshSessionManager, targetExitError } from './session';
 import { AppError } from '../../shared/errors';
+import { AgentError } from './client-config';
+import { ContainerInputError } from '../containers/commands';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
@@ -224,7 +226,7 @@ describe('SSH session manager with a real local SSH server', () => {
     await manager.connect(1, prepare());
     await waitFor(() => hasStatus('error'));
     expect(JSON.stringify(events)).not.toContain('wrong-synthetic-secret');
-    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', error: { code: 'ssh.authFailed' } }));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', error: expect.objectContaining({ code: 'ssh.authFailed' }) }));
     expect(manager.hasOwner(1)).toBe(false);
   });
 
@@ -705,5 +707,129 @@ describe('publicError', () => {
     expect(publicError(Object.assign(new Error('x'), { level: 'client-timeout' }))).toEqual({ code: 'ssh.timeout' });
     expect(publicError(new Error('secret library text'))).toEqual({ code: 'ssh.failed' });
     expect(publicError(undefined)).toEqual({ code: 'ssh.failed' });
+  });
+});
+
+function statusEvents(): Extract<SshEvent, { type: 'status' }>[] { return events.filter((event): event is Extract<SshEvent, { type: 'status' }> => event.type === 'status'); }
+function steps(): string[] { return events.flatMap(event => event.type === 'step' ? [event.step] : []); }
+
+describe('SSH connection steps and failure codes', () => {
+  it('reports the four steps in order for an ssh2 session', async () => {
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('connected'));
+    expect(steps()).toEqual(['reach', 'hostkey', 'auth', 'shell']);
+    const firstStep = events.findIndex(event => event.type === 'step');
+    expect(events.findIndex(event => event.type === 'status' && event.status === 'connecting')).toBeLessThan(firstStep);
+  });
+
+  it('stops after hostkey when the key is rejected and reports hostkey-rejected', async () => {
+    manager = new SshSessionManager({ getConnection: () => connection, spawnShell: noShell,
+      verifyHost: async () => false, emit: (_owner, event) => events.push(event) });
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('error'));
+    expect(steps()).toEqual(['reach', 'hostkey']);
+    expect(statusEvents().at(-1)).toMatchObject({ status: 'error', error: { code: 'ssh.hostKeyRejected' }, code: 'hostkey-rejected' });
+  });
+
+  it('reports hostkey-changed with both fingerprints only in detail', async () => {
+    manager = new SshSessionManager({ getConnection: () => connection, spawnShell: noShell,
+      verifyHost: async () => { throw new HostKeyError('ssh.hostKeyChanged', 'changed', { expected: 'SHA256:old', received: 'SHA256:new' }); },
+      emit: (_owner, event) => events.push(event) });
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('error'));
+    const failure = statusEvents().at(-1)!;
+    expect(failure).toMatchObject({ code: 'hostkey-changed', error: { code: 'ssh.hostKeyChanged', detail: 'expected SHA256:old\nreceived SHA256:new' } });
+    expect(JSON.stringify({ ...failure.error, detail: undefined })).not.toContain('SHA256');
+  });
+
+  it('reports auth for a refused password', async () => {
+    connection.authentication = { method: 'password', password: 'wrong-synthetic-secret' };
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('error'));
+    expect(statusEvents().at(-1)).toMatchObject({ code: 'auth' });
+    expect(statusEvents().at(-1)?.error?.detail).toMatch(/authentication/i);
+    expect(steps()).toEqual(['reach', 'hostkey', 'auth']);
+    expect(JSON.stringify(events)).not.toContain('wrong-synthetic-secret');
+  });
+
+  it('reports closed-by-server when the server ends an untouched session', async () => {
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('connected'));
+    peers[0].end();
+    await waitFor(() => hasStatus('closed'));
+    expect(statusEvents().at(-1)).toMatchObject({ status: 'closed', code: 'closed-by-server' });
+  });
+
+  it('reports a plain close when the user closes or typed before the end', async () => {
+    const id = prepare();
+    await manager.connect(1, id);
+    await waitFor(() => hasStatus('connected'));
+    manager.close(1, id);
+    expect(statusEvents().at(-1)).not.toHaveProperty('code');
+    events = [];
+    const second = prepare();
+    await manager.connect(1, second);
+    await waitFor(() => hasStatus('connected'));
+    await manager.input(1, second, 'exit\r');
+    shell!.end();
+    await waitFor(() => hasStatus('closed'));
+    expect(statusEvents().at(-1)).not.toHaveProperty('code');
+  });
+
+  it('throws coded errors for the limit, missing fields and input floods', async () => {
+    Array.from({ length: MAX_SSH_SESSIONS }, () => prepare());
+    expect(() => prepare()).toThrow(expect.objectContaining({ code: 'ssh.sessionLimit' }));
+    manager.closeAll();
+    connection.username = '';
+    expect(() => prepare()).toThrow(expect.objectContaining({ code: 'ssh.hostUserMissing' }));
+    connection.username = 'synthetic-user';
+    const id = prepare();
+    await manager.connect(1, id);
+    await waitFor(() => hasStatus('connected'));
+    await expect(manager.input(1, id, 'x'.repeat(20_000))).rejects.toThrow(expect.objectContaining({ code: 'ssh.tooMuchInput' }));
+  });
+
+  it.runIf(process.platform === 'win32')('sends only the shell step for a local container', async () => {
+    const localEvents: SshEvent[] = [];
+    const pty = { onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write() {}, resize() {}, kill() {}, pause() {}, resume() {} };
+    const local = new SshSessionManager({ getConnection: () => { throw new Error('no vault lookups'); },
+      verifyHost: async () => true, locate: async command => `C:\\bin\\${command}.exe`, emit: (_owner, event) => localEvents.push(event),
+      spawnShell: () => pty as never });
+    const id = local.prepare(1, { connectionId: LOCAL_CONTAINER_HOST, cols: 80, rows: 24, target: { item: { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' }, mode: 'shell' } }).sessionId;
+    await local.connect(1, id);
+    expect(localEvents.filter(event => event.type === 'step')).toEqual([{ type: 'step', sessionId: id, step: 'shell' }]);
+  });
+});
+
+describe('classifyError', () => {
+  const raw = (props: object, message = 'raw text') => Object.assign(new Error(message), props);
+  it('maps host key errors with fingerprints in detail', () => {
+    expect(classifyError(new HostKeyError('ssh.hostKeyChanged', 'changed', { expected: 'a', received: 'b' })))
+      .toEqual({ code: 'hostkey-changed', error: { code: 'ssh.hostKeyChanged', detail: 'expected a\nreceived b' } });
+    expect(classifyError(new HostKeyError('ssh.hostKeysUnreadable'))).toEqual({ code: 'hostkey-store', error: { code: 'ssh.hostKeysUnreadable' } });
+    expect(classifyError(new HostKeyError('ssh.hostKeyChanged', 'changed'))).toEqual({ code: 'hostkey-store', error: { code: 'ssh.hostKeyChanged' } });
+  });
+  it('maps agent and input errors without detail', () => {
+    expect(classifyError(new AgentError('ssh.noAgent'))).toEqual({ code: 'agent', error: { code: 'ssh.noAgent' } });
+    expect(classifyError(new ContainerInputError('containers.invalidTarget'))).toEqual({ code: 'unknown', error: { code: 'containers.invalidTarget' } });
+  });
+  it('maps errno and ssh2 levels to codes with the raw text as detail', () => {
+    expect(classifyError(raw({ code: 'ENOENT' }))).toEqual({ code: 'key-file', error: { code: 'ssh.keyFileUnreadable', detail: 'raw text' } });
+    expect(classifyError(raw({ code: 'EACCES' })).code).toBe('key-file');
+    expect(classifyError(raw({ code: 'ECONNREFUSED' }))).toEqual({ code: 'refused', error: { code: 'ssh.connectionRefused', detail: 'raw text' } });
+    expect(classifyError(raw({ code: 'ENOTFOUND' }))).toMatchObject({ code: 'not-found', error: { code: 'ssh.hostNotFound' } });
+    expect(classifyError(raw({ code: 'EAI_AGAIN' })).code).toBe('not-found');
+    expect(classifyError(raw({ level: 'client-authentication' }))).toMatchObject({ code: 'auth', error: { code: 'ssh.authFailed' } });
+    expect(classifyError(raw({ level: 'client-timeout' }))).toMatchObject({ code: 'timeout', error: { code: 'ssh.timeout' } });
+    expect(classifyError(raw({ code: 'ETIMEDOUT' })).code).toBe('timeout');
+    expect(classifyError(new Error('boom'))).toEqual({ code: 'unknown', error: { code: 'ssh.failed', detail: 'boom' } });
+  });
+  it('cuts the detail at 500 characters and omits empty or non-error detail', () => {
+    expect(classifyError(new Error('x'.repeat(900))).error.detail).toHaveLength(500);
+    expect(classifyError(new Error('')).error.detail).toBeUndefined();
+    expect(classifyError('text').error).not.toHaveProperty('detail');
+  });
+  it('keeps publicError free of library text', () => {
+    expect(publicError(raw({ code: 'ECONNREFUSED' }))).toEqual({ code: 'ssh.connectionRefused' });
   });
 });

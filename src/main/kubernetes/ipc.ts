@@ -42,7 +42,7 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, sudoReject
       if (node?.protocol !== 'kubernetes') throw new AppError('kubernetes.clusterNotFound');
       return node;
     },
-    openAccess: cluster => openAccess(cluster, { getConnection, openRemote, sudoRejections }),
+    openAccess: (cluster, onTry) => openAccess(cluster, { getConnection, openRemote, sudoRejections }, onTry),
     openTunnel: (access, target) => openTunnel((host, port) => access.host.forward(host, port), target),
     createApi: createKubeApi,
     emit: (ownerId, event) => {

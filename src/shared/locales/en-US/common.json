@@ -13,10 +13,6 @@
     "edit": "Edit"
   },
   "status": {
-    "connecting": "Connecting…",
-    "connected": "Connected",
-    "closed": "Connection closed",
-    "failed": "Connection failed",
     "saving": "Saving…"
   },
   "wait": "One moment…",

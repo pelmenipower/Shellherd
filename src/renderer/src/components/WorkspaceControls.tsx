@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Workspace } from '../../../shared/vault/types';
+import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { workspaceSummary } from '../terminal-views';
 import { useT } from '../i18n';
@@ -21,6 +22,7 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [savedCount, setSavedCount] = useState(0);
   const menuRef = useRef<HTMLDetailsElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const active = workspaces.find(workspace => workspace.id === activeId);
@@ -54,7 +56,7 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
     if (!active) { beginName('saveAs'); return; }
     setPending(true); setError('');
     try {
-      if (await onSave(active.name, active.id)) closeMenu();
+      if (await onSave(active.name, active.id)) { setSavedCount(count => count + 1); closeMenu(); }
       else { setError(t('vault:workspaces.saveFailed')); if (menuRef.current) menuRef.current.open = true; }
     } catch { setError(t('vault:workspaces.saveFailed')); if (menuRef.current) menuRef.current.open = true; }
     finally { setPending(false); }
@@ -65,7 +67,7 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
     setPending(true); setError('');
     try {
       const result = mode === 'rename' && selected ? await onRename(selected.id, name.trim()) : await onSave(name.trim());
-      if (result) closeMenu(); else setError(t('vault:workspaces.saveFailed'));
+      if (result) { setSavedCount(count => count + 1); closeMenu(); } else setError(t('vault:workspaces.saveFailed'));
     } catch { setError(t('vault:workspaces.saveFailed')); }
     finally { setPending(false); }
   };
@@ -88,7 +90,7 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
             <input ref={nameRef} aria-label={t('vault:workspaces.nameLabel')} value={name} disabled={unavailable} aria-invalid={Boolean(error)}
               onChange={event => { setName(event.target.value); setError(''); }} /></label>
           <div className="workspace-menu-actions"><button type="button" disabled={unavailable} onClick={() => { setMode(null); setError(''); }}>{t('common:actions.cancel')}</button>
-            <button type="submit" disabled={unavailable}>{pending ? t('common:status.saving') : t('common:actions.save')}</button></div>
+            <BusyButton type="submit" busy={pending} disabled={unavailable} idleLabel={t('common:actions.save')} busyLabel={t('common:status.saving')} doneKey={savedCount} /></div>
         </form> : <>
           <label className="workspace-definition-label">{t('vault:workspaces.savedLabel')}
             <select aria-label={t('vault:workspaces.selectAria')} value={selectedId} disabled={unavailable || workspaces.length === 0} onChange={event => setSelectedId(event.target.value)}>
@@ -108,12 +110,11 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
             <button type="button" disabled={unavailable || !hasTabs} onClick={() => { closeMenu(); onClose(); }}>{t('vault:workspaces.closeWorkspace')}</button>
           </div>
         </>}
-        {error && <p className="workspace-menu-error" role="alert">{error}</p>}
+        {error && <p className="area-error" role="alert">{error}</p>}
       </div>
     </details>
-    <button className="workspace-save" type="button" disabled={unavailable || (Boolean(active) && !dirty)} onClick={() => { void saveActive(); }}>
-      {unavailable ? t('common:status.saving') : t('common:actions.save')}
-    </button>
+    <BusyButton className="workspace-save" type="button" busy={unavailable} disabled={Boolean(active) && !dirty} idleLabel={t('common:actions.save')} busyLabel={t('common:status.saving')} doneKey={savedCount}
+      onClick={() => { void saveActive(); }} />
     {deletingId && <ConfirmDialog title={t('vault:workspaces.confirmTitle')} description={t('vault:workspaces.confirmDescription', { name: workspaces.find(workspace => workspace.id === deletingId)?.name ?? t('vault:workspaces.fallbackName') })}
       busy={unavailable} onCancel={() => setDeletingId(null)} onConfirm={() => {
         setPending(true);

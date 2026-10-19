@@ -54,12 +54,6 @@
   },
   "panel": {
     "openFolderFailed": "Der Ordner konnte nicht geöffnet werden.",
-    "connecting": "Verbindung zum Server wird aufgebaut …",
-    "closed": "Die Verbindung wurde beendet.",
-    "reconnect": "Neu verbinden",
-    "sftpConnected": "SFTP verbunden",
-    "sftpConnecting": "SFTP verbindet …",
-    "sftpClosed": "SFTP getrennt",
     "dismiss": "Meldung schließen",
     "deleteOne": "„{{name}}“ löschen?",
     "deleteMany": "{{count}} Einträge löschen?",

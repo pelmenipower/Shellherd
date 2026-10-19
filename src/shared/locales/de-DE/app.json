@@ -8,7 +8,32 @@
     "disabled": "Die Verbindung „{{name}}“ ist deaktiviert. Per Rechtsklick → „Aktivieren“ wieder freigeben.",
     "skipped_one": "{{count}} deaktivierte Verbindung wurde übersprungen.",
     "skipped_other": "{{count}} deaktivierte Verbindungen wurden übersprungen.",
-    "sessionLimit": "Maximal {{max}} Sessions. Schließe zuerst einen Tab."
+    "disabledTitle": "Verbindung deaktiviert",
+    "sessionLimitTitle": "Maximal {{max}} Sessions",
+    "sessionLimitBody": "Schließe zuerst einen Tab.",
+    "sessionLimitText": "Maximal {{max}} Sessions gleichzeitig. Schließe zuerst einen Tab.",
+    "tabNotMoved": "Tab nicht verschoben",
+    "notVaultFileTitle": "Keine Vault-Datei",
+    "vaultNotSaved": "Vault nicht gespeichert",
+    "notRetried": "Nicht erneut gespeichert",
+    "retryBusy": "Gerade läuft eine andere Speicherung. Wiederhole die Änderung danach.",
+    "retryChanged": "Der Vault hat sich inzwischen geändert. Wiederhole die Änderung.",
+    "windowNotRestored": "Fenster nicht wiederhergestellt",
+    "workspaceNotOpened": "Workspace nicht geöffnet",
+    "clusterNotChecked": "Cluster nicht geprüft",
+    "nothingToConnect": "Nichts zu verbinden",
+    "partialTitle_one": "Nur {{opened}} von {{count}} Verbindung geöffnet",
+    "partialTitle_other": "Nur {{opened}} von {{count}} Verbindungen geöffnet",
+    "partialBody": "Maximal {{max}} Sessions gleichzeitig.",
+    "partialBodySkipped": "Maximal {{max}} Sessions gleichzeitig. {{skipped}}",
+    "noneOpenedTitle": "Keine Verbindung geöffnet",
+    "skippedTitle": "Verbindungen übersprungen",
+    "notMoved": "Nicht verschoben",
+    "workspaceNotSaved": "Workspace nicht gespeichert",
+    "workspaceNotDeleted": "Workspace nicht gelöscht",
+    "workspaceSaved": "Workspace „{{name}}“ gespeichert",
+    "catalogUnavailableTitle": "Verbindungsliste nicht verfügbar",
+    "catalogUnavailableBody": "Ist der Vault gesperrt?"
   },
   "version": {
     "unknown": "unbekannt"
@@ -33,7 +58,6 @@
     "clusterProbeFailed": "Der Kubernetes-Cluster konnte nicht geprüft werden.",
     "moveFailed": "Verschieben fehlgeschlagen.",
     "tabMoveFailed": "Der Tab konnte nicht verschoben werden.",
-    "catalogUnavailable": "Die Verbindungsliste ist nicht verfügbar. Ist der Vault gesperrt?",
     "windowRestoreFailed": "Das Fenster konnte nicht wiederhergestellt werden."
   },
   "openVaultFile": {
@@ -44,9 +68,7 @@
   },
   "folder": {
     "allDisabled": "Alle Verbindungen im Ordner „{{name}}“ sind deaktiviert.",
-    "empty": "Der Ordner „{{name}}“ enthält keine Verbindungen.",
-    "partial_one": "Es wurden nur {{opened}} von {{count}} Verbindung geöffnet: Maximal {{max}} Sessions gleichzeitig.",
-    "partial_other": "Es wurden nur {{opened}} von {{count}} Verbindungen geöffnet: Maximal {{max}} Sessions gleichzeitig."
+    "empty": "Der Ordner „{{name}}“ enthält keine Verbindungen."
   },
   "header": {
     "sidebarShow": "Verbindungen einblenden",
@@ -102,7 +124,6 @@
   },
   "status": {
     "saved": "Gespeichert",
-    "failed": "Aktion fehlgeschlagen",
     "open": "Vault geöffnet",
     "activeSessions_one": "{{count}} aktive Session",
     "activeSessions_other": "{{count}} aktive Sessions",
@@ -129,7 +150,7 @@
   },
   "open": {
     "title": "Vault öffnen",
-    "description": "Wähle deine `.term`-Datei aus und gib anschließend das zugehörige Passwort ein.",
+    "description": "Wähle deine .term-Datei aus und gib anschließend das zugehörige Passwort ein.",
     "selectFile": "Vault-Datei auswählen",
     "selectOther": "Andere Vault-Datei auswählen",
     "selectedFile": "Ausgewählte Datei",
@@ -139,7 +160,7 @@
     "submitting": "Vault wird entschlüsselt …"
   },
   "toast": {
-    "closeAria": "Fehlermeldung schließen"
+    "closeAria": "Meldung schließen"
   },
   "releaseNotes": {
     "title": "Neu in Version {{version}}",

@@ -47,7 +47,7 @@
     "menuLabel": "Aktionen für {{name}}",
     "menuCreate": "Neu anlegen",
     "nameRequired": "Gib einen Namen ein.",
-    "renameFailed": "Umbenennen fehlgeschlagen. Bitte erneut versuchen.",
+    "renameFailed": "Nicht umbenannt.",
     "newConnection": "Neue Verbindung",
     "newConnectionIn": "Neue Verbindung in „{{name}}“",
     "newConnectionBeside": "Neue Verbindung daneben",
@@ -114,8 +114,8 @@
     "saveAs": "Speichern unter …",
     "closeWorkspace": "Workspace schließen",
     "nameRequired": "Gib einen Workspace-Namen ein.",
-    "saveFailed": "Speichern fehlgeschlagen. Bitte erneut versuchen.",
-    "deleteFailed": "Löschen fehlgeschlagen. Bitte erneut versuchen.",
+    "saveFailed": "Nicht gespeichert.",
+    "deleteFailed": "Nicht gelöscht.",
     "confirmTitle": "Gespeicherten Workspace löschen?",
     "confirmDescription": "„{{name}}“ wird entfernt. Aktive SSH-Sessions bleiben geöffnet."
   },
@@ -125,7 +125,6 @@
     "searchLabel": "Verbindung hinzufügen",
     "searchAria": "Verbindung für neuen Tab suchen",
     "searchPlaceholder": "Name, Host oder Ordner …",
-    "limit": "Alle 16 Sessions sind belegt. Schließe zuerst einen Tab.",
     "noMatch": "Keine passende Verbindung.",
     "noneSaved": "Noch keine Verbindung gespeichert. Lege über „Neu“ eine Verbindung an."
   }

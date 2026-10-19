@@ -54,12 +54,6 @@
   },
   "panel": {
     "openFolderFailed": "The folder could not be opened.",
-    "connecting": "Connecting to the server …",
-    "closed": "The connection was closed.",
-    "reconnect": "Reconnect",
-    "sftpConnected": "SFTP connected",
-    "sftpConnecting": "SFTP connecting …",
-    "sftpClosed": "SFTP disconnected",
     "dismiss": "Dismiss message",
     "deleteOne": "Delete “{{name}}”?",
     "deleteMany": "Delete {{count}} entries?",

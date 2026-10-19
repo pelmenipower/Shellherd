@@ -3,6 +3,7 @@ import type { FileEntry } from '../../../shared/sftp';
 import { isDirectory, modeText, parseMode } from '../file-browser';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { useT } from '../i18n';
+import { BusyButton } from './BusyButton';
 
 interface PermissionsDialogProps {
   entries: FileEntry[];
@@ -68,7 +69,7 @@ export function PermissionsDialog({ entries, busy, onCancel, onApply }: Permissi
         {t('files:permissions.recursive')}</label>}
       <div className="form-actions">
         <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>{t('common:actions.cancel')}</button>
-        <button type="button" className="primary-button" disabled={busy || !valid} onClick={() => onApply(mode, recursive)}>{busy ? t('common:wait') : t('files:permissions.apply')}</button>
+        <BusyButton type="button" className="primary-button" busy={busy} disabled={!valid} idleLabel={t('files:permissions.apply')} busyLabel={t('common:wait')} onClick={() => onApply(mode, recursive)} />
       </div>
     </dialog>
   );

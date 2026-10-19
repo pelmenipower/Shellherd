@@ -4,6 +4,7 @@
     "noPopout": "Hier lässt sich kein Tab öffnen.",
     "noContainer": "Der Pod hat keine Container.",
     "notRunning": "Der Pod läuft nicht.",
+    "reconnecting": "Gesperrt, bis der Cluster wieder erreichbar ist.",
     "onlyPods": "Nur für Pods.",
     "selectRow": "Wähle zuerst eine Zeile.",
     "noSelectorWorkload": "Dieser Workload hat keinen Selector.",

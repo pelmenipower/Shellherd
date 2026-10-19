@@ -24,7 +24,9 @@ import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuEntry } from './components/ContextMenu';
 import { FolderEditor } from './components/FolderEditor';
 import { ConfirmDialog } from './components/ConfirmDialog';
-import { Toast } from './components/Toast';
+import { ToastStack } from './components/Toast';
+import { clearNotices, notify } from './notice-store';
+import { onEditRequest } from './edit-request';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
 import { containerConnection, containerViewConnection, isRunning, planContainerView, tabLabel, toTerminalConnection } from './terminal-tabs';
@@ -34,7 +36,7 @@ import type { KubeProbeResult, KubeViewSnapshot } from '../../shared/kubernetes'
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
 import { connectionsIn, NEW_CONNECTION_KINDS } from '../../shared/vault/connections';
 import { connectionAddress, protocolLabel } from './connection-labels';
-import { disabledNotice, sessionLimitNotice, skippedNotice } from './vault-notices';
+import { disabledNotice, disabledTitle, sessionLimitNotice, sessionLimitText, skippedNotice } from './vault-notices';
 import { LOCAL_CONTAINER_HOST, toTarget } from '../../shared/containers';
 import type { ContainerAction, ContainerRuntime, DiscoveredItem, TerminalTargetMode } from '../../shared/containers';
 import type { ContainerTreeProps } from './container-tree';
@@ -46,7 +48,7 @@ import { WorkspaceControls } from './components/WorkspaceControls';
 import { useTerminalLayout } from './hooks/useTerminalLayout';
 import { useTabTransfer } from './hooks/useTabTransfer';
 import { useViewControls } from './hooks/useViewControls';
-import { fromWorkspaceViews, toWorkspaceViews } from './terminal-views';
+import { fromWorkspaceViews, toWorkspaceViews, workspaceSummary } from './terminal-views';
 import { FileTypeSetting, WelcomePage } from './components/WelcomePage';
 import { ReleaseNotesDialog } from './components/ReleaseNotes';
 import { AssistantPanel } from './components/AssistantPanel';
@@ -89,6 +91,9 @@ function createEmptyVault(name: string): Vault {
   };
 }
 
+const notifySessionLimit = (): void => { const { title, body } = sessionLimitNotice(); notify.info(title, { body }); };
+const notifyDisabled = (node: ConnectionNode): void => { notify.info(disabledTitle(), { body: disabledNotice(node) }); };
+
 const fileName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 const isVaultFileName = (name: string): boolean => /\.(term|terminus)$/i.test(name);
 
@@ -123,7 +128,10 @@ export default function App() {
   const [passwordConfirmation, setPasswordConfirmation] =
     useState('');
 
-  const [error, setError] = useState<string | null>(null);
+  // Start-card errors stay inline; background events go through notify.
+  const [formError, setFormError] = useState<string | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -150,11 +158,14 @@ export default function App() {
   const [clusterDraft, setClusterDraft] = useState<KubernetesConnectionNode | null>(null);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const terminalLayout = useTerminalLayout(terminals.tabs, terminals.activeTabId);
-  const transfer = useTabTransfer(terminals, terminalLayout, setError);
+  const transfer = useTabTransfer(terminals, terminalLayout);
   const viewControls = useViewControls(terminalLayout, terminals.select, transfer.transferView);
   // Announce readiness after the transfer listeners above are registered.
   useEffect(() => { void window.desktopApi.windowReady(); }, []);
   const containerDiscovery = useContainerDiscovery();
+  // Latest vault for the retry action of a failed save (B9).
+  const vaultRef = useRef(vault);
+  vaultRef.current = vault;
   const vaultId = vault?.id;
   const { load: loadContainers } = containerDiscovery;
   // Local discovery once per unlocked vault.
@@ -221,7 +232,7 @@ export default function App() {
       const file = [...event.dataTransfer!.files].find(item => isVaultFileName(item.name));
       const path = file ? window.desktopApi.pathForFile(file) : '';
       if (path) openVaultFileRef.current(path);
-      else setError(t('app:errors.onlyVaultFiles'));
+      else notify.info(t('app:notices.notVaultFileTitle'), { body: t('app:errors.onlyVaultFiles') });
     };
     window.addEventListener('dragover', over);
     window.addEventListener('dragleave', leave);
@@ -270,7 +281,9 @@ export default function App() {
     setDraggedTabId(null);
     terminalLayout.reset();
     setPendingSshAction(null);
-    setError(null);
+    setFormError(null);
+    setFolderError(null);
+    clearNotices();
   }
 
   function navigateTo(nextScreen: Screen): void {
@@ -282,20 +295,20 @@ export default function App() {
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
-    setError(null);
+    setFormError(null);
 
     if (!vaultName.trim()) {
-      setError(t('app:errors.vaultNameRequired'));
+      setFormError(t('app:errors.vaultNameRequired'));
       return;
     }
 
     if (password.length < 8) {
-      setError(t('app:errors.passwordTooShort'));
+      setFormError(t('app:errors.passwordTooShort'));
       return;
     }
 
     if (password !== passwordConfirmation) {
-      setError(t('app:errors.passwordMismatch'));
+      setFormError(t('app:errors.passwordMismatch'));
       return;
     }
 
@@ -319,7 +332,7 @@ export default function App() {
       setScreen('vault');
       resetForm();
     } catch (caughtError) {
-      setError(errorText(caughtError, t('app:errors.vaultFailed')));
+      setFormError(errorText(caughtError, t('app:errors.vaultFailed')));
     } finally {
       setPassword('');
       setPasswordConfirmation('');
@@ -331,15 +344,15 @@ export default function App() {
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
-    setError(null);
+    setFormError(null);
 
     if (!selectedVaultPath) {
-      setError(t('app:errors.vaultFileRequired'));
+      setFormError(t('app:errors.vaultFileRequired'));
       return;
     }
 
     if (!password) {
-      setError(t('app:errors.passwordRequired'));
+      setFormError(t('app:errors.passwordRequired'));
       return;
     }
 
@@ -356,7 +369,7 @@ export default function App() {
       setScreen('vault');
       resetForm();
     } catch (caughtError) {
-      setError(errorText(caughtError, t('app:errors.vaultFailed')));
+      setFormError(errorText(caughtError, t('app:errors.vaultFailed')));
     } finally {
       setPassword('');
       setBusy(false);
@@ -364,7 +377,7 @@ export default function App() {
   }
 
   async function handleSelectVaultFile(): Promise<void> {
-    setError(null);
+    setFormError(null);
     setBusy(true);
 
     try {
@@ -377,7 +390,7 @@ export default function App() {
 
       setSelectedVaultPath(result.filePath);
     } catch (caughtError) {
-      setError(errorText(caughtError, t('app:errors.vaultFileSelectFailed')));
+      setFormError(errorText(caughtError, t('app:errors.vaultFileSelectFailed')));
     } finally {
       setBusy(false);
     }
@@ -387,21 +400,23 @@ export default function App() {
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
-    setError(null);
+    setFolderError(null);
 
     if (!vault || busy) {
       return;
     }
 
     if (!canCreateFolder) {
-      setError(t('app:errors.folderTargetRequired'));
+      setFolderError(t('app:errors.folderTargetRequired'));
+      folderInput.current?.focus();
       return;
     }
 
     const name = folderName.trim();
 
     if (!name) {
-      setError(t('app:errors.folderNameRequired'));
+      setFolderError(t('app:errors.folderNameRequired'));
+      folderInput.current?.focus();
       return;
     }
 
@@ -427,11 +442,10 @@ export default function App() {
     }
   }
 
-  async function persistVault(updatedVault: Vault): Promise<boolean> {
+  async function persistVault(updatedVault: Vault, failureTitle?: string): Promise<boolean> {
     if (!vault || saveInProgress.current) return false;
     saveInProgress.current = true;
     const previousVault = vault;
-    setError(null);
     setSaved(false);
     setBusy(true);
     setVault(updatedVault);
@@ -443,7 +457,18 @@ export default function App() {
       return true;
     } catch (caughtError) {
       setVault(previousVault);
-      setError(errorText(caughtError, t('app:errors.vaultFailed')));
+      notify.error(failureTitle ?? t('app:notices.vaultNotSaved'), {
+        body: errorText(caughtError, t('app:errors.vaultFailed')),
+        action: {
+          label: t('common:actions.retry'),
+          // Only retry on the state the failed save started from; a newer save must not be overwritten.
+          run: () => {
+            if (saveInProgress.current) notify.info(t('app:notices.notRetried'), { body: t('app:notices.retryBusy') });
+            else if (vaultRef.current === previousVault) void persistVault(updatedVault, failureTitle);
+            else notify.info(t('app:notices.notRetried'), { body: t('app:notices.retryChanged') });
+          },
+        },
+      });
       return false;
     } finally {
       saveInProgress.current = false;
@@ -508,8 +533,9 @@ export default function App() {
     const workspace = { ...rest, id: existing?.id ?? crypto.randomUUID(), name: name.trim(),
       ...toWorkspaceViews(terminalLayout.viewsState, tabsWithKubeViews()), ...(windows.length ? { windows } : {}) };
     const workspaces = upsertWorkspace(vault.workspaces, workspace);
-    if (!await persistVault({ ...vault, workspaces })) return null;
+    if (!await persistVault({ ...vault, workspaces }, t('app:notices.workspaceNotSaved'))) return null;
     setActiveWorkspaceId(workspace.id);
+    notify.ok(t('app:notices.workspaceSaved', { name: workspace.name }), { body: workspaceSummary(workspace) });
     return workspace.id;
   }
 
@@ -517,12 +543,12 @@ export default function App() {
     if (!vault || busy || !name.trim()) return false;
     const existing = vault.workspaces.find(item => item.id === id);
     if (!existing) return false;
-    return persistVault({ ...vault, workspaces: upsertWorkspace(vault.workspaces, { ...existing, name: name.trim() }) });
+    return persistVault({ ...vault, workspaces: upsertWorkspace(vault.workspaces, { ...existing, name: name.trim() }) }, t('app:notices.workspaceNotSaved'));
   }
 
   async function deleteWorkspace(id: string): Promise<boolean> {
     if (!vault || busy) return false;
-    const saved = await persistVault({ ...vault, workspaces: removeWorkspace(vault.workspaces, id) });
+    const saved = await persistVault({ ...vault, workspaces: removeWorkspace(vault.workspaces, id) }, t('app:notices.workspaceNotDeleted'));
     if (saved && id === activeWorkspaceId) setActiveWorkspaceId(null);
     return saved;
   }
@@ -541,14 +567,14 @@ export default function App() {
         return;
       }
       void window.desktopApi.closeSecondaryWindows().then(() => window.desktopApi.openWorkspaceWindows(workspace.windows ?? []))
-        .catch(() => setError(t('app:errors.workspaceWindows')));
+        .catch(() => notify.error(t('app:notices.windowNotRestored'), { body: t('app:errors.workspaceWindows') }));
       terminalLayout.replaceViews(restored.state);
       terminals.restore(restored.tabs, restored.activeTabId);
       setActiveWorkspaceId(id);
       setEditorOpen(false);
-      setError(restored.skipped ? skippedNotice(restored.skipped) : null);
+      if (restored.skipped) notify.info(t('app:notices.skippedTitle'), { body: skippedNotice(restored.skipped) });
     } catch (caughtError) {
-      setError(errorText(caughtError, t('app:errors.workspaceOpenFailed')));
+      notify.error(t('app:notices.workspaceNotOpened'), { body: errorText(caughtError, t('app:errors.workspaceOpenFailed')) });
     }
   }
 
@@ -584,8 +610,12 @@ export default function App() {
   }
 
   function editNode(id: string): void {
-    navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorOpen(true); setEditorDirty(false); setError(null); });
+    navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorOpen(true); setEditorDirty(false); });
   }
+  // The error card of a terminal asks for the connection editor (B6).
+  const editNodeRef = useRef(editNode);
+  editNodeRef.current = editNode;
+  useEffect(() => onEditRequest(id => editNodeRef.current(id)), []);
 
   /** Tabs with the live view of each cluster tab, for saving a workspace. */
   function tabsWithKubeViews(): TerminalTab[] {
@@ -594,7 +624,7 @@ export default function App() {
 
   /** Pod logs or shell detached from a cluster tab: a tab of its own, subject to the session limit. */
   function openPopout(connection: TerminalConnection): void {
-    if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(sessionLimitNotice()); return; }
+    if (terminals.tabs.length >= MAX_SSH_SESSIONS) { notifySessionLimit(); return; }
     terminals.open(connection);
   }
 
@@ -602,9 +632,9 @@ export default function App() {
   async function setupCluster(sshId: string): Promise<void> {
     const ssh = vault ? findNode(vault.nodes, sshId) : undefined;
     if (!vault || busy || ssh?.type !== 'connection' || ssh.protocol !== 'ssh') return;
-    if (ssh.disabled) { setError(disabledNotice(ssh)); return; }
+    if (ssh.disabled) { notifyDisabled(ssh); return; }
     const probe = await window.desktopApi.kubeProbe({ connectionId: sshId }).catch((caught: unknown): KubeProbeResult | null => {
-      setError(errorText(caught, t('app:errors.clusterProbeFailed')));
+      notify.error(t('app:notices.clusterNotChecked'), { body: errorText(caught, t('app:errors.clusterProbeFailed')) });
       return null;
     });
     if (!probe) return;
@@ -612,7 +642,7 @@ export default function App() {
     navigateEditor(() => {
       setClusterDraft(draft);
       setNewConnectionTarget({ protocol: 'kubernetes', parentId: parentFolderId(vault.nodes, sshId) ?? '' });
-      setShowConnectionForm(true); setEditorOpen(true); setEditorDirty(false); setShowFolderForm(false); setError(null);
+      setShowConnectionForm(true); setEditorOpen(true); setEditorDirty(false); setShowFolderForm(false);
       setEditorRevision(value => value + 1);
     });
   }
@@ -622,54 +652,54 @@ export default function App() {
     navigateEditor(() => {
       setClusterDraft(null);
       setNewConnectionTarget({ protocol, parentId: parentId ?? null });
-      setShowConnectionForm(true); setEditorOpen(true); setEditorDirty(false); setShowFolderForm(false); setError(null);
+      setShowConnectionForm(true); setEditorOpen(true); setEditorDirty(false); setShowFolderForm(false);
     });
   }
 
   function newFolder(parentId: string): void {
     navigateEditor(() => {
       setSelectedNodeId(parentId || null); setShowConnectionForm(false); setEditorOpen(false); setEditorDirty(false);
-      setFolderName(''); setShowFolderForm(true); setError(null);
+      setFolderName(''); setFolderError(null); setShowFolderForm(true);
     });
   }
 
   function connectNode(id: string, paneId?: string, asFiles = false): void {
     const node = vault && findNode(vault.nodes, id);
     if (!node || node.type !== 'connection') return;
-    if (node.disabled) { setError(disabledNotice(node)); return; }
+    if (node.disabled) { notifyDisabled(node); return; }
     navigateEditor(() => {
-      if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(sessionLimitNotice()); return; }
+      if (terminals.tabs.length >= MAX_SSH_SESSIONS) { notifySessionLimit(); return; }
       if (paneId) terminalLayout.setFocused(paneId);
-      terminals.open(toTerminalConnection(node, asFiles)); setEditorOpen(false); setEditorDirty(false); setError(null);
+      terminals.open(toTerminalConnection(node, asFiles)); setEditorOpen(false); setEditorDirty(false);
     });
   }
 
   function openContainer(hostId: string, item: DiscoveredItem, mode: TerminalTargetMode): void {
     const host = hostId === LOCAL_CONTAINER_HOST ? undefined : vault && findNode(vault.nodes, hostId);
     if (hostId !== LOCAL_CONTAINER_HOST && host?.type !== 'connection') return;
-    if (host?.type === 'connection' && host.disabled) { setError(disabledNotice(host)); return; }
+    if (host?.type === 'connection' && host.disabled) { notifyDisabled(host); return; }
     navigateEditor(() => {
-      if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(sessionLimitNotice()); return; }
+      if (terminals.tabs.length >= MAX_SSH_SESSIONS) { notifySessionLimit(); return; }
       const name = host?.type === 'connection' ? host.name : t('common:thisComputer');
       const address = host?.type === 'connection' ? connectionAddress(host) : t('app:localAddress');
       terminals.open(containerConnection(hostId, name, address, { item: toTarget(item), mode }));
-      setEditorOpen(false); setEditorDirty(false); setError(null);
+      setEditorOpen(false); setEditorDirty(false);
     });
   }
 
   function openContainerView(hostId: string, runtime?: ContainerRuntime, reuse = false): void {
     const host = hostId === LOCAL_CONTAINER_HOST ? undefined : vault && findNode(vault.nodes, hostId);
     if (hostId !== LOCAL_CONTAINER_HOST && !(host?.type === 'connection' && host.protocol === 'ssh')) return;
-    if (host?.type === 'connection' && host.disabled) { setError(disabledNotice(host)); return; }
+    if (host?.type === 'connection' && host.disabled) { notifyDisabled(host); return; }
     navigateEditor(() => {
       const name = host?.type === 'connection' ? host.name : t('common:thisComputer');
       const address = host?.type === 'connection' ? connectionAddress(host) : t('app:localAddress');
       const connection = containerViewConnection(hostId, name, address, runtime);
       const plan = planContainerView(terminals.tabs, terminals.activeTabId, connection, reuse);
-      if (plan.kind === 'focus') { terminals.select(plan.tabId); setEditorOpen(false); setEditorDirty(false); setError(null); return; }
-      if (plan.kind === 'limit') { setError(sessionLimitNotice()); return; }
+      if (plan.kind === 'focus') { terminals.select(plan.tabId); setEditorOpen(false); setEditorDirty(false); return; }
+      if (plan.kind === 'limit') { notifySessionLimit(); return; }
       terminals.open(connection);
-      setEditorOpen(false); setEditorDirty(false); setError(null);
+      setEditorOpen(false); setEditorDirty(false);
     });
   }
 
@@ -686,21 +716,23 @@ export default function App() {
     const folder = vault && findNode(vault.nodes, folderId);
     if (!folder || folder.type !== 'folder') return;
     const { connections, disabled } = connectionsIn(folder.children);
-    if (!connections.length) { setError(disabled ? t('app:folder.allDisabled', { name: folder.name }) : t('app:folder.empty', { name: folder.name })); return; }
+    if (!connections.length) { notify.info(t('app:notices.nothingToConnect'), { body: disabled ? t('app:folder.allDisabled', { name: folder.name }) : t('app:folder.empty', { name: folder.name }) }); return; }
     navigateEditor(() => {
       const free = MAX_SSH_SESSIONS - terminals.tabs.length;
       for (const connection of connections.slice(0, Math.max(0, free))) terminals.open(toTerminalConnection(connection));
       setEditorOpen(false); setEditorDirty(false);
-      const notices = [...(connections.length > free ? [t('app:folder.partial', { opened: Math.max(0, free), count: connections.length, max: MAX_SSH_SESSIONS })] : []),
-        ...(disabled ? [skippedNotice(disabled)] : [])];
-      setError(notices.length ? notices.join(' ') : null);
+      if (connections.length > free) {
+        if (free > 0) notify.info(t('app:notices.partialTitle', { opened: free, count: connections.length }),
+          { body: disabled ? t('app:notices.partialBodySkipped', { max: MAX_SSH_SESSIONS, skipped: skippedNotice(disabled) }) : t('app:notices.partialBody', { max: MAX_SSH_SESSIONS }) });
+        else notify.info(t('app:notices.noneOpenedTitle'), { body: sessionLimitText() });
+      } else if (disabled) notify.info(t('app:notices.skippedTitle'), { body: skippedNotice(disabled) });
     });
   }
 
   async function saveAndConnect(connection: ConnectionNode, parentId: string): Promise<boolean> {
-    if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(sessionLimitNotice()); return false; }
+    if (terminals.tabs.length >= MAX_SSH_SESSIONS) { notifySessionLimit(); return false; }
     if (!await saveConnection(connection, parentId)) return false;
-    if (connection.disabled) { setEditorOpen(false); setEditorDirty(false); setError(disabledNotice(connection)); return true; }
+    if (connection.disabled) { setEditorOpen(false); setEditorDirty(false); notifyDisabled(connection); return true; }
     terminals.open(toTerminalConnection(connection)); setEditorOpen(false); setEditorDirty(false); return true;
   }
 
@@ -708,7 +740,7 @@ export default function App() {
     if (!vault || busy) return;
     let nodes: VaultNode[];
     try { nodes = moveNode(vault.nodes, id, target); }
-    catch (caught) { setError(errorText(caught, t('app:errors.moveFailed'))); return; }
+    catch (caught) { notify.error(t('app:notices.notMoved'), { body: errorText(caught, t('app:errors.moveFailed')) }); return; }
     if (nodes !== vault.nodes) await persistVault({ ...vault, nodes });
   }
 
@@ -791,14 +823,16 @@ export default function App() {
           <button className="root-row" type="button" disabled={busy} aria-pressed={selectedNodeId === null}
             onClick={() => navigateEditor(() => { setSelectedNodeId(null); setShowConnectionForm(false); setEditorOpen(false); setEditorDirty(false); })}>{t('app:sidebar.all')}</button>
           {showFolderForm && <form className="sidebar-create-form" onSubmit={handleCreateFolder}>
-            <label>{t('app:sidebar.folderName')}<input autoFocus value={folderName} disabled={busy} onChange={event => setFolderName(event.target.value)} /></label>
+            <label>{t('app:sidebar.folderName')}<input ref={folderInput} autoFocus value={folderName} disabled={busy} aria-invalid={folderError ? true : undefined}
+              aria-describedby={folderError ? 'folder-error' : undefined} onChange={event => { setFolderName(event.target.value); setFolderError(null); }} /></label>
+            {folderError && <p className="field-error" id="folder-error" role="alert">{folderError}</p>}
             <span className="muted">{t('app:sidebar.folderIn', { name: selectedNode?.type === 'folder' ? selectedNode.name : vault.name })}</span>
             <div className="sidebar-form-actions"><button type="button" onClick={() => setShowFolderForm(false)} disabled={busy}>{t('common:actions.cancel')}</button>
               <button type="submit" disabled={busy || !canCreateFolder || !folderName.trim()}>{t('app:sidebar.create')}</button></div>
           </form>}
           <LocalContainers containers={containerTree} disabled={busy} onOpenView={id => openContainerView(id)} />
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy} containers={containerTree}
-            onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); setError(null); })}
+            onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); })}
             onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} onOpenContainerView={id => openContainerView(id)} />
           {!vault.nodes.length && <div className="empty-state"><p>{t('app:sidebar.emptyText')}</p><button type="button" className="secondary-button" onClick={() => newConnection()}>{t('app:sidebar.emptyAction')}</button></div>}
         </ResizableSidebar>
@@ -842,8 +876,8 @@ export default function App() {
         onClose={() => setWorkflowEditor(null)} onSave={workflows => persistVault({ ...vault, workflows })} />}
       {showAiSettings && <AiSettingsDialog settings={vault.ai} busy={busy} onClose={() => setShowAiSettings(false)}
         onSave={settings => persistVault({ ...vault, ai: settings })} />}
-      <Toast message={error} onClose={() => setError(null)} />
-      <footer className="app-status"><span role="status">{busy ? t('common:status.saving') : error ? t('app:status.failed') : saved ? t('app:status.saved') : t('app:status.open')}</span>
+      <ToastStack />
+      <footer className="app-status"><span role="status">{busy ? t('common:status.saving') : saved ? t('app:status.saved') : t('app:status.open')}</span>
         <span>{t('app:status.activeSessions', { count: runningCount })}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>
         <button type="button" className="version-button" title={t('app:status.whatsNew')} onClick={() => setShowReleaseNotes(true)}>v{version}</button></footer>
       {showReleaseNotes && <ReleaseNotesDialog version={version} onClose={() => setShowReleaseNotes(false)} />}
@@ -853,6 +887,7 @@ export default function App() {
   return (
     <main className="app-shell">
       {fileDropHint}
+      <ToastStack />
       <section className="welcome-card">
         <div className="brand large-brand">
           <img className="brand-mark" src={mark} alt="" />
@@ -939,7 +974,7 @@ export default function App() {
 
             <p className="field-hint">{t('app:create.hint')}</p>
             <label className="password-toggle"><input type="checkbox" checked={showPassword} onChange={event => setShowPassword(event.target.checked)} />{t('app:create.showPasswords')}</label>
-            {error && <div className="error-message" role="alert">{error}</div>}
+            {formError && <div className="error-message" role="alert">{formError}</div>}
 
             <div className="form-actions">
               <button
@@ -1009,7 +1044,7 @@ export default function App() {
             </label>
 
             <label className="password-toggle"><input type="checkbox" checked={showPassword} onChange={event => setShowPassword(event.target.checked)} />{t('app:open.showPassword')}</label>
-            {error && <div className="error-message" role="alert">{error}</div>}
+            {formError && <div className="error-message" role="alert">{formError}</div>}
 
             <div className="form-actions">
               <button

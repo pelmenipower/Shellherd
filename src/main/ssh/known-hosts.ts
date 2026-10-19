@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { z } from 'zod';
 import { AppError } from '../../shared/errors';
+import type { ErrorCode } from '../../shared/errors';
 
 const KnownHostsSchema = z.object({
   version: z.literal(1),
@@ -15,7 +16,10 @@ export function hostFingerprint(key: Buffer): string {
   return `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`;
 }
 
-export class HostKeyError extends AppError {}
+export class HostKeyError extends AppError {
+  constructor(code: ErrorCode, readonly kind: 'changed' | 'store' = 'store',
+    readonly fingerprints?: { expected: string; received: string }) { super(code); }
+}
 
 export class KnownHosts {
   private queue: Promise<void> = Promise.resolve();
@@ -47,14 +51,14 @@ export class KnownHosts {
     if (!isActive()) return false;
     const previous = stored.hosts[address];
     if (previous) {
-      if (previous !== fingerprint) throw new HostKeyError('ssh.hostKeyChanged');
+      if (previous !== fingerprint) throw new HostKeyError('ssh.hostKeyChanged', 'changed', { expected: previous, received: fingerprint });
       return true;
     }
     if (!await this.confirm({ host, port, fingerprint }) || !isActive()) return false;
     // Re-read after the dialog so a concurrent change cannot be overwritten.
     stored = await this.read();
     if (stored.hosts[address] && stored.hosts[address] !== fingerprint) {
-      throw new HostKeyError('ssh.hostKeyChangedMeanwhile');
+      throw new HostKeyError('ssh.hostKeyChangedMeanwhile', 'changed', { expected: stored.hosts[address], received: fingerprint });
     }
     const temporary = `${this.filePath}.${randomUUID()}.tmp`;
     try {

@@ -4,12 +4,26 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
-## [0.11.0] – 2026-10-19
+## [0.12.0] – 2026-10-19
 
 - Shellherd is now available in German and English. It follows the Windows display language by default; “Language” on the start card and the welcome page switches between System, Deutsch and English. The change applies to all windows at once, and open sessions keep running.
 - Error messages, dialogs, window titles and the AI assistant follow the selected language; the assistant answers in that language.
 - Dates, numbers, file sizes, sorting and search follow the language. The “Describe” output in the cluster view now uses English field names like `kubectl describe`.
 - The installer shows its texts in German or English to match the Windows language. Release notes and the manual are available in both languages (`docs/manual.md`).
+
+## [0.11.0] – 2026-10-19
+
+- New color scheme “Bernese Copper”: the accent is now copper instead of cyan, matching the Shellherd mark. Surfaces and text are a touch warmer; copper is used only for focus, selection and actions, and yellow, green and red only for states.
+- Connecting in steps: if connecting takes longer than 0.4 seconds, the terminal shows “Reaching server”, “Verifying server key”, “Signing in” and “Opening shell” with the time per step and a hint when the server answers slowly. `Esc` cancels.
+- Understandable connection errors: a card in the terminal names the cause and the next step (sign-in rejected, server not responding, server key changed and more) and offers `Edit connection`, `Connect again` or `Copy fingerprint`; `Details` shows the raw text.
+- Disconnected sessions: the output stays in place, a bar shows how long ago the disconnect happened, and `Reconnect` (`Enter`) starts over. This also applies to RDP and the file view.
+- Notices at the bottom right come in three levels: errors stay until you close them, info and success notices disappear after 5 and 3 seconds (a bar shows the time left). Error messages appear right at the field or in the area instead of only at the top of the window.
+- Save buttons show “Saving …” and “Saved” without changing their width. Write errors of the vault file name the reason (read-only, locked, folder missing, drive full).
+- Cluster view: the table stays readable while reconnecting. A status bar shows “Live” with the age of the data, while reconnecting the host and the attempt, and afterwards “Reconnected via …”. Actions are locked until then.
+- Container view: while an action runs, the status cell shows the target state (“stopping”, “restarting”) instead of fading the row.
+- Consistent texts: prompts without “please”, “…” as a single character, one status vocabulary for tabs, terminal, RDP and file view. Status dots have the same size everywhere, and arrows on banners and docks are icons instead of text characters.
+- If connecting is waiting for you to confirm the server key, the card says so instead of warning about a slow connection.
+- Fixed: release notes show `keys` and buttons as code instead of raw backticks; the dot in notices sits at the height of the title; “Details” in the error card no longer changes its width; checkboxes and radio buttons in forms have their normal size again.
 
 ## [0.10.0] – 2026-10-19
 

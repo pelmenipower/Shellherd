@@ -107,13 +107,13 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
 
   /** The only call of containersAction: busy, run, then busy off and reload. Errors go to the status line. */
   const run = async (row: InventoryRow, action: InventoryAction) => {
-    dispatch({ type: 'busy', uid: row.uid, busy: true });
+    dispatch({ type: 'busy', uid: row.uid, action });
     try {
       await window.desktopApi.containersAction({ hostId: connection.id, target: row.ref, action });
     } catch (caught) {
       say(ipcMessage(caught, t('containers:actionFailed')));
     } finally {
-      dispatch({ type: 'busy', uid: row.uid, busy: false });
+      dispatch({ type: 'busy', uid: row.uid });
       reload();
       // The dock shows the state from before the action: refetch Inspect (and restart logs) for the selected row.
       if (row.uid === stateRef.current.selected) dispatch({ type: 'reloadDock' });
@@ -124,7 +124,7 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
   const confirm = (row: InventoryRow, action: InventoryAction) => {
     const reason = actionUnavailable(row, action);
     if (reason) { say(reason); return; }
-    if (state.busy.includes(row.uid)) { say(t('containers:reasons.rowBusy')); return; }
+    if (state.busy[row.uid]) { say(t('containers:reasons.rowBusy')); return; }
     const confirmation = confirmationFor(row, action, where);
     if (confirmation === null) { void run(row, action); return; }
     setPending({ row, action, confirmation });

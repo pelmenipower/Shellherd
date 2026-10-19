@@ -54,6 +54,10 @@
     "testNoSftp": "The server does not offer SFTP.",
     "testHostKeyRejected": "The server key was not confirmed.",
     "invalidConnectionData": "The connection data is invalid.",
-    "clipboardTooLarge": "The selected text is too large."
+    "clipboardTooLarge": "The selected text is too large.",
+    "vaultWriteReadOnly": "The vault file is read-only.",
+    "vaultWriteLocked": "The vault file is locked by another program.",
+    "vaultWriteFolderUnreachable": "The folder of the vault file cannot be reached.",
+    "vaultWriteDiskFull": "There is no space left on the drive."
   }
 }

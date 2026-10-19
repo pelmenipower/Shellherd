@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { PointerEvent } from 'react';
 import type { TerminalTab } from '../terminal-tabs';
 import { tabLabel } from '../terminal-tabs';
+import { statusWord } from '../status-words';
 import { ConnectionIcon } from './ConnectionIcon';
 import type { ConnectionNode } from '../../../shared/vault/types';
 import { useT } from '../i18n';
@@ -18,7 +19,6 @@ interface TerminalTabsProps {
   onClose: (id: string) => void;
   onTabPointerDown: (id: string, event: PointerEvent<HTMLElement>) => void;
 }
-const STATUS_KEYS = { connecting: 'terminal:tabStatus.connecting', connected: 'terminal:tabStatus.connected', closed: 'terminal:tabStatus.closed', error: 'terminal:tabStatus.error' } as const;
 
 export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect, onClose, onTabPointerDown, showEditor = true, allTabs = tabs, label: barLabel }: TerminalTabsProps) {
   const { t } = useT();
@@ -51,8 +51,8 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
           <button className="terminal-tab" id={`tab-${tab.id}`} type="button" role="tab" data-tab-id={tab.id}
             draggable={false} onPointerDown={event => onTabPointerDown(tab.id, event)}
             aria-controls={`terminal-${tab.id}`} aria-selected={activeTabId === tab.id}
-            tabIndex={activeTabId === tab.id ? 0 : -1} disabled={disabled} onClick={() => onSelect(tab.id)} title={`${label} · ${connectionAddress(tab)} · ${t(STATUS_KEYS[tab.status])}`}>
-            <span className={`tab-status tab-status-${tab.status}`} aria-label={t(STATUS_KEYS[tab.status])} />
+            tabIndex={activeTabId === tab.id ? 0 : -1} disabled={disabled} onClick={() => onSelect(tab.id)} title={`${label} · ${connectionAddress(tab)} · ${statusWord(tab.status, 'short')}`}>
+            <span className={`tab-status tab-status-${tab.status}`} aria-label={statusWord(tab.status, 'short')} />
             <ConnectionIcon {...appearance.get(tab.connection.id)} />
             <span className="tab-name">{label}</span>
           </button>

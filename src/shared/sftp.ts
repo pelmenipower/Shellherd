@@ -1,4 +1,5 @@
 /** Shared types of the file browser (SFTP now, FTP later). */
+import type { ConnectionErrorCode } from './connection-errors';
 import type { CodedError } from './errors';
 
 export const MAX_SFTP_SESSIONS = 16;
@@ -66,7 +67,8 @@ export interface EditedFile {
 }
 
 export type SftpEvent =
-  | { type: 'status'; sessionId: string; status: SftpStatus; error?: CodedError }
+  /** `error` is translated by the renderer; `code` classifies the connection card (only with status 'error', or 'closed-by-server' with 'closed'). */
+  | { type: 'status'; sessionId: string; status: SftpStatus; error?: CodedError; code?: ConnectionErrorCode }
   | { type: 'edit'; sessionId: string; edit: EditedFile; closed?: boolean }
   | { type: 'transfer'; sessionId: string; job: TransferJob }
   | { type: 'conflict'; sessionId: string; conflict: TransferConflict };

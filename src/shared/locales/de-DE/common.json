@@ -13,10 +13,6 @@
     "edit": "Bearbeiten"
   },
   "status": {
-    "connecting": "Verbindet …",
-    "connected": "Verbunden",
-    "closed": "Verbindung beendet",
-    "failed": "Verbindung fehlgeschlagen",
     "saving": "Speichert …"
   },
   "wait": "Einen Moment …",

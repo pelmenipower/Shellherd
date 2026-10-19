@@ -11,7 +11,7 @@
     "tooLargeToEdit": "Dateien über 50 MB werden nicht zum Bearbeiten geöffnet. Lade sie stattdessen herunter.",
     "editNotOpen": "Die bearbeitete Datei ist nicht mehr geöffnet.",
     "changedOnServer": "Die Datei wurde inzwischen auf dem Server geändert.",
-    "maxSessions": "Maximal {{max}} Dateiverbindungen gleichzeitig. Schließe zuerst einen Tab.",
+    "maxSessions": "Maximal {{max}} Sessions gleichzeitig. Schließe zuerst einen Tab.",
     "noTransferSupport": "Diese Verbindung unterstützt keine Dateiübertragung.",
     "missingHostOrUser": "Speichere Host und Benutzername, bevor du die Verbindung startest.",
     "sessionUnavailable": "Die Dateiverbindung ist nicht verfügbar.",

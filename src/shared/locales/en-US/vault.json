@@ -47,7 +47,7 @@
     "menuLabel": "Actions for {{name}}",
     "menuCreate": "Create new",
     "nameRequired": "Enter a name.",
-    "renameFailed": "Rename failed. Please try again.",
+    "renameFailed": "Not renamed.",
     "newConnection": "New connection",
     "newConnectionIn": "New connection in “{{name}}”",
     "newConnectionBeside": "New connection alongside",
@@ -114,8 +114,8 @@
     "saveAs": "Save as …",
     "closeWorkspace": "Close workspace",
     "nameRequired": "Enter a workspace name.",
-    "saveFailed": "Save failed. Please try again.",
-    "deleteFailed": "Delete failed. Please try again.",
+    "saveFailed": "Not saved.",
+    "deleteFailed": "Not deleted.",
     "confirmTitle": "Delete saved workspace?",
     "confirmDescription": "“{{name}}” will be removed. Active SSH sessions stay open."
   },
@@ -125,7 +125,6 @@
     "searchLabel": "Add connection",
     "searchAria": "Search connection for new tab",
     "searchPlaceholder": "Name, host or folder …",
-    "limit": "All 16 sessions are in use. Close a tab first.",
     "noMatch": "No matching connection.",
     "noneSaved": "No connection saved yet. Create one via “New”."
   }

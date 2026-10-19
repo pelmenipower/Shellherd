@@ -15,7 +15,8 @@
   },
   "layout": {
     "missingConnection": "Der Workspace verweist auf eine fehlende Verbindung.",
-    "tooManyPanes": "Ein Workspace darf höchstens vier Terminalbereiche enthalten."
+    "tooManyPanes": "Ein Workspace darf höchstens vier Terminalbereiche enthalten.",
+    "tooManySessions": "Ein Workspace darf höchstens {{max}} Sessions starten."
   },
   "tabs": {
     "label": "SSH-Sessions",
@@ -26,19 +27,15 @@
     "logs": "Logs: {{label}}",
     "previousLogs": "Vorherige Logs: {{label}}"
   },
-  "tabStatus": {
-    "connecting": "Verbindet",
-    "connected": "Verbunden",
-    "closed": "Beendet",
-    "error": "Fehler"
-  },
   "panel": {
+    "copyFailedTitle": "Nicht kopiert",
     "copyFailed": "Der markierte Text konnte nicht kopiert werden.",
+    "pasteFailedTitle": "Nicht eingefügt",
     "pasteFailed": "Die Zwischenablage konnte nicht eingefügt werden.",
-    "inputTooLarge": "Die Eingabe ist zu groß. Bitte füge kleinere Abschnitte ein.",
-    "inputFailed": "Die Eingabe konnte nicht gesendet werden. Prüfe die Verbindung.",
-    "adoptFailed": "Die Sitzung konnte nicht übernommen werden.",
-    "startFailed": "Der SSH-Start ist fehlgeschlagen."
+    "inputTooLargeTitle": "Eingabe zu groß",
+    "inputTooLarge": "Füge kleinere Abschnitte ein.",
+    "inputFailedTitle": "Eingabe nicht gesendet",
+    "inputFailed": "Prüfe die Verbindung."
   },
   "input": {
     "multiline": "Mehrzeiliger Befehl: bitte Zeile für Zeile kopieren.",
@@ -47,12 +44,6 @@
     "failed": "Der Befehl konnte nicht eingetippt werden."
   },
   "rdp": {
-    "status": {
-      "connecting": "RDP verbindet …",
-      "connected": "RDP verbunden",
-      "closed": "RDP-Verbindung beendet",
-      "error": "RDP-Verbindung fehlgeschlagen"
-    },
     "resizing": "Auflösung wird angepasst …",
     "hiddenWhileMenu": "Remotedesktop ausgeblendet, solange ein Menü geöffnet ist.",
     "actions": {
@@ -115,5 +106,123 @@
     "samePosition": "Bereits an dieser Position",
     "noSplit": "Hier nicht teilbar",
     "escCancel": "Esc zum Abbrechen"
+  },
+  "timeline": {
+    "steps": {
+      "reach": "Server erreichen",
+      "hostkey": "Server-Schlüssel prüfen",
+      "auth": "Anmelden",
+      "shell": "Shell öffnen"
+    },
+    "title": "Verbinde mit {{name}} …",
+    "cancel": "Abbrechen",
+    "total": "Gesamt {{time}}",
+    "seconds": "{{value}} s",
+    "waitingHostKey": "Wartet auf deine Bestätigung des Server-Schlüssels …",
+    "slowServer": "Der Server antwortet langsam …",
+    "slowGeneric": "Dauert länger als üblich …",
+    "agoSeconds": "vor {{seconds}} s",
+    "agoMinutes": "vor {{minutes}} min"
+  },
+  "statusWord": {
+    "short": {
+      "connecting": "Verbindet …",
+      "connected": "Verbunden",
+      "closed": "Getrennt",
+      "error": "Fehler"
+    },
+    "long": {
+      "connecting": "Verbindet …",
+      "connected": "Verbunden",
+      "closed": "Verbindung getrennt",
+      "error": "Verbindung fehlgeschlagen"
+    },
+    "connectingTo": "Verbinde mit {{name}} …",
+    "withProtocol": "{{protocol}}: {{word}}"
+  },
+  "disconnected": {
+    "title": "Verbindung getrennt",
+    "detail": "· {{age}} · {{reason}}",
+    "reconnect": "Neu verbinden",
+    "reasons": {
+      "server": "der Server hat sie beendet",
+      "session": "die Sitzung wurde beendet",
+      "cancel": "abgebrochen"
+    }
+  },
+  "connectionCard": {
+    "details": "Details",
+    "copied": "Fingerprints kopiert",
+    "notCopied": "Nicht kopiert",
+    "clipboardUnavailable": "Die Zwischenablage ist nicht verfügbar."
+  },
+  "connectionError": {
+    "actions": {
+      "retry": "Erneut verbinden",
+      "edit": "Verbindung bearbeiten",
+      "copy": "Fingerprint kopieren"
+    },
+    "auth": {
+      "title": "Anmeldung abgelehnt",
+      "body": "Der Server hat die Anmeldung nicht angenommen.",
+      "bodyWithUser": "Der Server hat die Anmeldung als „{{user}}“ nicht angenommen.",
+      "next": "Prüfe Benutzer und Anmeldung in den Verbindungseinstellungen."
+    },
+    "timeout": {
+      "title": "Server antwortet nicht",
+      "body": "{{hostPort}} hat nicht rechtzeitig geantwortet.",
+      "next": "Prüfe VPN, Firewall und Port. Möglicherweise ist der Rechner aus."
+    },
+    "hostkey-changed": {
+      "title": "Server-Schlüssel hat sich geändert",
+      "body": "Der Fingerprint stimmt nicht mit dem bestätigten überein. Shellherd hat die Verbindung abgebrochen.",
+      "next": "Kläre den Schlüsselwechsel mit dem Administrator, bevor du fortfährst."
+    },
+    "hostkey-rejected": {
+      "title": "Server-Schlüssel nicht bestätigt",
+      "body": "Du hast den Schlüssel von {{hostPort}} nicht bestätigt.",
+      "next": "Verbinde erneut und vergleiche den Fingerprint mit einer vertrauenswürdigen Quelle."
+    },
+    "hostkey-store": {
+      "title": "Server-Schlüssel nicht geprüft",
+      "body": "Die gespeicherten Server-Schlüssel sind nicht verfügbar.",
+      "next": "Prüfe die Zugriffsrechte auf den Shellherd-Datenordner und verbinde erneut."
+    },
+    "refused": {
+      "title": "Verbindung abgelehnt",
+      "body": "{{host}} nimmt keine Verbindung an.",
+      "bodyWithPort": "{{host}} nimmt auf Port {{port}} keine Verbindung an.",
+      "next": "Prüfe Host und Port. Läuft der SSH-Dienst?"
+    },
+    "not-found": {
+      "title": "Host nicht gefunden",
+      "body": "Der Name „{{host}}“ ließ sich nicht auflösen.",
+      "next": "Prüfe Schreibweise, DNS und VPN."
+    },
+    "key-file": {
+      "title": "Schlüsseldatei nicht lesbar",
+      "body": "Die private Schlüsseldatei fehlt oder ist nicht lesbar.",
+      "next": "Prüfe Pfad und Zugriffsrechte in den Verbindungseinstellungen."
+    },
+    "agent": {
+      "title": "Kein SSH-Agent",
+      "body": "Es läuft kein SSH-Agent, der den Schlüssel liefern könnte.",
+      "next": "Starte den Agent oder wähle Passwort oder Schlüsseldatei."
+    },
+    "limit": {
+      "title": "Maximal {{max}} Sessions",
+      "body": "Alle Sessions sind belegt.",
+      "next": "Schließe zuerst einen Tab."
+    },
+    "closed-by-server": {
+      "title": "Verbindung beendet",
+      "body": "Der Server hat die Verbindung beendet.",
+      "next": "Verbinde neu, wenn du weiterarbeiten willst."
+    },
+    "unknown": {
+      "title": "Verbindung fehlgeschlagen",
+      "body": "Die Verbindung ist fehlgeschlagen.",
+      "next": "Prüfe Host, Benutzer und Anmeldung."
+    }
   }
 }

@@ -5,7 +5,6 @@ import { sameTarget } from './terminal-tabs';
 import { detachPane, emptyLayout, mapPane, panes, removeTab, restoreLayout, savedLayout, syncLayout } from './terminal-layout';
 import type { LiveLayout } from './terminal-layout';
 import { t } from './i18n';
-import { sessionLimitNotice } from './vault-notices';
 
 /** A top-level view: its own split layout of up to four panes. Tabs belong to exactly one view. */
 export interface LiveView { id: string; name: string; layout: LiveLayout }
@@ -112,7 +111,7 @@ export function restoreViews(saved: SavedView[], lookup: (id: string) => Connect
     skipped += restored.skipped;
     return { id: uuid(), name: item.name, layout: restored.layout };
   });
-  if (tabs.length > MAX_SSH_SESSIONS) throw new Error(sessionLimitNotice());
+  if (tabs.length > MAX_SSH_SESSIONS) throw new Error(t('terminal:layout.tooManySessions', { max: MAX_SSH_SESSIONS }));
   for (const tab of tabs) tab.ordinal = tabs.filter(other => sameTarget(other.connection, tab.connection) && tabs.indexOf(other) <= tabs.indexOf(tab)).length;
   const state = views.length ? { views, activeViewId: views[0].id } : initialViews();
   return { state, tabs, activeTabId: panes(activeView(state).layout).find(pane => pane.activeTabId)?.activeTabId ?? null, skipped };

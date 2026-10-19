@@ -10,7 +10,8 @@ import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
 import type { EditorChoice } from '../../shared/sftp';
 import type { ConflictChoice, DirectoryListing, SftpEvent, SftpSessionState, SftpStatus, SftpTransferRequest, TransferConflict, TransferJob } from '../../shared/sftp';
 import { sshConnectConfig } from '../ssh/client-config';
-import { publicError } from '../ssh/session';
+import { classifyError } from '../ssh/session';
+import type { ConnectionErrorCode } from '../../shared/connection-errors';
 import { FileError, fileError } from './file-system';
 import type { FileSystem } from './file-system';
 import { removeRemote, sftpFileSystem } from './sftp-file-system';
@@ -67,8 +68,9 @@ export class SftpSessionManager {
     const client = this.dependencies.createClient?.() ?? new Client();
     const session: Session = { id: randomUUID(), ownerId, connectionId, client, status: 'connecting', jobs: [] };
     this.sessions.set(session.id, session);
-    client.on('error', error => this.finish(session, 'error', publicError(error)));
-    client.on('close', () => this.finish(session, 'closed'));
+    client.on('error', error => this.fail(session, error));
+    // A close while the session is still active was not caused by the user.
+    client.on('close', () => this.finish(session, 'closed', undefined, 'closed-by-server'));
     void this.connect(session, connection);
     return { sessionId: session.id };
   }
@@ -79,9 +81,9 @@ export class SftpSessionManager {
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
           .then(valid => {
-            if (!valid && this.active(session)) this.finish(session, 'error', { code: 'files.hostKeyRejected' });
+            if (!valid && this.active(session)) this.finish(session, 'error', { code: 'files.hostKeyRejected' }, 'hostkey-rejected');
             callback(valid && this.active(session));
-          }).catch(error => { this.finish(session, 'error', publicError(error)); callback(false); });
+          }).catch(error => { this.fail(session, error); callback(false); });
       });
       session.key = key;
       if (!this.active(session)) { this.clearKey(session); return; }
@@ -89,8 +91,8 @@ export class SftpSessionManager {
         this.clearKey(session);
         session.client.sftp((error: Error | undefined, sftp: SFTPWrapper) => {
           if (!this.active(session)) { sftp?.end(); return; }
-          if (error) { this.finish(session, 'error', { code: 'files.noSftp' }); return; }
-          sftp.on('close', () => this.finish(session, 'closed'));
+          if (error) { this.finish(session, 'error', { code: 'files.noSftp' }, 'unknown'); return; }
+          sftp.on('close', () => this.finish(session, 'closed', undefined, 'closed-by-server'));
           session.fs = sftpFileSystem(sftp);
           session.edits = new RemoteEdits(session.fs, { openFile: this.dependencies.openFile, pollInterval: this.dependencies.editPollInterval,
             emit: (edit, closed) => { if (this.active(session)) this.emit(session, { type: 'edit', sessionId: session.id, edit, ...(closed ? { closed } : {}) }); } });
@@ -99,7 +101,13 @@ export class SftpSessionManager {
         });
       });
       session.client.connect(config);
-    } catch (error) { this.finish(session, 'error', publicError(error)); }
+    } catch (error) { this.fail(session, error); }
+  }
+
+  /** Ends the session with the classified error. */
+  private fail(session: Session, error: unknown): void {
+    const { code, error: coded } = classifyError(error);
+    this.finish(session, 'error', coded, code);
   }
 
   private active(session: Session): boolean { return this.sessions.get(session.id) === session; }
@@ -280,7 +288,7 @@ export class SftpSessionManager {
   owns(ownerId: number, id: string): boolean { return this.sessions.get(id)?.ownerId === ownerId; }
   hasOwner(ownerId: number): boolean { return [...this.sessions.values()].some(session => session.ownerId === ownerId); }
 
-  private finish(session: Session, status: 'closed' | 'error', error?: CodedError): void {
+  private finish(session: Session, status: 'closed' | 'error', error?: CodedError, code?: ConnectionErrorCode): void {
     if (!this.active(session)) return;
     this.sessions.delete(session.id);
     this.clearKey(session);
@@ -289,6 +297,6 @@ export class SftpSessionManager {
     session.edits?.closeAll();
     session.client.destroy();
     session.status = status;
-    this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error } : {}) });
+    this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error } : {}), ...(code ? { code } : {}) });
   }
 }

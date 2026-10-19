@@ -124,6 +124,10 @@ export interface ClusterStatus {
   metrics: boolean;
   /** Namespace a fresh view opens in: vault setting, else the kubeconfig context, else `default`. Absent until known. */
   namespace?: string;
+  /** Number of the running or next reconnect attempt, 1-based; only with state 'reconnecting'. */
+  attempt?: number;
+  /** Name of the SSH connection the current attempt goes through; absent between attempts. */
+  trying?: string;
 }
 
 export interface KubeOverview { nodes: NodeTile[]; problems: KubeProblem[]; namespaces: string[] }

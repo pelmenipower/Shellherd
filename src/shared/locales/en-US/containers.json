@@ -40,11 +40,26 @@
     "unused": "Unused"
   },
   "filterHelp": {
-    "text": { "form": "Text", "description": "column contains the text" },
-    "select": { "form": "Selection", "description": "exactly this value, with count" },
-    "number": { "form": "Number", "description": "comparison with >, >=, <, <=, =" },
-    "size": { "form": "Size", "description": "comparison in bytes, units B, kB, MB, GB, TB" },
-    "age": { "form": "Age", "description": "newer (<) or older (>) than a time in s, m, h, d" }
+    "text": {
+      "form": "Text",
+      "description": "column contains the text"
+    },
+    "select": {
+      "form": "Selection",
+      "description": "exactly this value, with count"
+    },
+    "number": {
+      "form": "Number",
+      "description": "comparison with >, >=, <, <=, ="
+    },
+    "size": {
+      "form": "Size",
+      "description": "comparison in bytes, units B, kB, MB, GB, TB"
+    },
+    "age": {
+      "form": "Age",
+      "description": "newer (<) or older (>) than a time in s, m, h, d"
+    }
   },
   "commands": {
     "down": "Row down",
@@ -237,5 +252,11 @@
   "local": {
     "aria": "Containers on this computer",
     "openView": "Open local container view"
+  },
+  "busy": {
+    "start": "starting",
+    "stop": "stopping",
+    "restart": "restarting",
+    "remove": "being removed"
   }
 }

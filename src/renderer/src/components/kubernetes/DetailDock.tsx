@@ -160,7 +160,7 @@ export function DetailDock(props: DetailDockProps) {
         )}
         <button type="button" className="kube-dock-copy" disabled={nothingToCopy} title={nothingToCopy ? t('kubernetes:dock.nothingToCopy') : undefined} onClick={copy}>{t('common:actions.copy')}</button>
         <button type="button" className="kube-dock-toggle" aria-expanded={open} aria-label={open ? t('kubernetes:dock.collapse') : t('kubernetes:dock.expand')} onClick={onToggle}>
-          {open ? '▾' : '▴'}
+          <svg className={`chevron${!open ? ' is-up' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m5 9 7 7 7-7" /></svg>
         </button>
       </div>
       <div className="kube-dock-body" hidden={!open}>
@@ -178,7 +178,7 @@ export function DetailDock(props: DetailDockProps) {
           ) : terminalConnection && target && (
             <div className="kube-dock-terminal">
               <TerminalPanel key={dockTerminalKey(refKey(podRef), container, terminalKind, epoch, target.format ?? 'compact')} connection={terminalConnection} tabId={`${tabId}:dock`}
-                visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} />
+                visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} embedded />
             </div>
           )
         ) : !selected ? <p className="kube-placeholder">{t('kubernetes:dock.selectRow')}</p>

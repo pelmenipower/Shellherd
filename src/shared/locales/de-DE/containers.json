@@ -40,11 +40,26 @@
     "unused": "Unbenutzt"
   },
   "filterHelp": {
-    "text": { "form": "Text", "description": "Spalte enthält den Text" },
-    "select": { "form": "Auswahl", "description": "genau dieser Wert, mit Anzahl" },
-    "number": { "form": "Zahl", "description": "Vergleich mit >, >=, <, <=, =" },
-    "size": { "form": "Größe", "description": "Vergleich in Bytes, Einheiten B, kB, MB, GB, TB" },
-    "age": { "form": "Alter", "description": "jünger (<) oder älter (>) als s, m, h, d" }
+    "text": {
+      "form": "Text",
+      "description": "Spalte enthält den Text"
+    },
+    "select": {
+      "form": "Auswahl",
+      "description": "genau dieser Wert, mit Anzahl"
+    },
+    "number": {
+      "form": "Zahl",
+      "description": "Vergleich mit >, >=, <, <=, ="
+    },
+    "size": {
+      "form": "Größe",
+      "description": "Vergleich in Bytes, Einheiten B, kB, MB, GB, TB"
+    },
+    "age": {
+      "form": "Alter",
+      "description": "jünger (<) oder älter (>) als s, m, h, d"
+    }
   },
   "commands": {
     "down": "Zeile nach unten",
@@ -237,5 +252,11 @@
   "local": {
     "aria": "Container auf diesem Computer",
     "openView": "Lokale Container-Ansicht öffnen"
+  },
+  "busy": {
+    "start": "startet",
+    "stop": "stoppt",
+    "restart": "startet neu",
+    "remove": "wird entfernt"
   }
 }

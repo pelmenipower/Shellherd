@@ -29,12 +29,12 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
       if (cancelled) { void window.desktopApi.kubeClose({ viewId: id }).catch(() => {}); return; }
       opened = id;
       // Events sent while `open` ran were lost; the reply carries the state they described.
-      dispatch({ type: 'event', event: { type: 'status', viewId: id, status } });
-      if (overview) dispatch({ type: 'event', event: { type: 'overview', viewId: id, ...overview } });
+      dispatch({ type: 'event', event: { type: 'status', viewId: id, status }, at: Date.now() });
+      if (overview) dispatch({ type: 'event', event: { type: 'overview', viewId: id, ...overview }, at: Date.now() });
       setViewId(id);
     }).catch(caught => {
       if (cancelled) return;
-      dispatch({ type: 'event', event: { type: 'status', viewId: '', status: failedStatus(caught, clusterId) } });
+      dispatch({ type: 'event', event: { type: 'status', viewId: '', status: failedStatus(caught, clusterId) }, at: Date.now() });
     });
     return () => {
       cancelled = true;
@@ -47,7 +47,7 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
   useEffect(() => {
     if (!viewId) return;
     return window.desktopApi.onKubeEvent(event => {
-      if (event.viewId === viewId) dispatch({ type: 'event', event });
+      if (event.viewId === viewId) dispatch({ type: 'event', event, at: Date.now() });
     });
   }, [viewId]);
 
@@ -55,7 +55,7 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
   useEffect(() => {
     if (!viewId) return;
     window.desktopApi.kubeSubscribe({ viewId, query: queryRef.current }).catch(caught => {
-      dispatch({ type: 'event', event: { type: 'status', viewId, status: failedStatus(caught, clusterId) } });
+      dispatch({ type: 'event', event: { type: 'status', viewId, status: failedStatus(caught, clusterId) }, at: Date.now() });
     });
     // queryId stands for queryRef.current: it changes exactly when the query does.
   }, [viewId, queryId, clusterId]);

@@ -4,12 +4,26 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
-## [0.11.0] – 2026-10-19
+## [0.12.0] – 2026-10-19
 
 - Shellherd gibt es jetzt auf Deutsch und Englisch. Standard ist die Windows-Anzeigesprache; auf der Startkarte und der Willkommensseite stellt „Sprache“ auf System, Deutsch oder English um. Der Wechsel gilt sofort in allen Fenstern, offene Sitzungen laufen weiter.
 - Fehlermeldungen, Dialoge, Fenstertitel und der KI-Assistent folgen der eingestellten Sprache; der Assistent antwortet in dieser Sprache.
 - Datum, Zahlen, Dateigrößen, Sortierung und Suche richten sich nach der Sprache. Die Ausgabe von „Beschreiben“ in der Cluster-Ansicht nutzt jetzt die englischen Feldnamen wie `kubectl describe`.
 - Der Installer zeigt seine Texte auf Deutsch oder Englisch, passend zur Windows-Sprache. Release-Notes und Handbuch gibt es in beiden Sprachen (`docs/manual.md`).
+
+## [0.11.0] – 2026-10-19
+
+- Neue Farbwelt „Berner Kupfer“: Der Akzent ist jetzt Kupfer statt Cyan, passend zum Shellherd-Zeichen. Flächen und Text sind einen Hauch wärmer; Kupfer steht nur für Fokus, Auswahl und Aktionen, Gelb, Grün und Rot nur für Zustände.
+- Verbindungsaufbau mit Schritten: Dauert das Verbinden länger als 0,4 Sekunden, zeigt das Terminal „Server erreichen“, „Server-Schlüssel prüfen“, „Anmelden“ und „Shell öffnen“ mit der Zeit je Schritt und einem Hinweis bei langsamer Antwort. `Esc` bricht ab.
+- Verständliche Verbindungsfehler: Eine Karte im Terminal nennt Ursache und nächsten Schritt (Anmeldung abgelehnt, Server antwortet nicht, Server-Schlüssel geändert und weitere) und bietet `Verbindung bearbeiten`, `Erneut verbinden` oder `Fingerprint kopieren`; `Details` zeigt den Rohtext.
+- Getrennte Sitzungen: Die Ausgabe bleibt stehen, eine Leiste zeigt, wie lange die Trennung her ist, und `Neu verbinden` (`Enter`) startet neu. Das gilt auch für RDP und die Dateiansicht.
+- Meldungen unten rechts gibt es in drei Stufen: Fehler bleiben, bis man sie schließt, Hinweise und Erfolge verschwinden nach 5 bzw. 3 Sekunden (Balken zeigt die Restzeit). Fehlermeldungen stehen direkt am Feld oder im Bereich statt nur oben im Fenster.
+- Speichern-Knöpfe zeigen „Speichert …“ und „Gespeichert“, ohne die Breite zu ändern. Schreibfehler der Vault-Datei nennen den Grund (schreibgeschützt, gesperrt, Ordner fehlt, Laufwerk voll).
+- Cluster-Ansicht: Beim Neuverbinden bleibt die Tabelle lesbar. Eine Statusleiste zeigt „Live“ mit dem Alter der Daten, beim Neuverbinden den Host und den Versuch und danach „Wieder verbunden über …“. Aktionen sind bis dahin gesperrt.
+- Container-Ansicht: Läuft eine Aktion, zeigt die Status-Zelle den Zielzustand („stoppt“, „startet neu“) statt die Zeile auszublassen.
+- Einheitliche Texte: Aufforderungen ohne „Bitte“, „…“ als ein Zeichen, ein Statuswörterbuch für Tabs, Terminal, RDP und Dateiansicht. Statuspunkte haben überall dieselbe Größe, Pfeile an Bannern und Docks sind Symbole statt Textzeichen.
+- Wartet der Verbindungsaufbau auf die Bestätigung des Server-Schlüssels, sagt die Karte das, statt vor einer langsamen Verbindung zu warnen.
+- Behoben: Release-Notes zeigen `Tasten` und Knöpfe als Code statt mit rohen Backticks; der Punkt in Meldungen steht auf Höhe des Titels; „Details“ in der Fehlerkarte ändert die Breite nicht mehr; Checkboxen und Optionsfelder in Formularen haben wieder ihre normale Größe.
 
 ## [0.10.0] – 2026-10-19
 

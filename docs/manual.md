@@ -190,8 +190,8 @@ A cluster is set up from an existing SSH connection: choose `Set up as Kubernete
 in the context menu. Shellherd reads the kubeconfig on the host
 and suggests name, context and further access hosts, such as `k8s-cp2` and
 `k8s-cp3` in the same naming pattern. The access hosts are tried in order.
-If one fails, Shellherd reconnects through the next one; the status shows
-which host the cluster is currently reachable through.
+If one fails, Shellherd reconnects through the next one; the status bar
+below the header shows which host the cluster is currently reachable through.
 
 The kubeconfig is searched in this order: `$KUBECONFIG` of the login shell
 (first file), `~/.kube/config`, then `/etc/kubernetes/admin.conf`. Shellherd reads the file under
@@ -206,7 +206,12 @@ decision. “Read-only” blocks restart, scale, delete and the shell; logs, YAM
 events and describe stay allowed. Every change asks for confirmation. For
 production you have to type the resource name before the button becomes active.
 
-The cluster tab shows nodes, workloads, pods and events live. `Enter` drills down,
+The cluster tab shows nodes, workloads, pods and events live. A status bar below the
+header shows the state: “Live” with the age of the data (“Updated 12 s ago”); while
+reconnecting, in yellow, the host and the attempt (“Connecting via k8s-cp2 … (attempt 2)”);
+afterwards, briefly in green, “Reconnected via …”. The table stays readable and unchanged
+during this and is no longer greyed out; actions that change something or need a connection
+are locked until the cluster is reachable again. `Enter` drills down,
 for example from a deployment through its pods to the containers, `Esc` goes back
 one level. At the bottom, a pane opens for logs (`l`), shell (`s`), events
 (`e`), YAML (`y`) and describe (`d`). `?` shows the help with all keys and filter forms.
@@ -238,6 +243,22 @@ to the node. New are Resume, Suspend and `Run now…` for CronJobs as well as
 The kubeconfig lives only in the main process's memory and is not written to
 disk. The tunnel to the API server listens only on `127.0.0.1`.
 Secret data is masked in the YAML view.
+
+## Notices and connection state
+
+Shellherd shows problems where they occur.
+
+- **At the field:** An invalid entry appears in red directly below the field, and focus jumps to it.
+- **In the pane:** If something fails in an area (sidebar, menu, terminal), a card with title, cause and button appears there.
+- **Bottom right:** Background events appear as a notice. Errors stay until you close them. Info notices (5 seconds) and success notices (3 seconds) disappear on their own; a thin bar shows the time left, and it pauses while the mouse is over it or the window is hidden. At most three notices are visible.
+
+**Connecting:** If connecting takes longer than 0.4 seconds, the pane shows the steps “Reaching server”, “Verifying server key”, “Signing in” and “Opening shell” with the time per step. `Esc` or `Cancel` aborts. If the server answers slowly, a hint appears.
+
+**Errors:** If the connection fails, the card names the cause (for example “Sign-in rejected”, “Server not responding”, “Server key has changed”) and the next step. Depending on the case, `Edit connection`, `Connect again` or `Copy fingerprint` are offered; `Details` shows the server's raw text.
+
+**Disconnected:** If the server ends the session or it drops, the output stays visible. A bar at the bottom says how long ago that was and offers `Reconnect` (`Enter`). This also applies to RDP and the file view.
+
+**Saving:** Buttons show “Saving …” and then briefly “Saved” without changing their width. If saving the vault file fails, the notice names the reason (read-only, locked by another program, folder missing, drive full). For container actions, the status column shows the target state (“stopping”, “restarting”) until the list has refreshed.
 
 ## Server keys
 

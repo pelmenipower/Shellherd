@@ -51,7 +51,7 @@ export interface MenuContext {
 const ARGO_LABEL = 'argocd.argoproj.io/instance';
 const PREFERRED_LABELS = ['app', 'app.kubernetes.io/name', 'app.kubernetes.io/instance', 'app.kubernetes.io/component'];
 
-interface Env { ctx: MenuContext; connected: boolean; readOnly: boolean; /** Hotkey hints only for targets that are the selection. */ hot: boolean }
+interface Env { ctx: MenuContext; connected: boolean; /** status.state === 'reconnecting' */ reconnecting: boolean; readOnly: boolean; /** Hotkey hints only for targets that are the selection. */ hot: boolean }
 interface Options { hotkey?: CommandId; extra?: string; reason?: string | undefined }
 type Group = MenuEntry[];
 
@@ -78,7 +78,7 @@ function assemble(lead: MenuEntry[], groups: Group[]): MenuEntry[] {
 const view = (...actions: KubeViewAction[]): MenuAction => ({ type: 'view', actions });
 const select = (row: KubeRow): KubeViewAction => ({ type: 'select', key: refKey(row.ref) });
 const dock = (mode: DockMode): KubeViewAction => ({ type: 'dock', mode });
-const connectedReason = (env: Env): string | undefined => (env.connected ? undefined : t('errors:kubernetes.notConnected'));
+const connectedReason = (env: Env): string | undefined => (env.connected ? undefined : env.reconnecting ? t('kubeActions:reasons.reconnecting') : t('errors:kubernetes.notConnected'));
 const readOnlyReason = (): string => t('errors:kubernetes.readOnly');
 const hasSelector = (row: KubeRow): boolean => Object.keys(row.selector ?? {}).length > 0;
 const cell = (row: KubeRow, key: string): string => String(row.cells[key] ?? '').trim();
@@ -95,7 +95,7 @@ function copyGroup(env: Env, entries: [id: string, label: string, text: string |
 
 const kubeActionItem = (env: Env, id: string, label: string, ref: KubeRef, action: KubeAction, options: Options & { replicas?: number } = {}): MenuEntry =>
   item(env, id, label, { type: 'kubeAction', ref, action, ...(options.replicas !== undefined ? { currentReplicas: options.replicas } : {}) },
-    { hotkey: options.hotkey, reason: actionReason(action, { ref, readOnly: env.readOnly, connected: env.connected }) });
+    { hotkey: options.hotkey, reason: actionReason(action, { ref, readOnly: env.readOnly, connected: env.connected, reconnecting: env.reconnecting }) });
 
 const namespaceOf = (row: KubeRow): string | undefined => row.ref.namespace;
 
@@ -547,7 +547,7 @@ function backgroundMenu(env: Env): MenuEntry[] {
 
 export function menuFor(target: MenuTarget, context: MenuContext): MenuEntry[] {
   const hot = target.type === 'row' || target.type === 'container' || target.type === 'dock';
-  const env: Env = { ctx: context, connected: context.status?.state === 'ready', readOnly: context.status?.readOnly ?? true, hot };
+  const env: Env = { ctx: context, connected: context.status?.state === 'ready', reconnecting: context.status?.state === 'reconnecting', readOnly: context.status?.readOnly ?? true, hot };
   switch (target.type) {
     case 'row': return rowMenu(env, target.row);
     case 'container': return containerMenu(env, target.pod, target.name);

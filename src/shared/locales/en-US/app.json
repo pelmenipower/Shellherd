@@ -8,7 +8,32 @@
     "disabled": "The connection “{{name}}” is disabled. Right-click → “Enable” to release it again.",
     "skipped_one": "{{count}} disabled connection was skipped.",
     "skipped_other": "{{count}} disabled connections were skipped.",
-    "sessionLimit": "Maximum of {{max}} sessions. Close a tab first."
+    "disabledTitle": "Connection disabled",
+    "sessionLimitTitle": "Maximum of {{max}} sessions",
+    "sessionLimitBody": "Close a tab first.",
+    "sessionLimitText": "Maximum of {{max}} sessions at a time. Close a tab first.",
+    "tabNotMoved": "Tab not moved",
+    "notVaultFileTitle": "Not a vault file",
+    "vaultNotSaved": "Vault not saved",
+    "notRetried": "Not saved again",
+    "retryBusy": "Another save is in progress. Repeat the change afterwards.",
+    "retryChanged": "The vault has changed in the meantime. Repeat the change.",
+    "windowNotRestored": "Window not restored",
+    "workspaceNotOpened": "Workspace not opened",
+    "clusterNotChecked": "Cluster not checked",
+    "nothingToConnect": "Nothing to connect",
+    "partialTitle_one": "Only {{opened}} of {{count}} connection opened",
+    "partialTitle_other": "Only {{opened}} of {{count}} connections opened",
+    "partialBody": "Maximum of {{max}} sessions at a time.",
+    "partialBodySkipped": "Maximum of {{max}} sessions at a time. {{skipped}}",
+    "noneOpenedTitle": "No connection opened",
+    "skippedTitle": "Connections skipped",
+    "notMoved": "Not moved",
+    "workspaceNotSaved": "Workspace not saved",
+    "workspaceNotDeleted": "Workspace not deleted",
+    "workspaceSaved": "Workspace “{{name}}” saved",
+    "catalogUnavailableTitle": "Connection list unavailable",
+    "catalogUnavailableBody": "Is the vault locked?"
   },
   "version": {
     "unknown": "unknown"
@@ -33,7 +58,6 @@
     "clusterProbeFailed": "The Kubernetes cluster could not be checked.",
     "moveFailed": "Move failed.",
     "tabMoveFailed": "The tab could not be moved.",
-    "catalogUnavailable": "The connection list is not available. Is the vault locked?",
     "windowRestoreFailed": "The window could not be restored."
   },
   "openVaultFile": {
@@ -44,9 +68,7 @@
   },
   "folder": {
     "allDisabled": "All connections in the folder “{{name}}” are disabled.",
-    "empty": "The folder “{{name}}” contains no connections.",
-    "partial_one": "Only {{opened}} of {{count}} connection was opened: maximum of {{max}} sessions at once.",
-    "partial_other": "Only {{opened}} of {{count}} connections were opened: maximum of {{max}} sessions at once."
+    "empty": "The folder “{{name}}” contains no connections."
   },
   "header": {
     "sidebarShow": "Show connections",
@@ -102,7 +124,6 @@
   },
   "status": {
     "saved": "Saved",
-    "failed": "Action failed",
     "open": "Vault open",
     "activeSessions_one": "{{count}} active session",
     "activeSessions_other": "{{count}} active sessions",
@@ -129,7 +150,7 @@
   },
   "open": {
     "title": "Open vault",
-    "description": "Select your `.term` file, then enter the matching password.",
+    "description": "Choose your .term file and then enter its password.",
     "selectFile": "Select vault file",
     "selectOther": "Select another vault file",
     "selectedFile": "Selected file",
@@ -139,7 +160,7 @@
     "submitting": "Decrypting vault…"
   },
   "toast": {
-    "closeAria": "Close message"
+    "closeAria": "Dismiss notice"
   },
   "releaseNotes": {
     "title": "New in version {{version}}",

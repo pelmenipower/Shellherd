@@ -29,7 +29,7 @@ export function ProblemBanner({ problems, onJump, onMenu }: ProblemBannerProps) 
   return (
     <div className="kube-banner" role="status">
       <button type="button" className="kube-link kube-tone-bad" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {t('kubernetes:problems.count', { count: problems.length })} {open ? '▴' : '▾'}
+        {t('kubernetes:problems.count', { count: problems.length })} <svg className={`chevron${open ? ' is-up' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m5 9 7 7 7-7" /></svg>
       </button>
       {open && (
         <ul className="kube-banner-list">

@@ -12,6 +12,7 @@ import { ContextMenu, type ContextMenuEntry } from '../ContextMenu';
 import { dockSelection, filterOf, settleArm, snapshotOf, visibleRows } from '../../kube-view';
 import { primaryFilterColumn } from '../../kube-columns';
 import { attentionChip } from '../../../../shared/kube-status';
+import { ClusterStatusBar } from './ClusterStatusBar';
 import { NodeStrip } from './NodeStrip';
 import { ProblemBanner } from './ProblemBanner';
 import { ResourceTable } from './ResourceTable';
@@ -300,7 +301,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   if (notice) statusText = notice;
   else if (!status || status.state === 'connecting') statusText = t('kubernetes:status.connecting');
   else if (status.state === 'ready') statusText = status.host ? t('kubernetes:status.readyVia', { host: status.host }) : t('kubernetes:status.ready');
-  else if (status.state === 'reconnecting') statusText = t('kubernetes:status.reconnecting');
+  else if (status.state === 'reconnecting') statusText = null; // the connection bar takes over
   else statusText = status.error ? errorText(status.error) : t('kubernetes:status.failed');
 
   return (
@@ -336,7 +337,8 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
           {status?.state === 'error' && <button type="button" onClick={retry}>{t('common:actions.retry')}</button>}
         </p>
       </header>
-      <div className={`kube-body${status?.state === 'reconnecting' ? ' kube-stale' : ''}`}>
+      <ClusterStatusBar status={status} updatedAt={state.updatedAt} />
+      <div className="kube-body">
         <NodeStrip nodes={state.nodes} onMenu={(target, x, y) => openMenu(target, x, y)} onJump={name => dispatch({ type: 'jump', ref: { kind: 'nodes', name } })} />
         <ProblemBanner problems={state.problems} onMenu={(target, x, y) => openMenu(target, x, y)} onJump={ref => dispatch({ type: 'jump', ref })} />
         <ResourceTable state={state} rows={rows} dispatch={dispatch} tableRef={tableRef} onMenu={openMenu} />

@@ -13,8 +13,8 @@ button:hover:not(:disabled) { background: var(--color-bg-hover); border-color: v
 button:disabled { opacity: .45; cursor: not-allowed; }
 button:focus-visible, summary:focus-visible, [tabindex]:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-offset); }
 input, textarea, select { width: 100%; min-width: 0; padding: var(--space-8); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-input); }
-input:not([type='checkbox']):not([type='range']):not([type='color']), select { height: var(--control-lg); }
-input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--color-accent); }
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']), select { height: var(--control-lg); }
+input[type='checkbox'], input[type='radio'] { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--color-accent); }
 input[type='range'] { padding: 0; accent-color: var(--color-accent); }
 textarea { min-height: 64px; resize: vertical; }
 ::selection { background: var(--color-selection-bg); color: var(--color-selection-text); }
@@ -109,7 +109,7 @@ label { font-size: var(--fs-sm); font-weight: 500; color: var(--color-text-muted
 .welcome-grid h2 { margin: 0 0 var(--space-10); font-size: var(--fs-sm); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); }
 .welcome-list { display: grid; gap: var(--space-6); margin: 0; padding: 0; list-style: none; }
 .welcome-list button { display: grid; gap: var(--space-2); width: 100%; padding: var(--space-10) var(--space-12); text-align: left; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-panel); color: var(--color-text); }
-.welcome-list button:hover:not(:disabled) { border-color: var(--color-accent); background: var(--color-bg-raised); }
+.welcome-list button:hover:not(:disabled) { border-color: var(--color-border-strong); background: var(--color-bg-raised); }
 .welcome-list strong { font-size: var(--fs-md); font-weight: 600; }
 .welcome-list small { color: var(--color-text-muted); font-size: var(--fs-sm); }
 .welcome-tips { display: grid; gap: var(--space-8); margin: 0 0 var(--space-16); padding-left: var(--space-20); color: var(--color-text-muted); font-size: var(--fs-md); line-height: 1.5; }
@@ -128,6 +128,7 @@ label { font-size: var(--fs-sm); font-weight: 500; color: var(--color-text-muted
 .release-notes-dialog { width: min(620px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: var(--space-20); border-radius: var(--radius-lg); overflow: auto; }
 .release-notes-dialog h2 { margin: 0 0 var(--space-12); font-size: var(--fs-xl); }
 .release-notes-list section + section { margin-top: var(--space-16); }
+.whats-new code, .release-notes-list code { padding: 0 var(--space-4); border-radius: var(--radius-sm); background: var(--color-bg-raised); color: var(--color-text-code); font-family: var(--font-mono); font-size: var(--fs-sm); }
 .release-notes-list h3 { margin: 0 0 var(--space-6); font-size: var(--fs-lg); }
 .release-notes-list h3 small { margin-left: var(--space-6); color: var(--color-text-muted); font-weight: 400; }
 .release-notes-list ul { display: grid; gap: var(--space-4); margin: 0; padding-left: var(--space-20); color: var(--color-text-muted); font-size: var(--fs-md); line-height: 1.5; }
@@ -158,3 +159,14 @@ label { font-size: var(--fs-sm); font-weight: 500; color: var(--color-text-muted
     .file-drop-hint { transform: translate(-50%, -8px); }
   }
 }
+
+/* Area error (pattern "Bereich"): danger surface with title, sentence and button. */
+.area-error { display: grid; gap: var(--space-8); padding: var(--space-8) var(--space-10); color: var(--color-danger-text); background: var(--color-danger-bg); border: 1px solid var(--color-danger-border); border-radius: var(--radius-md); line-height: 1.5; }
+.area-error button { justify-self: start; }
+
+/* Disclosure chevron; points down, .is-up flips it. No transition. */
+.chevron { width: 12px; height: 12px; flex: 0 0 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chevron.is-up { transform: rotate(180deg); }
+
+/* Inline error of the sidebar folder form. */
+.sidebar-create-form .field-error { color: var(--color-danger); font-size: var(--fs-sm); line-height: 1.5; margin: var(--space-4) 0 0; }

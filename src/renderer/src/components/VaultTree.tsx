@@ -226,7 +226,7 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
       entries={menuEntries(menu.node)} onClose={closeMenu} />}
     <input className="tree-search" type="search" aria-label={t('vault:tree.searchAria')} placeholder={t('vault:tree.searchPlaceholder')} value={query}
       onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setQuery(''); }} />
-    {error && <p className="tree-error" role="alert">{error}</p>}
+    {error && <p className="area-error" role="alert">{error}</p>}
     {searching && results.length === 0 ? <p className="tree-empty" role="status">{t('vault:tree.empty')}</p>
       : <ul className="vault-tree-list">{searching ? results.map(({ node, path }) => renderNode(node, 0, path)) : nodes.map(node => renderNode(node, 0))}</ul>}
   </nav>;

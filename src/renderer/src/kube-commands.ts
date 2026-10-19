@@ -39,6 +39,8 @@ export interface ActionContext {
   ref: KubeRef | null;
   readOnly: boolean;
   connected: boolean;
+  /** Not connected because the cluster is reconnecting: the reason says so. */
+  reconnecting?: boolean;
   /** Kind of the current table, used when ref is null. */
   kind?: KubeKind;
 }
@@ -46,7 +48,7 @@ export interface ActionContext {
 /** Undefined when the action may run on ref; otherwise the localized reason. Order: readOnly, connected, kind (ref.kind, else context.kind), ref. */
 export function actionReason(action: KubeAction, context: ActionContext): string | undefined {
   if (context.readOnly) return t('errors:kubernetes.readOnly');
-  if (!context.connected) return t('errors:kubernetes.notConnected');
+  if (!context.connected) return context.reconnecting ? t('kubeActions:reasons.reconnecting') : t('errors:kubernetes.notConnected');
   const kind = context.ref?.kind ?? context.kind;
   if (kind && !ACTION_KINDS[action].includes(kind)) return t(WRONG_KIND_KEYS[action]);
   if (!context.ref) return t('kubeActions:reasons.selectRow');
@@ -54,12 +56,13 @@ export function actionReason(action: KubeAction, context: ActionContext): string
 }
 
 const actionUnavailable = (action: KubeAction) => (context: CommandContext): string | undefined => actionReason(action, {
-  ref: selectedRow(context.state)?.ref ?? null, readOnly: context.readOnly, connected: context.state.status?.state === 'ready',
+  ref: selectedRow(context.state)?.ref ?? null, readOnly: context.readOnly, connected: context.state.status?.state === 'ready', reconnecting: context.state.status?.state === 'reconnecting',
   kind: context.state.containersOf ? 'pods' : context.state.query.kind,
 });
 
 const shellUnavailable = (context: CommandContext): string | undefined => {
   if (context.readOnly) return t('errors:kubernetes.readOnly');
+  if (context.state.status?.state === 'reconnecting') return t('kubeActions:reasons.reconnecting');
   if (context.state.status?.state !== 'ready') return t('errors:kubernetes.notConnected');
   return onlyForPods(context) ?? (podNotRunning(selectedRow(context.state)) ? t('kubeActions:reasons.notRunning') : undefined);
 };

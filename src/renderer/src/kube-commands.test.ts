@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { ACTION_KINDS, type KubeAction, type KubeKind, type KubeRow } from '../../shared/kubernetes';
 import { KUBE_COMMANDS, actionReason, commandDescription, bindingOf, commandForKey, podNotRunning } from './kube-commands';
-import { i18n } from './i18n';
+import { i18n, t } from './i18n';
 import { initialKubeView, type KubeViewState } from './kube-view';
+
+const RECONNECTING_MESSAGE = t('kubeActions:reasons.reconnecting');
 
 const READY = { state: 'ready', name: 'c', production: false, readOnly: false, metrics: true } as const;
 const ref = (kind: KubeKind) => ({ kind, namespace: kind === 'nodes' ? undefined : 'shop', name: 'x' });
@@ -23,6 +25,14 @@ describe('actionReason', () => {
     expect(actionReason(action, { ref: null, readOnly: false, connected: true })).toBe('Wähle zuerst eine Zeile.');
     expect(actionReason(action, { ref: ref(wrong(action)), readOnly: false, connected: true })).toMatch(/^Nur für /);
     expect(actionReason(action, { ref: null, kind: wrong(action), readOnly: false, connected: true })).toMatch(/^Nur für /);
+  });
+  it('words the lock as reconnecting while reconnecting (B8)', () => {
+    expect(actionReason('restart', { ref: null, readOnly: false, connected: false, reconnecting: true })).toBe(RECONNECTING_MESSAGE);
+    expect(actionReason('restart', { ref: null, readOnly: true, connected: false, reconnecting: true })).toBe('Dieser Cluster ist schreibgeschützt.');
+  });
+  it('words the registry locks as reconnecting, shell included (K24)', () => {
+    const state = { ...withRow('pods', 'Running'), status: { ...READY, state: 'reconnecting' } } as KubeViewState;
+    for (const id of ['restart', 'delete', 'shell']) expect(KUBE_COMMANDS.find(c => c.id === id)!.unavailable?.({ state, readOnly: false })).toBe(RECONNECTING_MESSAGE);
   });
   it('words the kind restriction for delete', () => {
     expect(actionReason('delete', { ref: ref('services'), readOnly: false, connected: true })).toBe('Nur für Pods und Jobs.');

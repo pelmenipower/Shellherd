@@ -4,6 +4,7 @@ import { confirmationFor } from '../../confirm-action';
 import { errorText } from '../../error-text';
 import { useNativeSurfaceBlock } from '../../native-surface';
 import { useT } from '../../i18n';
+import { BusyButton } from '../BusyButton';
 
 export interface PendingAction {
   ref: KubeRef;
@@ -86,9 +87,7 @@ export function ConfirmAction({ pending, cluster, run, onClose }: ConfirmActionP
       {error && <p className="error-message" role="alert">{error}</p>}
       <div className="form-actions">
         <button className="secondary-button kube-confirm-cancel" type="button" disabled={busy} onClick={onClose}>{t('common:actions.cancel')}</button>
-        <button className="danger-button" type="button" disabled={!canConfirm} onClick={() => void confirm()}>
-          {busy ? t('common:wait') : confirmation.confirmLabel}
-        </button>
+        <BusyButton className="danger-button" type="button" busy={busy} disabled={!canConfirm} idleLabel={confirmation.confirmLabel} onClick={() => void confirm()} />
       </div>
     </dialog>
   );

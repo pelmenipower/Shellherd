@@ -4,7 +4,7 @@ import { containerConnection, containerViewConnection, sameTarget, toTerminalCon
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import { connectionAddress } from './connection-labels';
 import { t } from './i18n';
-import { sessionLimitNotice } from './vault-notices';
+import { sessionLimitText } from './vault-notices';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
 export interface LivePane { type: 'pane'; id: string; tabIds: string[]; activeTabId: string | null }
@@ -177,7 +177,7 @@ export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => Co
       const connection = lookup(id);
       if (!connection) throw new Error(t('terminal:layout.missingConnection'));
       if (connection.disabled) { skipped++; return []; }
-      if (tabs.length >= MAX_SSH_SESSIONS) throw new Error(sessionLimitNotice());
+      if (tabs.length >= MAX_SSH_SESSIONS) throw new Error(sessionLimitText());
       const tabId = uuid();
       const container = node.containerTabs?.find(entry => entry.index === index);
       const view = node.containerViews?.find(entry => (typeof entry === 'number' ? entry : entry.index) === index);

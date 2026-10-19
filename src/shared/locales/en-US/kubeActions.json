@@ -4,6 +4,7 @@
     "noPopout": "A tab cannot be opened here.",
     "noContainer": "The pod has no containers.",
     "notRunning": "The pod is not running.",
+    "reconnecting": "Locked until the cluster is reachable again.",
     "onlyPods": "Pods only.",
     "selectRow": "Select a row first.",
     "noSelectorWorkload": "This workload has no selector.",

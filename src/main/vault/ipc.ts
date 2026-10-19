@@ -11,6 +11,7 @@ import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { mainT } from '../i18n';
 import { toVaultAppError } from './ipc-error';
+import { vaultWriteCode } from '../../shared/vault/write-errors';
 import { VaultSessionManager } from './session';
 import { saveVault } from './storage';
 
@@ -193,9 +194,16 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
       _event,
       request: SaveCurrentVaultRequest,
     ): Promise<VaultSessionResult> => {
-      const result = await vaultSessionManager.save(
-        request.vault,
-      );
+      let result: VaultSessionResult;
+      try {
+        result = await vaultSessionManager.save(
+          request.vault,
+        );
+      } catch (error) {
+        // Coded cause without path or raw text; unknown errors go through the generic mapping.
+        const code = vaultWriteCode((error as NodeJS.ErrnoException)?.code);
+        throw code ? new AppError(code) : error;
+      }
       onVaultChange();
       return result;
     },

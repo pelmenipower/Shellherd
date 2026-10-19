@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LOCAL_CONTAINER_HOST, type ContainerInventory, type InventoryKind, type InventoryRow, type InventoryState } from '../../shared/containers';
 import {
-  containerViewReducer, currentColumns, dockTerminalKey, initialContainerViewState, loadedLabel, navigableRows, rootlessHint, rowsOf,
+  busyLabel, containerViewReducer, currentColumns, dockTerminalKey, initialContainerViewState, loadedLabel, navigableRows, rootlessHint, rowsOf,
   selectedRow, tabStatus, tableItems, visibleRows, type ContainerViewAction, type ContainerViewState,
 } from './container-view';
 
@@ -27,7 +27,7 @@ const abc = (): InventoryRow[] => [ctr('a'), ctr('b'), ctr('c')];
 describe('initial state', () => {
   it('starts on containers with an open logs dock', () => {
     const state = initialContainerViewState(NOW);
-    expect(state).toMatchObject({ kind: 'containers', dock: 'logs', dockOpen: true, loading: true, epoch: 0, busy: [], armed: null, inventory: null });
+    expect(state).toMatchObject({ kind: 'containers', dock: 'logs', dockOpen: true, loading: true, epoch: 0, busy: {}, armed: null, inventory: null });
     expect(state.views.images).toEqual({ filters: {}, chips: [], sort: null, groupBy: null, collapsed: [] });
   });
   it('a quiet loading keeps the status line once an inventory is there', () => {
@@ -224,12 +224,20 @@ describe('dock and shell arm', () => {
     expect(run(images, { type: 'dock', mode: 'inspect' })).toMatchObject({ dock: 'inspect', dockOpen: true });
     expect(run(loaded(abc()), { type: 'toggleDock' }, { type: 'dock', mode: 'shell' })).toMatchObject({ dock: 'shell', dockOpen: true });
   });
-  it('reloadDock raises the epoch; busy toggles idempotently', () => {
+  it('reloadDock raises the epoch', () => {
+    expect(run(loaded(abc()), { type: 'reloadDock' }).epoch).toBe(1);
+  });
+  it('busy records the action, ends without one, is idempotent and returns the same state on a no-op', () => {
     const base = loaded(abc());
-    expect(run(base, { type: 'reloadDock' }).epoch).toBe(1);
-    const busy = run(base, { type: 'busy', uid: 'x', busy: true }, { type: 'busy', uid: 'x', busy: true });
-    expect(busy.busy).toEqual(['x']);
-    expect(run(busy, { type: 'busy', uid: 'x', busy: false }).busy).toEqual([]);
+    const busy = run(base, { type: 'busy', uid: 'x', action: 'restart' });
+    expect(busy.busy).toEqual({ x: 'restart' });
+    expect(run(busy, { type: 'busy', uid: 'x', action: 'restart' })).toBe(busy);
+    expect(run(busy, { type: 'busy', uid: 'x', action: 'stop' }).busy).toEqual({ x: 'stop' });
+    expect(run(busy, { type: 'busy', uid: 'x' }).busy).toEqual({});
+    expect(run(base, { type: 'busy', uid: 'x' })).toBe(base);
+  });
+  it('busyLabel names every action', () => {
+    expect((['start', 'stop', 'restart', 'remove'] as const).map(busyLabel)).toEqual(['startet', 'stoppt', 'startet neu', 'wird entfernt']);
   });
 });
 

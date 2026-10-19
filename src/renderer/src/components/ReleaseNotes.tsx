@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { notesSince } from '../../../shared/version';
+import { inlineCode, notesSince } from '../../../shared/version';
 import type { ReleaseNotes as Notes } from '../../../shared/version';
 import { markVersionSeen, releasesFor, seenVersion } from '../release-notes';
 import { useNativeSurfaceBlock } from '../native-surface';
@@ -7,6 +7,11 @@ import { currentLocale, useT } from '../i18n';
 import { formatDateTime } from '../../../shared/format';
 
 const formatDate = (date: string): string => formatDateTime(`${date}T12:00:00`, 'long');
+
+/** A changelog item with `backtick` spans as <code>. */
+function NoteText({ text }: { text: string }) {
+  return <>{inlineCode(text).map((part, index) => part.code ? <code key={index}>{part.text}</code> : part.text)}</>;
+}
 
 /** "What's new" after an update; dismissed once per version on this computer. */
 export function WhatsNew({ version, onShowAll }: { version: string; onShowAll: () => void }) {
@@ -19,7 +24,7 @@ export function WhatsNew({ version, onShowAll }: { version: string; onShowAll: (
   return (
     <section className="whats-new" aria-labelledby="whats-new-title">
       <h2 id="whats-new-title">{t('app:releaseNotes.title', { version })}</h2>
-      <ul>{items.slice(0, 5).map(item => <li key={item}>{item}</li>)}</ul>
+      <ul>{items.slice(0, 5).map(item => <li key={item}><NoteText text={item} /></li>)}</ul>
       <div className="whats-new-actions">
         {items.length > 5 && <button type="button" className="secondary-button" onClick={onShowAll}>{t('app:releaseNotes.showAll', { count: items.length })}</button>}
         <button type="button" className="secondary-button" onClick={() => { markVersionSeen(version); setHidden(true); }}>{t('app:releaseNotes.hide')}</button>
@@ -41,7 +46,7 @@ export function ReleaseNotesDialog({ version, onClose }: { version: string; onCl
       <div className="release-notes-list">
         {releasesFor(currentLocale()).map(release => <section key={release.version}>
           <h3>{t('app:releaseNotes.version', { version: release.version })} <small>{formatDate(release.date)}</small></h3>
-          <ul>{release.items.map(item => <li key={item}>{item}</li>)}</ul>
+          <ul>{release.items.map(item => <li key={item}><NoteText text={item} /></li>)}</ul>
         </section>)}
       </div>
       <div className="form-actions"><button type="button" className="primary-button" autoFocus onClick={() => { markVersionSeen(version); onClose(); }}>{t('common:actions.close')}</button></div>

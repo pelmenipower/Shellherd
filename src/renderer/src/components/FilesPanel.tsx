@@ -2,14 +2,21 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import type { SshStatus } from '../../../shared/ssh';
+import { decodeError, truncateDetail } from '../../../shared/errors';
+import type { CodedError } from '../../../shared/errors';
+import type { ConnectionErrorCode } from '../../../shared/connection-errors';
+import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
 import type { ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob, TransferState } from '../../../shared/sftp';
 import type { FileSide } from '../file-browser';
-import { formatDate, formatSize, ipcErrorText, isFinished, jobPercent, joinPath } from '../file-browser';
 import { errorText } from '../error-text';
+import { formatDate, formatSize, ipcErrorText, isFinished, jobPercent, joinPath } from '../file-browser';
 import { formatDateTime } from '../../../shared/format';
 import { useT } from '../i18n';
 import { liveSessions } from '../session-registry';
 import { useNativeSurfaceBlock } from '../native-surface';
+import { statusWord } from '../status-words';
+import { ConnectionErrorCard } from './ConnectionErrorCard';
+import { DisconnectedBar } from './DisconnectedBar';
 import { ConfirmDialog } from './ConfirmDialog';
 import { PermissionsDialog } from './PermissionsDialog';
 import { FilePane } from './FilePane';
@@ -42,6 +49,11 @@ const EDIT_STATE_KEYS = {
   conflict: 'files:edit.state.conflict', error: 'files:edit.state.error',
 } as const satisfies Record<EditedFile['state'], string>;
 
+/** A rejected open as coded error; foreign text stays raw detail for the card. */
+function codedFailure(error: Error): CodedError {
+  return decodeError(error.message) ?? { code: 'core.unknown', detail: truncateDetail(error.message.replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, '')) };
+}
+
 function readSnapshot(adopt?: AdoptedSession): FilesSnapshot {
   try { return adopt?.snapshot ? JSON.parse(adopt.snapshot) as FilesSnapshot : {}; } catch { return {}; }
 }
@@ -53,7 +65,8 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const tRef = useRef(t);
   tRef.current = t;
   const [status, setStatus] = useState<SftpStatus>(initialStatus ?? 'connecting');
-  const [message, setMessage] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ code?: ConnectionErrorCode; error?: CodedError }>({});
+  const [endedAt, setEndedAt] = useState(() => Date.now());
   const [attempt, setAttempt] = useState(0);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [listings, setListings] = useState<Record<FileSide, FileListing>>({ local: emptyListing, remote: emptyListing });
@@ -105,9 +118,10 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   useEffect(() => {
     let disposed = false;
     let id: string | null = null;
-    const report = (next: SftpStatus, text?: string): void => {
+    const report = (next: SftpStatus, error?: CodedError, code?: ConnectionErrorCode): void => {
       if (disposed) return;
-      setStatus(next); setMessage(text ?? null); onStatusChange(tabId, next);
+      if (next === 'closed' || next === 'error') setEndedAt(Date.now());
+      setStatus(next); setFailure({ code, error }); onStatusChange(tabId, next);
     };
     const connected = (): void => {
       report('connected');
@@ -119,7 +133,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     };
     const unsubscribe = window.desktopApi.onSftpEvent(event => {
       if (event.sessionId !== id || disposed) return;
-      if (event.type === 'status') { if (event.status === 'connected') connected(); else report(event.status, event.error ? errorText(event.error) : undefined); }
+      if (event.type === 'status') { if (event.status === 'connected') connected(); else report(event.status, event.error, event.code); }
       else if (event.type === 'conflict') setConflict(event.conflict);
       else if (event.type === 'edit') {
         const { edit, closed } = event;
@@ -155,7 +169,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
           setEdits(state.edits);
           setConflict(state.conflict ?? null);
           if (state.status === 'connected') connected(); else report(state.status);
-        }).catch((error: Error) => report('error', ipcErrorText(error)));
+        }).catch((error: Error) => report('error', codedFailure(error)));
         return;
       }
       // A closed tab moved from another window stays closed until "Neu verbinden".
@@ -164,7 +178,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
       window.desktopApi.sftpOpen({ connectionId: connection.id }).then(result => {
         if (disposed) { void window.desktopApi.sftpClose(result).catch(() => {}); return; }
         attach(result.sessionId);
-      }).catch((error: Error) => report('error', ipcErrorText(error)));
+      }).catch((error: Error) => report('error', codedFailure(error)));
     }, 0);
     return () => {
       disposed = true;
@@ -194,8 +208,10 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   };
   const remoteReady = status === 'connected' && !!sessionId;
   const remoteNotice = status === 'connected' ? undefined
-    : status === 'connecting' ? { text: t('files:panel.connecting') }
-    : { text: message ?? t('files:panel.closed'), action: { label: t('files:panel.reconnect'), run: () => { setJobs([]); setConflict(null); setAttempt(value => value + 1); } } };
+    : { text: statusWord(status, 'long', { name: connection.name }) };
+  const reconnect = (): void => { setJobs([]); setConflict(null); adoptRef.current = undefined; setAttempt(value => value + 1); };
+  const cardActive = focused && visible;
+  const remote = connection.id !== LOCAL_CONTAINER_HOST;
   const active = jobs.filter(job => !isFinished(job));
 
   const pane = (side: FileSide) => <FilePane tabId={tabId} side={side} title={side === 'local' ? t('common:thisComputer') : `${connection.name} (${connection.address})`}
@@ -223,9 +239,17 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   return (
     <section className={`terminal-panel files-panel${focused ? ' focused-pane' : ''}`} style={style} onPointerDown={onFocus}
       id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
-      <span className="terminal-live-status" role="status">{status === 'connected' ? t('files:panel.sftpConnected') : status === 'connecting' ? t('files:panel.sftpConnecting') : message ?? t('files:panel.sftpClosed')}</span>
+      <span className="terminal-live-status" role="status">{statusWord(status, 'long', { protocol: 'SFTP' })}</span>
       {actionError && <p className="file-error file-action-error" role="alert">{actionError}<button type="button" aria-label={t('files:panel.dismiss')} onClick={() => setActionError(null)}>×</button></p>}
-      <div className="files-commander">{pane('local')}{pane('remote')}</div>
+      <div className="files-commander">{pane('local')}{pane('remote')}
+      {status === 'error' && (
+        <ConnectionErrorCard connectionId={connection.id} code={failure.code ?? 'unknown'} name={connection.name} address={connection.address}
+          remote={remote} error={failure.error} active={cardActive} onRetry={reconnect} />
+      )}
+      </div>
+      {status === 'closed' && (
+        <DisconnectedBar reason={failure.code === 'closed-by-server' ? 'server' : 'session'} endedAt={endedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />
+      )}
       {edits.length > 0 && sessionId && <EditList edits={edits}
         onOpen={editId => void window.desktopApi.sftpEditOpen({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}
         onUpload={editId => void window.desktopApi.sftpEditUpload({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}

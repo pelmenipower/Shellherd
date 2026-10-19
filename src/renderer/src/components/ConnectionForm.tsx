@@ -4,6 +4,7 @@ import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folde
 import type { ConnectionFields, ConnectionTextField } from '../connection-form';
 import { validateCluster } from '../cluster-form';
 import { ClusterForm } from './ClusterForm';
+import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import './editor-ui.css';
 import { CONNECTION_ICONS } from '../../../shared/vault/appearance';
@@ -65,6 +66,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
   const [savedSignature, setSavedSignature] = useState(() => JSON.stringify({ fields, parentId }));
   const dirty = savedSignature !== JSON.stringify({ fields, parentId });
   const [error, setError] = useState<{ field?: keyof ConnectionFields; message: string } | null>(null);
+  const [savedCount, setSavedCount] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [visibleSecret, setVisibleSecret] = useState(false);
   const [test, setTest] = useState<{ running: boolean; result?: ConnectionTestResult; error?: string } | null>(null);
@@ -102,7 +104,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
       if (clusterProblem) { setError({ message: clusterProblem }); return; }
       setError(null);
       const saved = await (connect && onSaveAndConnect ? onSaveAndConnect : onSave)(updated, parentId);
-      if (saved) { setSavedSignature(JSON.stringify({ fields, parentId })); onDirtyChange?.(false); }
+      if (saved) { setSavedSignature(JSON.stringify({ fields, parentId })); onDirtyChange?.(false); setSavedCount(count => count + 1); }
     } catch (caught) {
       const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
       setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : t('connection:form.saveFailed') });
@@ -146,7 +148,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
                 <ConnectionIcon icon={icon} color={fields.color || undefined} />
               </button>)}
             </div>
-            <input type="color" aria-label={t('connection:form.appearance.colorLabel')} title={t('connection:form.appearance.colorTitle')} value={/^#[\da-f]{6}$/i.test(fields.color) ? fields.color : '#a7b7cb'}
+            <input type="color" aria-label={t('connection:form.appearance.colorLabel')} title={t('connection:form.appearance.colorTitle')} value={/^#[\da-f]{6}$/i.test(fields.color) ? fields.color : '#aeb3bc'}
               disabled={busy} onChange={event => setField('color', event.target.value)} />
             <button className="secondary-button" type="button" disabled={busy || !fields.color} onClick={() => setField('color', '')}>{t('connection:form.appearance.defaultColor')}</button>
           </div>
@@ -217,7 +219,8 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
           <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>{t('common:actions.cancel')}</button>
           {onTest && protocol !== 'kubernetes' && <button className="secondary-button" type="button" disabled={busy || test?.running} title={t('connection:form.run.title')}
             onClick={() => { void runTest(); }}>{test?.running ? t('connection:form.run.running') : t('connection:form.run.button')}</button>}
-          <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !isNew && !dirty)}>{busy ? t('common:status.saving') : t('connection:form.save')}</button>
+          <BusyButton className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" busy={busy} disabled={!!connection && !isNew && !dirty}
+            idleLabel={t('connection:form.save')} busyLabel={t('common:status.saving')} doneKey={savedCount} />
           {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>{t(CONNECT_LABEL_KEYS[protocol])}</button>
             : onSaveAndConnect && <button className="primary-button" type="button" disabled={busy} onClick={() => { void submit(true); }}>{t('connection:form.saveAndConnect')}</button>}
         </div>

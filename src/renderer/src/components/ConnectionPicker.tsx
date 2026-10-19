@@ -5,6 +5,7 @@ import { ConnectionIcon } from './ConnectionIcon';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { connectionAddress } from '../connection-labels';
 import { useT } from '../i18n';
+import { sessionLimitText } from '../vault-notices';
 
 interface Props {
   nodes: VaultNode[];
@@ -82,7 +83,7 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
         <input ref={search} type="search" aria-label={t('vault:picker.searchAria')} placeholder={t('vault:picker.searchPlaceholder')}
           value={query} onChange={event => setQuery(event.target.value)} />
       </label>
-      {limitReached && <p className="connection-picker-hint" role="status">{t('vault:picker.limit')}</p>}
+      {limitReached && <p className="connection-picker-hint" role="status">{sessionLimitText()}</p>}
       <div className="connection-picker-results">
         {results.map(({ node, path }) => node.type === 'connection' && <button className="connection-picker-option" key={node.id} type="button"
           disabled={disabled || limitReached || node.disabled} onClick={() => { close(); onConnect(node.id); }}

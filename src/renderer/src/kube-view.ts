@@ -43,10 +43,12 @@ export interface KubeViewState {
   problems: KubeProblem[];
   namespaces: string[];
   usage: UsageHistory;
+  /** Date.now() of the last rows/overview event; 0 = none. */
+  updatedAt: number;
 }
 
 export type KubeViewAction =
-  | { type: 'event'; event: KubeEvent }
+  | { type: 'event'; event: KubeEvent; /** Date.now() of the event; 'rows' and 'overview' set updatedAt to it (default: state.now). */ at?: number }
   | { type: 'setKind'; kind: KubeKind }
   | { type: 'setNamespace'; namespace: string | null }
   | { type: 'search'; text: string }        // search text of the current kind, cut to MAX_SEARCH_LENGTH
@@ -78,7 +80,7 @@ const GI = 1024 ** 3;
 export function initialKubeView(namespace: string | null): KubeViewState {
   return {
     status: null, query: { kind: 'pods', namespace }, crumbs: [], rows: [], loading: true, trouble: null, pendingNamespace: true, filters: {}, groups: {}, now: 0, sort: null, selected: null,
-    containersOf: null, container: null, dock: 'logs', dockOpen: false, logFormat: 'compact', nodes: [], problems: [], namespaces: [], usage: {},
+    containersOf: null, container: null, dock: 'logs', dockOpen: false, logFormat: 'compact', nodes: [], problems: [], namespaces: [], usage: {}, updatedAt: 0,
   };
 }
 
@@ -88,7 +90,7 @@ export function kubeViewReducer(state: KubeViewState, action: KubeViewAction): K
 
 function reduce(state: KubeViewState, action: KubeViewAction): KubeViewState {
   switch (action.type) {
-    case 'event': return applyEvent(state, action.event);
+    case 'event': return applyEvent(state, action.event, action.at ?? state.now);
     case 'setKind': return { ...withQuery(state, { kind: action.kind, namespace: state.query.namespace }, []), sort: defaultSort(action.kind) };
     case 'setNamespace': {
       const next = withQuery(state, { kind: state.query.kind, namespace: action.namespace }, []);
@@ -291,12 +293,12 @@ export function sparkline(values: number[]): string {
   return values.map(value => SPARK[range === 0 ? 0 : Math.round((value - min) / range * (SPARK.length - 1))]).join('');
 }
 
-function applyEvent(state: KubeViewState, event: KubeEvent): KubeViewState {
+function applyEvent(state: KubeViewState, event: KubeEvent, at: number): KubeViewState {
   switch (event.type) {
     case 'status': return applyStatus(state, event.status);
-    case 'overview': return { ...state, nodes: event.nodes, problems: event.problems, namespaces: event.namespaces };
+    case 'overview': return { ...state, nodes: event.nodes, problems: event.problems, namespaces: event.namespaces, updatedAt: at };
     case 'usage': return { ...state, usage: event.pods };
-    case 'rows': return applyRows(state, event);
+    case 'rows': return applyRows(state, event, at);
     case 'trouble': return queryKey(event.query) === queryKey(state.query) ? { ...state, trouble: event.error ? errorText(event.error) : null } : state;
   }
 }
@@ -312,14 +314,14 @@ function applyStatus(state: KubeViewState, status: ClusterStatus): KubeViewState
   return { ...done, query: { ...state.query, namespace: status.namespace }, rows: [], loading: true, trouble: null };
 }
 
-function applyRows(state: KubeViewState, event: Extract<KubeEvent, { type: 'rows' }>): KubeViewState {
+function applyRows(state: KubeViewState, event: Extract<KubeEvent, { type: 'rows' }>, at: number): KubeViewState {
   if (queryKey(event.query) !== queryKey(state.query)) return state;
   const deleted = new Set(event.deletes);
   // A Map keeps arrival order: replaced rows stay in place, new rows are appended.
   const byUid = new Map<string, KubeRow>();
   for (const row of event.reset ? [] : state.rows) if (!deleted.has(row.uid)) byUid.set(row.uid, row);
   for (const row of event.upserts) byUid.set(row.uid, row);
-  return keepSelection(state, { ...state, rows: [...byUid.values()], loading: false }, 'rows');
+  return keepSelection(state, { ...state, rows: [...byUid.values()], loading: false, updatedAt: at }, 'rows');
 }
 
 /** Chips of one kind in CHIPS order, at most 8. */

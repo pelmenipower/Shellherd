@@ -108,7 +108,7 @@
       "button": "Test connection",
       "title": "Checks the entered data without saving"
     },
-    "saveFailed": "Saving failed. Your input is kept. Please try again.",
+    "saveFailed": "Not saved. Your input is kept.",
     "save": "Save connection",
     "saveAndConnect": "Save and connect",
     "manage": "Manage connection",
@@ -118,7 +118,7 @@
   },
   "validation": {
     "nameMissing": "Enter a connection name.",
-    "hostMissing": "Enter a host.",
+    "hostMissing": "Enter a host or IP address.",
     "portInteger": "The port must be a whole number between 1 and 65535.",
     "portRange": "The port must be between 1 and 65535.",
     "keyPathMissing": "Enter the path to the private key.",

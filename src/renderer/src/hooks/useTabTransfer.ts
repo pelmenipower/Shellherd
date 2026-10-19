@@ -10,6 +10,7 @@ import { isRunning } from '../terminal-tabs';
 import { liveSessions } from '../session-registry';
 import { errorText } from '../error-text';
 import { t } from '../i18n';
+import { notify } from '../notice-store';
 
 interface Terminals {
   tabs: TerminalTab[];
@@ -23,7 +24,7 @@ interface Views {
 }
 
 /** Moves tabs between windows without reconnecting and receives tabs from other windows. */
-export function useTabTransfer(terminals: Terminals, views: Views, onError: (message: string) => void) {
+export function useTabTransfer(terminals: Terminals, views: Views) {
   const [externalHover, setExternalHover] = useState<ExternalDragHover>(null);
   const [pendingDock, setPendingDock] = useState<{ tabId: string; x: number; y: number } | null>(null);
   const { adopt, close } = terminals;
@@ -56,14 +57,14 @@ export function useTabTransfer(terminals: Terminals, views: Views, onError: (mes
     try {
       await window.desktopApi.transferView({ name: view.name, layout: view.layout, tabs: moving, target });
     } catch (error) {
-      onError(errorText(error, t('app:errors.tabMoveFailed')));
+      notify.error(t('app:notices.tabNotMoved'), { body: errorText(error, t('app:errors.tabMoveFailed')) });
       return false;
     }
     for (const tab of moving) if (tab.session) liveSessions.markTransferred(tab.session.sessionId);
     removeView(view.id);
     for (const tab of tabs) close(tab.id);
     return true;
-  }, [terminals.tabs, removeView, close, onError]);
+  }, [terminals.tabs, removeView, close]);
 
   const transfer = useCallback(async (tab: TerminalTab, target: TransferTarget): Promise<boolean> => {
     const live = isRunning(tab) ? liveSessions.get(tab.id) : undefined;
@@ -72,13 +73,13 @@ export function useTabTransfer(terminals: Terminals, views: Views, onError: (mes
         ...(live ? { session: { kind: live.kind, sessionId: live.sessionId } } : {}),
         ...(live?.snapshot ? { snapshot: live.snapshot() } : {}) });
     } catch (error) {
-      onError(errorText(error, t('app:errors.tabMoveFailed')));
+      notify.error(t('app:notices.tabNotMoved'), { body: errorText(error, t('app:errors.tabMoveFailed')) });
       return false;
     }
     if (live) liveSessions.markTransferred(live.sessionId);
     close(tab.id);
     return true;
-  }, [close, onError]);
+  }, [close]);
 
   const tearOff = useCallback((tabId: string, x: number, y: number): void => {
     const tab = terminals.tabs.find(item => item.id === tabId);

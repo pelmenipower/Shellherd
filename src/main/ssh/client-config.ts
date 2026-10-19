@@ -3,10 +3,13 @@ import type { ConnectConfig } from 'ssh2';
 import { AppError } from '../../shared/errors';
 import type { SftpConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 
+/** No SSH agent is available; classified as code 'agent'. */
+export class AgentError extends AppError {}
+
 export function agentSocket(platform = process.platform, socket = process.env.SSH_AUTH_SOCK): string {
   if (socket) return socket;
   if (platform === 'win32') return '\\\\.\\pipe\\openssh-ssh-agent';
-  throw new AppError('ssh.noAgent');
+  throw new AgentError('ssh.noAgent');
 }
 
 async function readPrivateKey(path: string): Promise<Buffer> {

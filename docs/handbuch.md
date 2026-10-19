@@ -192,8 +192,8 @@ Ein Cluster wird aus einer bestehenden SSH-Verbindung eingerichtet: Im Kontextme
 `Als Kubernetes-Cluster einrichten…` wählen. Shellherd liest auf dem Host die kubeconfig
 und schlägt Name, Context und weitere Zugangs-Hosts vor, etwa `k8s-cp2` und
 `k8s-cp3` im selben Namensmuster. Die Zugangs-Hosts werden der Reihe nach
-probiert. Fällt einer aus, verbindet Shellherd über den nächsten neu; der Status zeigt,
-über welchen Host der Cluster gerade erreichbar ist.
+probiert. Fällt einer aus, verbindet Shellherd über den nächsten neu; die Statusleiste
+unter dem Kopf zeigt, über welchen Host der Cluster gerade erreichbar ist.
 
 Die kubeconfig wird in dieser Reihenfolge gesucht: `$KUBECONFIG` der Login-Shell
 (erste Datei), `~/.kube/config`, dann `/etc/kubernetes/admin.conf`. Die Datei unter
@@ -208,7 +208,12 @@ Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Log
 Events und Describe bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
 Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird.
 
-Der Cluster-Tab zeigt Nodes, Workloads, Pods und Events live. `Enter` führt per
+Der Cluster-Tab zeigt Nodes, Workloads, Pods und Events live. Eine Statusleiste unter dem
+Kopf nennt den Zustand: „Live“ mit dem Alter der Daten („Stand vor 12 s“), beim Neuverbinden
+gelb den Host und den Versuch („Verbinde über k8s-cp2 … (Versuch 2)“), danach kurz grün
+„Wieder verbunden über …“. Die Tabelle bleibt dabei unverändert lesbar und wird nicht mehr
+ausgegraut; Aktionen, die verändern oder eine Verbindung brauchen, sind gesperrt, bis der
+Cluster wieder erreichbar ist. `Enter` führt per
 Drill-down etwa von einem Deployment über seine Pods zu den Containern, `Esc` geht
 eine Ebene zurück. Unten öffnet sich ein Bereich für Logs (`l`), Shell (`s`), Events
 (`e`), YAML (`y`) und Describe (`d`). `?` zeigt die Hilfe mit allen Tasten und Filterformen.
@@ -240,6 +245,22 @@ zur Node. Neu sind Fortsetzen, Anhalten und `Jetzt ausführen…` für CronJobs 
 Die kubeconfig liegt nur im Speicher des Hauptprozesses und wird nicht auf die
 Festplatte geschrieben. Der Tunnel zum API-Server lauscht nur auf `127.0.0.1`.
 Secret-Daten sind in der YAML-Ansicht maskiert.
+
+## Meldungen und Verbindungszustand
+
+Shellherd zeigt Probleme dort, wo sie entstehen.
+
+- **Am Feld:** Eine falsche Eingabe steht rot direkt unter dem Feld, der Fokus springt dorthin.
+- **Im Bereich:** Scheitert etwas in einem Bereich (Seitenleiste, Menü, Terminal), erscheint dort eine Karte mit Titel, Ursache und Knopf.
+- **Unten rechts:** Ereignisse im Hintergrund erscheinen als Meldung. Fehler bleiben, bis du sie schließt. Hinweise (5 Sekunden) und Erfolgsmeldungen (3 Sekunden) verschwinden von selbst; ein schmaler Balken zeigt die Restzeit, mit der Maus darüber oder bei verstecktem Fenster pausiert er. Höchstens drei Meldungen sind sichtbar.
+
+**Verbindungsaufbau:** Dauert das Verbinden länger als 0,4 Sekunden, zeigt der Bereich die Schritte „Server erreichen“, „Server-Schlüssel prüfen“, „Anmelden“ und „Shell öffnen“ mit der Zeit je Schritt. `Esc` oder `Abbrechen` bricht ab. Antwortet der Server langsam, steht ein Hinweis dabei.
+
+**Fehler:** Scheitert die Verbindung, nennt die Karte die Ursache (etwa „Anmeldung abgelehnt“, „Server antwortet nicht“, „Server-Schlüssel hat sich geändert“) und den nächsten Schritt. Je nach Fall stehen `Verbindung bearbeiten`, `Erneut verbinden` oder `Fingerprint kopieren` zur Wahl; `Details` zeigt den Rohtext des Servers.
+
+**Getrennt:** Beendet der Server die Sitzung oder bricht sie ab, bleibt die Ausgabe sichtbar. Eine Leiste am unteren Rand sagt, wie lange das her ist, und bietet `Neu verbinden` (`Enter`). Das gilt auch für RDP und die Dateiansicht.
+
+**Speichern:** Knöpfe zeigen „Speichert …“ und danach kurz „Gespeichert“, ohne ihre Breite zu ändern. Scheitert das Speichern der Vault-Datei, nennt die Meldung den Grund (schreibgeschützt, von einem anderen Programm gesperrt, Ordner fehlt, Laufwerk voll). Bei Container-Aktionen steht in der Status-Spalte der Zielzustand („stoppt“, „startet neu“), bis die Liste aktualisiert ist.
 
 ## Server-Schlüssel
 

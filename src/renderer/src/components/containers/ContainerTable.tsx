@@ -1,11 +1,11 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   compileColumnFilters, displayCell, facetValues, groupOptionsFor, isValidColumnFilter,
   type ColumnFilterKind, type ContainerColumn,
 } from '../../container-columns';
 import { CHIPS, attentionChip, chipCounts, compileChips } from '../../container-status';
-import { currentColumns, rowsOf, tableItems as groupedItems, type ContainerViewAction, type ContainerViewState } from '../../container-view';
-import type { InventoryRow } from '../../../../shared/containers';
+import { busyLabel, currentColumns, rowsOf, tableItems as groupedItems, type ContainerViewAction, type ContainerViewState } from '../../container-view';
+import type { InventoryAction, InventoryRow } from '../../../../shared/containers';
 import { errorText } from '../../error-text';
 import { useT } from '../../i18n';
 import { rowMenuTarget } from '../../container-menu-run';
@@ -100,6 +100,7 @@ export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: Cont
   const last = windowed ? Math.min(items.length, first + Math.ceil(scroll.height / ROW_HEIGHT) + 2 * OVERSCAN) : items.length;
   const shown = items.slice(first, last);
   const groups = groupOptionsFor(kind, runtime);
+  const hasStatus = columns.some(column => column.key === 'status');
 
   // Every context menu event is handled here: either a menu opens or the native one is suppressed.
   const open = (event: ReactMouseEvent, target: ContainerMenuTarget) => {
@@ -194,18 +195,20 @@ export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: Cont
                 }
                 const row = item.row;
                 const selected = row.uid === state.selected;
-                const busy = state.busy.includes(row.uid);
+                const busy = state.busy[row.uid];
                 return (
                   <tr key={row.uid} className={`kube-row kube-tone-${row.tone}${selected ? ' kube-row-selected' : ''}${busy ? ' ctr-busy' : ''}`}
-                    aria-selected={selected} aria-busy={busy || undefined}
+                    aria-selected={selected} aria-busy={busy !== undefined || undefined}
                     onClick={() => dispatch({ type: 'select', uid: row.uid })}
                     onContextMenu={event => { dispatch({ type: 'select', uid: row.uid }); open(event, rowMenuTarget(row)); }}
                     onDoubleClick={() => {
                       dispatch({ type: 'select', uid: row.uid });
                       dispatch({ type: 'dock', mode: kind === 'containers' ? 'logs' : 'inspect' });
                     }}>
-                    {columns.map(column => (
-                      <td key={column.key} className={isNumeric(column) ? 'kube-num' : undefined}>{displayCell(row, column, now)}</td>
+                    {columns.map((column, index) => (
+                      <td key={column.key} className={isNumeric(column) ? 'kube-num' : undefined}>
+                        {busyCell(displayCell(row, column, now), busy, column.key === 'status', index === 0 && !hasStatus)}
+                      </td>
                     ))}
                   </tr>
                 );
@@ -225,6 +228,13 @@ export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: Cont
       </div>
     </div>
   );
+}
+
+/** While an action runs the status cell names it; kinds without a status column append it to the first cell. */
+function busyCell(text: string, action: InventoryAction | undefined, isStatus: boolean, isFirstWithoutStatus: boolean): ReactNode {
+  if (!action) return text;
+  if (isStatus) return <span className="ctr-busy-status">{busyLabel(action)}</span>;
+  return isFirstWithoutStatus ? `${text} · ${busyLabel(action)}` : text;
 }
 
 const isNumeric = (column: ContainerColumn): boolean => column.filter === 'number' || column.filter === 'size';

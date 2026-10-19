@@ -176,7 +176,6 @@
     "connecting": "connecting …",
     "readyVia": "ready via {{host}}",
     "ready": "ready",
-    "reconnecting": "disconnected – reconnecting …",
     "failed": "Connection failed."
   },
   "dock": {
@@ -256,5 +255,18 @@
     "chipFilters": "Status filters for {{kind}}",
     "groupBy": "Grouping for {{kind}}",
     "textFilter": "Text filter"
+  },
+  "connbar": {
+    "connecting": "Connecting …",
+    "connectingVia": "Connecting via {{host}} …",
+    "reconnecting": "Reconnecting …",
+    "notConnected": "Not connected",
+    "live": "Live",
+    "recovered": "Reconnected via {{host}}",
+    "hostSilent": "{{host}} is not responding. {{retry}}",
+    "attempt": "{{way}} (attempt {{count}})",
+    "ageFresh": "just updated",
+    "ageSeconds": "as of {{count}} s ago",
+    "ageMinutes": "as of {{count}} min ago"
   }
 }

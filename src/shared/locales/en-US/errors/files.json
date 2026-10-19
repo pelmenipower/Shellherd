@@ -11,7 +11,7 @@
     "tooLargeToEdit": "Files over 50 MB are not opened for editing. Download them instead.",
     "editNotOpen": "The edited file is no longer open.",
     "changedOnServer": "The file has been changed on the server in the meantime.",
-    "maxSessions": "At most {{max}} file connections at the same time. Close a tab first.",
+    "maxSessions": "At most {{max}} sessions at the same time. Close a tab first.",
     "noTransferSupport": "This connection does not support file transfer.",
     "missingHostOrUser": "Save the host and user name before you start the connection.",
     "sessionUnavailable": "The file connection is not available.",

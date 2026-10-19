@@ -48,6 +48,24 @@ describe('rows events', () => {
   });
 });
 
+describe('updatedAt (1.14)', () => {
+  const overviewEvent = (at?: number): KubeViewAction => ({ type: 'event', at, event: { type: 'overview', viewId: 'v1', nodes: [], problems: [], namespaces: [] } as KubeEvent });
+  it('starts at 0 and takes `at` from rows and overview events', () => {
+    const state = initialKubeView('shop');
+    expect(state.updatedAt).toBe(0);
+    expect(kubeViewReducer(state, overviewEvent(5000)).updatedAt).toBe(5000);
+    expect(kubeViewReducer(state, { type: 'event', at: 7000, event: { type: 'rows', viewId: 'v1', query: state.query, reset: true, upserts: [], deletes: [] } }).updatedAt).toBe(7000);
+  });
+  it('falls back to state.now without `at`', () => {
+    const state = kubeViewReducer(initialKubeView('shop'), { type: 'tick', now: 9000 });
+    expect(kubeViewReducer(state, overviewEvent()).updatedAt).toBe(9000);
+  });
+  it('is not changed by status, usage or trouble events', () => {
+    const state = { ...initialKubeView('shop'), updatedAt: 42 };
+    expect(kubeViewReducer(state, { type: 'event', at: 99, event: { type: 'status', viewId: 'v1', status } }).updatedAt).toBe(42);
+  });
+});
+
 describe('trouble', () => {
   const trouble = (state: KubeViewState, error?: CodedError, query = state.query): KubeViewState =>
     kubeViewReducer(state, { type: 'event', event: { type: 'trouble', viewId: 'v1', query, ...(error ? { error } : {}) } });
