@@ -460,6 +460,47 @@ suite('KubeSessions', () => {
     expect(resets).toHaveLength(2);
   });
 
+  it('reports the attempt number and the host in trial while reconnecting, and neither once ready', async () => {
+    let calls = 0;
+    let release: () => void = () => undefined;
+    const made: FakeAccess[] = [];
+    const world = setup({
+      openAccess: vi.fn(async (_cluster, onTry) => {
+        calls++;
+        if (calls > 1) onTry?.('k8s-cp2');
+        if (calls === 2) throw new Error('Keiner der Zugangs-Hosts erreichbar.');
+        if (calls > 2) await new Promise<void>(resolve => { release = resolve; });
+        made.push(fakeAccess());
+        return made[made.length - 1].access;
+      }),
+    });
+    const view = world.sessions.open(1, 'c1').viewId;
+    await settle();
+    expect(statusesOf(world, view).at(-1)?.trying).toBeUndefined();
+
+    made[0].drop();
+    world.clock.run(HEALTH_MS);
+    expect(statusesOf(world, view).at(-1)).toMatchObject({ state: 'reconnecting', attempt: 1 });
+    expect(statusesOf(world, view).at(-1)?.trying).toBeUndefined();
+
+    world.clock.run(10);
+    await settle();
+    // First retry failed: the next one is attempt 2 and no host is in trial between the attempts.
+    expect(statusesOf(world, view).filter(status => status.trying === 'k8s-cp2').at(0)).toMatchObject({ state: 'reconnecting', attempt: 1, trying: 'k8s-cp2' });
+    expect(statusesOf(world, view).at(-1)).toMatchObject({ state: 'reconnecting', attempt: 2 });
+    expect(statusesOf(world, view).at(-1)?.trying).toBeUndefined();
+
+    world.clock.run(20);
+    await settle();
+    expect(statusesOf(world, view).at(-1)).toMatchObject({ state: 'reconnecting', attempt: 2, trying: 'k8s-cp2' });
+    release();
+    await settle();
+    const ready = statusesOf(world, view).at(-1);
+    expect(ready?.state).toBe('ready');
+    expect(ready?.attempt).toBeUndefined();
+    expect(ready?.trying).toBeUndefined();
+  });
+
   it('checks the access host at once when a watcher fails three times in a row', async () => {
     const world = setup();
     const view = world.sessions.open(1, 'c1').viewId;
