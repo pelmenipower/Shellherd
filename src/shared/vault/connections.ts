@@ -1,6 +1,7 @@
 import type { ConnectionIconName } from './appearance';
 import { aiCliLabel } from '../ai-cli';
 import type { ConnectionNode, ConnectionProtocol, RemoteConnectionNode, VaultNode } from './types';
+import { MAX_SSH_SESSIONS } from '../ssh';
 
 export interface ProtocolInfo {
   label: string;
@@ -67,3 +68,10 @@ export function connectionAddress(node: ConnectionNode): string {
   if (!isRemoteConnection(node)) return `Lokal · ${PROTOCOLS[node.protocol].short}`;
   return `${node.username ? `${node.username}@` : ''}${node.host}:${node.port}`;
 }
+
+/** Toast for the session limit (info). */
+export const sessionLimitNotice = (): { title: string; body: string } =>
+  ({ title: `Maximal ${MAX_SSH_SESSIONS} Sessions`, body: 'Schließe zuerst einen Tab.' });
+/** One sentence for Main errors and the picker; SFTP passes MAX_SFTP_SESSIONS. */
+export const sessionLimitText = (limit: number = MAX_SSH_SESSIONS): string =>
+  `Maximal ${limit} Sessions gleichzeitig. Schließe zuerst einen Tab.`;

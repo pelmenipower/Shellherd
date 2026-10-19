@@ -102,7 +102,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
         term.write(new Uint8Array(event.data), () => {
           if (!disposed && sessionId) void window.desktopApi.sshAck({ sessionId, sequence: event.sequence }).catch(() => {});
         });
-      } else {
+      } else if (event.type === 'status') {
         connected = event.status === 'connected';
         setStatus(event.status);
         onStatusChange(tabId, event.status);

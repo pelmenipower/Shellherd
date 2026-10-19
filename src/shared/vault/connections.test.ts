@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connectionAddress, connectionsIn, disabledNotice, redactSecrets, skippedNotice } from './connections';
+import { connectionAddress, connectionsIn, disabledNotice, redactSecrets, sessionLimitNotice, sessionLimitText, skippedNotice } from './connections';
 import { removeNodeFromVault } from './mutations';
 import { validateVaultConsistency } from './consistency';
 import { exampleVault } from './example';
@@ -75,5 +75,13 @@ describe('disabled connections', () => {
   it('explains how to re-enable a disabled connection', () => {
     expect(disabledNotice({ id: 'b', type: 'connection', protocol: 'cmd', name: 'B', tags: [], disabled: true }))
       .toBe('Die Verbindung „B“ ist deaktiviert. Per Rechtsklick → „Aktivieren“ wieder freigeben.');
+  });
+});
+
+describe('session limit texts', () => {
+  it('builds the toast and the sentence', () => {
+    expect(sessionLimitNotice()).toEqual({ title: 'Maximal 16 Sessions', body: 'Schließe zuerst einen Tab.' });
+    expect(sessionLimitText()).toBe('Maximal 16 Sessions gleichzeitig. Schließe zuerst einen Tab.');
+    expect(sessionLimitText(4)).toBe('Maximal 4 Sessions gleichzeitig. Schließe zuerst einen Tab.');
   });
 });

@@ -123,6 +123,10 @@ export interface ClusterStatus {
   metrics: boolean;
   /** Namespace a fresh view opens in: vault setting, else the kubeconfig context, else `default`. Absent until known. */
   namespace?: string;
+  /** Number of the running or next reconnect attempt, 1-based; only with state 'reconnecting'. */
+  attempt?: number;
+  /** Name of the SSH connection the current attempt goes through; absent between attempts. */
+  trying?: string;
 }
 
 export interface KubeOverview { nodes: NodeTile[]; problems: KubeProblem[]; namespaces: string[] }
@@ -145,6 +149,7 @@ export const ACTION_KINDS: Record<KubeAction, KubeKind[]> = {
   cordon: ['nodes'], uncordon: ['nodes'], suspend: ['cronjobs'], resume: ['cronjobs'], trigger: ['cronjobs'],
 };
 export const NOT_CONNECTED_MESSAGE = 'Der Cluster ist gerade nicht verbunden.';
+export const RECONNECTING_MESSAGE = 'Gesperrt, bis der Cluster wieder erreichbar ist.';
 
 /** Name of a job started by hand from a CronJob: `<cron>-manual-<unix>`, cut to 63 chars, DNS-1123, never ending in '-'. The suffix always stays whole. */
 export function manualJobName(cron: string, unix: number): string {

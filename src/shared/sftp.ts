@@ -1,4 +1,5 @@
 /** Shared types of the file browser (SFTP now, FTP later). */
+import type { ConnectionErrorCode } from './connection-errors';
 
 export const MAX_SFTP_SESSIONS = 16;
 
@@ -62,7 +63,7 @@ export interface EditedFile {
 }
 
 export type SftpEvent =
-  | { type: 'status'; sessionId: string; status: SftpStatus; message?: string }
+  | { type: 'status'; sessionId: string; status: SftpStatus; message?: string; code?: ConnectionErrorCode; detail?: string }
   | { type: 'edit'; sessionId: string; edit: EditedFile; closed?: boolean }
   | { type: 'transfer'; sessionId: string; job: TransferJob }
   | { type: 'conflict'; sessionId: string; conflict: TransferConflict };
