@@ -1,5 +1,4 @@
-import { CONTAINER_REF } from '../../shared/containers';
-import type { ContainerRuntime, DiscoveredItem, ItemState, RuntimeKind } from '../../shared/containers';
+import type { DiscoveredItem, ItemState, RuntimeKind } from '../../shared/containers';
 
 export interface RunResult {
   code: number | null;
@@ -29,31 +28,6 @@ export function parseProbe(text: string): Set<ProbeTool> {
 }
 
 const state = (value: unknown): ItemState => value === 'running' ? 'running' : value === 'paused' ? 'paused' : 'stopped';
-
-function containerRecords(text: string): Record<string, unknown>[] {
-  const trimmed = text.trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith('[')) {
-    try { const parsed: unknown = JSON.parse(trimmed); return Array.isArray(parsed) ? parsed.filter(entry => entry && typeof entry === 'object') : []; }
-    catch { return []; }
-  }
-  return trimmed.split(/\r?\n/).flatMap(line => {
-    try { const parsed: unknown = JSON.parse(line); return parsed && typeof parsed === 'object' ? [parsed as Record<string, unknown>] : []; }
-    catch { return []; }
-  });
-}
-
-/** Docker prints one JSON object per line, Podman a JSON array. */
-export function parseContainerList(runtime: ContainerRuntime, text: string): DiscoveredItem[] {
-  return containerRecords(text).flatMap(record => {
-    const id = String(record.ID ?? record.Id ?? '');
-    const names = Array.isArray(record.Names) ? record.Names.map(String) : String(record.Names ?? '').split(',');
-    const name = names[0]?.trim() || id.slice(0, 12);
-    const ref = CONTAINER_REF.test(name) ? name : id;
-    if (!CONTAINER_REF.test(ref)) return [];
-    return [{ kind: 'container' as const, runtime, id, ref, name, image: String(record.Image ?? ''), state: state(String(record.State ?? '').toLowerCase()) }];
-  });
-}
 
 function guestRows(text: string): string[][] {
   return text.split(/\r?\n/).map(line => line.trim().split(/\s+/)).filter(parts => /^\d+$/.test(parts[0] ?? ''));

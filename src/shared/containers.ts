@@ -9,14 +9,12 @@ export const MIN_VMID = 100;
 export const MAX_VMID = 999_999_999;
 
 export type ItemState = 'running' | 'paused' | 'stopped';
-export type DiscoveredItem =
-  | { kind: 'container'; runtime: ContainerRuntime; id: string; ref: string; name: string; image: string; state: ItemState }
-  | { kind: 'lxc' | 'vm'; vmid: number; name: string; state: ItemState };
+export type DiscoveredItem = { kind: 'lxc' | 'vm'; vmid: number; name: string; state: ItemState };
 
 export interface DiscoveryResult {
   runtimes: RuntimeKind[];
   items: DiscoveredItem[];
-  /** Per runtime: a short German message when listing failed (e.g. no permission). */
+  /** Per runtime kind: a short German message when listing failed; only 'proxmox' is filled. */
   problems: Partial<Record<RuntimeKind, string>>;
 }
 
@@ -29,9 +27,7 @@ export interface TerminalTarget { item: ContainerTarget; mode: TerminalTargetMod
 export type ContainerAction = 'start' | 'stop' | 'restart' | 'shutdown';
 
 export function toTarget(item: DiscoveredItem): ContainerTarget {
-  return item.kind === 'container'
-    ? { kind: 'container', runtime: item.runtime, ref: item.ref, name: item.name }
-    : { kind: item.kind, vmid: item.vmid, name: item.name };
+  return { kind: item.kind, vmid: item.vmid, name: item.name };
 }
 
 /** Identity of a container or guest on one host. */
@@ -124,7 +120,15 @@ export function containerTone(state: InventoryState, status: string, exitCode?: 
 
 export const CONTAINER_VIEW_SUFFIX = ' · Container';
 export const LOCAL_HOST_NAME = 'Dieser Computer';
-/** Host part of a container view tab name: `name` without a trailing CONTAINER_VIEW_SUFFIX. */
+export const RUNTIME_LABEL: Record<ContainerRuntime, string> = { docker: 'Docker', podman: 'Podman' };
+/** `<host> · Docker`, `<host> · Podman`; without runtime `<host> · Container` (CONTAINER_VIEW_SUFFIX). */
+export function containerViewTabName(hostName: string, runtime?: ContainerRuntime): string {
+  return `${hostName} · ${runtime ? RUNTIME_LABEL[runtime] : 'Container'}`;
+}
+/** Strips one trailing ' · Container', ' · Docker' or ' · Podman'; anything else stays unchanged. */
 export function containerViewHostName(name: string): string {
-  return name.endsWith(CONTAINER_VIEW_SUFFIX) ? name.slice(0, -CONTAINER_VIEW_SUFFIX.length) : name;
+  for (const suffix of [CONTAINER_VIEW_SUFFIX, ' · Docker', ' · Podman']) {
+    if (name.endsWith(suffix)) return name.slice(0, -suffix.length);
+  }
+  return name;
 }

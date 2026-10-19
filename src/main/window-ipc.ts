@@ -21,6 +21,7 @@ const TabConnectionSchema = z.object({
   id: z.string().min(1).max(256), name: z.string().max(500),
   protocol: z.enum(['ssh', 'sftp', 'rdp', 'powershell', 'cmd', 'aicli']), address: z.string().max(1000), view: z.enum(['files', 'containers']).optional(),
   target: TerminalTargetSchema.optional(),
+  runtime: z.enum(['docker', 'podman']).optional(),
 }).strict();
 const TargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('main') }).strict(),

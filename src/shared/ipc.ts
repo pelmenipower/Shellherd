@@ -228,7 +228,7 @@ export interface DesktopApi {
   lastVaultFile: () => Promise<string | null>;
   /** Dry run of a possibly unsaved connection. */
   connectionTest: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
-  /** Lists containers and Proxmox guests of an SSH connection or of this computer; always fresh. */
+  /** Probes an SSH connection or this computer for Docker and Podman and lists Proxmox guests; always fresh. */
   containersList: (request: { hostId: ContainerHostId }) => Promise<DiscoveryResult>;
   containersInventory: (request: { hostId: ContainerHostId; runtime?: ContainerRuntime }) => Promise<ContainerInventory>;
   /** Masked, 2-space indented JSON of `<rt> <kind> inspect <ref>`. */

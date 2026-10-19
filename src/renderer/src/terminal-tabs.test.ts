@@ -150,4 +150,25 @@ describe('container view tabs', () => {
     expect(state.tabs.map(t => t.ordinal)).toEqual([1, 1, 2]);
     expect(state.tabs[1].connection.view).toBe('containers');
   });
+  it('carries a fixed runtime in name and field', () => {
+    expect(containerViewConnection('h1', 'srv', 'admin@srv', 'docker')).toEqual({ id: 'h1', name: 'srv · Docker', protocol: 'ssh', address: 'admin@srv', view: 'containers', runtime: 'docker' });
+    expect(containerViewConnection(LOCAL_CONTAINER_HOST, 'Dieser Computer', 'lokal', 'podman').name).toBe('Dieser Computer · Podman');
+    expect('runtime' in containerViewConnection('h1', 'srv', 'a')).toBe(false);
+  });
+  it('tells runtimes apart and counts ordinals per runtime', () => {
+    const docker = containerViewConnection('h1', 'srv', 'a', 'docker');
+    const podman = containerViewConnection('h1', 'srv', 'a', 'podman');
+    expect(sameTarget(docker, podman)).toBe(false);
+    expect(sameTarget(docker, containerViewConnection('h1', 'srv', 'a'))).toBe(false);
+    expect(sameTarget(docker, containerViewConnection('h1', 'srv', 'a', 'docker'))).toBe(true);
+    let state = reduce(emptyTerminalTabs, { type: 'open', id: 'd1', connection: docker });
+    state = reduce(state, { type: 'open', id: 'd2', connection: docker });
+    state = reduce(state, { type: 'open', id: 'p1', connection: podman });
+    expect(state.tabs.map(t => t.ordinal)).toEqual([1, 2, 1]);
+    expect(state.tabs.map(t => t.connection.runtime)).toEqual(['docker', 'docker', 'podman']);
+  });
+  it('keeps the runtime when adopting a tab', () => {
+    const state = reduce(emptyTerminalTabs, { type: 'adopt', id: 'x', connection: containerViewConnection('h1', 'srv', 'a', 'podman'), status: 'connected', adopt: {} });
+    expect(state.tabs[0].connection.runtime).toBe('podman');
+  });
 });

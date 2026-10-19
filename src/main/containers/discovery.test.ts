@@ -25,7 +25,6 @@ const P = 'PATH="$PATH:/usr/sbin:/sbin"';
 const PROBE = `sh -c '${P}; for c in docker podman pct qm; do command -v "$c" >/dev/null 2>&1 && echo "has:$c"; done; true'`;
 const answers = {
   [PROBE]: ok('has:docker\nhas:pct\nhas:qm\n'),
-  [`${P} docker ps -a --no-trunc --format '{{json .}}'`]: ok('{"ID":"abc","Names":"web-1","Image":"nginx","State":"running"}\n'),
   [`${P} pct list`]: { code: 2, stdout: '', stderr: 'only root can run this command' },
   [`${P} qm list`]: { code: 2, stdout: '', stderr: 'only root can run this command' },
 };
@@ -33,13 +32,23 @@ const answers = {
 afterEach(() => vi.useRealTimers());
 
 describe('ContainerDiscovery over SSH', () => {
-  it('lists docker containers and reports Proxmox permission problems per runtime', async () => {
+  it('lists runtimes from the probe and reports Proxmox permission problems', async () => {
     const host = fakeHost(answers);
     const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
     const result = await discovery.list('h1');
     expect(result.runtimes).toEqual(['docker', 'proxmox']);
-    expect(result.items).toEqual([{ kind: 'container', runtime: 'docker', id: 'abc', ref: 'web-1', name: 'web-1', image: 'nginx', state: 'running' }]);
+    expect(result.items).toEqual([]);
     expect(result.problems.proxmox).toContain('root');
+    expect(result.problems.docker).toBeUndefined();
+  });
+  it('does not ask docker or podman for the sidebar', async () => {
+    const host = fakeHost({ [PROBE]: ok('has:docker\nhas:podman\n') });
+    const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
+    const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn() });
+    const result = await discovery.list('h1');
+    expect(result.runtimes).toEqual(['docker', 'podman']);
+    expect(host.commands).toEqual([PROBE]);
+    expect(host.sudo.filter(Boolean)).toEqual([]);
   });
   it('rejects when the probe times out or fails instead of reporting no containers', async () => {
     const slow = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
@@ -59,17 +68,17 @@ describe('ContainerDiscovery over SSH', () => {
     expect(host.commands).toContain(`${P} sudo -n pct start 101`);
   });
   it('answers sudo prompts with the stored password and fresh markers per command', async () => {
-    const host = fakeHost({ [PROBE]: ok('has:docker\nhas:pct\n') });
+    const host = fakeHost({ [PROBE]: ok('has:pct\n') });
     const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
     const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn() });
     await discovery.list('h1');
     await discovery.action('h1', { kind: 'lxc', vmid: 101, name: 'ct' }, 'start').catch(() => {});
     expect(host.commands[0]).toBe(PROBE);
     expect(host.sudo[0]).toBeUndefined();
-    const argvs = [listArgv('docker'), listArgv('lxc'), ['pct', 'start', '101']];
-    expect(host.commands).toHaveLength(4);
+    const argvs = [listArgv('lxc'), ['pct', 'start', '101']];
+    expect(host.commands).toHaveLength(3);
     const prompts = host.sudo.slice(1).map(entry => entry!);
-    expect(new Set(prompts.flatMap(entry => [entry.marker, entry.ready])).size).toBe(6);
+    expect(new Set(prompts.flatMap(entry => [entry.marker, entry.ready])).size).toBe(4);
     prompts.forEach((entry, index) => {
       expect(host.commands[index + 1]).toBe(remoteCommand(argvs[index], { kind: 'prompt', marker: entry.marker, ready: entry.ready, stdin: true }));
       expect(host.commands[index + 1]).not.toContain('synthetic-password');
@@ -78,18 +87,18 @@ describe('ContainerDiscovery over SSH', () => {
   });
   it('keeps sudo -n without a stored password', async () => {
     for (const authentication of [{ method: 'agent' as const }, { method: 'password' as const, password: '' }]) {
-      const host = fakeHost({ [PROBE]: ok('has:docker\n') });
+      const host = fakeHost({ [PROBE]: ok('has:pct\n') });
       const discovery = new ContainerDiscovery({ getConnection: () => ssh({ containers: { sudo: true }, authentication }), openRemote: async () => host, runLocal: vi.fn() });
       await discovery.list('h1');
-      expect(host.commands[1]).toBe(`${P} sudo -n docker ps -a --no-trunc --format '{{json .}}'`);
+      expect(host.commands[1]).toBe(`${P} sudo -n pct list`);
       expect(host.sudo[1]).toBeUndefined();
     }
   });
   it('does not use sudo with a stored password unless the connection asks for it', async () => {
-    const host = fakeHost({ [PROBE]: ok('has:docker\n') });
+    const host = fakeHost({ [PROBE]: ok('has:pct\n') });
     const discovery = new ContainerDiscovery({ getConnection: () => ssh({ authentication: { method: 'password', password: 'synthetic-password' } }), openRemote: async () => host, runLocal: vi.fn() });
     await discovery.list('h1');
-    expect(host.commands[1]).toBe(`${P} docker ps -a --no-trunc --format '{{json .}}'`);
+    expect(host.commands[1]).toBe(`${P} pct list`);
     expect(host.sudo[1]).toBeUndefined();
   });
   it('refuses a password with a line break before connecting', async () => {
@@ -101,7 +110,7 @@ describe('ContainerDiscovery over SSH', () => {
     await expect(discovery.action('h1', { kind: 'lxc', vmid: 101, name: 'ct' }, 'start')).rejects.toThrow(message);
     expect(openRemote).not.toHaveBeenCalled();
   });
-  it('sends the password only once per list when sudo rejects it and reports every runtime', async () => {
+  it('sends the password only once per list when sudo rejects it and reports Proxmox', async () => {
     const host = fakeHost({});
     host.run = async (command, _timeout, prompt) => {
       host.commands.push(command); host.sudo.push(prompt);
@@ -110,14 +119,15 @@ describe('ContainerDiscovery over SSH', () => {
     const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
     const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn() });
     const result = await discovery.list('h1');
-    expect(result.problems).toEqual({ docker: 'Das sudo-Passwort wurde abgelehnt.', podman: 'Das sudo-Passwort wurde abgelehnt.', proxmox: 'Das sudo-Passwort wurde abgelehnt.' });
+    expect(result.problems).toEqual({ proxmox: 'Das sudo-Passwort wurde abgelehnt.' });
     expect(host.sudo.filter(Boolean)).toHaveLength(1);
+    expect(host.commands.slice(1).some(command => /docker|podman/.test(command))).toBe(false);
   });
   it('does not send a rejected password again until the connection settings change', async () => {
     const host = fakeHost({});
     host.run = async (command, _timeout, prompt) => {
       host.commands.push(command); host.sudo.push(prompt);
-      return command === PROBE ? ok('has:docker\n') : { code: null, stdout: '', stderr: '', sudoRejected: true };
+      return command === PROBE ? ok('has:pct\n') : { code: null, stdout: '', stderr: '', sudoRejected: true };
     };
     let connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
     const openRemote = vi.fn(async () => host);
@@ -125,7 +135,7 @@ describe('ContainerDiscovery over SSH', () => {
     await discovery.list('h1');
     expect(host.sudo.filter(Boolean)).toHaveLength(1);
     await new Promise(resolve => setTimeout(resolve, 5));
-    expect((await discovery.list('h1')).problems.docker).toBe('Das sudo-Passwort wurde abgelehnt.');
+    expect((await discovery.list('h1')).problems.proxmox).toBe('Das sudo-Passwort wurde abgelehnt.');
     await expect(discovery.action('h1', { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' }, 'stop')).rejects.toThrow('Das sudo-Passwort wurde abgelehnt.');
     expect(host.sudo.filter(Boolean)).toHaveLength(1);
     connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password-2' } });
@@ -209,14 +219,14 @@ describe('ContainerDiscovery over SSH', () => {
     const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
     const sudoRejections = new SudoRejections();
     sudoRejections.markRejected('h1', connectionFingerprint(connection));
-    const host = fakeHost({ [PROBE]: ok('has:docker\n') });
+    const host = fakeHost({ [PROBE]: ok('has:pct\n') });
     const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn(), sudoRejections });
-    expect((await discovery.list('h1')).problems.docker).toBe('Das sudo-Passwort wurde abgelehnt.');
+    expect((await discovery.list('h1')).problems.proxmox).toBe('Das sudo-Passwort wurde abgelehnt.');
     expect(host.sudo.filter(Boolean)).toHaveLength(0);
     sudoRejections.clear('h1');
     host.run = async (command, _timeout, prompt) => {
       host.sudo.push(prompt);
-      return command === PROBE ? ok('has:docker\n') : { code: null, stdout: '', stderr: '', sudoRejected: true };
+      return command === PROBE ? ok('has:pct\n') : { code: null, stdout: '', stderr: '', sudoRejected: true };
     };
     await discovery.list('h1');
     expect(sudoRejections.isRejected('h1', connectionFingerprint(connection))).toBe(true);
@@ -323,15 +333,19 @@ describe('ContainerDiscovery connection lifecycle', () => {
 });
 
 describe('ContainerDiscovery on this computer', () => {
-  it('skips missing programs and lists the installed ones', async () => {
-    const runLocal = vi.fn(async (file: string) => file === 'docker'
-      ? ok('{"ID":"abc","Names":"web-1","Image":"nginx","State":"exited"}\n')
-      : { code: null, stdout: '', stderr: '', notFound: true });
+  const missing = { code: null, stdout: '', stderr: '', notFound: true } as RunResult;
+  it('only probes the versions and skips missing programs', async () => {
+    const runLocal = vi.fn(async (file: string) => file === 'docker' ? ok('Docker version 27.0.0\n') : missing);
     const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal });
     const result = await discovery.list(LOCAL_CONTAINER_HOST);
-    expect(result.runtimes).toEqual(['docker']);
-    expect(result.items[0]).toMatchObject({ ref: 'web-1', state: 'stopped' });
-    expect(runLocal).toHaveBeenCalledWith('docker', ['ps', '-a', '--no-trunc', '--format', '{{json .}}'], 15_000);
+    expect(result).toEqual({ runtimes: ['docker'], items: [], problems: {} });
+    expect(runLocal.mock.calls).toEqual([['docker', ['--version'], 15_000], ['podman', ['--version'], 15_000]]);
+  });
+  it('reports no runtime when both programs are missing and counts a failing one as present', async () => {
+    const none = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal: vi.fn(async () => missing) });
+    expect((await none.list(LOCAL_CONTAINER_HOST)).runtimes).toEqual([]);
+    const broken = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal: vi.fn(async () => ({ code: 1, stdout: '', stderr: 'boom' })) });
+    expect((await broken.list(LOCAL_CONTAINER_HOST)).runtimes).toEqual(['docker', 'podman']);
   });
   it('refuses Proxmox actions locally', async () => {
     const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal: vi.fn() });
