@@ -24,6 +24,7 @@ import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuEntry } from './components/ContextMenu';
 import { FolderEditor } from './components/FolderEditor';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { Toast } from './components/Toast';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
 import { containerConnection, containerViewConnection, isRunning, planContainerView, tabLabel, toTerminalConnection } from './terminal-tabs';
@@ -852,7 +853,7 @@ export default function App() {
         onClose={() => setWorkflowEditor(null)} onSave={workflows => persistVault({ ...vault, workflows })} />}
       {showAiSettings && <AiSettingsDialog settings={vault.ai} busy={busy} onClose={() => setShowAiSettings(false)}
         onSave={settings => persistVault({ ...vault, ai: settings })} />}
-      {error && <div className="app-error" role="alert"><span>{error}</span><button type="button" aria-label="Fehlermeldung schließen" onClick={() => setError(null)}>Schließen</button></div>}
+      <Toast message={error} onClose={() => setError(null)} />
       <footer className="app-status"><span role="status">{busy ? 'Speichert …' : error ? 'Aktion fehlgeschlagen' : savedNotice || 'Vault geöffnet'}</span>
         <span>{runningCount} {runningCount === 1 ? 'aktive Session' : 'aktive Sessions'}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>
         <button type="button" className="version-button" title="Neuerungen anzeigen" onClick={() => setShowReleaseNotes(true)}>v{version}</button></footer>
