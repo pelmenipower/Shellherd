@@ -149,6 +149,33 @@ export function columnValues(kind: KubeKind, rows: readonly KubeRow[], key: stri
   return empty ? [...sorted, EMPTY_VALUE] : sorted;
 }
 
+export interface FacetOption { value: string; label: string; count: number }
+
+/** Options of a select filter with counts among the rows that pass all OTHER filters (`filters` minus this column's own,
+ *  plus `otherPredicate` for chips and search text). The own selected value stays, with count 0 when nothing matches. */
+export function facetValues(
+  rows: readonly KubeRow[], kind: KubeKind, column: ColumnInfo, filters: Readonly<Record<string, string>> | undefined, now: number,
+  otherPredicate: (row: KubeRow) => boolean,
+): FacetOption[] {
+  const others: Record<string, string> = {};
+  for (const [key, value] of Object.entries(filters ?? {})) if (key !== column.key) others[key] = value;
+  const columnFilters = compileColumnFilters(kind, columnsFor(kind, null), others, now);
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (!otherPredicate(row) || !columnFilters(row)) continue;
+    const cells = cellValues(kind, row, column.key);
+    for (const cell of cells.length === 0 ? [EMPTY_VALUE] : [...new Set(cells)]) counts.set(cell, (counts.get(cell) ?? 0) + 1);
+  }
+  const selected = filters?.[column.key];
+  if (selected !== undefined && selected.trim() !== '' && !counts.has(selected)) counts.set(selected, 0);
+  const values = [...counts.keys()].filter(value => value !== EMPTY_VALUE).sort((a, b) => a.localeCompare(b));
+  if (counts.has(EMPTY_VALUE)) values.push(EMPTY_VALUE);
+  return values.map(value => {
+    const count = counts.get(value) as number;
+    return { value, label: `${value} (${count})`, count };
+  });
+}
+
 export interface GroupOption {
   id: GroupBy;
   label: string;
