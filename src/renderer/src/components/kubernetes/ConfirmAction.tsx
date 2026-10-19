@@ -3,6 +3,7 @@ import { MAX_REPLICAS, type KubeActionRequest, type KubeAction, type KubeRef } f
 import { confirmationFor } from '../../confirm-action';
 import { errorText } from '../../error-text';
 import { useNativeSurfaceBlock } from '../../native-surface';
+import { useT } from '../../i18n';
 
 export interface PendingAction {
   ref: KubeRef;
@@ -22,6 +23,7 @@ interface ConfirmActionProps {
 
 /** Confirmation for restart, scale and delete. Production and scale-to-zero need the name typed. */
 export function ConfirmAction({ pending, cluster, run, onClose }: ConfirmActionProps) {
+  const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const firstField = useRef<HTMLInputElement>(null);
@@ -54,7 +56,7 @@ export function ConfirmAction({ pending, cluster, run, onClose }: ConfirmActionP
       await run({ ref: pending.ref, action: pending.action, ...(isScale ? { replicas } : {}) });
       onClose();
     } catch (caught) {
-      setError(errorText(caught, 'Die Aktion ist fehlgeschlagen.'));
+      setError(errorText(caught, t('kubeActions:confirm.failed')));
       setBusy(false);
     }
   };
@@ -70,22 +72,22 @@ export function ConfirmAction({ pending, cluster, run, onClose }: ConfirmActionP
       <p id={`${id}-body`}>{confirmation.body}</p>
       {isScale && (
         <label className="kube-field">
-          <span>Replicas (0–{MAX_REPLICAS})</span>
+          <span>{t('kubeActions:confirm.replicas', { max: MAX_REPLICAS })}</span>
           <input ref={firstField} type="number" inputMode="numeric" min={0} max={MAX_REPLICAS} step={1} value={replicasText}
             aria-invalid={!replicasValid} onChange={event => setReplicasText(event.target.value)} />
         </label>
       )}
       {confirmation.requireTyping !== null && (
         <label className="kube-field">
-          <span>Zur Bestätigung ‚{confirmation.requireTyping}‘ eintippen</span>
+          <span>{t('kubeActions:confirm.typeToConfirm', { name: confirmation.requireTyping })}</span>
           <input ref={firstField} type="text" autoComplete="off" spellCheck={false} value={typed} onChange={event => setTyped(event.target.value)} />
         </label>
       )}
       {error && <p className="error-message" role="alert">{error}</p>}
       <div className="form-actions">
-        <button className="secondary-button kube-confirm-cancel" type="button" disabled={busy} onClick={onClose}>Abbrechen</button>
+        <button className="secondary-button kube-confirm-cancel" type="button" disabled={busy} onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="danger-button" type="button" disabled={!canConfirm} onClick={() => void confirm()}>
-          {busy ? 'Bitte warten ...' : confirmation.confirmLabel}
+          {busy ? t('common:wait') : confirmation.confirmLabel}
         </button>
       </div>
     </dialog>

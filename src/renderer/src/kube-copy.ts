@@ -1,5 +1,7 @@
 import { KIND_COLUMNS, type KubeRow } from '../../shared/kubernetes';
 import { formatAge } from './kube-view';
+import { columnLabel } from './kube-labels';
+import { t } from './i18n';
 
 /** Events table as TSV with the visible header; tabs and line breaks inside a cell become spaces. Empty string without rows. */
 export function eventsTsv(rows: readonly KubeRow[], now: number): string {
@@ -10,7 +12,7 @@ export function eventsTsv(rows: readonly KubeRow[], now: number): string {
     const flat = value.replace(/[\t\r\n]+/g, ' ').replace(/[\u0000-\u001f\u007f-\u009f]/g, '');
     return /^([=+@"]|-.)/.test(flat) ? `'${flat}` : flat;
   };
-  const lines = [columns.map(column => clean(column.label)).join('\t')];
+  const lines = [columns.map(column => clean(columnLabel(column.key))).join('\t')];
   for (const row of rows) {
     lines.push(columns.map(column => {
       const value = row.cells[column.key];
@@ -23,7 +25,7 @@ export function eventsTsv(rows: readonly KubeRow[], now: number): string {
 /** Status line after a successful copy, e.g. "Kopiert: Logs (123 Zeilen)". `lines` overrides the count (Events: rows without header). */
 export function copiedMessage(label: string, text: string, options: { lines?: number; shortened?: boolean } = {}): string {
   const count = options.lines ?? text.replace(/\r?\n$/, '').split('\n').length;
-  return `Kopiert: ${label} (${count} ${count === 1 ? 'Zeile' : 'Zeilen'}${options.shortened ? ', gekürzt' : ''})`;
+  return t(options.shortened ? 'kubeActions:copy.copiedShortened' : 'kubeActions:copy.copied', { label, count });
 }
 
 /** Keeps at most `max` characters from the end, starting at a line start when possible (clipboard IPC rejects over 4 MiB). */

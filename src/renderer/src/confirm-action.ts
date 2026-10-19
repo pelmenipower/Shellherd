@@ -1,16 +1,19 @@
 import { KIND_INFO, type KubeAction, type KubeRef } from '../../shared/kubernetes';
+import { t } from './i18n';
 
 export interface ActionRequest { ref: KubeRef; action: KubeAction; replicas?: number; currentReplicas?: number }
 export interface Confirmation { title: string; body: string; requireTyping: string | null; confirmLabel: string }
 
-const TITLES: Record<KubeAction, string> = {
-  restart: 'Rollout neu starten?', scale: 'Skalieren?', delete: 'Pod löschen?', cordon: 'Node sperren?', uncordon: 'Node freigeben?',
-  suspend: 'CronJob anhalten?', resume: 'CronJob fortsetzen?', trigger: 'CronJob jetzt ausführen?',
-};
-const LABELS: Record<KubeAction, string> = {
-  restart: 'Neu starten', scale: 'Skalieren', delete: 'Löschen', cordon: 'Sperren', uncordon: 'Freigeben',
-  suspend: 'Anhalten', resume: 'Fortsetzen', trigger: 'Ausführen',
-};
+const TITLE_KEYS = {
+  restart: 'kubeActions:confirm.title.restart', scale: 'kubeActions:confirm.title.scale', delete: 'kubeActions:confirm.title.delete',
+  cordon: 'kubeActions:confirm.title.cordon', uncordon: 'kubeActions:confirm.title.uncordon', suspend: 'kubeActions:confirm.title.suspend',
+  resume: 'kubeActions:confirm.title.resume', trigger: 'kubeActions:confirm.title.trigger',
+} as const satisfies Record<KubeAction, string>;
+const LABEL_KEYS = {
+  restart: 'kubeActions:confirm.label.restart', scale: 'kubeActions:confirm.label.scale', delete: 'kubeActions:confirm.label.delete',
+  cordon: 'kubeActions:confirm.label.cordon', uncordon: 'kubeActions:confirm.label.uncordon', suspend: 'kubeActions:confirm.label.suspend',
+  resume: 'kubeActions:confirm.label.resume', trigger: 'kubeActions:confirm.label.trigger',
+} as const satisfies Record<KubeAction, string>;
 
 /**
  * Text and confirmation rules for a kube action. Production clusters and scaling to zero
@@ -19,24 +22,27 @@ const LABELS: Record<KubeAction, string> = {
 export function confirmationFor(request: ActionRequest, cluster: { name: string; production: boolean }): Confirmation {
   const { ref, action, replicas, currentReplicas } = request;
   const kind = KIND_INFO[ref.kind].kind;
-  const where = `${kind} ${ref.name} im Namespace ${ref.namespace ?? '-'} auf ${cluster.name}`;
+  const name = ref.name;
+  const where = t('kubeActions:confirm.where', { kind, name, namespace: ref.namespace ?? '-', cluster: cluster.name });
   const requireTyping = cluster.production || (action === 'scale' && replicas === 0) ? ref.name : null;
-  let title = TITLES[action];
+  let title = t(TITLE_KEYS[action]);
   let body: string;
   switch (action) {
-    case 'restart': body = `${where} wird neu gestartet.`; break;
+    case 'restart': body = t('kubeActions:confirm.body.restart', { where }); break;
     case 'delete':
-      if (ref.kind === 'jobs') { title = 'Job löschen?'; body = `${where} und seine Pods werden gelöscht.`; }
-      else body = `${where} wird gelöscht.`;
+      if (ref.kind === 'jobs') { title = t('kubeActions:confirm.title.deleteJob'); body = t('kubeActions:confirm.body.deleteJob', { where }); }
+      else body = t('kubeActions:confirm.body.delete', { where });
       break;
     case 'scale':
-      body = currentReplicas !== undefined ? `${where}: ${currentReplicas} → ${replicas} Replicas.` : `${where} wird auf ${replicas} Replicas skaliert.`;
+      body = currentReplicas !== undefined
+        ? t('kubeActions:confirm.body.scaleFromTo', { where, current: currentReplicas, replicas: replicas ?? '' })
+        : t('kubeActions:confirm.body.scaleTo', { where, replicas: replicas ?? '' });
       break;
-    case 'cordon': body = `Auf Node ${ref.name} auf ${cluster.name} werden keine neuen Pods mehr geplant. Laufende Pods bleiben.`; break;
-    case 'uncordon': body = `Node ${ref.name} auf ${cluster.name} nimmt wieder neue Pods an.`; break;
-    case 'suspend': body = `${where} startet keine neuen Jobs mehr.`; break;
-    case 'resume': body = `${where} startet wieder nach Zeitplan.`; break;
-    case 'trigger': body = `Aus ${where} wird sofort ein Job gestartet.`; break;
+    case 'cordon': body = t('kubeActions:confirm.body.cordon', { name, cluster: cluster.name }); break;
+    case 'uncordon': body = t('kubeActions:confirm.body.uncordon', { name, cluster: cluster.name }); break;
+    case 'suspend': body = t('kubeActions:confirm.body.suspend', { where }); break;
+    case 'resume': body = t('kubeActions:confirm.body.resume', { where }); break;
+    case 'trigger': body = t('kubeActions:confirm.body.trigger', { where }); break;
   }
-  return { title, body, requireTyping, confirmLabel: LABELS[action] };
+  return { title, body, requireTyping, confirmLabel: t(LABEL_KEYS[action]) };
 }
