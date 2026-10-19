@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Workspace } from '../../../shared/vault/types';
+import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { workspaceSummary } from '../terminal-views';
 import './navigation-ui.css';
@@ -19,6 +20,7 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [savedCount, setSavedCount] = useState(0);
   const menuRef = useRef<HTMLDetailsElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const active = workspaces.find(workspace => workspace.id === activeId);
@@ -52,19 +54,19 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
     if (!active) { beginName('saveAs'); return; }
     setPending(true); setError('');
     try {
-      if (await onSave(active.name, active.id)) closeMenu();
-      else { setError('Speichern fehlgeschlagen. Bitte erneut versuchen.'); if (menuRef.current) menuRef.current.open = true; }
-    } catch { setError('Speichern fehlgeschlagen. Bitte erneut versuchen.'); if (menuRef.current) menuRef.current.open = true; }
+      if (await onSave(active.name, active.id)) { setSavedCount(count => count + 1); closeMenu(); }
+      else { setError('Nicht gespeichert.'); if (menuRef.current) menuRef.current.open = true; }
+    } catch { setError('Nicht gespeichert.'); if (menuRef.current) menuRef.current.open = true; }
     finally { setPending(false); }
   };
   const submitName = async () => {
     if (unavailable || !mode) return;
-    if (!name.trim()) { setError('Bitte einen Workspace-Namen eingeben.'); nameRef.current?.focus(); return; }
+    if (!name.trim()) { setError('Gib einen Workspace-Namen ein.'); nameRef.current?.focus(); return; }
     setPending(true); setError('');
     try {
       const result = mode === 'rename' && selected ? await onRename(selected.id, name.trim()) : await onSave(name.trim());
-      if (result) closeMenu(); else setError('Speichern fehlgeschlagen. Bitte erneut versuchen.');
-    } catch { setError('Speichern fehlgeschlagen. Bitte erneut versuchen.'); }
+      if (result) { setSavedCount(count => count + 1); closeMenu(); } else setError('Nicht gespeichert.');
+    } catch { setError('Nicht gespeichert.'); }
     finally { setPending(false); }
   };
   return <div className="workspace-switcher" aria-label="Workspace-Verwaltung">
@@ -86,7 +88,7 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
             <input ref={nameRef} aria-label="Workspace-Name" value={name} disabled={unavailable} aria-invalid={Boolean(error)}
               onChange={event => { setName(event.target.value); setError(''); }} /></label>
           <div className="workspace-menu-actions"><button type="button" disabled={unavailable} onClick={() => { setMode(null); setError(''); }}>Abbrechen</button>
-            <button type="submit" disabled={unavailable}>{pending ? 'Speichert …' : 'Speichern'}</button></div>
+            <BusyButton type="submit" busy={pending} disabled={unavailable} idleLabel="Speichern" busyLabel="Speichert …" doneKey={savedCount} /></div>
         </form> : <>
           <label className="workspace-definition-label">Gespeicherte Workspaces
             <select aria-label="Gespeicherter Workspace" value={selectedId} disabled={unavailable || workspaces.length === 0} onChange={event => setSelectedId(event.target.value)}>
@@ -106,16 +108,15 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
             <button type="button" disabled={unavailable || !hasTabs} onClick={() => { closeMenu(); onClose(); }}>Workspace schließen</button>
           </div>
         </>}
-        {error && <p className="workspace-menu-error" role="alert">{error}</p>}
+        {error && <p className="area-error" role="alert">{error}</p>}
       </div>
     </details>
-    <button className="workspace-save" type="button" disabled={unavailable || (Boolean(active) && !dirty)} onClick={() => { void saveActive(); }}>
-      {unavailable ? 'Speichert …' : 'Speichern'}
-    </button>
+    <BusyButton className="workspace-save" type="button" busy={unavailable} disabled={Boolean(active) && !dirty} idleLabel="Speichern" busyLabel="Speichert …" doneKey={savedCount}
+      onClick={() => { void saveActive(); }} />
     {deletingId && <ConfirmDialog title="Gespeicherten Workspace löschen?" description={`„${workspaces.find(workspace => workspace.id === deletingId)?.name ?? 'Workspace'}“ wird entfernt. Aktive SSH-Sessions bleiben geöffnet.`}
       busy={unavailable} onCancel={() => setDeletingId(null)} onConfirm={() => {
         setPending(true);
-        void onDelete(deletingId).then(saved => { if (saved) setDeletingId(null); }).catch(() => { setError('Löschen fehlgeschlagen. Bitte erneut versuchen.'); setDeletingId(null); }).finally(() => setPending(false));
+        void onDelete(deletingId).then(saved => { if (saved) setDeletingId(null); }).catch(() => { setError('Nicht gelöscht.'); setDeletingId(null); }).finally(() => setPending(false));
       }} />}
   </div>;
 }

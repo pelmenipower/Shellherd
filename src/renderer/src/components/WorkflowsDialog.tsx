@@ -35,7 +35,7 @@ export function WorkflowsDialog({ workflows, busy, initial, onSave, onClose }: W
       ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
       tags: [...new Set(draft.tags.split(',').map(tag => tag.trim()).filter(Boolean))], ...(draft.shell ? { shell: draft.shell } : {}) };
     const result = WorkflowSchema.safeParse(candidate);
-    if (!result.success) { setError(/[\r\n]/.test(candidate.command) ? 'Ein Workflow ist eine Zeile. Verbinde mehrere Befehle mit && oder ;.' : 'Bitte gib Name und Befehl an.'); return; }
+    if (!result.success) { setError(/[\r\n]/.test(candidate.command) ? 'Ein Workflow ist eine Zeile. Verbinde mehrere Befehle mit && oder ;.' : 'Gib Name und Befehl an.'); return; }
     const next = workflows.some(item => item.id === result.data.id) ? workflows.map(item => item.id === result.data.id ? result.data : item) : [...workflows, result.data];
     if (await onSave(next)) { setDraft(null); setError(null); } else setError('Speichern fehlgeschlagen.');
   };

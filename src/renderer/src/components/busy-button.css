@@ -1,0 +1,10 @@
+/* Busy button: width fixed by the longest label (hidden sizers share one grid cell), label fades in on state change. */
+.busy-button { display: inline-grid; grid-template-areas: 'a'; align-items: center; justify-items: center; }
+.busy-button > * { grid-area: a; }
+.busy-sizer { display: inline-flex; align-items: center; gap: var(--space-6); visibility: hidden; white-space: nowrap; }
+.busy-face { display: inline-flex; align-items: center; gap: var(--space-6); white-space: nowrap; }
+.busy-dot { flex: 0 0 auto; width: calc(var(--size-dot) - 2px); height: calc(var(--size-dot) - 2px); border-radius: 50%; background: currentColor; }
+.busy-face.is-fresh { transition: opacity var(--dur-fade) var(--ease-out); }
+@starting-style { .busy-face.is-fresh { opacity: .4; } }
+.busy-dot.is-busy { animation: tm-pulse var(--dur-pulse) var(--ease-in-out) infinite; }
+@media (prefers-reduced-motion: reduce) { .busy-dot.is-busy { animation: none; } }

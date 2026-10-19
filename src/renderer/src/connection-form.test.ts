@@ -139,4 +139,17 @@ describe('disabled connections in the editor', () => {
     expect(connectionFromFields('c', fieldsFromConnection('cmd', node), 'cmd')).toMatchObject({ disabled: true });
     expect(connectionFromFields('c', { ...fieldsFromConnection('cmd'), name: 'Neu' }, 'cmd')).not.toHaveProperty('disabled');
   });
+  it('words validation messages as imperatives without "Bitte"', () => {
+    const message = (patch: Partial<ConnectionFields>, protocol: Parameters<typeof connectionFromFields>[2] = 'ssh') => {
+      try { connectionFromFields('id', { ...fields, ...patch }, protocol); } catch (error) { return (error as Error).message; }
+      return '';
+    };
+    expect(message({ host: '' })).toBe('Gib einen Host oder eine IP-Adresse ein.');
+    expect(message({ name: ' ' })).toBe('Gib einen Verbindungsnamen ein.');
+    expect(message({ method: 'privateKey', keyPath: '' })).toBe('Gib den Pfad zum privaten Schlüssel ein.');
+    expect(message({ tool: 'custom', command: '' }, 'aicli')).toBe('Gib den Befehl an, z. B. aider --model sonnet.');
+    expect(message({ accessHosts: ['a'], namespace: 'Bad Name' }, 'kubernetes')).toBe('Gib einen gültigen Namespace ein, z. B. default.');
+    expect(message({ color: 'red' })).toBe('Gib die Farbe als #RRGGBB an.');
+    expect(message({ icon: 'nope' as ConnectionFields['icon'] })).toBe('Wähle ein verfügbares Symbol.');
+  });
 });

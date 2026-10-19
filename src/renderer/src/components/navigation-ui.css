@@ -35,7 +35,6 @@
 .workspace-current-actions { padding-top: var(--space-8); border-top: 1px solid var(--color-border); }
 .workspace-menu-actions { display: flex; justify-content: flex-end; gap: var(--space-6); }
 .workspace-menu-hint { margin: var(--space-10) 0 0; font-size: var(--fs-sm); color: var(--color-text-muted); }
-.workspace-menu-error { margin: var(--space-8) 0 0; color: var(--color-danger); font-size: var(--fs-sm); }
 /* Opened by click only; content stays mounted inside <details>, so a keyframe (not @starting-style) starts reliably on [open]. */
 .workspace-menu[open] > .workspace-menu-content { animation: workspace-menu-fade var(--dur-popover) var(--ease-out); }
 @media (prefers-reduced-motion: no-preference) { .workspace-menu[open] > .workspace-menu-content { animation-name: workspace-menu-in; } }

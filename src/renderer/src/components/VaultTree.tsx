@@ -122,12 +122,12 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
   };
   const submitRename = async () => {
     if (!renaming || !onRename || saving || disabled) return;
-    if (!name.trim()) { setError('Bitte einen Namen eingeben.'); return; }
+    if (!name.trim()) { setError('Gib einen Namen ein.'); return; }
     setSaving(true); setError('');
     try {
       if (await onRename(renaming, name.trim())) setRenaming(null);
-      else setError('Umbenennen fehlgeschlagen. Bitte erneut versuchen.');
-    } catch { setError('Umbenennen fehlgeschlagen. Bitte erneut versuchen.'); }
+      else setError('Nicht umbenannt.');
+    } catch { setError('Nicht umbenannt.'); }
     finally { setSaving(false); }
   };
   const createEntries = (parentId: string, heading: string): ContextMenuEntry[] => [
@@ -223,7 +223,7 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
       entries={menuEntries(menu.node)} onClose={closeMenu} />}
     <input className="tree-search" type="search" aria-label="Verbindungen suchen" placeholder="Verbindungen suchen …" value={query}
       onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setQuery(''); }} />
-    {error && <p className="tree-error" role="alert">{error}</p>}
+    {error && <p className="area-error" role="alert">{error}</p>}
     {searching && results.length === 0 ? <p className="tree-empty" role="status">Keine passenden Verbindungen oder Ordner.</p>
       : <ul className="vault-tree-list">{searching ? results.map(({ node, path }) => renderNode(node, 0, path)) : nodes.map(node => renderNode(node, 0))}</ul>}
   </nav>;

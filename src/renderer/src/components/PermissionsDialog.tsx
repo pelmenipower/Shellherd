@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { FileEntry } from '../../../shared/sftp';
 import { isDirectory, modeText, parseMode } from '../file-browser';
 import { useNativeSurfaceBlock } from '../native-surface';
+import { BusyButton } from './BusyButton';
 
 interface PermissionsDialogProps {
   entries: FileEntry[];
@@ -50,12 +51,12 @@ export function PermissionsDialog({ entries, busy, onCancel, onApply }: Permissi
         <input value={text} inputMode="numeric" spellCheck={false} disabled={busy} aria-invalid={!valid || undefined}
           onChange={event => { setText(event.target.value); const parsed = parseMode(event.target.value); if (parsed !== null) setMode(parsed); }} />
       </label>
-      {!valid && <p className="field-error" role="alert">Bitte drei oder vier Ziffern von 0 bis 7 eingeben, z. B. 644.</p>}
+      {!valid && <p className="field-error" role="alert">Gib drei oder vier Ziffern von 0 bis 7 ein, z. B. 644.</p>}
       {hasFolder && <label className="editor-checkbox"><input type="checkbox" checked={recursive} disabled={busy} onChange={event => setRecursive(event.target.checked)} />
         Auch für alle Dateien und Ordner darin setzen</label>}
       <div className="form-actions">
         <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>Abbrechen</button>
-        <button type="button" className="primary-button" disabled={busy || !valid} onClick={() => onApply(mode, recursive)}>{busy ? 'Bitte warten …' : 'Übernehmen'}</button>
+        <BusyButton type="button" className="primary-button" busy={busy} disabled={!valid} idleLabel="Übernehmen" onClick={() => onApply(mode, recursive)} />
       </div>
     </dialog>
   );

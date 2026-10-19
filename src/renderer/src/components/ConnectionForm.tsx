@@ -4,6 +4,7 @@ import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folde
 import type { ConnectionFields, ConnectionTextField } from '../connection-form';
 import { validateCluster } from '../cluster-form';
 import { ClusterForm } from './ClusterForm';
+import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import './editor-ui.css';
 import { CONNECTION_ICONS } from '../../../shared/vault/appearance';
@@ -52,6 +53,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
   const [savedSignature, setSavedSignature] = useState(() => JSON.stringify({ fields, parentId }));
   const dirty = savedSignature !== JSON.stringify({ fields, parentId });
   const [error, setError] = useState<{ field?: keyof ConnectionFields; message: string } | null>(null);
+  const [savedCount, setSavedCount] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [visibleSecret, setVisibleSecret] = useState(false);
   const [test, setTest] = useState<{ running: boolean; result?: ConnectionTestResult; error?: string } | null>(null);
@@ -63,7 +65,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
     try { node = connectionFromFields(connection?.id ?? 'test', fields, protocol); }
     catch (caught) {
       const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
-      setError({ field, message: caught instanceof Error ? caught.message : 'Bitte prüfe die Verbindungsdaten.' });
+      setError({ field, message: caught instanceof Error ? caught.message : 'Prüfe die Verbindungsdaten.' });
       return;
     }
     setTest({ running: true });
@@ -89,10 +91,10 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
       if (clusterProblem) { setError({ message: clusterProblem }); return; }
       setError(null);
       const saved = await (connect && onSaveAndConnect ? onSaveAndConnect : onSave)(updated, parentId);
-      if (saved) { setSavedSignature(JSON.stringify({ fields, parentId })); onDirtyChange?.(false); }
+      if (saved) { setSavedSignature(JSON.stringify({ fields, parentId })); onDirtyChange?.(false); setSavedCount(count => count + 1); }
     } catch (caught) {
       const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
-      setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : 'Speichern fehlgeschlagen. Deine Eingaben bleiben erhalten. Bitte versuche es erneut.' });
+      setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : 'Nicht gespeichert. Deine Eingaben bleiben erhalten.' });
       if (field) {
         if ((field === 'color' || field === 'workingDirectory') && detailsRef.current) detailsRef.current.open = true;
         requestAnimationFrame(() => document.getElementById(`${prefix}-${field}`)?.focus());
@@ -203,7 +205,8 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
           <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>Abbrechen</button>
           {onTest && protocol !== 'kubernetes' && <button className="secondary-button" type="button" disabled={busy || test?.running} title="Prüft die eingegebenen Daten, ohne zu speichern"
             onClick={() => { void runTest(); }}>{test?.running ? 'Teste …' : 'Verbindung testen'}</button>}
-          <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !isNew && !dirty)}>{busy ? 'Speichert ...' : 'Verbindung speichern'}</button>
+          <BusyButton className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" busy={busy} disabled={!!connection && !isNew && !dirty}
+            idleLabel="Verbindung speichern" busyLabel="Speichert …" doneKey={savedCount} />
           {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>{connectLabels[protocol]}</button>
             : onSaveAndConnect && <button className="primary-button" type="button" disabled={busy} onClick={() => { void submit(true); }}>Speichern und verbinden</button>}
         </div>

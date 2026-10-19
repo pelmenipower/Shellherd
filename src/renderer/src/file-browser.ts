@@ -67,7 +67,7 @@ export function pathSegments(side: FileSide, path: string): { label: string; pat
 /** Error text for a new or changed name; null when it is valid. */
 export function nameError(side: FileSide, name: string): string | null {
   const trimmed = name.trim();
-  if (!trimmed) return 'Bitte gib einen Namen ein.';
+  if (!trimmed) return 'Gib einen Namen ein.';
   if (trimmed === '.' || trimmed === '..') return 'Dieser Name ist nicht erlaubt.';
   if (side === 'remote' ? trimmed.includes('/') : /[\\/:*?"<>|]/.test(trimmed)) {
     return side === 'remote' ? 'Der Name darf keinen Schrägstrich enthalten.' : 'Der Name darf keines dieser Zeichen enthalten: \\ / : * ? " < > |';
