@@ -1,6 +1,7 @@
 import { INVENTORY_ACTIONS, type ContainerDockMode, type InventoryAction, type InventoryKind, type InventoryRow } from '../../shared/containers';
 import type { CommandGroup } from './kube-commands';
 import { attentionChip } from './container-status';
+import { t } from './i18n';
 
 export type ContainerCommandId = 'down' | 'up' | 'tab' | 'menu' | 'help' | 'reload' | 'filter' | 'attention' | 'resetFilter'
   | 'logs' | 'shell' | 'inspect' | 'toggleDock' | 'popout' | 'restart' | 'stop' | 'remove';
@@ -18,62 +19,75 @@ export interface ContainerCommand {
   unavailable?: (context: ContainerCommandContext) => string | undefined;
 }
 
-const NO_ROW = 'Keine Zeile ausgewählt.';
-const ONLY_CONTAINERS = 'Nur für Container.';
+const noRow = (): string => t('containers:reasons.noRow');
+const onlyContainers = (): string => t('containers:reasons.onlyContainers');
+const notRunning = (): string => t('containers:reasons.notRunning');
 const ACTIVE = new Set(['running', 'paused', 'restarting']);
 
 /** Why `action` cannot run on `row` now; undefined = possible. Used by registry, menus and dock. */
 export function actionUnavailable(row: InventoryRow | null, action: InventoryAction): string | undefined {
-  if (!row) return NO_ROW;
+  if (!row) return noRow();
   const kind = row.ref.kind;
-  if (!INVENTORY_ACTIONS[kind].includes(action)) return kind === 'networks' ? 'Netzwerke lassen sich hier nicht ändern.' : ONLY_CONTAINERS;
+  if (!INVENTORY_ACTIONS[kind].includes(action)) return kind === 'networks' ? t('containers:reasons.networksReadOnly') : onlyContainers();
   const active = ACTIVE.has(row.state ?? '');
   if (kind === 'containers') {
-    if (action === 'start' && active) return 'Der Container läuft bereits.';
-    if (action === 'stop' && !active) return 'Der Container läuft nicht.';
-    if (action === 'remove' && active) return 'Laufende Container zuerst stoppen.';
+    if (action === 'start' && active) return t('containers:reasons.alreadyRunning');
+    if (action === 'stop' && !active) return notRunning();
+    if (action === 'remove' && active) return t('containers:reasons.stopFirst');
   }
   if (action === 'remove' && (row.usedBy ?? 0) > 0) {
-    if (kind === 'images') return 'Das Image wird noch benutzt.';
-    if (kind === 'volumes') return 'Das Volume wird noch benutzt.';
+    if (kind === 'images') return t('containers:reasons.imageInUse');
+    if (kind === 'volumes') return t('containers:reasons.volumeInUse');
   }
   return undefined;
 }
 
-const logsUnavailable = (context: ContainerCommandContext): string | undefined => context.kind === 'containers' ? undefined : ONLY_CONTAINERS;
+const logsUnavailable = (context: ContainerCommandContext): string | undefined => context.kind === 'containers' ? undefined : onlyContainers();
 const shellUnavailable = (context: ContainerCommandContext): string | undefined => {
-  if (context.kind !== 'containers') return ONLY_CONTAINERS;
-  if (!context.row) return NO_ROW;
-  return context.row.state === 'running' ? undefined : 'Der Container läuft nicht.';
+  if (context.kind !== 'containers') return onlyContainers();
+  if (!context.row) return noRow();
+  return context.row.state === 'running' ? undefined : notRunning();
 };
 const forAction = (action: InventoryAction) => (context: ContainerCommandContext): string | undefined => actionUnavailable(context.row, action);
 
+const DESCRIPTION_KEYS = {
+  down: 'containers:commands.down', up: 'containers:commands.up', tab: 'containers:commands.tab', menu: 'containers:commands.menu',
+  help: 'containers:commands.help', reload: 'containers:commands.reload', filter: 'containers:commands.filter',
+  attention: 'containers:commands.attention', resetFilter: 'containers:commands.resetFilter', logs: 'containers:commands.logs',
+  shell: 'containers:commands.shell', inspect: 'containers:commands.inspect', toggleDock: 'containers:commands.toggleDock',
+  popout: 'containers:commands.popout', restart: 'containers:commands.restart', stop: 'containers:commands.stop',
+  remove: 'containers:commands.remove',
+} as const satisfies Record<ContainerCommandId, string>;
+
+// `description` is a getter: it reads the language when it is used, not when the module loads.
+const command = (id: ContainerCommandId, group: CommandGroup, keys: string[], bindings: string[],
+  unavailable?: ContainerCommand['unavailable']): ContainerCommand => ({
+  id, group, get description() { return t(DESCRIPTION_KEYS[id]); }, keys, bindings, ...(unavailable ? { unavailable } : {}),
+});
+
 export const CONTAINER_COMMANDS: readonly ContainerCommand[] = [
-  { id: 'down', group: 'Navigation', description: 'Zeile nach unten', keys: ['↓', 'j'], bindings: ['j', 'ArrowDown'] },
-  { id: 'up', group: 'Navigation', description: 'Zeile nach oben', keys: ['↑', 'k'], bindings: ['k', 'ArrowUp'] },
-  { id: 'tab', group: 'Navigation', description: 'Reiter wechseln', keys: ['1–4'], bindings: ['1', '2', '3', '4'] },
-  { id: 'menu', group: 'Navigation', description: 'Kontextmenü der Zeile öffnen', keys: ['Shift+F10'], bindings: ['Shift+F10', 'ContextMenu', 'Shift+ContextMenu'] },
-  { id: 'help', group: 'Navigation', description: 'Hilfe mit allen Tasten und Filtern', keys: ['?'], bindings: ['?'] },
-  { id: 'reload', group: 'Ansicht', description: 'Neu laden', keys: ['F5'], bindings: ['F5'] },
-  { id: 'filter', group: 'Ansicht', description: 'Name filtern (Images: Repository)', keys: ['/'], bindings: ['/'] },
-  { id: 'attention', group: 'Ansicht', description: 'Nur auffällige Container ein/aus', keys: ['w'], bindings: ['w'],
-    unavailable: context => attentionChip(context.kind) ? undefined : 'Dieser Reiter hat keinen Chip „Auffällig“.' },
-  { id: 'resetFilter', group: 'Ansicht', description: 'Alle Filter des Reiters zurücksetzen (Gruppierung bleibt)', keys: ['F'], bindings: ['F'] },
-  { id: 'logs', group: 'Ansicht', description: 'Logs des Containers anzeigen', keys: ['l'], bindings: ['l'], unavailable: logsUnavailable },
-  { id: 'shell', group: 'Ansicht', description: 'Shell im Container', keys: ['s'], bindings: ['s'], unavailable: shellUnavailable },
-  { id: 'inspect', group: 'Ansicht', description: 'Inspect anzeigen', keys: ['i'], bindings: ['i'],
-    unavailable: context => context.row ? undefined : NO_ROW },
-  { id: 'toggleDock', group: 'Ansicht', description: 'Unteres Panel ein- und ausblenden', keys: ['Ctrl+j'], bindings: ['Ctrl+j'] },
-  { id: 'popout', group: 'Ansicht', description: 'Logs oder Shell als eigenen Tab öffnen', keys: ['Ctrl+Shift+T'], bindings: ['Ctrl+Shift+T'],
-    unavailable: context => {
-      if (!context.canPopout) return 'Hier lässt sich kein Tab öffnen.';
-      if (context.dock === 'inspect') return 'Nur für Logs und Shell.';
-      if (!context.row) return NO_ROW;
-      return context.dock === 'shell' ? shellUnavailable(context) : logsUnavailable(context);
-    } },
-  { id: 'restart', group: 'Aktionen', description: 'Container neu starten', keys: ['r'], bindings: ['r'], unavailable: forAction('restart') },
-  { id: 'stop', group: 'Aktionen', description: 'Container stoppen', keys: ['x'], bindings: ['x'], unavailable: forAction('stop') },
-  { id: 'remove', group: 'Aktionen', description: 'Container, Image oder Volume entfernen', keys: ['Ctrl+d'], bindings: ['Ctrl+d'], unavailable: forAction('remove') },
+  command('down', 'navigation', ['↓', 'j'], ['j', 'ArrowDown']),
+  command('up', 'navigation', ['↑', 'k'], ['k', 'ArrowUp']),
+  command('tab', 'navigation', ['1–4'], ['1', '2', '3', '4']),
+  command('menu', 'navigation', ['Shift+F10'], ['Shift+F10', 'ContextMenu', 'Shift+ContextMenu']),
+  command('help', 'navigation', ['?'], ['?']),
+  command('reload', 'view', ['F5'], ['F5']),
+  command('filter', 'view', ['/'], ['/']),
+  command('attention', 'view', ['w'], ['w'], context => attentionChip(context.kind) ? undefined : t('containers:reasons.noAttentionChip')),
+  command('resetFilter', 'view', ['F'], ['F']),
+  command('logs', 'view', ['l'], ['l'], logsUnavailable),
+  command('shell', 'view', ['s'], ['s'], shellUnavailable),
+  command('inspect', 'view', ['i'], ['i'], context => context.row ? undefined : noRow()),
+  command('toggleDock', 'view', ['Ctrl+j'], ['Ctrl+j']),
+  command('popout', 'view', ['Ctrl+Shift+T'], ['Ctrl+Shift+T'], context => {
+    if (!context.canPopout) return t('containers:reasons.noPopout');
+    if (context.dock === 'inspect') return t('containers:reasons.logsShellOnly');
+    if (!context.row) return noRow();
+    return context.dock === 'shell' ? shellUnavailable(context) : logsUnavailable(context);
+  }),
+  command('restart', 'actions', ['r'], ['r'], forAction('restart')),
+  command('stop', 'actions', ['x'], ['x'], forAction('stop')),
+  command('remove', 'actions', ['Ctrl+d'], ['Ctrl+d'], forAction('remove')),
 ];
 
 export function commandForKey(binding: string): ContainerCommand | undefined {

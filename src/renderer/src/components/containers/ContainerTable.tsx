@@ -7,6 +7,7 @@ import { CHIPS, attentionChip, chipCounts, compileChips } from '../../container-
 import { currentColumns, rowsOf, tableItems as groupedItems, type ContainerViewAction, type ContainerViewState } from '../../container-view';
 import type { InventoryRow } from '../../../../shared/containers';
 import { errorText } from '../../error-text';
+import { useT } from '../../i18n';
 import { rowMenuTarget } from '../../container-menu-run';
 import type { ContainerMenuTarget } from '../../container-menus';
 
@@ -15,12 +16,13 @@ const ROW_HEIGHT = 24;
 const WINDOW_THRESHOLD = 200;
 const OVERSCAN = 10;
 const HEADER_ROWS = 2;
-const HINTS: Partial<Record<ColumnFilterKind, string>> = {
-  number: 'Zahl: >3, >=3, <3, <=3, =3 oder 3',
-  size: 'Größe: >100MB, <=1.5GB, 2048 (Einheiten B, kB, MB, GB, TB)',
-  age: 'Alter: <10m, >1h, <2d (Einheiten s, m, h, d)',
-};
-const EMPTY_TEXT = { containers: 'Keine Container.', images: 'Keine Images.', volumes: 'Keine Volumes.', networks: 'Keine Netzwerke.' } as const;
+const HINT_KEYS = {
+  number: 'containers:table.hintNumber', size: 'containers:table.hintSize', age: 'containers:table.hintAge',
+} as const satisfies Partial<Record<ColumnFilterKind, string>>;
+const EMPTY_TEXT_KEYS = {
+  containers: 'containers:table.empty.containers', images: 'containers:table.empty.images',
+  volumes: 'containers:table.empty.volumes', networks: 'containers:table.empty.networks',
+} as const;
 
 interface ContainerTableProps {
   state: ContainerViewState;
@@ -33,6 +35,7 @@ interface ContainerTableProps {
 
 /** Chip bar and table. Keys are handled by the view; this component only renders and scrolls. */
 export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: ContainerTableProps) {
+  const { t } = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ top: 0, height: 480 });
   const kind = state.kind;
@@ -107,20 +110,20 @@ export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: Cont
 
   const problemError = state.inventory?.problems[kind];
   const problem = problemError ? errorText(problemError) : undefined;
-  const emptyText = problem ?? (state.loading && !state.inventory ? 'Lade …'
-    : allRows.length === 0 ? EMPTY_TEXT[kind]
-      : 'Keine Zeile passt zu den Filtern.');
+  const emptyText = problem ?? (state.loading && !state.inventory ? t('containers:loading')
+    : allRows.length === 0 ? t(EMPTY_TEXT_KEYS[kind])
+      : t('containers:table.noMatch'));
 
   return (
     <div className="kube-table-area">
-      <div className="kube-chipbar" role="toolbar" aria-label="Filter" onContextMenu={event => event.preventDefault()}>
+      <div className="kube-chipbar" role="toolbar" aria-label={t('containers:table.filterBar')} onContextMenu={event => event.preventDefault()}>
         {chipDefs.map((chip, index) => {
           const on = view.chips.includes(chip.id);
           const count = counts[chip.id] ?? 0;
           return (
             <Fragment key={chip.id}>
               {index > 0 && chipDefs[index - 1].group !== chip.group && <span className="kube-chip-sep" aria-hidden="true" />}
-              <button type="button" aria-pressed={on} title={chip.id === attention ? 'Taste w' : undefined}
+              <button type="button" aria-pressed={on} title={chip.id === attention ? t('containers:table.attentionTitle') : undefined}
                 className={`kube-chip kube-filter-chip${on ? ' kube-chip-on' : ''}${count === 0 ? ' kube-chip-zero' : ''}`}
                 onClick={() => dispatch({ type: 'toggleChip', id: chip.id })}>
                 {chip.label} <span className="kube-chip-count">{count}</span>
@@ -131,20 +134,20 @@ export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: Cont
         <span className="kube-chipbar-end">
           {filtered && state.inventory && (
             <>
-              <span>{rows.length} von {allRows.length}</span>
-              <button type="button" className="kube-chipbar-reset" title="Alle Filter zurücksetzen (F)"
-                onClick={() => dispatch({ type: 'clearFilter' })}>Zurücksetzen</button>
+              <span>{t('containers:table.count', { shown: rows.length, total: allRows.length })}</span>
+              <button type="button" className="kube-chipbar-reset" title={t('containers:table.resetTitle')}
+                onClick={() => dispatch({ type: 'clearFilter' })}>{t('containers:table.reset')}</button>
             </>
           )}
-          <label className="kube-group-by">Gruppieren nach
-            <select aria-label="Gruppieren nach" value={view.groupBy ?? ''}
+          <label className="kube-group-by">{t('containers:table.groupBy')}
+            <select aria-label={t('containers:table.groupBy')} value={view.groupBy ?? ''}
               onKeyDown={event => returnFocus(event, tableRef)}
               onChange={event => {
                 dispatch({ type: 'setGroupBy', groupBy: groups.find(option => option.id === event.target.value)?.id ?? null });
                 // A select that keeps focus swallows j/k and type-ahead would change the choice again.
                 tableRef.current?.focus({ preventScroll: true });
               }}>
-              <option value="">Keine Gruppierung</option>
+              <option value="">{t('containers:table.noGrouping')}</option>
               {groups.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
             </select>
           </label>
@@ -214,7 +217,7 @@ export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: Cont
             <div className="kube-empty-block">
               <p className={`kube-empty${problem ? ' error-message' : ''}`} role={problem ? 'alert' : undefined}>{emptyText}</p>
               {!problem && allRows.length > 0 && filtered && (
-                <button type="button" className="kube-empty-action" onClick={() => dispatch({ type: 'clearFilter' })}>Filter zurücksetzen</button>
+                <button type="button" className="kube-empty-action" onClick={() => dispatch({ type: 'clearFilter' })}>{t('containers:table.resetFilters')}</button>
               )}
             </div>
           )}
@@ -246,29 +249,31 @@ interface FilterFieldProps {
 
 /** One cell of the filter row; `data-column-filter` is the hook the view's `/` focuses. */
 function FilterField({ column, current, options = [], dispatch, tableRef }: FilterFieldProps) {
+  const { t } = useT();
   const key = column.key;
   const set = (value: string) => dispatch({ type: 'setColumnFilter', key, value });
   if (column.filter === 'select') {
     return (
-      <select data-column-filter={key} aria-label={`Filter ${column.label}`} value={current}
+      <select data-column-filter={key} aria-label={t('containers:table.filterOf', { column: column.label })} value={current}
         onKeyDown={event => returnFocus(event, tableRef)}
         onChange={event => { set(event.target.value); tableRef.current?.focus({ preventScroll: true }); }}>
-        <option value="">alle</option>
+        <option value="">{t('containers:table.all')}</option>
         {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
         {current !== '' && !options.some(option => option.value === current) && <option value={current}>{current}</option>}
       </select>
     );
   }
   const valid = isValidColumnFilter(column, current);
-  const hint = HINTS[column.filter];
-  const title = hint === undefined ? undefined : valid ? hint : `Ungültig, filtert nicht. ${hint}`;
+  const hintKey = column.filter === 'number' || column.filter === 'size' || column.filter === 'age' ? HINT_KEYS[column.filter] : undefined;
+  const hint = hintKey === undefined ? undefined : t(hintKey);
+  const title = hint === undefined ? undefined : valid ? hint : t('containers:table.invalid', { hint });
   return (
     <span className="kube-col-filter">
-      <input type="text" size={1} data-column-filter={key} aria-label={`Filter ${column.label}`} placeholder="Filter …" maxLength={100}
+      <input type="text" size={1} data-column-filter={key} aria-label={t('containers:table.filterOf', { column: column.label })} placeholder={t('containers:table.placeholder')} maxLength={100}
         spellCheck={false} autoComplete="off" value={current} aria-invalid={!valid} className={valid ? undefined : 'kube-filter-invalid'} title={title}
         onChange={event => set(event.target.value)}
         onKeyDown={event => returnFocus(event, tableRef)} />
-      {current && <button type="button" className="kube-col-filter-clear" aria-label={`Filter ${column.label} leeren`} onClick={() => set('')}>×</button>}
+      {current && <button type="button" className="kube-col-filter-clear" aria-label={t('containers:table.clearFilterOf', { column: column.label })} onClick={() => set('')}>×</button>}
     </span>
   );
 }

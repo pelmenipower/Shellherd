@@ -121,7 +121,6 @@ export function containerTone(state: InventoryState, status: string, exitCode?: 
 }
 
 export const CONTAINER_VIEW_SUFFIX = ' · Container';
-export const LOCAL_HOST_NAME = 'Dieser Computer';
 export const RUNTIME_LABEL: Record<ContainerRuntime, string> = { docker: 'Docker', podman: 'Podman' };
 /** `<host> · Docker`, `<host> · Podman`; without runtime `<host> · Container` (CONTAINER_VIEW_SUFFIX). */
 export function containerViewTabName(hostName: string, runtime?: ContainerRuntime): string {

@@ -1,16 +1,24 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNativeSurfaceBlock } from '../../native-surface';
 import type { CommandGroup } from '../../kube-commands';
+import { useT } from '../../i18n';
+import { foldCase } from '../../../../shared/format';
 import { CONTAINER_COMMANDS, type ContainerCommandContext } from '../../container-commands';
 import { CHIPS } from '../../container-status';
-import { FILTER_HELP, columnsFor, groupOptionsFor, primaryFilterColumn, type ColumnFilterKind } from '../../container-columns';
+import { FILTER_HELP, columnLabel, groupOptionsFor, primaryFilterColumn, type ColumnFilterKind } from '../../container-columns';
 import { currentColumns, type ContainerViewState } from '../../container-view';
 
-const GROUPS: CommandGroup[] = ['Navigation', 'Ansicht', 'Aktionen'];
-const KIND_LABEL: Record<ColumnFilterKind, string> = {
-  text: 'Text', select: 'Auswahl', number: 'Zahl', size: 'Größe', age: 'Alter',
-};
-const KIND_TITLE = { containers: 'Container', images: 'Images', volumes: 'Volumes', networks: 'Netzwerke' } as const;
+const GROUPS: CommandGroup[] = ['navigation', 'view', 'actions'];
+const GROUP_LABEL_KEYS = {
+  navigation: 'common:commandGroups.navigation', view: 'common:commandGroups.view', actions: 'common:commandGroups.actions',
+} as const satisfies Record<CommandGroup, string>;
+const KIND_LABEL_KEYS = {
+  text: 'containers:filterHelp.text.form', select: 'containers:filterHelp.select.form', number: 'containers:filterHelp.number.form',
+  size: 'containers:filterHelp.size.form', age: 'containers:filterHelp.age.form',
+} as const satisfies Record<ColumnFilterKind, string>;
+const KIND_TITLE_KEYS = {
+  containers: 'containers:kinds.containers', images: 'containers:kinds.images', volumes: 'containers:kinds.volumes', networks: 'containers:kinds.networks',
+} as const;
 
 interface ContainerHelpProps {
   state: ContainerViewState;
@@ -20,27 +28,28 @@ interface ContainerHelpProps {
 
 /** Modal with every key and the filters of the current tab; unavailable entries stay visible with the reason. */
 export function ContainerHelp({ state, context, onClose }: ContainerHelpProps) {
+  const { t } = useT();
   const [search, setSearch] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   useNativeSurfaceBlock(true);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
-  const needle = search.trim().toLowerCase();
-  const matches = (text: string) => !needle || text.toLowerCase().includes(needle);
+  const needle = foldCase(search.trim());
+  const matches = (text: string) => !needle || foldCase(text).includes(needle);
   const kind = state.kind;
-  const label = KIND_TITLE[kind];
+  const label = t(KIND_TITLE_KEYS[kind]);
   const runtime = state.inventory?.runtime ?? 'docker';
   const hotkeys = CONTAINER_COMMANDS.filter(command => matches([command.description, command.keys.join(' '), command.bindings.join(' ')].join(' ')));
-  const nameColumn = columnsFor(kind, runtime).find(column => column.key === primaryFilterColumn(kind))?.label ?? 'Name';
-  const intro = `Unter jedem Spaltenkopf steht ein Filterfeld. / springt in das Feld „${nameColumn}“.`;
+  const nameColumn = columnLabel(primaryFilterColumn(kind));
+  const intro = t('containers:help.intro', { column: nameColumn });
   const forms = FILTER_HELP.filter(item => matches([item.form, item.description, item.example].join(' ')));
-  const columns = currentColumns(state).filter(column => matches(`${column.label} ${KIND_LABEL[column.filter]}`));
+  const columns = currentColumns(state).filter(column => matches(`${column.label} ${t(KIND_LABEL_KEYS[column.filter])}`));
   const chips = CHIPS[kind];
   const chipText = chips.map(chip => chip.label).join(' · ');
   const noChips = chips.length === 0;
-  const showChips = matches(noChips ? 'Keine Status-Filter.' : chipText);
-  const groupText = ['keine', ...groupOptionsFor(kind, runtime).map(option => option.label)].join(' · ');
+  const showChips = matches(noChips ? t('containers:help.noStatusFilters') : chipText);
+  const groupText = [t('common:none'), ...groupOptionsFor(kind, runtime).map(option => option.label)].join(' · ');
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // The view also listens for keys; Escape must only close this dialog.
@@ -49,23 +58,23 @@ export function ContainerHelp({ state, context, onClose }: ContainerHelpProps) {
 
   return (
     <div className="kube-modal-backdrop" onMouseDown={onClose}>
-      <div role="dialog" aria-modal="true" aria-label="Hilfe zur Container-Ansicht" className="kube-modal kube-help"
+      <div role="dialog" aria-modal="true" aria-label={t('containers:help.aria')} className="kube-modal kube-help"
         onMouseDown={event => event.stopPropagation()} onKeyDown={onKeyDown}>
         <div className="kube-help-head">
-          <h2>Tasten und Filter</h2>
-          <input ref={inputRef} type="search" placeholder="Suchen …" aria-label="Hilfe durchsuchen" value={search}
+          <h2>{t('containers:help.title')}</h2>
+          <input ref={inputRef} type="search" placeholder={t('containers:help.searchPlaceholder')} aria-label={t('containers:help.searchAria')} value={search}
             onChange={event => setSearch(event.target.value)} />
-          <button type="button" onClick={onClose}>Schließen</button>
+          <button type="button" onClick={onClose}>{t('common:actions.close')}</button>
         </div>
         <div className="kube-help-columns">
           <div>
-            <h3>Tasten</h3>
+            <h3>{t('containers:help.keys')}</h3>
             {GROUPS.map(group => {
               const entries = hotkeys.filter(command => command.group === group);
               if (entries.length === 0) return null;
               return (
                 <section key={group}>
-                  <h4>{group}</h4>
+                  <h4>{t(GROUP_LABEL_KEYS[group])}</h4>
                   <dl>
                     {entries.map(command => {
                       const reason = command.unavailable?.(context);
@@ -82,7 +91,7 @@ export function ContainerHelp({ state, context, onClose }: ContainerHelpProps) {
             })}
           </div>
           <div>
-            <h3>Filter</h3>
+            <h3>{t('containers:help.filters')}</h3>
             {matches(intro) && <p className="kube-muted">{intro}</p>}
             <dl>
               {forms.map(item => (
@@ -90,19 +99,19 @@ export function ContainerHelp({ state, context, onClose }: ContainerHelpProps) {
                   <dt><code>{item.form}</code></dt>
                   <dd>
                     {item.description}
-                    <span className="kube-muted"> · Beispiel: <code>{item.example}</code></span>
+                    <span className="kube-muted">{t('containers:help.example')}<code>{item.example}</code></span>
                   </dd>
                 </div>
               ))}
             </dl>
             {columns.length > 0 && (
               <section>
-                <h4>Spaltenfilter für {label}</h4>
+                <h4>{t('containers:help.columnFilters', { kind: label })}</h4>
                 <dl>
                   {columns.map(column => (
                     <div key={column.key} className="kube-help-row">
                       <dt>{column.label}</dt>
-                      <dd>{KIND_LABEL[column.filter]}</dd>
+                      <dd>{t(KIND_LABEL_KEYS[column.filter])}</dd>
                     </div>
                   ))}
                 </dl>
@@ -110,13 +119,13 @@ export function ContainerHelp({ state, context, onClose }: ContainerHelpProps) {
             )}
             {showChips && (
               <section>
-                <h4>Status-Filter für {label}</h4>
-                <p>{noChips ? 'Keine Status-Filter.' : chipText}</p>
+                <h4>{t('containers:help.statusFilters', { kind: label })}</h4>
+                <p>{noChips ? t('containers:help.noStatusFilters') : chipText}</p>
               </section>
             )}
             {matches(groupText) && (
               <section>
-                <h4>Gruppieren für {label}</h4>
+                <h4>{t('containers:help.grouping', { kind: label })}</h4>
                 <p>{groupText}</p>
               </section>
             )}

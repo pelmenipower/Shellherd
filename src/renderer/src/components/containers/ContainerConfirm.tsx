@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ContainerConfirmation } from '../../container-confirm';
 import { useNativeSurfaceBlock } from '../../native-surface';
+import { useT } from '../../i18n';
 
 interface ContainerConfirmProps {
   confirmation: ContainerConfirmation;
@@ -11,6 +12,7 @@ interface ContainerConfirmProps {
 
 /** Dialog for stop, restart and remove. Removing needs the name typed. */
 export function ContainerConfirm({ confirmation, onConfirm, onClose }: ContainerConfirmProps) {
+  const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const field = useRef<HTMLInputElement>(null);
@@ -41,12 +43,12 @@ export function ContainerConfirm({ confirmation, onConfirm, onClose }: Container
       <p id={`${id}-body`}>{confirmation.body}</p>
       {confirmation.requireTyping !== null && (
         <label className="kube-field">
-          <span>Zum Bestätigen „{confirmation.requireTyping}“ eintippen.</span>
+          <span>{t('containers:confirm.typeToConfirm', { name: confirmation.requireTyping })}</span>
           <input ref={field} type="text" autoComplete="off" spellCheck={false} value={typed} onChange={event => setTyped(event.target.value)} />
         </label>
       )}
       <div className="form-actions">
-        <button className="secondary-button kube-confirm-cancel" type="button" onClick={onClose}>Abbrechen</button>
+        <button className="secondary-button kube-confirm-cancel" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="danger-button" type="button" disabled={!canConfirm} onClick={confirm}>{confirmation.confirmLabel}</button>
       </div>
     </dialog>

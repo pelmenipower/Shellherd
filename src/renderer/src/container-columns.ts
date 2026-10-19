@@ -3,44 +3,44 @@ import type { ContainerRuntime, InventoryKind, InventoryRow } from '../../shared
 import type { FacetOption, NumberOp } from './kube-columns';
 import { EMPTY_VALUE, parseAgeFilter, parseNumberFilter } from './kube-columns';
 import { formatAge } from './kube-view';
+import { compareText, foldCase } from '../../shared/format';
+import { t } from './i18n';
 
 export type ColumnFilterKind = 'text' | 'select' | 'number' | 'size' | 'age';
 export interface ContainerColumn { key: string; label: string; filter: ColumnFilterKind; podmanOnly?: true }
 
+const COLUMN_LABEL_KEYS = {
+  name: 'containers:columns.name', status: 'containers:columns.status', info: 'containers:columns.info', image: 'containers:columns.image',
+  ports: 'containers:columns.ports', project: 'containers:columns.project', pod: 'containers:columns.pod', networks: 'containers:columns.networks',
+  created: 'containers:columns.created', repository: 'containers:columns.repository', tag: 'containers:columns.tag', id: 'containers:columns.id',
+  size: 'containers:columns.size', usedBy: 'containers:columns.usedBy', driver: 'containers:columns.driver', mountpoint: 'containers:columns.mountpoint',
+  scope: 'containers:columns.scope', internal: 'containers:columns.internal', containers: 'containers:columns.containers',
+} as const;
+type ColumnKey = keyof typeof COLUMN_LABEL_KEYS;
+
+/** Header text of a column key in the current language; an unknown key comes back as it is. */
+export function columnLabel(key: string): string {
+  return key in COLUMN_LABEL_KEYS ? t(COLUMN_LABEL_KEYS[key as ColumnKey]) : key;
+}
+
+// `label` is a getter: it reads the language when it is used, not when the module loads.
+const column = (key: ColumnKey, filter: ColumnFilterKind, podmanOnly?: true): ContainerColumn => ({
+  key, get label() { return columnLabel(key); }, filter, ...(podmanOnly ? { podmanOnly } : {}),
+});
+
 export const COLUMNS: Record<InventoryKind, readonly ContainerColumn[]> = {
   containers: [
-    { key: 'name', label: 'Name', filter: 'text' },
-    { key: 'status', label: 'Status', filter: 'select' },
-    { key: 'info', label: 'Details', filter: 'text' },
-    { key: 'image', label: 'Image', filter: 'text' },
-    { key: 'ports', label: 'Ports', filter: 'text' },
-    { key: 'project', label: 'Projekt', filter: 'select' },
-    { key: 'pod', label: 'Pod', filter: 'select', podmanOnly: true },
-    { key: 'networks', label: 'Netzwerke', filter: 'select' },
-    { key: 'created', label: 'Erstellt', filter: 'age' },
+    column('name', 'text'), column('status', 'select'), column('info', 'text'), column('image', 'text'), column('ports', 'text'),
+    column('project', 'select'), column('pod', 'select', true), column('networks', 'select'), column('created', 'age'),
   ],
   images: [
-    { key: 'repository', label: 'Repository', filter: 'text' },
-    { key: 'tag', label: 'Tag', filter: 'text' },
-    { key: 'id', label: 'ID', filter: 'text' },
-    { key: 'size', label: 'Größe', filter: 'size' },
-    { key: 'usedBy', label: 'Benutzt', filter: 'number' },
-    { key: 'created', label: 'Erstellt', filter: 'age' },
+    column('repository', 'text'), column('tag', 'text'), column('id', 'text'), column('size', 'size'), column('usedBy', 'number'), column('created', 'age'),
   ],
   volumes: [
-    { key: 'name', label: 'Name', filter: 'text' },
-    { key: 'driver', label: 'Treiber', filter: 'select' },
-    { key: 'mountpoint', label: 'Mountpoint', filter: 'text' },
-    { key: 'usedBy', label: 'Benutzt', filter: 'number' },
-    { key: 'created', label: 'Erstellt', filter: 'age' },
+    column('name', 'text'), column('driver', 'select'), column('mountpoint', 'text'), column('usedBy', 'number'), column('created', 'age'),
   ],
   networks: [
-    { key: 'name', label: 'Name', filter: 'text' },
-    { key: 'driver', label: 'Treiber', filter: 'select' },
-    { key: 'scope', label: 'Scope', filter: 'select' },
-    { key: 'internal', label: 'Intern', filter: 'select' },
-    { key: 'containers', label: 'Container', filter: 'number' },
-    { key: 'created', label: 'Erstellt', filter: 'age' },
+    column('name', 'text'), column('driver', 'select'), column('scope', 'select'), column('internal', 'select'), column('containers', 'number'), column('created', 'age'),
   ],
 };
 
@@ -125,8 +125,8 @@ function compileOne(column: ContainerColumn, value: string, now: number): Predic
   const key = column.key;
   switch (column.filter) {
     case 'text': {
-      const needle = text.toLowerCase();
-      return row => cellValues(row, key).some(cell => cell.toLowerCase().includes(needle));
+      const needle = foldCase(text);
+      return row => cellValues(row, key).some(cell => foldCase(cell).includes(needle));
     }
     case 'select': {
       // Select values come from the option list and are exact; the stored value is not trimmed away.
@@ -193,7 +193,7 @@ export function facetValues(
   }
   const selected = filters?.[column.key];
   if (selected !== undefined && selected.trim() !== '' && !counts.has(selected)) counts.set(selected, 0);
-  const values = [...counts.keys()].filter(value => value !== EMPTY_VALUE).sort((a, b) => a.localeCompare(b));
+  const values = [...counts.keys()].filter(value => value !== EMPTY_VALUE).sort(compareText);
   if (counts.has(EMPTY_VALUE)) values.push(EMPTY_VALUE);
   return values.map(value => {
     const count = counts.get(value) as number;
@@ -206,16 +206,15 @@ export interface GroupOption { id: GroupId; label: string; key: (row: InventoryR
 
 const by = (key: string) => (row: InventoryRow): string => cellValues(row, key)[0] ?? '';
 
+const option = (id: GroupId, key: (row: InventoryRow) => string, podmanOnly?: true): GroupOption => ({
+  id, get label() { return columnLabel(id); }, key, ...(podmanOnly ? { podmanOnly } : {}),
+});
+
 export const GROUP_OPTIONS: Record<InventoryKind, readonly GroupOption[]> = {
-  containers: [
-    { id: 'project', label: 'Projekt', key: by('project') },
-    { id: 'status', label: 'Status', key: by('status') },
-    { id: 'image', label: 'Image', key: by('image') },
-    { id: 'pod', label: 'Pod', key: by('pod'), podmanOnly: true },
-  ],
-  images: [{ id: 'repository', label: 'Repository', key: by('repository') }],
-  volumes: [{ id: 'driver', label: 'Treiber', key: by('driver') }],
-  networks: [{ id: 'driver', label: 'Treiber', key: by('driver') }],
+  containers: [option('project', by('project')), option('status', by('status')), option('image', by('image')), option('pod', by('pod'), true)],
+  images: [option('repository', by('repository'))],
+  volumes: [option('driver', by('driver'))],
+  networks: [option('driver', by('driver'))],
 };
 
 export function groupOptionsFor(kind: InventoryKind, runtime: ContainerRuntime): GroupOption[] {
@@ -238,7 +237,7 @@ export function groupRows(rows: readonly InventoryRow[], options: readonly Group
     if (members) members.push(row);
     else groups.set(key, [row]);
   }
-  const keys = [...groups.keys()].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)));
+  const keys = [...groups.keys()].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : compareText(a, b)));
   const items: TableItem[] = [];
   for (const key of keys) {
     const members = groups.get(key) as InventoryRow[];
@@ -250,10 +249,17 @@ export function groupRows(rows: readonly InventoryRow[], options: readonly Group
 }
 
 export interface FilterHelpForm { form: string; description: string; example: string }
+const HELP_KEYS = {
+  text: { form: 'containers:filterHelp.text.form', description: 'containers:filterHelp.text.description' },
+  select: { form: 'containers:filterHelp.select.form', description: 'containers:filterHelp.select.description' },
+  number: { form: 'containers:filterHelp.number.form', description: 'containers:filterHelp.number.description' },
+  size: { form: 'containers:filterHelp.size.form', description: 'containers:filterHelp.size.description' },
+  age: { form: 'containers:filterHelp.age.form', description: 'containers:filterHelp.age.description' },
+} as const satisfies Record<ColumnFilterKind, { form: string; description: string }>;
+// form and description are getters: they read the language when they are used.
+const helpForm = (kind: ColumnFilterKind, example: string): FilterHelpForm => ({
+  get form() { return t(HELP_KEYS[kind].form); }, get description() { return t(HELP_KEYS[kind].description); }, example,
+});
 export const FILTER_HELP: readonly FilterHelpForm[] = [
-  { form: 'Text', description: 'Spalte enthält den Text', example: 'web' },
-  { form: 'Auswahl', description: 'genau dieser Wert, mit Anzahl', example: 'running' },
-  { form: 'Zahl', description: 'Vergleich mit >, >=, <, <=, =', example: '>0' },
-  { form: 'Größe', description: 'Vergleich in Bytes, Einheiten B, kB, MB, GB, TB', example: '>100MB' },
-  { form: 'Alter', description: 'jünger (<) oder älter (>) als s, m, h, d', example: '<10m' },
+  helpForm('text', 'web'), helpForm('select', 'running'), helpForm('number', '>0'), helpForm('size', '>100MB'), helpForm('age', '<10m'),
 ];

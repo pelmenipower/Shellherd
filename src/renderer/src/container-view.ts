@@ -3,6 +3,8 @@ import type { ContainerDockMode, ContainerInventory, ContainerRuntime, Inventory
 import { LOCAL_CONTAINER_HOST, RUNTIME_LABEL } from '../../shared/containers';
 import { columnsFor, compileColumnFilters, groupOptionsFor, groupRows, type ContainerColumn, type GroupId, type TableItem } from './container-columns';
 import { compileChips, knownChips } from './container-status';
+import { compareText } from '../../shared/format';
+import { t } from './i18n';
 
 export interface KindView {
   filters: Record<string, string>; chips: string[];
@@ -84,7 +86,7 @@ function reduce(state: ContainerViewState, action: ContainerViewAction): Contain
     case 'loading': return state.loading || (action.quiet && state.inventory !== null) ? state : { ...state, loading: true };
     case 'setInventory': {
       if (state.pinned !== null && action.inventory.runtime !== state.pinned) {
-        return { ...state, loading: false, error: `${RUNTIME_LABEL[state.pinned]} wurde auf diesem Host nicht gefunden.` };
+        return { ...state, loading: false, error: t('errors:containers.runtimeNotFound', { runtime: RUNTIME_LABEL[state.pinned] }) };
       }
       const runtimeChanged = state.inventory !== null && state.inventory.runtime !== action.inventory.runtime;
       const next: ContainerViewState = { ...state, inventory: action.inventory, loading: false, error: null, ...(runtimeChanged ? { selected: null } : {}) };
@@ -202,16 +204,16 @@ export function dockTerminalKey(row: InventoryRow, mode: 'logs' | 'shell', epoch
 
 export function loadedLabel(at: number, now: number): string {
   const seconds = Math.max(0, Math.floor((now - at) / 1000));
-  if (seconds < 5) return 'gerade geladen';
-  if (seconds < 60) return `geladen vor ${seconds} s`;
-  return `geladen vor ${Math.floor(seconds / 60)} min`;
+  if (seconds < 5) return t('containers:view.loadedNow');
+  if (seconds < 60) return t('containers:view.loadedSeconds', { seconds });
+  return t('containers:view.loadedMinutes', { minutes: Math.floor(seconds / 60) });
 }
 
 export function rootlessHint(state: ContainerViewState, hostId: string): string | null {
   const inventory = state.inventory;
   if (!inventory || hostId === LOCAL_CONTAINER_HOST || inventory.runtime !== 'podman' || inventory.sudo) return null;
   if (inventory.rows.containers.length > 0 || inventory.problems.containers) return null;
-  return `Podman rootless zeigt nur Container des Benutzers ${inventory.user ?? 'unbekannt'}. Für Root-Container sudo aktivieren.`;
+  return t('containers:view.rootlessHint', { user: inventory.user ?? t('containers:view.unknownUser') });
 }
 
 export function tabStatus(state: ContainerViewState): 'connecting' | 'connected' | 'error' {
@@ -312,5 +314,5 @@ function sortValue(row: InventoryRow, column: ContainerColumn): SortValue {
 function compareValues(a: SortValue, b: SortValue, sign: 1 | -1): number {
   if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
   if (typeof a === 'number' && typeof b === 'number') return (a - b) * sign;
-  return String(a).localeCompare(String(b)) * sign;
+  return compareText(String(a), String(b)) * sign;
 }

@@ -1,5 +1,6 @@
 import type { ContainerInventory, ContainerRuntime } from '../../shared/containers';
 import { ipcMessage } from './container-tree';
+import { t } from './i18n';
 import type { ContainerViewAction } from './container-view';
 
 /** Pause between the end of one request and the start of the next while the tab is visible. */
@@ -47,7 +48,7 @@ export class InventoryScheduler {
     this.hooks.dispatch(quiet ? { type: 'loading', quiet: true } : { type: 'loading' });
     this.hooks.request(input).then(
       inventory => { if (this.alive && id === this.sequence) this.hooks.dispatch({ type: 'setInventory', inventory }); },
-      error => { if (this.alive && id === this.sequence) this.hooks.dispatch({ type: 'fail', message: ipcMessage(error, 'Die Container konnten nicht geladen werden.') }); },
+      error => { if (this.alive && id === this.sequence) this.hooks.dispatch({ type: 'fail', message: ipcMessage(error, t('containers:loadFailed')) }); },
     ).finally(() => {
       this.inFlight = false;
       if (!this.alive) return;

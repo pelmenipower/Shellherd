@@ -14,6 +14,7 @@ import { containerViewReducer, initialContainerViewState, loadedLabel, rootlessH
 import { ipcMessage } from '../../container-tree';
 import { errorText } from '../../error-text';
 import { copiedMessage } from '../../kube-copy';
+import { useT } from '../../i18n';
 import { ContextMenu, type ContextMenuEntry } from '../ContextMenu';
 import { ContainerTable } from './ContainerTable';
 import { ContainerDock } from './ContainerDock';
@@ -41,11 +42,13 @@ interface PendingAction { row: InventoryRow; action: InventoryAction; confirmati
 const NOTICE_MS = 6000;
 /** Cadence of the clock that drives ages and the "geladen vor" label. */
 const TICK_MS = 5000;
-const NO_POPOUT = 'Hier lässt sich kein Tab öffnen.';
-const KIND_TABS = { containers: 'Container', images: 'Images', volumes: 'Volumes', networks: 'Netzwerke' } as const;
+const KIND_TAB_KEYS = {
+  containers: 'containers:kinds.containers', images: 'containers:kinds.images', volumes: 'containers:kinds.volumes', networks: 'containers:kinds.networks',
+} as const;
 
 /** Container tab: header, chip bar, table and dock for one SSH host or this computer. */
 export function ContainerView({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, onPopout }: ContainerViewProps) {
+  const { t } = useT();
   const [state, dispatch] = useReducer(containerViewReducer, undefined, () => initialContainerViewState(Date.now(), connection.runtime ?? null));
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -108,7 +111,7 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
     try {
       await window.desktopApi.containersAction({ hostId: connection.id, target: row.ref, action });
     } catch (caught) {
-      say(ipcMessage(caught, 'Die Aktion ist fehlgeschlagen.'));
+      say(ipcMessage(caught, t('containers:actionFailed')));
     } finally {
       dispatch({ type: 'busy', uid: row.uid, busy: false });
       reload();
@@ -121,19 +124,19 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
   const confirm = (row: InventoryRow, action: InventoryAction) => {
     const reason = actionUnavailable(row, action);
     if (reason) { say(reason); return; }
-    if (state.busy.includes(row.uid)) { say('Für diese Zeile läuft bereits eine Aktion.'); return; }
+    if (state.busy.includes(row.uid)) { say(t('containers:reasons.rowBusy')); return; }
     const confirmation = confirmationFor(row, action, where);
     if (confirmation === null) { void run(row, action); return; }
     setPending({ row, action, confirmation });
   };
 
   const openTab = (target: TerminalTarget) => {
-    if (!onPopout) { say(NO_POPOUT); return; }
+    if (!onPopout) { say(t('containers:reasons.noPopout')); return; }
     onPopout(containerConnection(connection.id, hostName, connection.address, target));
   };
 
   const popout = () => {
-    if (!onPopout) { say(NO_POPOUT); return; }
+    if (!onPopout) { say(t('containers:reasons.noPopout')); return; }
     // Same reasons as the Ctrl+Shift+T entry of the registry.
     const reason = commandForKey('Ctrl+Shift+T')?.unavailable?.(commandContext);
     if (reason) { say(reason); return; }
@@ -153,7 +156,7 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
   };
 
   const copy = (text: string, label: string) => {
-    window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text)), () => say('Kopieren fehlgeschlagen.'));
+    window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text)), () => say(t('containers:view.copyFailed')));
   };
 
   const runner: ContainerMenuRunner = {
@@ -243,7 +246,7 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
   const hint = inventory ? rootlessHint(state, connection.id) : null;
   const problemError = inventory?.problems[state.kind];
   const problem = problemError ? errorText(problemError) : undefined;
-  const statusText = notice ?? (state.error ? state.error : state.loading ? 'lade …' : inventory ? loadedLabel(inventory.at, state.now) : 'lade …');
+  const statusText = notice ?? (state.error ? state.error : state.loading ? t('containers:view.loading') : inventory ? loadedLabel(inventory.at, state.now) : t('containers:view.loading'));
   const failed = notice === null && state.error !== null;
 
   return (
@@ -254,32 +257,32 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
         <nav className="ctr-kinds" onContextMenu={event => event.preventDefault()}>
           {state.pinned === null && inventory && inventory.runtimes.length > 1 && (
             <label className="kube-ns">
-              <span>Laufzeit</span>
-              <select value={inventory.runtime} aria-label="Laufzeit" onChange={event => dispatch({ type: 'setRuntime', runtime: event.target.value === 'podman' ? 'podman' : 'docker' })}>
+              <span>{t('containers:view.runtime')}</span>
+              <select value={inventory.runtime} aria-label={t('containers:view.runtime')} onChange={event => dispatch({ type: 'setRuntime', runtime: event.target.value === 'podman' ? 'podman' : 'docker' })}>
                 {inventory.runtimes.map(runtime => <option key={runtime} value={runtime}>{RUNTIME_LABEL[runtime]}</option>)}
               </select>
             </label>
           )}
-          <div className="kube-kind-tabs ctr-tabs" role="tablist" aria-label="Ressourcen">
+          <div className="kube-kind-tabs ctr-tabs" role="tablist" aria-label={t('containers:view.resources')}>
             {INVENTORY_KINDS.map((candidate, index) => {
               const on = candidate === state.kind;
               const count = inventory?.rows[candidate].length;
               return (
                 <button key={candidate} type="button" role="tab" aria-selected={on} className={`kube-kind${on ? ' kube-kind-on' : ''}`}
                   onClick={() => dispatch({ type: 'setKind', kind: candidate })}>
-                  <kbd>{index + 1}</kbd> {KIND_TABS[candidate]}{count === undefined ? '' : ` ${count}`}
+                  <kbd>{index + 1}</kbd> {t(KIND_TAB_KEYS[candidate])}{count === undefined ? '' : ` ${count}`}
                 </button>
               );
             })}
           </div>
         </nav>
         <div className="kube-prompt">
-          <button type="button" onClick={reload}>Aktualisieren</button>
-          <button type="button" className="kube-help-button" aria-label="Hilfe" title="Hilfe (?)" onClick={() => setHelp(true)}>?</button>
+          <button type="button" onClick={reload}>{t('containers:refresh')}</button>
+          <button type="button" className="kube-help-button" aria-label={t('containers:view.helpAria')} title={t('containers:view.helpTitle')} onClick={() => setHelp(true)}>?</button>
         </div>
         <p className={`kube-status${failed ? ' kube-status-error' : ''}`} role="status">
           <span>{statusText}</span>
-          {failed && <button type="button" onClick={reload}>Erneut versuchen</button>}
+          {failed && <button type="button" onClick={reload}>{t('common:actions.retry')}</button>}
           {problem && <span className="kube-status-error">{problem}</span>}
           {hint && <span>{hint}</span>}
         </p>
@@ -290,10 +293,10 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
           row={selected} armed={selected !== null && state.armed === selected.uid} epoch={state.epoch}
           onMode={mode => dispatch({ type: 'dock', mode })} onArm={() => dispatch({ type: 'arm' })} onStart={row => confirm(row, 'start')}
           onToggle={() => dispatch({ type: 'toggleDock' })} onPopout={onPopout ? popout : undefined} onMenu={openMenu}
-          onCopy={(text, label, info) => { window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text, info)), () => say('Kopieren fehlgeschlagen.')); }}
+          onCopy={(text, label, info) => { window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text, info)), () => say(t('containers:view.copyFailed'))); }}
           onSay={say} />
       </div>
-      {menu && <ContextMenu x={menu.x} y={menu.y} label="Kontextmenü" entries={menuEntries(menu)} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} label={t('containers:view.menuLabel')} entries={menuEntries(menu)} onClose={() => setMenu(null)} />}
       {help && <ContainerHelp state={state} context={commandContext} onClose={() => setHelp(false)} />}
       {pending && (
         <ContainerConfirm confirmation={pending.confirmation} onClose={() => setPending(null)} onConfirm={() => { void run(pending.row, pending.action); }} />
