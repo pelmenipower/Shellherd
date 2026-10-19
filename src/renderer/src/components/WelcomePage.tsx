@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import type { ConnectionProtocol, Workspace } from '../../../shared/vault/types';
 import { NEW_CONNECTION_KINDS } from '../../../shared/vault/connections';
 import { workspaceSummary } from '../terminal-views';
+import { protocolLabel } from '../connection-labels';
+import { Trans, useT } from '../i18n';
 import { WhatsNew } from './ReleaseNotes';
+import { LanguageSetting } from './LanguageSetting';
 
 interface WelcomePageProps {
   vaultName: string;
@@ -17,17 +20,17 @@ interface WelcomePageProps {
 
 /** Shown while no tab is open: quick starts instead of an empty connection form. */
 export function WelcomePage({ vaultName, version, onShowReleaseNotes, connectionCount, workspaces, busy, onNewConnection, onOpenWorkspace }: WelcomePageProps) {
+  const { t } = useT();
   return (
     <div className="welcome-page">
       <header>
-        <h1>Willkommen in „{vaultName}“</h1>
-        <p>{connectionCount === 0 ? 'Noch keine Verbindungen gespeichert. Leg die erste an.'
-          : `${connectionCount} ${connectionCount === 1 ? 'Verbindung' : 'Verbindungen'} gespeichert. Doppelklick in der Liste links verbindet.`}</p>
+        <h1>{t('app:welcome.title', { name: vaultName })}</h1>
+        <p>{connectionCount === 0 ? t('app:welcome.empty') : t('app:welcome.saved', { count: connectionCount })}</p>
       </header>
       {/^\d+\.\d+\.\d+$/.test(version) && <WhatsNew version={version} onShowAll={onShowReleaseNotes} />}
       <div className="welcome-grid">
         {workspaces.length > 0 && <section aria-labelledby="welcome-workspaces">
-          <h2 id="welcome-workspaces">Workspaces</h2>
+          <h2 id="welcome-workspaces">{t('app:welcome.workspaces')}</h2>
           <ul className="welcome-list">
             {workspaces.map(workspace => <li key={workspace.id}>
               <button type="button" disabled={busy} onClick={() => onOpenWorkspace(workspace.id)}>
@@ -37,22 +40,23 @@ export function WelcomePage({ vaultName, version, onShowReleaseNotes, connection
           </ul>
         </section>}
         <section aria-labelledby="welcome-new">
-          <h2 id="welcome-new">Neue Verbindung</h2>
+          <h2 id="welcome-new">{t('app:welcome.newConnection')}</h2>
           <ul className="welcome-list">
             {NEW_CONNECTION_KINDS.filter(kind => !kind.planned).map(kind => <li key={kind.protocol}>
-              <button type="button" disabled={busy} onClick={() => onNewConnection(kind.protocol as ConnectionProtocol)}><strong>{kind.label}</strong></button>
+              <button type="button" disabled={busy} onClick={() => onNewConnection(kind.protocol as ConnectionProtocol)}><strong>{protocolLabel(kind.protocol)}</strong></button>
             </li>)}
           </ul>
         </section>
         <section aria-labelledby="welcome-tips">
-          <h2 id="welcome-tips">Gut zu wissen</h2>
+          <h2 id="welcome-tips">{t('app:welcome.goodToKnow')}</h2>
           <ul className="welcome-tips">
-            <li>Rechtsklick auf einen Ordner → <strong>Alle verbinden</strong> öffnet jede Verbindung darin als Tab.</li>
-            <li>Tabs an den Rand eines Bereichs ziehen teilt ihn; aus dem Fenster ziehen öffnet ein eigenes Fenster.</li>
-            <li>Ansichten oben bündeln mehrere Bereiche; ein Workspace speichert alle Ansichten und Fenster.</li>
-            <li>Im Dateibrowser: F4 bearbeitet, F5 kopiert, Umschalt+F4 legt eine Datei an.</li>
+            <li><Trans t={t} i18nKey="app:welcome.tips.folder" components={{ strong: <strong /> }} /></li>
+            <li>{t('app:welcome.tips.split')}</li>
+            <li>{t('app:welcome.tips.views')}</li>
+            <li>{t('app:welcome.tips.files')}</li>
           </ul>
           <FileTypeSetting />
+          <LanguageSetting />
         </section>
       </div>
     </div>
@@ -61,6 +65,7 @@ export function WelcomePage({ vaultName, version, onShowReleaseNotes, connection
 
 /** Lets Explorer open `.term` vault files with Shellherd (per user, no administrator rights). */
 export function FileTypeSetting() {
+  const { t } = useT();
   const [registered, setRegistered] = useState<boolean | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -68,16 +73,16 @@ export function FileTypeSetting() {
   const change = (register: boolean): void => {
     setPending(true); setMessage(null);
     void (register ? window.desktopApi.fileTypeRegister() : window.desktopApi.fileTypeUnregister())
-      .then(() => { setRegistered(register); setMessage(register ? '.term-Dateien öffnen sich jetzt per Doppelklick oder Rechtsklick → „Mit Shellherd öffnen“.' : 'Die Verknüpfung wurde entfernt.'); })
-      .catch(() => setMessage('Die Verknüpfung konnte nicht geändert werden.'))
+      .then(() => { setRegistered(register); setMessage(register ? t('app:fileType.registeredMessage') : t('app:fileType.removedMessage')); })
+      .catch(() => setMessage(t('app:fileType.failed')))
       .finally(() => setPending(false));
   };
   if (registered === null) return null;
   return (
     <div className="file-type-setting">
-      <span>{registered ? 'Shellherd ist mit .term-Dateien verknüpft.' : 'Vault-Dateien (.term) per Doppelklick im Explorer öffnen:'}</span>
+      <span>{registered ? t('app:fileType.registered') : t('app:fileType.unregistered')}</span>
       <button type="button" className="secondary-button" disabled={pending} onClick={() => change(!registered)}>
-        {registered ? 'Verknüpfung entfernen' : 'In Windows einbinden'}</button>
+        {registered ? t('app:fileType.remove') : t('app:fileType.register')}</button>
       {message && <small role="status">{message}</small>}
     </div>
   );

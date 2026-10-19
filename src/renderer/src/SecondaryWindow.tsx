@@ -4,6 +4,7 @@ import { SplitTerminalArea } from './components/SplitTerminalArea';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { Toast } from './components/Toast';
 import { errorText } from './error-text';
+import { useT } from './i18n';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
 import { useTerminalLayout } from './hooks/useTerminalLayout';
 import { useTabTransfer } from './hooks/useTabTransfer';
@@ -16,10 +17,11 @@ import { useAssistantToggle } from './hooks/useAssistantToggle';
 import { useCtrlShiftShortcut } from './hooks/useShortcut';
 import { WorkflowPalette } from './components/WorkflowPalette';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
-import { disabledNotice, skippedNotice } from '../../shared/vault/connections';
+import { disabledNotice, sessionLimitNotice, skippedNotice } from './vault-notices';
 
 /** Detached window: tabs and split layout only; vault, sidebar and editor stay in the main window. */
 export function SecondaryWindow() {
+  const { t } = useT();
   const [catalog, setCatalog] = useState<ConnectionCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
@@ -37,7 +39,7 @@ export function SecondaryWindow() {
     let active = true;
     const unsubscribe = window.desktopApi.onConnectionCatalog(setCatalog);
     window.desktopApi.connectionCatalog().then(value => { if (active) setCatalog(value); })
-      .catch(() => setError('Die Verbindungsliste ist nicht verfügbar. Ist der Vault gesperrt?'));
+      .catch(() => setError(t('app:errors.catalogUnavailable')));
     return () => { active = false; unsubscribe(); };
   }, []);
 
@@ -72,7 +74,7 @@ export function SecondaryWindow() {
       restore(restored.tabs, restored.activeTabId);
       if (restored.skipped) setError(skippedNotice(restored.skipped));
     } catch (caught) {
-      setError(errorText(caught, 'Das Fenster konnte nicht wiederhergestellt werden.'));
+      setError(errorText(caught, t('app:errors.windowRestoreFailed')));
     }
   }), []);
 
@@ -80,7 +82,7 @@ export function SecondaryWindow() {
     const node = catalog && findNode(catalog.nodes, id);
     if (!node || node.type !== 'connection') return;
     if (node.disabled) { setError(disabledNotice(node)); return; }
-    if (state.current.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
+    if (state.current.tabs.length >= MAX_SSH_SESSIONS) { setError(sessionLimitNotice()); return; }
     terminalLayout.setFocused(paneId);
     terminals.open(toTerminalConnection(node, asFiles));
   }, [catalog, terminalLayout, terminals]);
@@ -107,9 +109,9 @@ export function SecondaryWindow() {
     {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)} />}
     </div>
     {paletteOpen && <WorkflowPalette workflows={catalog?.workflows ?? []} tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => setPaletteOpen(false)} />}
-    {closingTab && <ConfirmDialog title={`Tab „${tabLabel(closingTab, terminals.tabs)}“ schließen?`}
-      description="Diese Verbindung wird beendet. Laufende Programme in der Sitzung können dadurch beendet werden."
-      confirmLabel="Verbindung trennen" busy={false} onCancel={() => setPendingClose(null)}
+    {closingTab && <ConfirmDialog title={t('app:dialogs.closeTab.title', { name: tabLabel(closingTab, terminals.tabs) })}
+      description={t('app:dialogs.closeTab.description')}
+      confirmLabel={t('app:dialogs.confirmDisconnect')} busy={false} onCancel={() => setPendingClose(null)}
       onConfirm={() => { setPendingClose(null); terminals.close(closingTab.id); }} />}
     <Toast message={error} onClose={() => setError(null)} />
   </main>;

@@ -1,1 +1,183 @@
-{}
+{
+  "language": {
+    "label": "Language",
+    "aria": "Interface language",
+    "system": "System ({{language}})"
+  },
+  "notices": {
+    "disabled": "The connection “{{name}}” is disabled. Right-click → “Enable” to release it again.",
+    "skipped_one": "{{count}} disabled connection was skipped.",
+    "skipped_other": "{{count}} disabled connections were skipped.",
+    "sessionLimit": "Maximum of {{max}} sessions. Close a tab first."
+  },
+  "version": {
+    "unknown": "unknown"
+  },
+  "localAddress": "local",
+  "fileDrop": {
+    "hint": "Dropping a .term file here opens the vault"
+  },
+  "errors": {
+    "onlyVaultFiles": "Only vault files (.term) can be opened here. Drag files for servers onto the server side of a file browser.",
+    "vaultFailed": "The vault could not be processed.",
+    "vaultFileSelectFailed": "The vault file could not be selected.",
+    "folderTargetRequired": "Select a folder or the vault level.",
+    "folderNameRequired": "Enter a folder name.",
+    "vaultFileRequired": "Select a vault file first.",
+    "passwordRequired": "Enter the vault password.",
+    "vaultNameRequired": "Give the vault a name.",
+    "passwordTooShort": "The password must be at least 8 characters long.",
+    "passwordMismatch": "The passwords do not match.",
+    "workspaceWindows": "Not all windows of the workspace could be opened.",
+    "workspaceOpenFailed": "The workspace could not be opened.",
+    "clusterProbeFailed": "The Kubernetes cluster could not be checked.",
+    "moveFailed": "Move failed.",
+    "tabMoveFailed": "The tab could not be moved.",
+    "catalogUnavailable": "The connection list is not available. Is the vault locked?",
+    "windowRestoreFailed": "The window could not be restored."
+  },
+  "openVaultFile": {
+    "title": "Open vault “{{name}}”?",
+    "description": "The current vault will be locked for this. Then you enter the password of the new vault.",
+    "descriptionRunning": "The current vault will be locked for this and all connections in all windows will be disconnected. Then you enter the password of the new vault.",
+    "confirm": "Lock and open"
+  },
+  "folder": {
+    "allDisabled": "All connections in the folder “{{name}}” are disabled.",
+    "empty": "The folder “{{name}}” contains no connections.",
+    "partial_one": "Only {{opened}} of {{count}} connection was opened: maximum of {{max}} sessions at once.",
+    "partial_other": "Only {{opened}} of {{count}} connections were opened: maximum of {{max}} sessions at once."
+  },
+  "header": {
+    "sidebarShow": "Show connections",
+    "sidebarHide": "Hide connections",
+    "workflows": "Workflows",
+    "workflowsTitle": "Search and type workflows ({{shortcut}})",
+    "assistant": "AI assistant",
+    "assistantTitle": "Show or hide the AI assistant ({{shortcut}})",
+    "lock": "Lock vault"
+  },
+  "dialogs": {
+    "unsaved": {
+      "title": "Unsaved changes",
+      "description": "Your input has not been saved yet. Return to the editor to save it, or discard it and continue.",
+      "confirm": "Discard and continue"
+    },
+    "lockVault": "Lock vault?",
+    "replaceWorkspace": "Replace the active workspace?",
+    "closeWorkspace": "Close workspace?",
+    "closeTab": {
+      "title": "Close tab “{{name}}”?",
+      "fallbackName": "Terminal",
+      "description": "This connection will be ended. Programs running in the session may be terminated."
+    },
+    "endConnections_one": "{{count}} active connection will be ended. Programs running in the sessions may be terminated.",
+    "endConnections_other": "{{count}} active connections will be ended. Programs running in the sessions may be terminated.",
+    "confirmLock": "Disconnect and lock",
+    "confirmReplace": "Replace and open",
+    "confirmDisconnect": "Disconnect",
+    "confirmDefault": "Delete permanently"
+  },
+  "sidebar": {
+    "connections": "Connections",
+    "new": "New",
+    "newMenu": "Create new",
+    "newConnection": "New connection",
+    "newFolder": "New folder",
+    "all": "All connections",
+    "folderName": "Folder name",
+    "folderIn": "In: {{name}}",
+    "create": "Create",
+    "emptyText": "Add your first server. Choose the connection type with “New” or a right-click.",
+    "emptyAction": "New SSH connection"
+  },
+  "resizable": {
+    "aria": "Connections",
+    "handle": "Width of the connection list"
+  },
+  "properties": {
+    "aria": "Properties",
+    "title": "Properties",
+    "closeEditor": "Close editor"
+  },
+  "status": {
+    "saved": "Saved",
+    "failed": "Action failed",
+    "open": "Vault open",
+    "activeSessions_one": "{{count}} active session",
+    "activeSessions_other": "{{count}} active sessions",
+    "whatsNew": "Show what’s new"
+  },
+  "home": {
+    "title": "Your servers, within reach.",
+    "subtitle": "SSH connections, folders and workspaces in one locally encrypted file.",
+    "create": "Create new vault",
+    "open": "Open vault",
+    "crypto": "Argon2id and AES-256-GCM active"
+  },
+  "create": {
+    "title": "Create vault",
+    "name": "Name",
+    "namePlaceholder": "My servers",
+    "password": "Password",
+    "passwordRepeat": "Repeat password",
+    "hint": "At least 8 characters. The password is needed to unlock.",
+    "showPasswords": "Show passwords",
+    "back": "Back",
+    "submit": "Create vault",
+    "submitting": "Encrypting vault…"
+  },
+  "open": {
+    "title": "Open vault",
+    "description": "Select your `.term` file, then enter the matching password.",
+    "selectFile": "Select vault file",
+    "selectOther": "Select another vault file",
+    "selectedFile": "Selected file",
+    "password": "Password",
+    "showPassword": "Show password",
+    "submit": "Open vault",
+    "submitting": "Decrypting vault…"
+  },
+  "toast": {
+    "closeAria": "Close message"
+  },
+  "releaseNotes": {
+    "title": "New in version {{version}}",
+    "showAll": "All {{count}} changes",
+    "hide": "Dismiss",
+    "version": "Version {{version}}"
+  },
+  "welcome": {
+    "title": "Welcome to “{{name}}”",
+    "empty": "No connections saved yet. Create the first one.",
+    "saved_one": "{{count}} connection saved. Double-click in the list on the left to connect.",
+    "saved_other": "{{count}} connections saved. Double-click in the list on the left to connect.",
+    "workspaces": "Workspaces",
+    "newConnection": "New connection",
+    "goodToKnow": "Good to know",
+    "tips": {
+      "folder": "Right-click a folder → <strong>Connect all</strong> opens every connection in it as a tab.",
+      "split": "Dragging a tab to the edge of a pane splits it; dragging it out of the window opens a window of its own.",
+      "views": "Views at the top group several panes; a workspace saves all views and windows.",
+      "files": "In the file browser: F4 edits, F5 copies, Shift+F4 creates a file."
+    }
+  },
+  "fileType": {
+    "registered": "Shellherd is associated with .term files.",
+    "unregistered": "Open vault files (.term) with a double-click in Explorer:",
+    "remove": "Remove association",
+    "register": "Add to Windows",
+    "registeredMessage": ".term files now open with a double-click or right-click → “Open with Shellherd”.",
+    "removedMessage": "The association was removed.",
+    "failed": "The association could not be changed."
+  },
+  "icons": {
+    "terminal": "Terminal",
+    "server": "Server",
+    "database": "Database",
+    "desktop": "Desktop",
+    "cloud": "Cloud",
+    "network": "Network",
+    "files": "Files"
+  }
+}

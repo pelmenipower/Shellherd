@@ -9,6 +9,7 @@ import type { AdoptedSession, TerminalConnection, TerminalTab } from '../termina
 import { isRunning } from '../terminal-tabs';
 import { liveSessions } from '../session-registry';
 import { errorText } from '../error-text';
+import { t } from '../i18n';
 
 interface Terminals {
   tabs: TerminalTab[];
@@ -55,7 +56,7 @@ export function useTabTransfer(terminals: Terminals, views: Views, onError: (mes
     try {
       await window.desktopApi.transferView({ name: view.name, layout: view.layout, tabs: moving, target });
     } catch (error) {
-      onError(errorText(error, 'Der Tab konnte nicht verschoben werden.'));
+      onError(errorText(error, t('app:errors.tabMoveFailed')));
       return false;
     }
     for (const tab of moving) if (tab.session) liveSessions.markTransferred(tab.session.sessionId);
@@ -71,7 +72,7 @@ export function useTabTransfer(terminals: Terminals, views: Views, onError: (mes
         ...(live ? { session: { kind: live.kind, sessionId: live.sessionId } } : {}),
         ...(live?.snapshot ? { snapshot: live.snapshot() } : {}) });
     } catch (error) {
-      onError(errorText(error, 'Der Tab konnte nicht verschoben werden.'));
+      onError(errorText(error, t('app:errors.tabMoveFailed')));
       return false;
     }
     if (live) liveSessions.markTransferred(live.sessionId);
