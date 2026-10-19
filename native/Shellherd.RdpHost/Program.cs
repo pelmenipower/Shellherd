@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace Terminus.RdpHost
+namespace Shellherd.RdpHost
 {
     public static class Program
     {

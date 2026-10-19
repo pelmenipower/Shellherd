@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace Terminus.RdpHost
+namespace Shellherd.RdpHost
 {
     // Declarations follow the type library in %SystemRoot%\System32\mstscax.dll.
     // Dispatch interfaces are used late-bound; only vtable interfaces need exact slot order.
