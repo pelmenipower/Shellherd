@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.11.0] – 2026-10-19
+
+- Shellherd gibt es jetzt auf Deutsch und Englisch. Standard ist die Windows-Anzeigesprache; auf der Startkarte und der Willkommensseite stellt „Sprache“ auf System, Deutsch oder English um. Der Wechsel gilt sofort in allen Fenstern, offene Sitzungen laufen weiter.
+- Fehlermeldungen, Dialoge, Fenstertitel und der KI-Assistent folgen der eingestellten Sprache; der Assistent antwortet in dieser Sprache.
+- Datum, Zahlen, Dateigrößen, Sortierung und Suche richten sich nach der Sprache. Die Ausgabe von „Beschreiben“ in der Cluster-Ansicht nutzt jetzt die englischen Feldnamen wie `kubectl describe`.
+- Der Installer zeigt seine Texte auf Deutsch oder Englisch, passend zur Windows-Sprache. Release-Notes und Handbuch gibt es in beiden Sprachen (`docs/manual.md`).
+
 ## [0.10.0] – 2026-10-19
 
 - Erste öffentliche Version auf GitHub: Installer (`Shellherd-Setup-0.10.0.exe`) und portable Version (`Shellherd-Portable-0.10.0.exe`) für Windows x64, Lizenz MIT.

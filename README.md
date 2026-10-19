@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078D6)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[**Download**](https://github.com/pelmenipower/Shellherd/releases/latest) · [Changelog](CHANGELOG.md) · [User guide (German)](docs/handbuch.md)
+[**Download**](https://github.com/pelmenipower/Shellherd/releases/latest) · [Changelog](CHANGELOG.md) · [User guide (English)](docs/manual.md) · [Handbuch (German)](docs/handbuch.md)
 
 </div>
 
@@ -30,6 +30,7 @@ Shellherd keeps all your servers, desktops and clusters in one window. Connectio
 - **Docker and Podman** – a container view per SSH host or for the local machine: containers, images, volumes and networks with filters, logs, shell and inspect.
 - **Proxmox** – LXC containers and VMs under their host, with shell, serial console and power actions.
 - **Kubernetes** – set up a cluster from an existing SSH connection; live nodes, workloads, pods and events with drill-down, logs, shell, YAML and describe. Production clusters ask you to type the resource name before any change.
+- **German and English UI** – follows the Windows language by default; switch any time without a restart.
 - **Local shells** – PowerShell and CMD tabs next to your remote sessions.
 - **AI assistant** (optional) – reads the terminal, explains output and types commands for you to review. Works with OpenAI-compatible endpoints (including Ollama and LM Studio), Azure AI Foundry, Anthropic and Google Gemini.
 

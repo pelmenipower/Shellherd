@@ -2,7 +2,7 @@
 
 <img src="../resources/icon.png" width="96" alt="Shellherd">
 
-Ausführliche Beschreibung der Funktionen. Kurzüberblick, Download und Installation stehen in der [README](../README.md).
+Ausführliche Beschreibung der Funktionen. Kurzüberblick, Download und Installation stehen in der [README](../README.md). English version: [manual.md](manual.md).
 
 Lokaler Verbindungsmanager für SSH, RDP, Container und Kubernetes mit verschlüsselten, portablen Vault-Dateien (`.term`).
 
@@ -65,6 +65,14 @@ Text im Terminal markieren kopiert die Auswahl automatisch in die Zwischenablage
 Rechtsklick fügt den Text aus der Zwischenablage in das angeklickte Terminal ein.
 Das Einfügen läuft über xterm und berücksichtigt den Bracketed-Paste-Modus des
 Servers. Die üblichen Kopier- und Einfüge-Tastenkürzel bleiben verfügbar.
+
+## Sprache
+
+Shellherd gibt es auf Deutsch und Englisch. Standard ist die Systemsprache: Bei deutscher Windows-Anzeigesprache startet Shellherd auf Deutsch, sonst auf Englisch.
+
+Die Einstellung `Sprache` steht auf der Startkarte und auf der Willkommensseite und bietet `System`, `Deutsch` und `English`. Der Wechsel gilt sofort in allen Fenstern, ohne Neustart; offene Sitzungen laufen weiter. Die Wahl liegt in `settings.json` im Benutzerdatenordner (`%APPDATA%\Shellherd`).
+
+Fehlermeldungen, Dialoge und Fenstertitel folgen der Sprache, ebenso Datum, Zahlen, Dateigrößen, Sortierung und Suche. Der KI-Assistent antwortet in der gewählten Sprache. Ausgaben im Stil von `kubectl` (etwa `Beschreiben` in der Cluster-Ansicht) und Rohstatus von Servern bleiben englisch. Der Installer folgt der Windows-Sprache.
 
 ## Split-Ansichten und Workspaces
 
