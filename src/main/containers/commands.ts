@@ -1,9 +1,10 @@
+import { AppError } from '../../shared/errors';
 import { CONTAINER_REF, INVENTORY_ACTIONS, inventoryRefValid, MAX_VMID, MIN_VMID } from '../../shared/containers';
 import type { ContainerAction, ContainerRuntime, ContainerTarget, InventoryAction, InventoryKind, InventoryRef, TerminalTarget } from '../../shared/containers';
 import type { SshConnectionNode } from '../../shared/vault/types';
 
 /** Invalid targets or actions; the message is safe to show. */
-export class ContainerInputError extends Error {}
+export class ContainerInputError extends AppError {}
 
 export const SHELL_CHOICE = 'command -v bash >/dev/null 2>&1 && exec bash || exec sh';
 /** Proxmox tools live in /usr/sbin, which non-root PATHs often lack. */
@@ -50,16 +51,16 @@ export function sudoSetting(connection: SshConnectionNode): { kind: 'none' } | {
   if (connection.containers?.sudo !== true) return { kind: 'none' };
   const auth = connection.authentication;
   if (auth.method !== 'password' || !auth.password) return { kind: 'noninteractive' };
-  if (/[\r\n]/.test(auth.password)) throw new ContainerInputError('Das Passwort enthält einen Zeilenumbruch und kann nicht für sudo verwendet werden.');
+  if (/[\r\n]/.test(auth.password)) throw new ContainerInputError('containers.passwordLineBreak');
   return { kind: 'prompt', password: auth.password };
 }
 
 function ref(value: string): string {
-  if (!CONTAINER_REF.test(value)) throw new ContainerInputError('Ungültige Container-Angabe.');
+  if (!CONTAINER_REF.test(value)) throw new ContainerInputError('containers.invalidTarget');
   return value;
 }
 function vmid(value: number): string {
-  if (!Number.isInteger(value) || value < MIN_VMID || value > MAX_VMID) throw new ContainerInputError('Ungültige VM-ID.');
+  if (!Number.isInteger(value) || value < MIN_VMID || value > MAX_VMID) throw new ContainerInputError('containers.invalidVmId');
   return String(value);
 }
 
@@ -77,7 +78,7 @@ export function terminalArgv({ item, mode }: TerminalTarget): string[] {
     return mode === 'logs' ? [item.runtime, 'logs', '-f', '--tail', '500', ref(item.ref)]
       : [item.runtime, 'exec', '-it', ref(item.ref), 'sh', '-c', SHELL_CHOICE];
   }
-  if (mode === 'logs') throw new ContainerInputError('Logs gibt es nur für Docker- und Podman-Container.');
+  if (mode === 'logs') throw new ContainerInputError('containers.logsContainersOnly');
   return item.kind === 'lxc' ? ['pct', 'enter', vmid(item.vmid)] : ['qm', 'terminal', vmid(item.vmid)];
 }
 
@@ -86,13 +87,13 @@ const ACTIONS: Record<ContainerTarget['kind'], ContainerAction[]> = {
 };
 
 export function actionArgv(target: ContainerTarget, action: ContainerAction): string[] {
-  if (!ACTIONS[target.kind].includes(action)) throw new ContainerInputError('Diese Aktion ist hier nicht möglich.');
+  if (!ACTIONS[target.kind].includes(action)) throw new ContainerInputError('containers.actionUnavailable');
   if (target.kind === 'container') return [target.runtime, action, ref(target.ref)];
   return [target.kind === 'lxc' ? 'pct' : 'qm', action, vmid(target.vmid)];
 }
 
 function runtimeOf(runtime: string): ContainerRuntime {
-  if (runtime !== 'docker' && runtime !== 'podman') throw new ContainerInputError('Ungültige Container-Angabe.');
+  if (runtime !== 'docker' && runtime !== 'podman') throw new ContainerInputError('containers.invalidTarget');
   return runtime;
 }
 
@@ -108,12 +109,12 @@ export function inventoryArgv(runtime: ContainerRuntime, kind: InventoryKind): s
     case 'images': return docker ? [rt, 'images', '--no-trunc', ...format] : [rt, 'images', ...format];
     case 'volumes': return [rt, 'volume', 'ls', ...format];
     case 'networks': return docker ? [rt, 'network', 'ls', '--no-trunc', ...format] : [rt, 'network', 'ls', ...format];
-    default: throw new ContainerInputError('Ungültige Container-Angabe.');
+    default: throw new ContainerInputError('containers.invalidTarget');
   }
 }
 
 function checkedRef(target: InventoryRef): string {
-  if (!inventoryRefValid(target)) throw new ContainerInputError('Ungültige Container-Angabe.');
+  if (!inventoryRefValid(target)) throw new ContainerInputError('containers.invalidTarget');
   return target.ref;
 }
 
@@ -125,7 +126,7 @@ export function inspectArgv(target: InventoryRef): string[] {
 /** Never adds force, volume or prune flags; order of checks: action, runtime, ref. */
 export function inventoryActionArgv(target: InventoryRef, action: InventoryAction): string[] {
   const allowed = (INVENTORY_ACTIONS as Record<string, readonly InventoryAction[] | undefined>)[target.kind];
-  if (!allowed || !allowed.includes(action)) throw new ContainerInputError('Diese Aktion ist hier nicht möglich.');
+  if (!allowed || !allowed.includes(action)) throw new ContainerInputError('containers.actionUnavailable');
   const rt = runtimeOf(target.runtime);
   const value = checkedRef(target);
   if (action !== 'remove') return [rt, action, value];

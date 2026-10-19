@@ -278,7 +278,7 @@ describe('selectors and labels', () => {
     expect(rootlessHint(loaded([], { user: 'anna' }), 'host-1')).toBeNull();
     expect(rootlessHint(loaded([], { runtime: 'podman', runtimes: ['podman'], sudo: true }), 'host-1')).toBeNull();
     expect(rootlessHint(loaded([ctr('a')], { runtime: 'podman', runtimes: ['podman'] }), 'host-1')).toBeNull();
-    expect(rootlessHint(loaded([], { runtime: 'podman', runtimes: ['podman'], problems: { containers: 'Fehler' } }), 'host-1')).toBeNull();
+    expect(rootlessHint(loaded([], { runtime: 'podman', runtimes: ['podman'], problems: { containers: { code: 'containers.commandFailed', params: { code: 1 } } } }), 'host-1')).toBeNull();
     expect(rootlessHint(initialContainerViewState(NOW), 'host-1')).toBeNull();
   });
   it('tabStatus', () => {

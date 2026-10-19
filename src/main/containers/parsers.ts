@@ -1,3 +1,4 @@
+import { encodeError, type CodedError, type ErrorCode } from '../../shared/errors';
 import type { DiscoveredItem, ItemState, RuntimeKind } from '../../shared/containers';
 
 export interface RunResult {
@@ -45,25 +46,33 @@ export function parseQmList(text: string): DiscoveredItem[] {
     .map(parts => ({ kind: 'vm' as const, vmid: Number(parts[0]), name: parts.slice(1, parts.length - 4).join(' '), state: state(parts[parts.length - 4]) }));
 }
 
-const SUDO_PASSWORD = 'sudo verlangt ein Passwort, für diese Verbindung ist keins hinterlegt. Richte NOPASSWD ein oder melde dich per Passwort an.';
-export const SUDO_REJECTED = 'Das sudo-Passwort wurde abgelehnt.';
-/** `sudo -v` succeeded, yet the following `sudo -n` still wanted a password. */
-export const SUDO_NOT_CACHED = 'sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein.';
+/** Stored in RunResult.stderr when output exceeded its limit; describeFailure turns it into a code. */
+export const BATCH_TOO_LARGE = encodeError('containers.outputTooLarge');
 
-export function describeFailure(kind: RuntimeKind, result: RunResult): string {
-  if (result.sudoRejected) return SUDO_REJECTED;
-  if (result.sudoBusy) return 'Ein anderer Tab meldet sich gerade per sudo an. Bitte später erneut versuchen.';
-  if (result.sudoNoPrompt) return 'sudo hat nicht wie erwartet nach dem Passwort gefragt.';
-  if (result.timedOut) return 'Der Host hat nicht rechtzeitig geantwortet.';
+export const SUDO_REJECTED = 'containers.sudoRejected' as const satisfies ErrorCode;
+/** `sudo -v` succeeded, yet the following `sudo -n` still wanted a password. */
+export const SUDO_NOT_CACHED = 'containers.sudoNotCached' as const satisfies ErrorCode;
+
+export function describeFailure(kind: RuntimeKind, result: RunResult): CodedError {
+  if (result.sudoRejected) return { code: SUDO_REJECTED };
+  if (result.sudoBusy) return { code: 'containers.sudoBusy' };
+  if (result.sudoNoPrompt) return { code: 'containers.sudoNoPrompt' };
+  if (result.timedOut) return { code: 'containers.hostTimeout' };
   const text = `${result.stderr}\n${result.stdout}`;
-  if (result.sudoReady && /sudo: a password is required/i.test(text)) return SUDO_NOT_CACHED;
-  if (/sudo: (a password is required|a terminal is required)/i.test(text)) return SUDO_PASSWORD;
+  if (result.sudoReady && /sudo: a password is required/i.test(text)) return { code: SUDO_NOT_CACHED };
+  if (/sudo: (a password is required|a terminal is required)/i.test(text)) return { code: 'containers.sudoPasswordMissing' };
   if (kind !== 'proxmox' && /permission denied[^\n]*\.sock/i.test(text)) {
-    return kind === 'docker' ? 'Keine Berechtigung für Docker. Benutzer zur Gruppe docker hinzufügen oder sudo aktivieren.'
-      : 'Keine Berechtigung für Podman. sudo aktivieren oder Podman rootless einrichten.';
+    return { code: kind === 'docker' ? 'containers.noPermissionDocker' : 'containers.noPermissionPodman' };
   }
-  if (kind === 'docker' && /Cannot connect to the Docker daemon/i.test(text)) return 'Der Docker-Dienst läuft nicht.';
-  if (kind === 'proxmox' && (result.code === 127 || /permission denied|only root|must be root|need to be root|not root/i.test(text))) return 'Proxmox-Befehle brauchen root. sudo aktivieren oder als root verbinden.';
-  const last = result.stderr.split(/\r?\n/).map(line => line.trim()).filter(Boolean).pop();
-  return last ? last.slice(0, 200) : `Befehl fehlgeschlagen (Exit-Code ${result.code ?? '?'}).`;
+  if (kind === 'docker' && /Cannot connect to the Docker daemon/i.test(text)) return { code: 'containers.dockerNotRunning' };
+  if (kind === 'proxmox' && (result.code === 127 || /permission denied|only root|must be root|need to be root|not root/i.test(text))) return { code: 'containers.proxmoxNeedsRoot' };
+  return lastLine(result.stderr) ?? { code: 'containers.commandFailed', params: { code: result.code ?? '?' } };
+}
+
+/** The last stderr line as a remote-output problem (at most 200 characters); the batch limit sentinel becomes its code. */
+export function lastLine(stderr: string): CodedError | undefined {
+  const last = stderr.split(/\r?\n/).map(line => line.trim()).filter(Boolean).pop();
+  if (!last) return undefined;
+  if (last === BATCH_TOO_LARGE) return { code: 'containers.outputTooLarge' };
+  return { code: 'containers.remoteOutput', params: { line: last.slice(0, 200) } };
 }

@@ -1,3 +1,4 @@
+import { errorText } from './error-text';
 import type { ContainerAction, ContainerRuntime, DiscoveredItem, DiscoveryResult, TerminalTargetMode } from '../../shared/containers';
 
 /** What VaultTree and LocalContainers need from the app. */
@@ -58,7 +59,7 @@ export function groupItems(result: DiscoveryResult): ItemGroup[] {
   const groups: ItemGroup[] = [];
   if (result.runtimes.includes('proxmox')) {
     const lxc = result.items.filter(item => item.kind === 'lxc'), vms = result.items.filter(item => item.kind === 'vm');
-    const problem = result.problems.proxmox;
+    const problem = result.problems.proxmox ? errorText(result.problems.proxmox) : undefined;
     // The problem is shown once, on the first Proxmox group.
     if (lxc.length || problem) groups.push({ key: 'lxc', label: 'Proxmox LXC', items: lxc, problem });
     if (vms.length) groups.push({ key: 'vm', label: 'Proxmox VMs', items: vms });
@@ -83,5 +84,5 @@ export function hasUsableLocalRuntime(result: DiscoveryResult): boolean {
 }
 
 export function ipcMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : fallback;
+  return errorText(error, fallback);
 }

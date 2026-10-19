@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeFailure, parsePctList, parseProbe, parseQmList } from './parsers';
+import { BATCH_TOO_LARGE, describeFailure, parsePctList, parseProbe, parseQmList, SUDO_NOT_CACHED, SUDO_REJECTED } from './parsers';
 
 const pct = `VMID       Status     Lock         Name
 101        running                 ct-web
@@ -33,36 +33,38 @@ describe('container parsers', () => {
 
 describe('describeFailure', () => {
   const failed = (stderr: string, code = 1) => ({ code, stdout: '', stderr });
-  it('explains common problems in German', () => {
-    expect(describeFailure('docker', failed('permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock'))).toContain('Gruppe docker');
-    expect(describeFailure('docker', failed('Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?'))).toBe('Der Docker-Dienst läuft nicht.');
-    expect(describeFailure('proxmox', failed('sudo: a password is required'))).toContain('NOPASSWD');
-    expect(describeFailure('proxmox', failed('', 127))).toContain('root');
-    expect(describeFailure('docker', { code: null, stdout: '', stderr: '', timedOut: true })).toBe('Der Host hat nicht rechtzeitig geantwortet.');
+  const code = (kind: Parameters<typeof describeFailure>[0], result: Parameters<typeof describeFailure>[1]) => describeFailure(kind, result).code;
+  it('maps common problems to codes', () => {
+    expect(code('docker', failed('permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock'))).toBe('containers.noPermissionDocker');
+    expect(code('docker', failed('Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?'))).toBe('containers.dockerNotRunning');
+    expect(code('proxmox', failed('sudo: a password is required'))).toBe('containers.sudoPasswordMissing');
+    expect(code('proxmox', failed('', 127))).toBe('containers.proxmoxNeedsRoot');
+    expect(code('docker', { code: null, stdout: '', stderr: '', timedOut: true })).toBe('containers.hostTimeout');
   });
   it('falls back to the last stderr line or the exit code', () => {
-    expect(describeFailure('podman', failed('line one\nError: something odd\n'))).toBe('Error: something odd');
-    expect(describeFailure('podman', failed('', 2))).toBe('Befehl fehlgeschlagen (Exit-Code 2).');
+    expect(describeFailure('podman', failed('line one\nError: something odd\n'))).toEqual({ code: 'containers.remoteOutput', params: { line: 'Error: something odd' } });
+    expect(describeFailure('podman', failed('', 2))).toEqual({ code: 'containers.commandFailed', params: { code: 2 } });
+    expect(describeFailure('podman', failed('x'.repeat(300))).params).toEqual({ line: 'x'.repeat(200) });
+  });
+  it('turns the output limit sentinel into its code', () => {
+    expect(describeFailure('docker', { code: null, stdout: '', stderr: BATCH_TOO_LARGE })).toEqual({ code: 'containers.outputTooLarge' });
   });
   it('does not mistake rootfs or /root paths for a missing root login', () => {
-    expect(describeFailure('proxmox', failed('mount failed\nunable to mount rootfs of CT 101'))).toBe('unable to mount rootfs of CT 101');
-    expect(describeFailure('proxmox', failed('cannot open /root/x'))).toBe('cannot open /root/x');
-    expect(describeFailure('proxmox', failed('only root can run this command'))).toContain('brauchen root');
-    expect(describeFailure('proxmox', failed('permission denied'))).toContain('brauchen root');
+    expect(describeFailure('proxmox', failed('mount failed\nunable to mount rootfs of CT 101'))).toEqual({ code: 'containers.remoteOutput', params: { line: 'unable to mount rootfs of CT 101' } });
+    expect(describeFailure('proxmox', failed('cannot open /root/x'))).toEqual({ code: 'containers.remoteOutput', params: { line: 'cannot open /root/x' } });
+    expect(code('proxmox', failed('only root can run this command'))).toBe('containers.proxmoxNeedsRoot');
+    expect(code('proxmox', failed('permission denied'))).toBe('containers.proxmoxNeedsRoot');
   });
   it('explains sudo password problems without naming a runtime', () => {
-    const missing = 'sudo verlangt ein Passwort, für diese Verbindung ist keins hinterlegt. Richte NOPASSWD ein oder melde dich per Passwort an.';
-    expect(describeFailure('docker', failed('sudo: a password is required'))).toBe(missing);
-    expect(describeFailure('podman', failed('sudo: a terminal is required to read the password'))).toBe(missing);
-    expect(describeFailure('proxmox', { code: null, stdout: '', stderr: '', sudoRejected: true })).toBe('Das sudo-Passwort wurde abgelehnt.');
-    expect(describeFailure('docker', { code: null, stdout: '', stderr: 'Sorry, try again.', sudoRejected: true })).toBe('Das sudo-Passwort wurde abgelehnt.');
-    expect(describeFailure('docker', { code: null, stdout: '', stderr: '', timedOut: true, sudoNoPrompt: true })).toBe('sudo hat nicht wie erwartet nach dem Passwort gefragt.');
-    expect(describeFailure('docker', { code: null, stdout: '', stderr: '', sudoBusy: true }))
-      .toBe('Ein anderer Tab meldet sich gerade per sudo an. Bitte später erneut versuchen.');
-    expect(describeFailure('proxmox', { code: 1, stdout: '', stderr: 'sudo: a password is required\n', sudoReady: true }))
-      .toBe('sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein.');
+    expect(code('docker', failed('sudo: a password is required'))).toBe('containers.sudoPasswordMissing');
+    expect(code('podman', failed('sudo: a terminal is required to read the password'))).toBe('containers.sudoPasswordMissing');
+    expect(describeFailure('proxmox', { code: null, stdout: '', stderr: '', sudoRejected: true })).toEqual({ code: SUDO_REJECTED });
+    expect(describeFailure('docker', { code: null, stdout: '', stderr: 'Sorry, try again.', sudoRejected: true })).toEqual({ code: SUDO_REJECTED });
+    expect(code('docker', { code: null, stdout: '', stderr: '', timedOut: true, sudoNoPrompt: true })).toBe('containers.sudoNoPrompt');
+    expect(code('docker', { code: null, stdout: '', stderr: '', sudoBusy: true })).toBe('containers.sudoBusy');
+    expect(describeFailure('proxmox', { code: 1, stdout: '', stderr: 'sudo: a password is required\n', sudoReady: true })).toEqual({ code: SUDO_NOT_CACHED });
   });
   it('does not send Podman users to the docker group', () => {
-    expect(describeFailure('podman', failed('Error: permission denied on /run/podman/podman.sock'))).toBe('Keine Berechtigung für Podman. sudo aktivieren oder Podman rootless einrichten.');
+    expect(code('podman', failed('Error: permission denied on /run/podman/podman.sock'))).toBe('containers.noPermissionPodman');
   });
 });

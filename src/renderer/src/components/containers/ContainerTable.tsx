@@ -6,6 +6,7 @@ import {
 import { CHIPS, attentionChip, chipCounts, compileChips } from '../../container-status';
 import { currentColumns, rowsOf, tableItems as groupedItems, type ContainerViewAction, type ContainerViewState } from '../../container-view';
 import type { InventoryRow } from '../../../../shared/containers';
+import { errorText } from '../../error-text';
 import { rowMenuTarget } from '../../container-menu-run';
 import type { ContainerMenuTarget } from '../../container-menus';
 
@@ -104,7 +105,8 @@ export function ContainerTable({ state, rows, dispatch, tableRef, onMenu }: Cont
     onMenu(target, event.clientX, event.clientY);
   };
 
-  const problem = state.inventory?.problems[kind];
+  const problemError = state.inventory?.problems[kind];
+  const problem = problemError ? errorText(problemError) : undefined;
   const emptyText = problem ?? (state.loading && !state.inventory ? 'Lade …'
     : allRows.length === 0 ? EMPTY_TEXT[kind]
       : 'Keine Zeile passt zu den Filtern.');

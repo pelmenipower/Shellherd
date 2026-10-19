@@ -12,6 +12,7 @@ import { menuFor, terminalTargetOf, type ContainerMenuTarget } from '../../conta
 import { runMenuAction, type ContainerMenuRunner } from '../../container-menu-run';
 import { containerViewReducer, initialContainerViewState, loadedLabel, rootlessHint, tabStatus, visibleRows } from '../../container-view';
 import { ipcMessage } from '../../container-tree';
+import { errorText } from '../../error-text';
 import { copiedMessage } from '../../kube-copy';
 import { ContextMenu, type ContextMenuEntry } from '../ContextMenu';
 import { ContainerTable } from './ContainerTable';
@@ -240,7 +241,8 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
   };
 
   const hint = inventory ? rootlessHint(state, connection.id) : null;
-  const problem = inventory?.problems[state.kind];
+  const problemError = inventory?.problems[state.kind];
+  const problem = problemError ? errorText(problemError) : undefined;
   const statusText = notice ?? (state.error ? state.error : state.loading ? 'lade …' : inventory ? loadedLabel(inventory.at, state.now) : 'lade …');
   const failed = notice === null && state.error !== null;
 

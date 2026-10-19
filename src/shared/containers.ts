@@ -1,3 +1,5 @@
+import type { CodedError } from './errors';
+
 export type ContainerRuntime = 'docker' | 'podman';
 export type RuntimeKind = ContainerRuntime | 'proxmox';
 /** An SSH connection id from the vault, or LOCAL_CONTAINER_HOST for this computer. */
@@ -14,8 +16,8 @@ export type DiscoveredItem = { kind: 'lxc' | 'vm'; vmid: number; name: string; s
 export interface DiscoveryResult {
   runtimes: RuntimeKind[];
   items: DiscoveredItem[];
-  /** Per runtime kind: a short German message when listing failed; only 'proxmox' is filled. */
-  problems: Partial<Record<RuntimeKind, string>>;
+  /** Per runtime kind: why listing failed; only 'proxmox' is filled. */
+  problems: Partial<Record<RuntimeKind, CodedError>>;
 }
 
 /** `ref` is the container name when it is a valid reference, otherwise the ID; commands use it. */
@@ -69,8 +71,8 @@ export interface ContainerInventory {
   runtime: ContainerRuntime;
   runtimes: ContainerRuntime[];
   rows: Record<InventoryKind, InventoryRow[]>;
-  /** German message per failed list. */
-  problems: Partial<Record<InventoryKind, string>>;
+  /** Why a list failed, per kind. */
+  problems: Partial<Record<InventoryKind, CodedError>>;
   /** Epoch ms. */
   at: number;
   /** SSH user name; absent for this computer. */

@@ -6,7 +6,8 @@ import { ContainerDiscovery } from './discovery';
 import type { RemoteHost, SudoPrompt } from './runner';
 import { inspectArgv, inventoryArgv, listArgv, remoteCommand, shellJoin } from './commands';
 import { connectionFingerprint, SudoRejections } from './sudo-rejections';
-import { SUDO_NOT_CACHED } from './parsers';
+import { SUDO_NOT_CACHED, SUDO_REJECTED } from './parsers';
+import type { AppError } from '../../shared/errors';
 import type { RunResult } from './parsers';
 
 const ok = (stdout: string): RunResult => ({ code: 0, stdout, stderr: '' });
@@ -40,7 +41,7 @@ describe('ContainerDiscovery over SSH', () => {
     const result = await discovery.list('h1');
     expect(result.runtimes).toEqual(['docker', 'proxmox']);
     expect(result.items).toEqual([]);
-    expect(result.problems.proxmox).toContain('root');
+    expect(result.problems.proxmox).toEqual({ code: 'containers.proxmoxNeedsRoot' });
     expect(result.problems.docker).toBeUndefined();
   });
   it('does not ask docker or podman for the sidebar', async () => {
@@ -55,13 +56,13 @@ describe('ContainerDiscovery over SSH', () => {
   it('rejects when the probe times out or fails instead of reporting no containers', async () => {
     const slow = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
       openRemote: async () => fakeHost({ [PROBE]: { code: null, stdout: '', stderr: '', timedOut: true } }) });
-    await expect(slow.list('h1')).rejects.toThrow('Der Host hat nicht rechtzeitig geantwortet.');
+    await expect(slow.list('h1')).rejects.toMatchObject({ code: 'containers.hostTimeout' });
     const failing = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
       openRemote: async () => fakeHost({ [PROBE]: { code: 1, stdout: '', stderr: 'warning\nsh: cannot fork\n' } }) });
-    await expect(failing.list('h1')).rejects.toThrow('sh: cannot fork');
+    await expect(failing.list('h1')).rejects.toMatchObject({ code: 'containers.remoteOutput', params: { line: 'sh: cannot fork' } });
     const silent = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
       openRemote: async () => fakeHost({ [PROBE]: { code: 1, stdout: '', stderr: '' } }) });
-    await expect(silent.list('h1')).rejects.toThrow('Die Container-Erkennung ist fehlgeschlagen (Exit-Code 1).');
+    await expect(silent.list('h1')).rejects.toMatchObject({ code: 'containers.discoveryFailed', params: { code: 1 } });
   });
   it('prefixes sudo -n when the connection asks for it', async () => {
     const host = fakeHost({});
@@ -107,9 +108,9 @@ describe('ContainerDiscovery over SSH', () => {
     const openRemote = vi.fn();
     const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic\npassword' } });
     const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote, runLocal: vi.fn() });
-    const message = 'Das Passwort enthält einen Zeilenumbruch und kann nicht für sudo verwendet werden.';
-    await expect(discovery.list('h1')).rejects.toThrow(message);
-    await expect(discovery.action('h1', { kind: 'lxc', vmid: 101, name: 'ct' }, 'start')).rejects.toThrow(message);
+    const expected = { code: 'containers.passwordLineBreak' };
+    await expect(discovery.list('h1')).rejects.toMatchObject(expected);
+    await expect(discovery.action('h1', { kind: 'lxc', vmid: 101, name: 'ct' }, 'start')).rejects.toMatchObject(expected);
     expect(openRemote).not.toHaveBeenCalled();
   });
   it('sends the password only once per list when sudo rejects it and reports Proxmox', async () => {
@@ -121,7 +122,7 @@ describe('ContainerDiscovery over SSH', () => {
     const connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
     const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn() });
     const result = await discovery.list('h1');
-    expect(result.problems).toEqual({ proxmox: 'Das sudo-Passwort wurde abgelehnt.' });
+    expect(result.problems).toEqual({ proxmox: { code: SUDO_REJECTED } });
     expect(host.sudo.filter(Boolean)).toHaveLength(1);
     expect(host.commands.slice(1).some(command => /docker|podman/.test(command))).toBe(false);
   });
@@ -137,8 +138,8 @@ describe('ContainerDiscovery over SSH', () => {
     await discovery.list('h1');
     expect(host.sudo.filter(Boolean)).toHaveLength(1);
     await new Promise(resolve => setTimeout(resolve, 5));
-    expect((await discovery.list('h1')).problems.proxmox).toBe('Das sudo-Passwort wurde abgelehnt.');
-    await expect(discovery.action('h1', { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' }, 'stop')).rejects.toThrow('Das sudo-Passwort wurde abgelehnt.');
+    expect((await discovery.list('h1')).problems.proxmox).toEqual({ code: SUDO_REJECTED });
+    await expect(discovery.action('h1', { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' }, 'stop')).rejects.toMatchObject({ code: SUDO_REJECTED });
     expect(host.sudo.filter(Boolean)).toHaveLength(1);
     connection = ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password-2' } });
     await discovery.list('h1');
@@ -160,7 +161,7 @@ describe('ContainerDiscovery over SSH', () => {
     const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn() });
     const target = { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' } as const;
     const results = await Promise.allSettled([discovery.action('h1', target, 'stop'), discovery.action('h1', target, 'start'), discovery.action('h1', target, 'restart')]);
-    expect(results.map(result => result.status === 'rejected' && (result.reason as Error).message)).toEqual(Array(3).fill('Das sudo-Passwort wurde abgelehnt.'));
+    expect(results.map(result => result.status === 'rejected' && (result.reason as AppError).code)).toEqual(Array(3).fill(SUDO_REJECTED));
     expect(host.sudo.filter(Boolean)).toHaveLength(1);
     expect(most).toBe(1);
   });
@@ -174,7 +175,7 @@ describe('ContainerDiscovery over SSH', () => {
     const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn(), sudoRejections });
     const target = { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' } as const;
     const waiting = discovery.action('h1', target, 'stop');
-    const outcome = expect(waiting).rejects.toThrow('Ein anderer Tab meldet sich gerade per sudo an. Bitte später erneut versuchen.');
+    const outcome = expect(waiting).rejects.toMatchObject({ code: 'containers.sudoBusy' });
     await vi.advanceTimersByTimeAsync(120_001);
     await outcome;
     expect(host.sudo.filter(Boolean)).toHaveLength(0);
@@ -223,7 +224,7 @@ describe('ContainerDiscovery over SSH', () => {
     sudoRejections.markRejected('h1', connectionFingerprint(connection));
     const host = fakeHost({ [PROBE]: ok('has:pct\n') });
     const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn(), sudoRejections });
-    expect((await discovery.list('h1')).problems.proxmox).toBe('Das sudo-Passwort wurde abgelehnt.');
+    expect((await discovery.list('h1')).problems.proxmox).toEqual({ code: SUDO_REJECTED });
     expect(host.sudo.filter(Boolean)).toHaveLength(0);
     sudoRejections.clear('h1');
     host.run = async (command, _timeout, prompt) => {
@@ -262,9 +263,9 @@ describe('ContainerDiscovery over SSH', () => {
   it('throws a readable error for failed actions and rejects non-SSH hosts', async () => {
     const host = fakeHost({ [`${P} docker stop web-1`]: { code: 1, stdout: '', stderr: 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.' } });
     const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
-    await expect(discovery.action('h1', { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' }, 'stop')).rejects.toThrow('Der Docker-Dienst läuft nicht.');
+    await expect(discovery.action('h1', { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' }, 'stop')).rejects.toMatchObject({ code: 'containers.dockerNotRunning' });
     const rdp = new ContainerDiscovery({ getConnection: () => ({ ...ssh(), protocol: 'rdp' }) as never, openRemote: vi.fn(), runLocal: vi.fn() });
-    await expect(rdp.list('h1')).rejects.toThrow('nur für SSH-Verbindungen');
+    await expect(rdp.list('h1')).rejects.toMatchObject({ code: 'containers.sshOnly' });
   });
 });
 
@@ -351,7 +352,7 @@ describe('ContainerDiscovery on this computer', () => {
   });
   it('refuses Proxmox actions locally', async () => {
     const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal: vi.fn() });
-    await expect(discovery.action(LOCAL_CONTAINER_HOST, { kind: 'vm', vmid: 100, name: 'x' }, 'start')).rejects.toThrow('Proxmox');
+    await expect(discovery.action(LOCAL_CONTAINER_HOST, { kind: 'vm', vmid: 100, name: 'x' }, 'start')).rejects.toMatchObject({ code: 'containers.proxmoxRemoteOnly' });
   });
 });
 
@@ -414,16 +415,16 @@ describe('ContainerDiscovery inventory over SSH', () => {
   });
   it('rejects without a runtime and when the probe fails', async () => {
     const none = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(), openRemote: async () => fakeHost({ [PROBE]: ok('has:pct\n') }) });
-    await expect(none.inventory('h1')).rejects.toThrow('Auf diesem Host wurde weder Docker noch Podman gefunden.');
+    await expect(none.inventory('h1')).rejects.toMatchObject({ code: 'containers.noRuntime' });
     const failing = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
       openRemote: async () => fakeHost({ [PROBE]: { code: 1, stdout: '', stderr: 'sh: cannot fork\n' } }) });
-    await expect(failing.inventory('h1')).rejects.toThrow('sh: cannot fork');
+    await expect(failing.inventory('h1')).rejects.toMatchObject({ code: 'containers.remoteOutput', params: { line: 'sh: cannot fork' } });
   });
   it('reports a failed kind in problems and still returns the others', async () => {
     const host = batchHost('has:docker\n', { containers: ok(CONTAINERS), images: { code: 1, stdout: '', stderr: 'Error response from daemon: x' } });
     const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
     const result = await discovery.inventory('h1');
-    expect(result.problems).toEqual({ images: 'Error response from daemon: x' });
+    expect(result.problems).toEqual({ images: { code: 'containers.remoteOutput', params: { line: 'Error response from daemon: x' } } });
     expect(result.rows.images).toEqual([]);
     expect(result.rows.containers).toHaveLength(1);
   });
@@ -431,7 +432,7 @@ describe('ContainerDiscovery inventory over SSH', () => {
     const host = batchHost('has:docker\n', { containers: ok(CONTAINERS) }, { code: null, timedOut: true }, 'containers');
     const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
     const result = await discovery.inventory('h1');
-    const text = 'Der Host hat nicht rechtzeitig geantwortet.';
+    const text = { code: 'containers.hostTimeout' };
     expect(result.problems).toEqual({ images: text, volumes: text, networks: text });
     expect(result.rows.containers).toHaveLength(1);
   });
@@ -466,7 +467,7 @@ describe('ContainerDiscovery inventory over SSH', () => {
       return command === PROBE ? ok('has:docker\n') : { code: null, stdout: '', stderr: '', sudoRejected: true };
     };
     const discovery = new ContainerDiscovery({ getConnection: passwordConnection, openRemote: async () => host, runLocal: vi.fn(), idleMs: 0 });
-    const text = 'Das sudo-Passwort wurde abgelehnt.';
+    const text = { code: SUDO_REJECTED };
     const all = { containers: text, images: text, volumes: text, networks: text };
     expect((await discovery.inventory('h1')).problems).toEqual(all);
     expect(host.sudo.filter(Boolean)).toHaveLength(1);
@@ -477,18 +478,18 @@ describe('ContainerDiscovery inventory over SSH', () => {
   it('explains a sudo that does not cache the login', async () => {
     const host = batchHost('has:docker\n', { containers: { code: 1, stdout: '', stderr: 'sudo: a password is required' } }, { sudoReady: true });
     const discovery = new ContainerDiscovery({ getConnection: passwordConnection, openRemote: async () => host, runLocal: vi.fn() });
-    expect((await discovery.inventory('h1')).problems.containers).toBe(SUDO_NOT_CACHED);
+    expect((await discovery.inventory('h1')).problems.containers).toEqual({ code: SUDO_NOT_CACHED });
   });
   it('is strict about a requested runtime: error before any list, no sudo', async () => {
     const host = batchHost('has:docker\n', {});
     const discovery = new ContainerDiscovery({ getConnection: passwordConnection, openRemote: async () => host, runLocal: vi.fn() });
-    await expect(discovery.inventory('h1', 'podman')).rejects.toThrow('Podman wurde auf diesem Host nicht gefunden.');
+    await expect(discovery.inventory('h1', 'podman')).rejects.toMatchObject({ code: 'containers.runtimeNotFound', params: { runtime: 'Podman' } });
     expect(host.commands).toEqual([PROBE]);
     expect(host.sudo.filter(Boolean)).toEqual([]);
     const proxmox = batchHost('has:pct\n', {});
     const other = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => proxmox, runLocal: vi.fn() });
-    await expect(other.inventory('h1')).rejects.toThrow('Auf diesem Host wurde weder Docker noch Podman gefunden.');
-    await expect(other.inventory('h1', 'docker')).rejects.toThrow('Docker wurde auf diesem Host nicht gefunden.');
+    await expect(other.inventory('h1')).rejects.toMatchObject({ code: 'containers.noRuntime' });
+    await expect(other.inventory('h1', 'docker')).rejects.toMatchObject({ code: 'containers.runtimeNotFound', params: { runtime: 'Docker' } });
   });
 });
 
@@ -506,7 +507,7 @@ describe('ContainerDiscovery inventory on this computer', () => {
   it('is strict about a requested runtime locally', async () => {
     const runLocal = vi.fn(async (file: string) => file === 'docker' ? ok(CONTAINERS) : missing);
     const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal });
-    await expect(discovery.inventory(LOCAL_CONTAINER_HOST, 'podman')).rejects.toThrow('Podman wurde auf diesem Host nicht gefunden.');
+    await expect(discovery.inventory(LOCAL_CONTAINER_HOST, 'podman')).rejects.toMatchObject({ code: 'containers.runtimeNotFound', params: { runtime: 'Podman' } });
     // A fixed tab never runs the other runtime.
     expect(runLocal.mock.calls).toEqual([['podman', inventoryArgv('podman', 'containers').slice(1), 15_000]]);
     runLocal.mockClear();
@@ -516,7 +517,7 @@ describe('ContainerDiscovery inventory on this computer', () => {
   });
   it('rejects when both runtimes are missing', async () => {
     const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal: vi.fn(async () => missing) });
-    await expect(discovery.inventory(LOCAL_CONTAINER_HOST)).rejects.toThrow('Auf diesem Host wurde weder Docker noch Podman gefunden.');
+    await expect(discovery.inventory(LOCAL_CONTAINER_HOST)).rejects.toMatchObject({ code: 'containers.noRuntime' });
   });
 });
 
@@ -531,15 +532,15 @@ describe('ContainerDiscovery inspect and inventoryAction', () => {
     expect(text).not.toContain('DB_PASSWORD=x');
     const failing = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
       openRemote: async () => fakeHost({ [cmd(inspectArgv(ref))]: { code: null, stdout: '', stderr: '', timedOut: true } }) });
-    await expect(failing.inspect('h1', ref)).rejects.toThrow('Der Host hat nicht rechtzeitig geantwortet.');
+    await expect(failing.inspect('h1', ref)).rejects.toMatchObject({ code: 'containers.hostTimeout' });
   });
   it('rejects remove on networks before anything runs', async () => {
     const openRemote = vi.fn();
     const runLocal = vi.fn();
     const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote, runLocal });
     const network = { kind: 'networks', runtime: 'docker', ref: 'bridge' } as const;
-    await expect(discovery.inventoryAction('h1', network, 'remove')).rejects.toThrow('Diese Aktion ist hier nicht möglich.');
-    await expect(discovery.inventoryAction(LOCAL_CONTAINER_HOST, network, 'remove')).rejects.toThrow('Diese Aktion ist hier nicht möglich.');
+    await expect(discovery.inventoryAction('h1', network, 'remove')).rejects.toMatchObject({ code: 'containers.actionUnavailable' });
+    await expect(discovery.inventoryAction(LOCAL_CONTAINER_HOST, network, 'remove')).rejects.toMatchObject({ code: 'containers.actionUnavailable' });
     expect(openRemote).not.toHaveBeenCalled();
     expect(runLocal).not.toHaveBeenCalled();
   });

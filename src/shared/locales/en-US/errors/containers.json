@@ -1,6 +1,32 @@
 {
   "containers": {
     "sudoRejected": "The sudo password was rejected.",
-    "sudoNotCached": "sudo does not cache the login (timestamp_timeout=0). Set up NOPASSWD."
+    "sudoNotCached": "sudo does not cache the login (timestamp_timeout=0). Set up NOPASSWD.",
+    "invalidVmId": "Invalid VM ID.",
+    "logsContainersOnly": "Logs are only available for Docker and Podman containers.",
+    "actionUnavailable": "This action is not possible here.",
+    "invalidTarget": "Invalid container specification.",
+    "passwordLineBreak": "The password contains a line break and cannot be used for sudo.",
+    "hostTimeout": "The host did not respond in time.",
+    "discoveryFailed": "Container discovery failed (exit code {{code}}).",
+    "proxmoxRemoteOnly": "Proxmox is only available on remote hosts.",
+    "notInstalled": "{{tool}} is not installed.",
+    "runtimeNotFound": "{{runtime}} was not found on this host.",
+    "noRuntime": "Neither Docker nor Podman was found on this host.",
+    "sshOnly": "Containers are only available for SSH connections.",
+    "hostIncomplete": "Save the host and user name of the connection.",
+    "connectionNotFound": "The connection was not found.",
+    "sudoBusy": "Another tab is signing in with sudo right now. Try again later.",
+    "sudoNoPrompt": "sudo did not ask for the password as expected.",
+    "sudoPasswordMissing": "sudo requires a password, but none is stored for this connection. Set up NOPASSWD or sign in with a password.",
+    "noPermissionDocker": "No permission for Docker. Add the user to the docker group or enable sudo.",
+    "noPermissionPodman": "No permission for Podman. Enable sudo or set up Podman rootless.",
+    "dockerNotRunning": "The Docker service is not running.",
+    "proxmoxNeedsRoot": "Proxmox commands require root. Enable sudo or connect as root.",
+    "commandFailed": "Command failed (exit code {{code}}).",
+    "remoteOutput": "{{line}}",
+    "outputTooLarge": "The output is too large.",
+    "hostKeyRejected": "The server key was not confirmed.",
+    "apiUnreachable": "The API server cannot be reached from the access host ({{host}}:{{port}})."
   }
 }
