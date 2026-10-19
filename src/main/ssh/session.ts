@@ -121,7 +121,8 @@ export function classifyError(error: unknown): ClassifiedError {
     if (error.kind === 'changed' && error.fingerprints) {
       return { code: 'hostkey-changed', message: error.message, detail: `erwartet ${error.fingerprints.expected}\nerhalten ${error.fingerprints.received}` };
     }
-    return { code: error.kind === 'changed' ? 'hostkey-changed' : 'hostkey-store', message: error.message };
+    // A changed key without fingerprints cannot be compared, so it is treated like a store problem (contract 1.17).
+    return { code: 'hostkey-store', message: error.message };
   }
   if (error instanceof AgentError) return { code: 'agent', message: error.message };
   if (error instanceof LocalShellError || error instanceof ContainerInputError) return { code: 'unknown', message: error.message };

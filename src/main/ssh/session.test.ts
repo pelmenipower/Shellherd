@@ -705,6 +705,7 @@ describe('SSH connection steps and failure codes', () => {
     await manager.connect(1, prepare());
     await waitFor(() => hasStatus('error'));
     expect(statusEvents().at(-1)).toMatchObject({ code: 'auth' });
+    expect(statusEvents().at(-1)?.detail).toMatch(/authentication/i);
     expect(steps()).toEqual(['reach', 'hostkey', 'auth']);
     expect(JSON.stringify(events)).not.toContain('wrong-synthetic-secret');
   });
@@ -763,6 +764,7 @@ describe('classifyError', () => {
   it('maps host key errors with fingerprints in detail', () => {
     expect(classifyError(new HostKeyError('geändert', 'changed', { expected: 'a', received: 'b' }))).toEqual({ code: 'hostkey-changed', message: 'geändert', detail: 'erwartet a\nerhalten b' });
     expect(classifyError(new HostKeyError('nicht lesbar'))).toEqual({ code: 'hostkey-store', message: 'nicht lesbar' });
+    expect(classifyError(new HostKeyError('geändert', 'changed'))).toEqual({ code: 'hostkey-store', message: 'geändert' });
   });
   it('maps agent and input errors without detail', () => {
     expect(classifyError(new AgentError('Kein SSH-Agent'))).toEqual({ code: 'agent', message: 'Kein SSH-Agent' });
