@@ -40,7 +40,7 @@ describe('cluster creation and validation', () => {
   it('validates access hosts and paths', () => {
     expect(validateCluster({ ...emptyCluster('k'), accessHosts: [] }, [])).toBe('Wähle mindestens eine SSH-Verbindung als Zugang.');
     expect(validateCluster({ ...emptyCluster('k'), accessHosts: ['x'] }, [])).toBe('Die Zugangs-Verbindung „x“ gibt es nicht mehr.');
-    expect(validateCluster({ ...emptyCluster('k'), name: '', accessHosts: ['a'] }, [ssh('a', 'h')])).toBe('Bitte gib einen Namen an.');
+    expect(validateCluster({ ...emptyCluster('k'), name: '', accessHosts: ['a'] }, [ssh('a', 'h')])).toBe('Gib einen Namen an.');
     expect(validateCluster({ ...emptyCluster('k'), name: 'x', accessHosts: ['a'], kubeconfig: { source: 'path', path: 'rel/path' } }, [ssh('a', 'h')]))
       .toBe('Der Pfad muss mit / oder ~/ beginnen.');
   });

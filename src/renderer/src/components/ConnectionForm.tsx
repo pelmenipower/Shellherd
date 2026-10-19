@@ -8,11 +8,11 @@ import { ConfirmDialog } from './ConfirmDialog';
 import './editor-ui.css';
 import { CONNECTION_ICONS } from '../../../shared/vault/appearance';
 import { ConnectionIcon, connectionIconLabels } from './ConnectionIcon';
-import { PROTOCOLS } from '../../../shared/vault/connections';
 import { AI_CLI_TOOLS } from '../../../shared/ai-cli';
 import type { ConnectionTestResult, ConnectionTestStepId } from '../../../shared/connection-test';
 import { errorText } from '../error-text';
-import { useT } from '../i18n';
+import { Trans, useT } from '../i18n';
+import { protocolShort } from '../connection-labels';
 
 const STEP_LABEL_KEYS = {
   clusterTest: 'connection:test.steps.clusterTest', startFolder: 'connection:test.steps.startFolder', command: 'connection:test.steps.command',
@@ -22,12 +22,14 @@ const STEP_LABEL_KEYS = {
   sftp: 'connection:test.steps.sftp',
 } as const satisfies Record<ConnectionTestStepId, string>;
 
-const newTitles: Record<ConnectionProtocol, string> = {
-  ssh: 'Neue SSH-Verbindung', sftp: 'Neue SFTP-Verbindung (Dateien)', rdp: 'Neue Remotedesktop-Verbindung (RDP)',
-  powershell: 'Neue lokale PowerShell', cmd: 'Neue lokale Eingabeaufforderung (CMD)', aicli: 'Neue KI-CLI (Claude Code, Codex, Gemini)',
-  kubernetes: 'Neuer Kubernetes-Cluster',
-};
-const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', sftp: 'Dateien öffnen', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten', aicli: 'CLI starten', kubernetes: 'Cluster öffnen' };
+const NEW_TITLE_KEYS = {
+  ssh: 'connection:form.newTitle.ssh', sftp: 'connection:form.newTitle.sftp', rdp: 'connection:form.newTitle.rdp', powershell: 'connection:form.newTitle.powershell',
+  cmd: 'connection:form.newTitle.cmd', aicli: 'connection:form.newTitle.aicli', kubernetes: 'connection:form.newTitle.kubernetes',
+} as const satisfies Record<ConnectionProtocol, string>;
+const CONNECT_LABEL_KEYS = {
+  ssh: 'connection:form.connect.ssh', sftp: 'connection:form.connect.sftp', rdp: 'connection:form.connect.rdp', powershell: 'connection:form.connect.powershell',
+  cmd: 'connection:form.connect.cmd', aicli: 'connection:form.connect.aicli', kubernetes: 'connection:form.connect.kubernetes',
+} as const satisfies Record<ConnectionProtocol, string>;
 
 interface ConnectionFormProps {
   connection?: ConnectionNode;
@@ -74,12 +76,12 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
     try { node = connectionFromFields(connection?.id ?? 'test', fields, protocol); }
     catch (caught) {
       const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
-      setError({ field, message: caught instanceof Error ? caught.message : 'Bitte prüfe die Verbindungsdaten.' });
+      setError({ field, message: caught instanceof Error ? caught.message : t('connection:validation.checkData') });
       return;
     }
     setTest({ running: true });
     try { setTest({ running: false, result: await onTest(node) }); }
-    catch (caught) { setTest({ running: false, error: errorText(caught, 'Der Test ist fehlgeschlagen.') }); }
+    catch (caught) { setTest({ running: false, error: errorText(caught, t('connection:form.run.error')) }); }
   }
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
@@ -103,7 +105,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
       if (saved) { setSavedSignature(JSON.stringify({ fields, parentId })); onDirtyChange?.(false); }
     } catch (caught) {
       const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
-      setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : 'Speichern fehlgeschlagen. Deine Eingaben bleiben erhalten. Bitte versuche es erneut.' });
+      setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : t('connection:form.saveFailed') });
       if (field) {
         if ((field === 'color' || field === 'workingDirectory') && detailsRef.current) detailsRef.current.open = true;
         requestAnimationFrame(() => document.getElementById(`${prefix}-${field}`)?.focus());
@@ -121,110 +123,111 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
           aria-describedby={error?.field === field ? `${prefix}-${field}-error` : undefined}
           onChange={event => setField(field, event.target.value)} />
         {secret && <button className="secondary-button secret-toggle" type="button" disabled={busy}
-          aria-label={`${label} ${visibleSecret ? 'verbergen' : 'anzeigen'}`} aria-pressed={visibleSecret}
-          onClick={() => setVisibleSecret(value => !value)}>{visibleSecret ? 'Verbergen' : 'Anzeigen'}</button>}
+          aria-label={t(visibleSecret ? 'connection:form.secret.hideLabel' : 'connection:form.secret.showLabel', { label })} aria-pressed={visibleSecret}
+          onClick={() => setVisibleSecret(value => !value)}>{t(visibleSecret ? 'connection:form.secret.hide' : 'connection:form.secret.show')}</button>}
         {field === 'keyPath' && onPickKey && <button className="secondary-button" type="button" disabled={busy}
-          onClick={() => { void onPickKey().then(path => { if (path) setField('keyPath', path); }).catch(() => setError({ message: 'Die Dateiauswahl konnte nicht geöffnet werden. Gib den Schlüsselpfad direkt ein.' })); }}>Auswählen</button>}
+          onClick={() => { void onPickKey().then(path => { if (path) setField('keyPath', path); }).catch(() => setError({ message: t('connection:form.pickKeyFailed') })); }}>{t('connection:form.pickKey')}</button>}
       </div>
       {error?.field === field && <p className="field-error" id={`${prefix}-${field}-error`} role="alert">{error.message}</p>}
     </div>
   );
 
   return (
-    <section className="node-editor compact-editor" aria-label="Verbindung bearbeiten">
-      <h2>{connection && !isNew ? `${PROTOCOLS[protocol].short}-Verbindung bearbeiten` : newTitles[protocol]}</h2>
+    <section className="node-editor compact-editor" aria-label={t('connection:form.ariaLabel')}>
+      <h2>{connection && !isNew ? t('connection:form.editTitle', { protocol: protocolShort(protocol) }) : t(NEW_TITLE_KEYS[protocol])}</h2>
       <form noValidate data-editor-form onSubmit={event => { event.preventDefault(); void submit(false); }}>
-        {textField('Verbindungsname', 'name')}
+        {textField(t('connection:form.fields.name'), 'name')}
         <fieldset className="connection-appearance">
-          <legend>Symbol und Farbe</legend>
+          <legend>{t('connection:form.appearance.legend')}</legend>
           <div className="connection-appearance-controls">
-            <div className="connection-icon-options" aria-label="Verbindungssymbol">
-              {CONNECTION_ICONS.map(icon => <button key={icon} type="button" disabled={busy} aria-label={`Symbol: ${connectionIconLabels[icon]}`}
+            <div className="connection-icon-options" aria-label={t('connection:form.appearance.iconsLabel')}>
+              {CONNECTION_ICONS.map(icon => <button key={icon} type="button" disabled={busy} aria-label={t('connection:form.appearance.iconButton', { name: connectionIconLabels[icon] })}
                 title={connectionIconLabels[icon]} aria-pressed={fields.icon === icon} onClick={() => setField('icon', icon)}>
                 <ConnectionIcon icon={icon} color={fields.color || undefined} />
               </button>)}
             </div>
-            <input type="color" aria-label="Verbindungsfarbe" title="Verbindungsfarbe wählen" value={/^#[\da-f]{6}$/i.test(fields.color) ? fields.color : '#a7b7cb'}
+            <input type="color" aria-label={t('connection:form.appearance.colorLabel')} title={t('connection:form.appearance.colorTitle')} value={/^#[\da-f]{6}$/i.test(fields.color) ? fields.color : '#a7b7cb'}
               disabled={busy} onChange={event => setField('color', event.target.value)} />
-            <button className="secondary-button" type="button" disabled={busy || !fields.color} onClick={() => setField('color', '')}>Standardfarbe</button>
+            <button className="secondary-button" type="button" disabled={busy || !fields.color} onClick={() => setField('color', '')}>{t('connection:form.appearance.defaultColor')}</button>
           </div>
         </fieldset>
         {protocol === 'kubernetes' && <ClusterForm idPrefix={prefix} fields={fields} nodes={nodes} busy={busy} error={error} onChange={updateCluster} />}
-        {remote && <div className="editor-host-row">{textField('Host', 'host')}{textField('Port', 'port')}</div>}
+        {remote && <div className="editor-host-row">{textField(t('connection:form.fields.host'), 'host')}{textField(t('connection:form.fields.port'), 'port')}</div>}
         {protocol === 'rdp' && <>
-          <div className="editor-auth-row">{textField('Benutzername', 'username')}{textField('Domäne (optional)', 'domain')}</div>
-          <p className="editor-hint">Alternativ DOMÄNE\Benutzer oder benutzer@domäne als Benutzername.</p>
-          {textField('Passwort (leer: beim Verbinden fragen)', 'password', true)}
+          <div className="editor-auth-row">{textField(t('connection:form.fields.username'), 'username')}{textField(t('connection:form.fields.domain'), 'domain')}</div>
+          <p className="editor-hint">{t('connection:form.rdp.hint')}</p>
+          {textField(t('connection:form.fields.rdpPassword'), 'password', true)}
           <label className="editor-checkbox"><input type="checkbox" checked={fields.clipboard === 'on'} disabled={busy}
-            onChange={event => setField('clipboard', event.target.checked ? 'on' : 'off')} />Zwischenablage mit dem Remotedesktop teilen</label>
+            onChange={event => setField('clipboard', event.target.checked ? 'on' : 'off')} />{t('connection:form.rdp.clipboard')}</label>
         </>}
         {protocol === 'aicli' && <>
-          <label>Werkzeug<select value={fields.tool} disabled={busy} onChange={event => setField('tool', event.target.value)}>
+          <label>{t('connection:form.fields.tool')}<select value={fields.tool} disabled={busy} onChange={event => setField('tool', event.target.value)}>
             {(Object.keys(AI_CLI_TOOLS) as (keyof typeof AI_CLI_TOOLS)[]).map(tool => <option key={tool} value={tool}>{AI_CLI_TOOLS[tool].label}</option>)}
-            <option value="custom">Eigener Befehl</option>
+            <option value="custom">{t('connection:form.aicli.custom')}</option>
           </select></label>
-          {fields.tool === 'custom' ? textField('Befehl (z. B. aider oder ollama run llama3)', 'command')
-            : <p className="editor-hint">Startet <code>{AI_CLI_TOOLS[fields.tool].command}</code> mit der eigenen Anmeldung des Werkzeugs. Nicht installiert? <code>{AI_CLI_TOOLS[fields.tool].install}</code></p>}
-          {textField('Projektordner (leer: Benutzerprofil)', 'workingDirectory')}
-          <p className="editor-hint">Nach dem Beenden bleibt der Tab eine Eingabeaufforderung in diesem Ordner.</p>
+          {fields.tool === 'custom' ? textField(t('connection:form.fields.command'), 'command')
+            : <p className="editor-hint"><Trans t={t} i18nKey="connection:form.aicli.presetHint" values={{ command: AI_CLI_TOOLS[fields.tool].command, install: AI_CLI_TOOLS[fields.tool].install }}
+              components={{ code: <code /> }} /></p>}
+          {textField(t('connection:form.fields.projectFolder'), 'workingDirectory')}
+          <p className="editor-hint">{t('connection:form.aicli.folderHint')}</p>
         </>}
         {(protocol === 'powershell' || protocol === 'cmd') && <>
-          {textField('Startordner (leer: Benutzerprofil)', 'workingDirectory')}
-          <p className="editor-hint">Startet {PROTOCOLS[protocol].short} auf diesem Computer.</p>
+          {textField(t('connection:form.fields.startFolder'), 'workingDirectory')}
+          <p className="editor-hint">{t('connection:form.shell.hint', { shell: protocolShort(protocol) })}</p>
         </>}
-        {protocol === 'sftp' && <p className="editor-hint">Öffnet einen Dateibrowser: links dieser Computer, rechts der Server. Anmeldung wie bei SSH.</p>}
+        {protocol === 'sftp' && <p className="editor-hint">{t('connection:form.sftp.hint')}</p>}
         {sshAuth && <><div className="editor-auth-row">
-          {textField('Benutzername', 'username')}
-          <label>Authentifizierung
+          {textField(t('connection:form.fields.username'), 'username')}
+          <label>{t('connection:form.fields.method')}
             <select value={fields.method} disabled={busy} onChange={event => {
               setFields(current => ({ ...current, method: event.target.value as ConnectionFields['method'], password: '', keyPath: '', passphrase: '' }));
               setVisibleSecret(false); setError(null);
             }}>
-              <option value="agent">SSH-Agent</option><option value="password">Passwort</option><option value="privateKey">Privater Schlüssel</option>
+              <option value="agent">{t('connection:form.methods.agent')}</option><option value="password">{t('connection:form.methods.password')}</option><option value="privateKey">{t('connection:form.methods.privateKey')}</option>
             </select>
           </label>
         </div>
-        {fields.method === 'password' && textField(protocol === 'sftp' ? 'Passwort' : 'SSH-Passwort', 'password', true)}
+        {fields.method === 'password' && textField(t(protocol === 'sftp' ? 'connection:form.fields.sftpPassword' : 'connection:form.fields.sshPassword'), 'password', true)}
         {fields.method === 'privateKey' && <>
-          {textField('Pfad zum privaten Schlüssel', 'keyPath')}
-          {textField('Schlüssel-Passphrase', 'passphrase', true)}
+          {textField(t('connection:form.fields.keyPath'), 'keyPath')}
+          {textField(t('connection:form.fields.passphrase'), 'passphrase', true)}
         </>}
         {protocol === 'ssh' && <label className="editor-checkbox"><input type="checkbox" checked={fields.containerSudo === 'on'} disabled={busy}
-          onChange={event => setField('containerSudo', event.target.checked ? 'on' : 'off')} />Container-Befehle mit sudo ausführen</label>}</>}
+          onChange={event => setField('containerSudo', event.target.checked ? 'on' : 'off')} />{t('connection:form.containerSudo')}</label>}</>}
         <details className="editor-details" ref={detailsRef}>
-          <summary>Weitere Angaben</summary>
+          <summary>{t('connection:form.details.summary')}</summary>
           <div className="editor-details-content">
-            <label>Zielordner<select value={parentId} disabled={busy} onChange={event => setParentId(event.target.value)}>
-              <option value="">Vault-Ebene</option>
+            <label>{t('connection:form.fields.targetFolder')}<select value={parentId} disabled={busy} onChange={event => setParentId(event.target.value)}>
+              <option value="">{t('connection:form.details.vaultRoot')}</option>
               {folderOptions(nodes).map(folder => <option key={folder.id} value={folder.id}>{folder.label}</option>)}
             </select></label>
-            <label>Kommentar<textarea value={fields.comment} disabled={busy} rows={2} onChange={event => setField('comment', event.target.value)} /></label>
-            {textField('Tags (durch Komma getrennt)', 'tags')}
-            {textField('Farbe (optional, #RRGGBB)', 'color')}
+            <label>{t('connection:form.fields.comment')}<textarea value={fields.comment} disabled={busy} rows={2} onChange={event => setField('comment', event.target.value)} /></label>
+            {textField(t('connection:form.fields.tags'), 'tags')}
+            {textField(t('connection:form.fields.color'), 'color')}
           </div>
         </details>
         {error && !error.field && <p className="field-error" role="alert">{error.message}</p>}
         {test && !test.running && <div className={`connection-test ${test.result?.ok ? 'is-ok' : 'is-failed'}`} role="status">
-          <strong>{test.error ?? (test.result?.ok ? 'Verbindungstest erfolgreich' : 'Verbindungstest fehlgeschlagen')}</strong>
+          <strong>{test.error ?? (test.result?.ok ? t('connection:form.run.succeeded') : t('connection:form.run.failed'))}</strong>
           {test.result && <ol>{test.result.steps.map(step => <li key={step.step} className={step.ok ? 'is-ok' : 'is-failed'}>
             <span aria-hidden="true">{step.ok ? '✓' : '✕'}</span><span>{t(STEP_LABEL_KEYS[step.step], step.params)}{step.note && <small>{errorText(step.note)}</small>}{step.detail && <small>{step.detail}</small>}</span>
           </li>)}</ol>}
         </div>}
         <div className="form-actions editor-action-bar">
-          <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>Abbrechen</button>
-          {onTest && protocol !== 'kubernetes' && <button className="secondary-button" type="button" disabled={busy || test?.running} title="Prüft die eingegebenen Daten, ohne zu speichern"
-            onClick={() => { void runTest(); }}>{test?.running ? 'Teste …' : 'Verbindung testen'}</button>}
-          <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !isNew && !dirty)}>{busy ? 'Speichert ...' : 'Verbindung speichern'}</button>
-          {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>{connectLabels[protocol]}</button>
-            : onSaveAndConnect && <button className="primary-button" type="button" disabled={busy} onClick={() => { void submit(true); }}>Speichern und verbinden</button>}
+          <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>{t('common:actions.cancel')}</button>
+          {onTest && protocol !== 'kubernetes' && <button className="secondary-button" type="button" disabled={busy || test?.running} title={t('connection:form.run.title')}
+            onClick={() => { void runTest(); }}>{test?.running ? t('connection:form.run.running') : t('connection:form.run.button')}</button>}
+          <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !isNew && !dirty)}>{busy ? t('common:status.saving') : t('connection:form.save')}</button>
+          {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>{t(CONNECT_LABEL_KEYS[protocol])}</button>
+            : onSaveAndConnect && <button className="primary-button" type="button" disabled={busy} onClick={() => { void submit(true); }}>{t('connection:form.saveAndConnect')}</button>}
         </div>
       </form>
       {connection && onDelete && <details className="editor-details editor-management">
-        <summary>Verbindung verwalten</summary>
-        <button className="danger-button" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Verbindung löschen</button>
+        <summary>{t('connection:form.manage')}</summary>
+        <button className="danger-button" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>{t('connection:form.delete')}</button>
       </details>}
-      {confirmDelete && onDelete && <ConfirmDialog title={`Verbindung „${connection?.name}“ löschen?`}
-        description="Die Verbindung wird unwiderruflich entfernt, auch aus gespeicherten Workspaces. Ihre aktiven Sitzungen werden beendet."
+      {confirmDelete && onDelete && <ConfirmDialog title={t('connection:form.deleteTitle', { name: connection?.name })}
+        description={t('connection:form.deleteDescription')}
         busy={busy} onCancel={() => setConfirmDelete(false)} onConfirm={() => { void onDelete().then(saved => { if (saved) setConfirmDelete(false); }); }} />}
     </section>
   );

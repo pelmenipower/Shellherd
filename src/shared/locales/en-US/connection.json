@@ -15,5 +15,160 @@
       "credentials": "Credentials read",
       "sftp": "SFTP available"
     }
+  },
+  "form": {
+    "ariaLabel": "Edit connection",
+    "editTitle": "Edit {{protocol}} connection",
+    "newTitle": {
+      "ssh": "New SSH connection",
+      "sftp": "New SFTP connection (files)",
+      "rdp": "New Remote Desktop connection (RDP)",
+      "powershell": "New local PowerShell",
+      "cmd": "New local Command Prompt (CMD)",
+      "aicli": "New AI CLI (Claude Code, Codex, Gemini)",
+      "kubernetes": "New Kubernetes cluster"
+    },
+    "connect": {
+      "ssh": "Connect via SSH",
+      "sftp": "Open files",
+      "rdp": "Connect via RDP",
+      "powershell": "Start shell",
+      "cmd": "Start shell",
+      "aicli": "Start CLI",
+      "kubernetes": "Open cluster"
+    },
+    "fields": {
+      "name": "Connection name",
+      "host": "Host",
+      "port": "Port",
+      "username": "Username",
+      "domain": "Domain (optional)",
+      "rdpPassword": "Password (empty: ask when connecting)",
+      "command": "Command (e.g. aider or ollama run llama3)",
+      "projectFolder": "Project folder (empty: user profile)",
+      "startFolder": "Start folder (empty: user profile)",
+      "tool": "Tool",
+      "method": "Authentication",
+      "sftpPassword": "Password",
+      "sshPassword": "SSH password",
+      "keyPath": "Path to private key",
+      "passphrase": "Key passphrase",
+      "targetFolder": "Target folder",
+      "comment": "Comment",
+      "tags": "Tags (comma-separated)",
+      "color": "Color (optional, #RRGGBB)"
+    },
+    "appearance": {
+      "legend": "Icon and color",
+      "iconsLabel": "Connection icon",
+      "iconButton": "Icon: {{name}}",
+      "colorLabel": "Connection color",
+      "colorTitle": "Choose connection color",
+      "defaultColor": "Default color"
+    },
+    "rdp": {
+      "hint": "Alternatively use DOMAIN\\user or user@domain as the username.",
+      "clipboard": "Share the clipboard with the remote desktop"
+    },
+    "aicli": {
+      "custom": "Custom command",
+      "presetHint": "Starts <code>{{command}}</code> with the tool’s own login. Not installed? <code>{{install}}</code>",
+      "folderHint": "After it exits, the tab stays a command prompt in this folder."
+    },
+    "shell": {
+      "hint": "Starts {{shell}} on this computer."
+    },
+    "sftp": {
+      "hint": "Opens a file browser: this computer on the left, the server on the right. Sign-in works as with SSH."
+    },
+    "methods": {
+      "agent": "SSH agent",
+      "password": "Password",
+      "privateKey": "Private key"
+    },
+    "containerSudo": "Run container commands with sudo",
+    "details": {
+      "summary": "More options",
+      "vaultRoot": "Vault level"
+    },
+    "secret": {
+      "show": "Show",
+      "hide": "Hide",
+      "showLabel": "Show {{label}}",
+      "hideLabel": "Hide {{label}}"
+    },
+    "pickKey": "Browse",
+    "pickKeyFailed": "The file picker could not be opened. Enter the key path directly.",
+    "run": {
+      "succeeded": "Connection test succeeded",
+      "failed": "Connection test failed",
+      "error": "The test failed.",
+      "running": "Testing …",
+      "button": "Test connection",
+      "title": "Checks the entered data without saving"
+    },
+    "saveFailed": "Saving failed. Your input is kept. Please try again.",
+    "save": "Save connection",
+    "saveAndConnect": "Save and connect",
+    "manage": "Manage connection",
+    "delete": "Delete connection",
+    "deleteTitle": "Delete connection “{{name}}”?",
+    "deleteDescription": "The connection is removed permanently, including from saved workspaces. Its active sessions are ended."
+  },
+  "validation": {
+    "nameMissing": "Enter a connection name.",
+    "hostMissing": "Enter a host.",
+    "portInteger": "The port must be a whole number between 1 and 65535.",
+    "portRange": "The port must be between 1 and 65535.",
+    "keyPathMissing": "Enter the path to the private key.",
+    "domainTwice": "Give the domain either here or in the username (DOMAIN\\user or user@domain), not both.",
+    "commandMissing": "Enter the command, e.g. aider --model sonnet.",
+    "commandSingleLine": "The command must be a single line.",
+    "namespaceInvalid": "Enter a valid namespace, e.g. default.",
+    "colorInvalid": "Enter the color as #RRGGBB.",
+    "iconInvalid": "Choose an available icon.",
+    "checkData": "Check the connection data."
+  },
+  "cluster": {
+    "access": {
+      "legend": "Access via SSH",
+      "hint": "The first reachable connection sets up the tunnel.",
+      "missing": "{{id}} (no longer exists)",
+      "up": "Move {{label}} up",
+      "down": "Move {{label}} down",
+      "remove": "Remove {{label}}",
+      "add": "Add SSH connection",
+      "choose": "Choose …",
+      "noneLeft": "No other SSH connections"
+    },
+    "kubeconfig": {
+      "legend": "Kubeconfig",
+      "auto": "Automatic (KUBECONFIG, ~/.kube/config, /etc/kubernetes/admin.conf)",
+      "path": "Path on the host",
+      "pathLabel": "Kubeconfig path on the host"
+    },
+    "context": {
+      "label": "Context",
+      "read": "Read contexts",
+      "reading": "Reading …",
+      "readFailed": "The contexts could not be read."
+    },
+    "namespace": {
+      "label": "Namespace",
+      "placeholder": "all namespaces"
+    },
+    "production": "Production",
+    "productionHint": "Actions require typing the name.",
+    "readOnly": "Read-only",
+    "readOnlyHint": "No actions and no shell; logs stay available.",
+    "validation": {
+      "noAccess": "Choose at least one SSH connection as access host.",
+      "kubeconfigEmpty": "Enter the path to the kubeconfig.",
+      "kubeconfigPath": "The path must start with / or ~/.",
+      "accessGone": "The access host “{{id}}” no longer exists.",
+      "accessNotSsh": "The access host “{{name}}” is not an SSH connection.",
+      "accessDisabled": "The access host “{{name}}” is disabled.",
+      "nameMissing": "Enter a name."
+    }
   }
 }
