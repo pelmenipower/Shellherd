@@ -132,7 +132,7 @@ export interface ActionContext { ref: KubeRef | null; readOnly: boolean; connect
 
 **C21 · Test auf Metazeichen zu breit.** Kopiertexte wie Meldung, Zeitplan (`*/5 * * * *`), Images, YAML und `patchSuspend` (`'{"spec":…}'`) enthalten legitim Sonderzeichen. **Ersatztext:** „Jeder Ausgabewert eines kubectl-Builders außer `patchSuspend` passt auf `/^kubectl( [-a-zA-Z0-9.\/=:,_]+)+$/`. `patchSuspend` ist bis auf `<ns>`/`<name>` ein fester Literal-String.“
 
-**C26 · Hintergrund-Menü „Zurück zu <ns>“.** Den vorherigen Namespace hält der State nicht. **Entscheidung:** Bei `query.namespace === null` steht dort „Zurück zu `<status.namespace ?? 'default'>`“ (`setNamespace`), sonst „Alle Namespaces“. „Sortierung aufheben“ ist ohne `state.sort` deaktiviert, mit Hint „Standard: Reihenfolge des Eintreffens“.
+**C26 · Hintergrund-Menü „Zurück zu <ns>“.** (Zu „Sortierung aufheben“ bei Events siehe C21 in `2026-10-18-kubernetes-search-filter-validation.md`.) Den vorherigen Namespace hält der State nicht. **Entscheidung:** Bei `query.namespace === null` steht dort „Zurück zu `<status.namespace ?? 'default'>`“ (`setNamespace`), sonst „Alle Namespaces“. „Sortierung aufheben“ ist ohne `state.sort` deaktiviert, mit Hint „Standard: Reihenfolge des Eintreffens“.
 
 **C27 · Node-Kachel und Problem `node`.**
 - Kachel: Die erste Zeile ist immer eine `heading` `<name> · bereit|nicht bereit[, <pressure…>][, gesperrt]`.
@@ -224,5 +224,5 @@ Der Plan setzt die Spec in diesen drei Punkten ausdrücklich außer Kraft.
 6. „Markierung kopieren“ nur, wenn Anfang und Ende der Auswahl im `pre` liegen.
 7. Parent-Spec anpassen: cordon wandert aus Stufe 3 vor (Zeile 36). Die Aktionstabelle (Zeile ~221) und `actions.ts` in der Komponententabelle nennen nur Restart/Scale/Delete.
 8. Argo-Tracking: Der Standard von Argo CD ist das Label `app.kubernetes.io/instance` (≤2.x) bzw. die Annotation `argocd.argoproj.io/tracking-id` (ab 3.x). `argocd.argoproj.io/instance` ist eine eigene Konfiguration. Vor dem Bau auf k8s prüfen, welches Label gesetzt ist. Die Spec-Aussage „Standard-Tracking“ korrigieren.
-9. „Jobs anzeigen“ filtert per Namens-Teilstring. Er trifft auch Jobs anderer CronJobs mit gleichem Präfix (`backup` und `backup-db`). Später über `owner` filtern.
+9. (Erledigt durch die Suche-Spec 2026-10-18.) „Jobs anzeigen“ filtert per Namens-Teilstring. Er trifft auch Jobs anderer CronJobs mit gleichem Präfix (`backup` und `backup-db`). Später über `owner` filtern.
 10. Dass `.kube-dock-terminal` keinen `contextmenu`-Handler bekommt, ist heute geschützt: `TerminalPanel.tsx:87-96` ruft in der Capture-Phase `stopImmediatePropagation` auf. Diese Annahme im Plan festhalten und als manuellen Prüfpunkt aufnehmen.

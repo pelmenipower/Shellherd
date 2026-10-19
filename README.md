@@ -152,8 +152,20 @@ Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird.
 Der Cluster-Tab zeigt Nodes, Workloads, Pods und Events live. `Enter` führt per
 Drill-down etwa von einem Deployment über seine Pods zu den Containern, `Esc` geht
 eine Ebene zurück. Unten öffnet sich ein Bereich für Logs (`l`), Shell (`s`), Events
-(`e`), YAML (`y`) und Describe (`d`). `/` filtert, `:` führt Befehle aus wie `:ns all`
-oder `:deploy`, und `?` zeigt die Hilfe mit allen Hotkeys und Befehlen.
+(`e`), YAML (`y`) und Describe (`d`). `:` führt Befehle aus wie `:ns all` oder `:deploy`,
+und `?` zeigt die Hilfe mit allen Hotkeys und Befehlen.
+
+`/` sucht im Reiter: mehrere Begriffe müssen alle passen, `"ein satz"` sucht eine Phrase,
+`!term` schließt aus, `key=value` und `key!=value` filtern nach Labels, `feld:wert` nach einem
+Feld (`node:worker2`, `!status:running`) und `restarts>3` bzw. `count>=5` vergleichen Zahlen.
+Unter der Suche zeigt eine Chip-Leiste Status-Filter mit Zähler (Pods etwa „Läuft“, „Wartet“,
+„Fehler“, „Nicht bereit“, „Mit Neustarts“; Jobs „Läuft“, „Erfolgreich“, „Fehlgeschlagen“;
+Events „Warning“, „Normal“, „Letzte 5 min“). Chips einer Gruppe verbinden sich mit ODER,
+Gruppen untereinander mit UND. `w` zeigt nur Auffälliges (bei Events nur Warnungen),
+`F` setzt Suche und Chips des Reiters zurück, `:filter <suche>` und `:status failed,waiting`
+(oder `:status alle`) setzen sie per Befehl, und im Kontextmenü gibt es „Nur … anzeigen“.
+Suche und Chips merkt sich jeder Reiter. Events sind nach „Zuletzt“ absteigend sortiert;
+Jobs zeigen ihren Status, Pods auch „Evicted“ und „Unknown“, Nodes einen Hinweis bei Druck.
 
 Rechtsklick oder `Shift+F10` öffnet im Cluster-Tab ein Kontextmenü, auch auf Node-Kacheln,
 Problemen und dem unteren Bereich. Es kopiert Namen, Namespace, `kubectl`-Befehle sowie

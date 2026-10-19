@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { KUBE_NAME, manualJobName } from './kubernetes';
-import { KubeActionRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema } from './kubernetes-schema';
+import { KubeActionRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
 
 describe('kubernetes schemas', () => {
   it('accepts a namespaced ref and rejects bad names', () => {
@@ -28,6 +28,24 @@ describe('kubernetes schemas', () => {
   it('validates terminal targets', () => {
     expect(KubeTerminalTargetSchema.safeParse({ namespace: 'shop', pod: 'api-1', container: 'api', mode: 'shell' }).success).toBe(true);
     expect(KubeTerminalTargetSchema.safeParse({ namespace: 'shop', pod: 'api-1', container: 'api;rm', mode: 'shell' }).success).toBe(false);
+  });
+  it('keeps old snapshots without filters valid and accepts a filter of one kind', () => {
+    const base = { query: { kind: 'pods', namespace: null }, crumbs: [], dock: 'logs' };
+    expect(KubeViewSnapshotSchema.safeParse(base).success).toBe(true);
+    expect(KubeViewSnapshotSchema.safeParse({ ...base, filters: { pods: { text: 'api', chips: ['failed'] } } }).success).toBe(true);
+    expect(KubeViewSnapshotSchema.safeParse({ ...base, filters: { events: { chips: ['warning'] }, nodes: {} } }).success).toBe(true);
+    expect(KubeViewSnapshotSchema.safeParse({ ...base, filters: {} }).success).toBe(true);
+  });
+  it('rejects filters over the bounds or with unknown keys', () => {
+    const base = { query: { kind: 'pods', namespace: null }, crumbs: [], dock: 'logs' };
+    const parse = (filters: unknown): boolean => KubeViewSnapshotSchema.safeParse({ ...base, filters }).success;
+    expect(parse({ pods: { text: 'a'.repeat(200) } })).toBe(true);
+    expect(parse({ pods: { text: 'a'.repeat(201) } })).toBe(false);
+    expect(parse({ pods: { chips: Array.from({ length: 16 }, (_, i) => `c${i}`) } })).toBe(true);
+    expect(parse({ pods: { chips: Array.from({ length: 17 }, (_, i) => `c${i}`) } })).toBe(false);
+    expect(parse({ pods: { chips: ['a'.repeat(41)] } })).toBe(false);
+    expect(parse({ secrets: { text: 'x' } })).toBe(false);
+    expect(parse({ pods: { text: 'x', extra: 1 } })).toBe(false);
   });
 });
 
