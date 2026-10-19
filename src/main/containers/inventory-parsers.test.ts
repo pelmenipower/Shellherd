@@ -321,4 +321,27 @@ describe('maskInspect', () => {
     expect(out).toContain('WARNING: something odd');
     expect(out).not.toContain('geheim');
   });
+  // A leading "x " keeps quoted-only inputs from being valid JSON, so the text fallback runs.
+  const FALLBACK: [string, string][] = [
+    ['PATH=/usr/bin TOKEN=abc', 'PATH=/usr/bin TOKEN=***'],
+    ['x "TOKEN=a\\"b"', 'x "TOKEN=***"'],
+    ['x ["TOKEN=a\\\\","b"]', 'x ["TOKEN=***","b"]'],
+    ['x "API_KEY=abc def"', 'x "API_KEY=***"'],
+    ['x "PATH=/usr/bin TOKEN=abc"', 'x "PATH=/usr/bin TOKEN=***"'],
+    ['HOME=/root,PASSWORD=x;SECRET=y', 'HOME=/root,PASSWORD=***'],
+    ['x "TOKEN=abc def', 'x "TOKEN=***'],
+    ['A=1\nTOKEN=z\n  SECRET=q w', 'A=1\nTOKEN=***\n  SECRET=*** w'],
+    ['DATABASE_URL=postgres://u:p@h', 'DATABASE_URL=postgres://u:p@h'],
+    ['x ["--password=x"]', 'x ["--password=x"]'],
+  ];
+  it.each(FALLBACK)('masks fallback text %j', (input, expected) => {
+    expect(maskInspect(input)).toBe(expected);
+    expect(maskInspect(expected)).toBe(expected);
+  });
+  it('stays linear on long unparsable input', () => {
+    const start = Date.now();
+    expect(maskInspect('a'.repeat(1024 * 1024))).toHaveLength(1024 * 1024);
+    expect(maskInspect('x'.repeat(1024 * 1024) + 'TOKEN=y').endsWith('TOKEN=***')).toBe(true);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
 });
