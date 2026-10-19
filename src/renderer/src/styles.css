@@ -156,3 +156,14 @@ label { font-size: var(--fs-sm); font-weight: 500; color: var(--color-text-muted
     .file-drop-hint { transform: translate(-50%, -8px); }
   }
 }
+
+/* Area error (pattern "Bereich"): danger surface with title, sentence and button. */
+.area-error { display: grid; gap: var(--space-8); padding: var(--space-8) var(--space-10); color: var(--color-danger-text); background: var(--color-danger-bg); border: 1px solid var(--color-danger-border); border-radius: var(--radius-md); line-height: 1.5; }
+.area-error button { justify-self: start; }
+
+/* Disclosure chevron; points down, .is-up flips it. No transition. */
+.chevron { width: 12px; height: 12px; flex: 0 0 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chevron.is-up { transform: rotate(180deg); }
+
+/* Inline error of the sidebar folder form. */
+.sidebar-create-form .field-error { color: var(--color-danger); font-size: var(--fs-sm); line-height: 1.5; margin: var(--space-4) 0 0; }

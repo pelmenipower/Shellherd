@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import './toast-ui.css';
 import { useNativeSurfaceBlock } from '../native-surface';
-import { noticeStore, notify, type Notice } from '../notice-store';
+import { noticeStore, type Notice } from '../notice-store';
 
 const EXIT_FALLBACK_MS = 300; // transitionend may not fire in a hidden window
 
@@ -52,10 +52,4 @@ export function ToastItem({ notice, paused }: { notice: Notice; paused: boolean 
       )}
     </div>
   );
-}
-
-/** Wave-1 bridge only (B1), removed by 2A: pushes `message` as an error notice and renders <ToastStack />. */
-export function Toast({ message }: { message: string | null; onClose: () => void }) {
-  useEffect(() => { if (message) notify.error(message); }, [message]);
-  return <ToastStack />;
 }
