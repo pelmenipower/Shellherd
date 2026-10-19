@@ -15,7 +15,20 @@
 
 </div>
 
-<!-- Add a screenshot here once available, e.g. docs/images/screenshot.png -->
+<p align="center">
+  <img src="docs/images/screenshot-terminals.png" alt="Shellherd with two SSH sessions side by side and the connection tree on the left" width="100%">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/screenshot-connection-error.png" alt="Connection error card with cause, next step and actions"></td>
+    <td width="50%"><img src="docs/images/screenshot-notice.png" alt="Success notice after saving a workspace"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Clear connection errors with the next step</sub></td>
+    <td align="center"><sub>Notices that tell you what happened</sub></td>
+  </tr>
+</table>
 
 Shellherd keeps all your servers, desktops and clusters in one window. Connections and their credentials live in a single encrypted vault file (`.term`) that you can carry around, back up or keep in sync – no account and no cloud service required.
 
