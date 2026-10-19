@@ -4,13 +4,18 @@ import type { TerminalTab } from './terminal-tabs';
 import { sameTarget } from './terminal-tabs';
 import { detachPane, emptyLayout, mapPane, panes, removeTab, restoreLayout, savedLayout, syncLayout } from './terminal-layout';
 import type { LiveLayout } from './terminal-layout';
+import { t } from './i18n';
+import { sessionLimitNotice } from './vault-notices';
 
 /** A top-level view: its own split layout of up to four panes. Tabs belong to exactly one view. */
 export interface LiveView { id: string; name: string; layout: LiveLayout }
 export interface ViewsState { views: LiveView[]; activeViewId: string }
 export interface SavedView { name: string; layout: WorkspaceLayout }
 
-export const initialViews = (): ViewsState => ({ views: [{ id: 'view-1', name: 'Ansicht 1', layout: emptyLayout() }], activeViewId: 'view-1' });
+/** Default view names become data; they stay in the language they were created in. */
+export const defaultViewName = (index: number): string => t('terminal:views.defaultName', { index });
+
+export const initialViews = (): ViewsState => ({ views: [{ id: 'view-1', name: defaultViewName(1), layout: emptyLayout() }], activeViewId: 'view-1' });
 
 export function activeView(state: ViewsState): LiveView {
   return state.views.find(view => view.id === state.activeViewId) ?? state.views[0];
@@ -20,7 +25,7 @@ const holds = (view: LiveView, tabId: string): boolean => panes(view.layout).som
 
 export function nextViewName(state: ViewsState): string {
   for (let index = state.views.length + 1; ; index++) {
-    const name = `Ansicht ${index}`;
+    const name = defaultViewName(index);
     if (!state.views.some(view => view.name === name)) return name;
   }
 }
@@ -107,7 +112,7 @@ export function restoreViews(saved: SavedView[], lookup: (id: string) => Connect
     skipped += restored.skipped;
     return { id: uuid(), name: item.name, layout: restored.layout };
   });
-  if (tabs.length > MAX_SSH_SESSIONS) throw new Error(`Ein Workspace darf höchstens ${MAX_SSH_SESSIONS} Sessions starten.`);
+  if (tabs.length > MAX_SSH_SESSIONS) throw new Error(sessionLimitNotice());
   for (const tab of tabs) tab.ordinal = tabs.filter(other => sameTarget(other.connection, tab.connection) && tabs.indexOf(other) <= tabs.indexOf(tab)).length;
   const state = views.length ? { views, activeViewId: views[0].id } : initialViews();
   return { state, tabs, activeTabId: panes(activeView(state).layout).find(pane => pane.activeTabId)?.activeTabId ?? null, skipped };
@@ -116,7 +121,7 @@ export function restoreViews(saved: SavedView[], lookup: (id: string) => Connect
 /** Workspace form: `layout` is the first view; `views` when there are several or the only one was renamed. */
 export function toWorkspaceViews(state: ViewsState, tabs: TerminalTab[]): { layout: WorkspaceLayout; views?: SavedView[] } {
   const saved = savedViews(state, tabs);
-  return { layout: saved[0].layout, ...(saved.length > 1 || saved[0].name !== 'Ansicht 1' ? { views: saved } : {}) };
+  return { layout: saved[0].layout, ...(saved.length > 1 || saved[0].name !== defaultViewName(1) ? { views: saved } : {}) };
 }
 
 const countTabs = (layout: WorkspaceLayout): number => layout.type === 'split' ? countTabs(layout.first) + countTabs(layout.second) : layout.connectionIds.length;
@@ -127,12 +132,12 @@ export function workspaceSummary(workspace: Workspace): string {
   const layouts = [workspace, ...windows].flatMap(item => item.views?.map(view => view.layout) ?? [item.layout]);
   const views = layouts.length;
   const tabs = layouts.reduce((total, layout) => total + countTabs(layout), 0);
-  return [`${views} ${views === 1 ? 'Ansicht' : 'Ansichten'}`, `${tabs} ${tabs === 1 ? 'Tab' : 'Tabs'}`,
-    ...(windows.length ? [`${windows.length} ${windows.length === 1 ? 'weiteres Fenster' : 'weitere Fenster'}`] : [])].join(' · ');
+  return [t('common:count.views', { count: views }), t('common:count.tabs', { count: tabs }),
+    ...(windows.length ? [t('terminal:summary.moreWindows', { count: windows.length })] : [])].join(' · ');
 }
 
 export function fromWorkspaceViews(saved: { layout: WorkspaceLayout; views?: SavedView[] }, lookup: (id: string) => ConnectionNode | undefined, uuid: () => string) {
-  return restoreViews(saved.views ?? [{ name: 'Ansicht 1', layout: saved.layout }], lookup, uuid);
+  return restoreViews(saved.views ?? [{ name: defaultViewName(1), layout: saved.layout }], lookup, uuid);
 }
 
 export const activeTabOf = (view: LiveView): string | null => panes(view.layout).find(pane => pane.activeTabId)?.activeTabId ?? null;

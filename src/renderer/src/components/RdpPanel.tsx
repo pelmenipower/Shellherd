@@ -6,6 +6,7 @@ import type { SshStatus } from '../../../shared/ssh';
 import { useNativeSurfacesBlocked } from '../native-surface';
 import { liveSessions } from '../session-registry';
 import { errorText } from '../error-text';
+import { useT } from '../i18n';
 
 interface RdpPanelProps {
   connection: TerminalConnection;
@@ -20,12 +21,13 @@ interface RdpPanelProps {
   initialStatus?: SshStatus;
 }
 
-const statusLabels: Record<RdpStatus, string> = {
-  connecting: 'RDP verbindet ...', connected: 'RDP verbunden', closed: 'RDP-Verbindung beendet', error: 'RDP-Verbindung fehlgeschlagen',
-};
+const STATUS_KEYS = {
+  connecting: 'terminal:rdp.status.connecting', connected: 'terminal:rdp.status.connected', closed: 'terminal:rdp.status.closed', error: 'terminal:rdp.status.error',
+} as const satisfies Record<RdpStatus, string>;
 
 /** Placeholder in the layout; the native RDP surface is positioned exactly over it by the main process. */
 export function RdpPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus }: RdpPanelProps) {
+  const { t } = useT();
   const container = useRef<HTMLDivElement>(null);
   const session = useRef<string | null>(null);
   const lastBounds = useRef('');
@@ -122,11 +124,11 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
   return (
     <section className={`terminal-panel rdp-panel${focused ? ' focused-pane' : ''}`} style={style} onPointerDown={onFocus}
       id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
-      <span className="terminal-live-status" role="status">{statusLabels[status]}</span>
+      <span className="terminal-live-status" role="status">{t(STATUS_KEYS[status])}</span>
       <div ref={container} className="rdp-surface">
-        {!shown && <p className="rdp-placeholder">{resizing ? 'Auflösung wird angepasst …'
+        {!shown && <p className="rdp-placeholder">{resizing ? t('terminal:rdp.resizing')
           : blocked && (status === 'connecting' || status === 'connected')
-          ? 'Remotedesktop ausgeblendet, solange ein Menü geöffnet ist.' : message ?? statusLabels[status]}</p>}
+          ? t('terminal:rdp.hiddenWhileMenu') : message ?? t(STATUS_KEYS[status])}</p>}
       </div>
     </section>
   );

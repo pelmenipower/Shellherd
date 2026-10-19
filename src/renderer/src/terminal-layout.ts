@@ -2,7 +2,9 @@ import type { ConnectionNode, WorkspaceContainerView, WorkspaceLayout } from '..
 import type { TerminalTab } from './terminal-tabs';
 import { containerConnection, containerViewConnection, sameTarget, toTerminalConnection } from './terminal-tabs';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
-import { connectionAddress } from '../../shared/vault/connections';
+import { connectionAddress } from './connection-labels';
+import { t } from './i18n';
+import { sessionLimitNotice } from './vault-notices';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
 export interface LivePane { type: 'pane'; id: string; tabIds: string[]; activeTabId: string | null }
@@ -173,9 +175,9 @@ export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => Co
     if (node.type === 'split') return { ...node, id: uuid(), first: restore(node.first), second: restore(node.second) };
     const tabIds = node.connectionIds.flatMap((id, index) => {
       const connection = lookup(id);
-      if (!connection) throw new Error('Der Workspace verweist auf eine fehlende Verbindung.');
+      if (!connection) throw new Error(t('terminal:layout.missingConnection'));
       if (connection.disabled) { skipped++; return []; }
-      if (tabs.length >= MAX_SSH_SESSIONS) throw new Error(`Ein Workspace darf höchstens ${MAX_SSH_SESSIONS} Sessions starten.`);
+      if (tabs.length >= MAX_SSH_SESSIONS) throw new Error(sessionLimitNotice());
       const tabId = uuid();
       const container = node.containerTabs?.find(entry => entry.index === index);
       const view = node.containerViews?.find(entry => (typeof entry === 'number' ? entry : entry.index) === index);
@@ -193,6 +195,6 @@ export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => Co
     return { type: 'pane', id: uuid(), tabIds, activeTabId };
   };
   const layout = restore(saved);
-  if (panes(layout).length > 4) throw new Error('Ein Workspace darf höchstens vier Terminalbereiche enthalten.');
+  if (panes(layout).length > 4) throw new Error(t('terminal:layout.tooManyPanes'));
   return { layout, tabs, activeTabId: panes(layout).find(pane => pane.activeTabId)?.activeTabId ?? null, skipped };
 }

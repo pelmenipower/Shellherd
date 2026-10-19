@@ -4,6 +4,7 @@ import { emptyLayout, panes } from '../terminal-layout';
 import type { LiveLayout } from '../terminal-layout';
 import * as views from '../terminal-views';
 import type { ViewsState } from '../terminal-views';
+import { defaultViewName } from '../terminal-views';
 
 /** Layout of all views of a window; `layout` is the active view's split layout. */
 export function useTerminalLayout(tabs: TerminalTab[], selected: string | null) {
@@ -31,7 +32,7 @@ export function useTerminalLayout(tabs: TerminalTab[], selected: string | null) 
   const replaceViews = useCallback((next: ViewsState) => { setState(next); setFocused(panes(views.activeView(next).layout)[0].id); }, []);
   const replace = useCallback((next: LiveLayout) => {
     const id = crypto.randomUUID();
-    replaceViews({ views: [{ id, name: 'Ansicht 1', layout: next }], activeViewId: id });
+    replaceViews({ views: [{ id, name: defaultViewName(1), layout: next }], activeViewId: id });
   }, [replaceViews]);
   // Stable: transfer listeners subscribe with these.
   const insertView = useCallback((name: string, next: LiveLayout) => setState(current => views.insertView(current, crypto.randomUUID(), name, next)), []);

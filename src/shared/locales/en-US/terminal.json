@@ -1,1 +1,119 @@
-{}
+{
+  "views": {
+    "defaultName": "View {{index}}",
+    "barLabel": "Views",
+    "renameLabel": "Rename view",
+    "tabTitle": "Double-click or F2 renames the view",
+    "closeAria": "Close view {{name}}",
+    "close": "Close view",
+    "closeTitle": "Close view – its tabs move to the neighboring view",
+    "add": "New view"
+  },
+  "summary": {
+    "moreWindows_one": "{{count}} more window",
+    "moreWindows_other": "{{count}} more windows"
+  },
+  "layout": {
+    "missingConnection": "The workspace refers to a missing connection.",
+    "tooManyPanes": "A workspace can contain at most four terminal panes."
+  },
+  "tabs": {
+    "label": "SSH sessions",
+    "editor": "Editor",
+    "closeAria": "Close tab {{label}}",
+    "closeTitle": "Close {{label}}",
+    "files": "{{name}} · Files",
+    "logs": "Logs: {{label}}",
+    "previousLogs": "Previous logs: {{label}}"
+  },
+  "tabStatus": {
+    "connecting": "Connecting",
+    "connected": "Connected",
+    "closed": "Closed",
+    "error": "Error"
+  },
+  "panel": {
+    "copyFailed": "The selected text could not be copied.",
+    "pasteFailed": "The clipboard could not be pasted.",
+    "inputTooLarge": "The input is too large. Paste smaller chunks.",
+    "inputFailed": "The input could not be sent. Check the connection.",
+    "adoptFailed": "The session could not be taken over.",
+    "startFailed": "The SSH start failed."
+  },
+  "input": {
+    "multiline": "Multi-line command: copy it line by line.",
+    "notConnected": "The terminal is not connected; the command was not typed.",
+    "fullscreen": "A full-screen program is running in the terminal; the command was not typed.",
+    "failed": "The command could not be typed."
+  },
+  "rdp": {
+    "status": {
+      "connecting": "RDP connecting …",
+      "connected": "RDP connected",
+      "closed": "RDP connection closed",
+      "error": "RDP connection failed"
+    },
+    "resizing": "Adjusting resolution …",
+    "hiddenWhileMenu": "Remote desktop hidden while a menu is open.",
+    "actions": {
+      "ctrlAltDel": { "label": "{{ctrl}}+{{alt}}+{{del}}", "hint": "Security options" },
+      "taskManager": { "label": "Task Manager", "hint": "{{ctrl}}+{{shift}}+Esc" },
+      "startScreen": { "label": "Start menu", "hint": "Windows key" },
+      "appSwitch": { "label": "Switch window", "hint": "Alt+Tab" },
+      "actionCenter": { "label": "Action Center", "hint": "Windows+A" }
+    }
+  },
+  "area": {
+    "label": "Terminal panes",
+    "emptyTitle": "Empty pane",
+    "emptyHint": "Open a connection from the list or drop a tab here.",
+    "connectHere": "Connect here",
+    "sessionsLabel": "Sessions in pane {{number}}",
+    "openFilesAria": "Open files of this SSH connection in pane {{number}}",
+    "openFilesTitle": "Open files (SFTP)",
+    "sendKeysAria": "Send key combination to remote desktop in pane {{number}}",
+    "sendKeysTitle": "Send key combinations",
+    "showAll": "Show all panes",
+    "maximizeAria": "Maximize pane {{number}}",
+    "maximizeTitle": "Maximize pane",
+    "layoutAria": "Layout for pane {{number}}",
+    "layoutTitle": "Layout and keyboard actions",
+    "splitLabel": "Split {{number}}"
+  },
+  "layoutMenu": {
+    "label": "Layout by keyboard",
+    "dragHint": "Drag a tab or an empty part of the title bar. Split at an edge, merge in the middle, or insert between tabs.",
+    "splitHorizontal": "Split side by side",
+    "splitVertical": "Split top and bottom",
+    "merge": "Merge pane",
+    "moveTab": "Move active tab",
+    "paneOption": "Pane {{number}}",
+    "toOwnView": "Open as its own view",
+    "resizeHint": "Drag the dividers, or focus them and move them with the arrow keys. Drag tabs onto a view above to move them there."
+  },
+  "viewMenu": {
+    "label": "Actions for {{name}}",
+    "moveToWindow": "Move to new window",
+    "closeHint": "Tabs are kept"
+  },
+  "keysMenu": {
+    "label": "Send key combination",
+    "heading": "Send to remote desktop"
+  },
+  "dock": {
+    "external": {
+      "labelled": "“{{label}}” {{action}}",
+      "asView": "add as view",
+      "asTab": "insert as tab",
+      "dockHere": "dock here",
+      "moveHere": "move here",
+      "fromOtherWindow": "From another window"
+    },
+    "insertTab": "Insert as tab",
+    "moveHere": "Move here",
+    "splitHere": "Split here",
+    "samePosition": "Already at this position",
+    "noSplit": "Cannot split here",
+    "escCancel": "Press Esc to cancel"
+  }
+}

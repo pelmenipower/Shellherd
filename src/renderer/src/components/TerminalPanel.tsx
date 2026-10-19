@@ -9,6 +9,7 @@ import { liveSessions } from '../session-registry';
 import { terminalAccess } from '../terminal-access';
 import { xtermTheme } from '../terminal-theme';
 import { errorText } from '../error-text';
+import { useT } from '../i18n';
 import type { SshStatus } from '../../../shared/ssh';
 
 interface TerminalPanelProps {
@@ -26,11 +27,15 @@ interface TerminalPanelProps {
   initialStatus?: SshStatus;
 }
 
-const statusLabels: Record<SshStatus, string> = {
-  connecting: 'Verbindet ...', connected: 'Verbunden', closed: 'Verbindung beendet', error: 'Verbindung fehlgeschlagen',
-};
+const STATUS_KEYS = {
+  connecting: 'common:status.connecting', connected: 'common:status.connected', closed: 'common:status.closed', error: 'common:status.failed',
+} as const satisfies Record<SshStatus, string>;
 
 export function TerminalPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus }: TerminalPanelProps) {
+  const { t } = useT();
+  // The session effect must not restart on a language change, so it reads the latest translator here.
+  const tRef = useRef(t);
+  tRef.current = t;
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
@@ -73,7 +78,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       clearTimeout(copyTimer); copyTimer = undefined;
       const text = pendingSelection; pendingSelection = '';
       if (text) copyQueue = copyQueue.then(() => window.desktopApi.writeClipboardText(text))
-        .catch(() => showError('Der markierte Text konnte nicht kopiert werden.'));
+        .catch(() => showError(tRef.current('terminal:panel.copyFailed')));
       return copyQueue;
     };
     const selection = term.onSelectionChange(() => {
@@ -93,7 +98,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       term.focus();
       void flushCopy().then(() => window.desktopApi.readClipboardText()).then(text => {
         if (!disposed && connected && text) term.paste(text);
-      }).catch(() => showError('Die Zwischenablage konnte nicht eingefügt werden.'));
+      }).catch(() => showError(tRef.current('terminal:panel.pasteFailed')));
     };
     terminalElement.addEventListener('mousedown', preventRightMouse, true);
     terminalElement.addEventListener('contextmenu', pasteOnRightClick, true);
@@ -117,7 +122,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       if (!sessionId || !connected) return;
       const bytes = new TextEncoder().encode(data).length;
       if (pendingInputBytes + bytes > 256 * 1024) {
-        showError('Die Eingabe ist zu groß. Bitte füge kleinere Abschnitte ein.');
+        showError(tRef.current('terminal:panel.inputTooLarge'));
         return;
       }
       pendingInputBytes += bytes;
@@ -128,7 +133,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
           if (disposed || !connected || !sessionId) return;
           await window.desktopApi.sshInput({ sessionId, data: chunk });
         }
-      }).catch(() => showError('Die Eingabe konnte nicht gesendet werden. Prüfe die Verbindung.'))
+      }).catch(() => showError(tRef.current('terminal:panel.inputFailed')))
         .finally(() => { pendingInputBytes -= bytes; });
     });
     const resize = term.onResize(size => {
@@ -144,7 +149,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
         if (!adopted.session) return;
         register(adopted.session.sessionId);
         connected = (initialStatus ?? 'connecting') === 'connected';
-        void window.desktopApi.sshAttach({ sessionId: adopted.session.sessionId }).catch(() => showError('Die Sitzung konnte nicht übernommen werden.'));
+        void window.desktopApi.sshAttach({ sessionId: adopted.session.sessionId }).catch(() => showError(tRef.current('terminal:panel.adoptFailed')));
         // The new window may have another size; a resize also makes full-screen programs redraw.
         void window.desktopApi.sshResize({ sessionId: adopted.session.sessionId, cols: Math.max(2, Math.min(500, term.cols)), rows: Math.max(1, Math.min(300, term.rows)) }).catch(() => {});
         if (connected && visibleRef.current && focusedRef.current) term.focus();
@@ -162,7 +167,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
           if (disposed) return;
           setStatus('error');
           onStatusChange(tabId, 'error');
-          showError(errorText(caught, 'Der SSH-Start ist fehlgeschlagen.'));
+          showError(errorText(caught, tRef.current('terminal:panel.startFailed')));
           if (sessionId) void window.desktopApi.sshClose({ sessionId }).catch(() => {});
         }
       })();
@@ -197,7 +202,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
 
   return (
     <section className={`terminal-panel${focused ? ' focused-pane' : ''}`} style={style} onPointerDown={onFocus} onFocusCapture={onFocus} id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
-      <span className="terminal-live-status" role="status">{statusLabels[status]}</span>
+      <span className="terminal-live-status" role="status">{t(STATUS_KEYS[status])}</span>
       {error && <p className="error-message" role="alert">{error}</p>}
       <div ref={container} className="terminal-container" />
     </section>
