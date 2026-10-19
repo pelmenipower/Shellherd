@@ -22,11 +22,10 @@ export type AiEvent =
   | { type: 'done'; requestId: string }
   | { type: 'error'; requestId: string; error: CodedError };
 
-export const AI_PROVIDER_KINDS: Record<AiProviderKind, { label: string; model: string; baseUrl?: string; hint: string }> = {
-  openai: { label: 'OpenAI-kompatibel', model: 'gpt-4o-mini', baseUrl: 'https://api.openai.com/v1',
-    hint: 'OpenAI, Ollama (http://localhost:11434/v1), LM Studio, vLLM oder ein internes Gateway.' },
-  azure: { label: 'Azure AI Foundry', model: 'gpt-4o-mini',
-    hint: 'Endpoint aus dem Foundry-Portal (Projekt- oder Ressourcen-URL); Modell = Name des Deployments.' },
-  anthropic: { label: 'Anthropic (Claude)', model: 'claude-opus-5-5', hint: 'API-Schlüssel aus der Claude Console.' },
-  gemini: { label: 'Google Gemini', model: 'gemini-2.5-flash', hint: 'API-Schlüssel aus Google AI Studio.' },
+/** Defaults per provider kind; names and hints come from the assistant catalog. */
+export const AI_PROVIDER_KINDS: Record<AiProviderKind, { model: string; baseUrl?: string }> = {
+  openai: { model: 'gpt-4o-mini', baseUrl: 'https://api.openai.com/v1' },
+  azure: { model: 'gpt-4o-mini' },
+  anthropic: { model: 'claude-opus-5-5' },
+  gemini: { model: 'gemini-2.5-flash' },
 };

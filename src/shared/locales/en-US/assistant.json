@@ -2,5 +2,95 @@
   "test": {
     "ok": "Connected. Answer: {{answer}}",
     "emptyAnswer": "(empty answer)"
+  },
+  "providers": {
+    "openai": {
+      "label": "OpenAI-compatible",
+      "hint": "OpenAI, Ollama (http://localhost:11434/v1), LM Studio, vLLM or an internal gateway."
+    },
+    "azure": {
+      "label": "Azure AI Foundry",
+      "hint": "Endpoint from the Foundry portal (project or resource URL); model = name of the deployment."
+    },
+    "anthropic": {
+      "label": "Anthropic (Claude)",
+      "hint": "API key from the Claude Console."
+    },
+    "gemini": {
+      "label": "Google Gemini",
+      "hint": "API key from Google AI Studio."
+    }
+  },
+  "chat": {
+    "terminal": "Terminal:",
+    "empty": "(empty)",
+    "noOutput": "(no output)",
+    "outputOf": "Output of {{command}}:",
+    "afterOutput": "Briefly interpret the output. Only if my goal is still open: next command.",
+    "outputRead": "Read output of {{command}}"
+  },
+  "panel": {
+    "title": "AI assistant",
+    "providerLabel": "AI provider",
+    "manageProviders": "Manage AI providers",
+    "closeTitle": "Close ({{shortcut}})",
+    "closeLabel": "Close assistant",
+    "selectTab": "Select a terminal tab.",
+    "contextFor": "Based on",
+    "unsupportedTab": "The assistant works with SSH, PowerShell and CMD tabs.",
+    "noProvider": "No AI provider has been set up yet.",
+    "setupProvider": "Set up provider",
+    "setupInMain": "Set up a provider in the main window.",
+    "hint1": "Say what you want to achieve, e.g. “I want to restart the pods in the monitoring namespace.” The assistant types the matching command. After you press Enter, it reads the output, summarizes it in one sentence and only continues while your goal is still open.",
+    "hint2": "Explanations only on request (“explain …”). The last terminal lines go to <provider/> along with your question. Commands are typed in and only run when you press Enter.",
+    "inserted": "Written to the input line, not executed",
+    "suggestion": "Suggestion",
+    "type": "Type in",
+    "copy": "Copy",
+    "saveWorkflowTitle": "Save as workflow",
+    "saveWorkflow": "As workflow",
+    "typing": "Writing answer",
+    "awaiting": "Check the command and press Enter in the terminal.",
+    "awaitingAuto": " The assistant then reads the output and briefly interprets it.",
+    "outputReady": "Output of “{{command}}” is ready and will go along with your next question.",
+    "classify": "Interpret output",
+    "inputPlaceholder": "Question about the terminal … (Enter sends, Shift+Enter new line)",
+    "noTerminal": "No terminal selected",
+    "inputLabel": "Question for the assistant",
+    "autoEvaluate": "Interpret output automatically after Enter",
+    "clear": "Clear history",
+    "stop": "Stop",
+    "ask": "Ask"
+  },
+  "settings": {
+    "title": "AI providers",
+    "intro": "API keys are stored encrypted in the vault and only used by the Shellherd main process. What you ask the assistant goes to the selected provider along with the terminal excerpt.",
+    "saveFailed": "Saving failed.",
+    "invalid": "Check the name, model and URL (with https:// or http://).",
+    "azureEndpointMissing": "For Azure you need the endpoint of the resource.",
+    "hide": "Hide",
+    "show": "Show",
+    "default": "Default",
+    "makeDefault": "Make default",
+    "edit": "Edit",
+    "remove": "Remove",
+    "none": "No provider set up yet.",
+    "addNew": "New provider:",
+    "displayName": "Display name",
+    "deploymentName": "Deployment name",
+    "deploymentHint": "e.g. the small chat model “minichat” or gpt-4o-mini.",
+    "model": "Model",
+    "endpoint": "Endpoint",
+    "baseUrl": "Base URL",
+    "endpointHint": "Project or resource URL from the Foundry portal, e.g. https://<resource>.services.ai.azure.com/api/projects/<project>. Shellherd finds the right call path itself.",
+    "apiVersion": "API version (optional)",
+    "apiVersionHint": "Usually leave empty. Only applies to the /models and /openai/deployments paths.",
+    "apiKeyLocal": "API key (empty for local models)",
+    "apiKey": "API key",
+    "back": "Back",
+    "testing": "Testing …",
+    "testButton": "Test",
+    "save": "Save",
+    "done": "Done"
   }
 }

@@ -6,6 +6,7 @@ import { typeIntoTerminal } from '../terminal-input';
 import { liveSessions } from '../session-registry';
 import { compactMessage, historyForRequest, insertableCommand, isFinished, outputMessage, parseAnswer, questionMessage, SCREEN_LINES } from '../assistant-chat';
 import { errorText } from '../error-text';
+import { Trans, useT } from '../i18n';
 import '../assistant-ui.css';
 
 interface AssistantPanelProps {
@@ -54,6 +55,7 @@ const write = (key: string, value: string): void => { try { localStorage.setItem
  * suggests the next command until the goal is reached. It explains only when asked.
  */
 export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, onSaveWorkflow }: AssistantPanelProps) {
+  const { t } = useT();
   const [catalog, setCatalog] = useState<AiCatalog | null>(null);
   const [providerId, setProviderId] = useState<string>(() => read(PROVIDER_KEY) ?? '');
   const [autoEvaluate, setAutoEvaluate] = useState(() => read(AUTO_KEY) !== 'off');
@@ -154,12 +156,12 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
         if (autoRef.current) {
           update(tabId, current => ({ ...current, awaiting: undefined }));
           const message = outputMessage(command, text);
-          sendRef.current(tabId, `Ausgabe von ${command} gelesen`, message, compactMessage(message), true);
+          sendRef.current(tabId, t('assistant:chat.outputRead', { command }), message, compactMessage(message), true);
         } else update(tabId, current => ({ ...current, awaiting: undefined, output: { command, text } }));
       }
     }, 500);
     return () => clearInterval(timer);
-  }, [conversations, update]);
+  }, [conversations, update, t]);
 
   const submit = (): void => {
     const question = draft.trim();
@@ -181,26 +183,26 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
   const entries = useMemo(() => conversation.entries, [conversation.entries]);
 
   return (
-    <aside className="assistant-panel" aria-label="KI-Assistent">
+    <aside className="assistant-panel" aria-label={t('assistant:panel.title')}>
       <header className="assistant-header">
-        <strong>KI-Assistent</strong>
-        {providers.length > 0 && <select aria-label="KI-Anbieter" value={provider?.id ?? ''} onChange={event => { setProviderId(event.target.value); write(PROVIDER_KEY, event.target.value); }}>
+        <strong>{t('assistant:panel.title')}</strong>
+        {providers.length > 0 && <select aria-label={t('assistant:panel.providerLabel')} value={provider?.id ?? ''} onChange={event => { setProviderId(event.target.value); write(PROVIDER_KEY, event.target.value); }}>
           {providers.map(item => <option key={item.id} value={item.id}>{item.name} · {item.model}</option>)}
         </select>}
-        {onManageProviders && <button type="button" className="assistant-icon" title="KI-Anbieter verwalten" aria-label="KI-Anbieter verwalten" onClick={onManageProviders}>⚙</button>}
-        <button type="button" className="assistant-icon" title="Schließen (Strg+Umschalt+K)" aria-label="Assistent schließen" onClick={onClose}>×</button>
+        {onManageProviders && <button type="button" className="assistant-icon" title={t('assistant:panel.manageProviders')} aria-label={t('assistant:panel.manageProviders')} onClick={onManageProviders}>⚙</button>}
+        <button type="button" className="assistant-icon" title={t('assistant:panel.closeTitle', { shortcut: t('common:shortcuts.assistant') })} aria-label={t('assistant:panel.closeLabel')} onClick={onClose}>×</button>
       </header>
-      <p className="assistant-context">{!tab ? 'Wähle einen Terminal-Tab.' : shell ? <>Bezogen auf <strong>{label}</strong></>
-        : 'Der Assistent arbeitet mit SSH-, PowerShell- und CMD-Tabs.'}</p>
+      <p className="assistant-context">{!tab ? t('assistant:panel.selectTab') : shell ? <>{t('assistant:panel.contextFor')} <strong>{label}</strong></>
+        : t('assistant:panel.unsupportedTab')}</p>
       {catalog && !providers.length ? <div className="assistant-empty">
-        <p>Es ist noch kein KI-Anbieter eingerichtet.</p>
-        {onManageProviders ? <button type="button" className="primary-button" onClick={onManageProviders}>Anbieter einrichten</button>
-          : <p>Richte im Hauptfenster einen Anbieter ein.</p>}
+        <p>{t('assistant:panel.noProvider')}</p>
+        {onManageProviders ? <button type="button" className="primary-button" onClick={onManageProviders}>{t('assistant:panel.setupProvider')}</button>
+          : <p>{t('assistant:panel.setupInMain')}</p>}
       </div> : <>
         <div className="assistant-messages" ref={listRef} aria-live="polite">
           {!entries.length && <div className="assistant-hint">
-            <p>Sag, was du erreichen willst, z. B. „Ich will die Pods im Namespace monitoring neu starten.“ Der Assistent tippt den passenden Befehl ein. Nach deinem Enter liest er die Ausgabe, ordnet sie in einem Satz ein und geht nur weiter, solange dein Ziel offen ist.</p>
-            <p>Erklärungen gibt es nur auf Nachfrage („erkläre …“). Die letzten Terminalzeilen gehen mit deiner Frage an <strong>{provider?.name}</strong>. Befehle werden eingetippt, ausgeführt erst mit deinem Enter.</p>
+            <p>{t('assistant:panel.hint1')}</p>
+            <p><Trans t={t} i18nKey="assistant:panel.hint2" components={{ provider: <strong>{provider?.name}</strong> }} /></p>
           </div>}
           {entries.map(entry => entry.role === 'user'
             ? entry.automatic ? <p key={entry.id} className="assistant-note">{entry.shown}</p>
@@ -211,35 +213,35 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
                 : <div key={index} className={`assistant-command${entry.inserted === insertableCommand(segment.command) ? ' is-inserted' : ''}`}>
                   <code>{segment.command}</code>
                   {segment.complete && tab && <div className="assistant-command-actions">
-                    <span>{entry.inserted === insertableCommand(segment.command) ? 'In die Eingabezeile geschrieben, nicht ausgeführt' : entry.note ?? 'Vorschlag'}</span>
-                    <button type="button" disabled={!insertableCommand(segment.command)} onClick={() => typeCommand(tab.id, entry.id, segment.command)}>Eintippen</button>
-                    <button type="button" onClick={() => void window.desktopApi.writeClipboardText(segment.command).catch(() => {})}>Kopieren</button>
-                    {onSaveWorkflow && <button type="button" title="Als Workflow speichern" onClick={() => onSaveWorkflow(segment.command)}>Als Workflow</button>}
+                    <span>{entry.inserted === insertableCommand(segment.command) ? t('assistant:panel.inserted') : entry.note ?? t('assistant:panel.suggestion')}</span>
+                    <button type="button" disabled={!insertableCommand(segment.command)} onClick={() => typeCommand(tab.id, entry.id, segment.command)}>{t('assistant:panel.type')}</button>
+                    <button type="button" onClick={() => void window.desktopApi.writeClipboardText(segment.command).catch(() => {})}>{t('assistant:panel.copy')}</button>
+                    {onSaveWorkflow && <button type="button" title={t('assistant:panel.saveWorkflowTitle')} onClick={() => onSaveWorkflow(segment.command)}>{t('assistant:panel.saveWorkflow')}</button>}
                   </div>}
                 </div>)}
-              {entry.pending && <span className="assistant-typing" aria-label="Antwort wird geschrieben">…</span>}
+              {entry.pending && <span className="assistant-typing" aria-label={t('assistant:panel.typing')}>…</span>}
               {entry.error && <p className="assistant-error" role="alert">{entry.error}</p>}
             </div>)}
-          {conversation.awaiting && <p className="assistant-status">Prüfe den Befehl und drücke im Terminal Enter.{autoEvaluate ? ' Danach liest der Assistent die Ausgabe und ordnet sie kurz ein.' : ''}</p>}
+          {conversation.awaiting && <p className="assistant-status">{t('assistant:panel.awaiting')}{autoEvaluate ? t('assistant:panel.awaitingAuto') : ''}</p>}
           {conversation.output && tab && <div className="assistant-status">
-            <span>Ausgabe von „{conversation.output.command}“ liegt vor und geht mit deiner nächsten Frage mit.</span>
+            <span>{t('assistant:panel.outputReady', { command: conversation.output.command })}</span>
             <button type="button" className="secondary-button" disabled={busy} onClick={() => {
               const output = conversation.output!;
               const message = outputMessage(output.command, output.text);
-              send(tab.id, `Ausgabe von ${output.command} gelesen`, message, compactMessage(message), true);
-            }}>Ausgabe einordnen</button>
+              send(tab.id, t('assistant:chat.outputRead', { command: output.command }), message, compactMessage(message), true);
+            }}>{t('assistant:panel.classify')}</button>
           </div>}
         </div>
         <form className="assistant-input" onSubmit={event => { event.preventDefault(); submit(); }}>
-          <textarea value={draft} rows={3} disabled={!shell || !provider} placeholder={shell ? 'Frage zum Terminal … (Enter sendet, Umschalt+Enter neue Zeile)' : 'Kein Terminal ausgewählt'}
-            aria-label="Frage an den Assistenten" onChange={event => setDraft(event.target.value)}
+          <textarea value={draft} rows={3} disabled={!shell || !provider} placeholder={shell ? t('assistant:panel.inputPlaceholder') : t('assistant:panel.noTerminal')}
+            aria-label={t('assistant:panel.inputLabel')} onChange={event => setDraft(event.target.value)}
             onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} />
           <div className="assistant-input-actions">
             <label><input type="checkbox" checked={autoEvaluate} onChange={event => { setAutoEvaluate(event.target.checked); write(AUTO_KEY, event.target.checked ? 'on' : 'off'); }} />
-              Ausgabe nach Enter automatisch einordnen</label>
-            {tab && entries.length > 0 && !busy && <button type="button" className="secondary-button" onClick={() => setConversations(current => { const next = { ...current }; delete next[tab.id]; return next; })}>Verlauf leeren</button>}
-            {busy ? <button type="button" className="secondary-button" onClick={stop}>Stopp</button>
-              : <button type="submit" className="primary-button" disabled={!draft.trim() || !shell || !provider}>Fragen</button>}
+              {t('assistant:panel.autoEvaluate')}</label>
+            {tab && entries.length > 0 && !busy && <button type="button" className="secondary-button" onClick={() => setConversations(current => { const next = { ...current }; delete next[tab.id]; return next; })}>{t('assistant:panel.clear')}</button>}
+            {busy ? <button type="button" className="secondary-button" onClick={stop}>{t('assistant:panel.stop')}</button>
+              : <button type="submit" className="primary-button" disabled={!draft.trim() || !shell || !provider}>{t('assistant:panel.ask')}</button>}
           </div>
         </form>
       </>}

@@ -1,4 +1,5 @@
 import type { AiChatMessage } from '../../shared/ai';
+import { t } from './i18n';
 
 export type AnswerSegment = { type: 'text'; text: string } | { type: 'command'; command: string; complete: boolean };
 
@@ -25,7 +26,7 @@ export function parseAnswer(text: string): AnswerSegment[] {
 }
 
 /** The answer says the goal is reached. */
-export const isFinished = (answer: string): boolean => /^\s*Fertig\b/i.test(answer);
+export const isFinished = (answer: string): boolean => /^\s*(?:Fertig|Done)\b/i.test(answer);
 
 /**
  * The exact text typed into the terminal: one line, no control characters, so it can never be
@@ -55,20 +56,20 @@ const fence = (text: string): string => `\`\`\`\n${text.replace(/```/g, "'''")}\
 
 /** A question with the current screen, so the model always knows the state of the terminal. */
 export function questionMessage(question: string, screen: string): string {
-  return `Terminal:\n${fence(tail(screen, SCREEN_CHARS) || '(leer)')}\n${question}`;
+  return `${t('assistant:chat.terminal')}\n${fence(tail(screen, SCREEN_CHARS) || t('assistant:chat.empty'))}\n${question}`;
 }
 
 /** Sent by Shellherd itself after Enter: classify the output; continue only towards an open goal. */
-export const AFTER_OUTPUT = 'Ordne die Ausgabe kurz ein. Nur wenn mein Ziel noch offen ist: nächster Befehl.';
+export const afterOutput = (): string => t('assistant:chat.afterOutput');
 
 /** Output of the command the user just ran. */
-export function outputMessage(command: string, output: string, question = AFTER_OUTPUT): string {
-  return `Ausgabe von ${command}:\n${fence(tail(output, OUTPUT_CHARS) || '(keine Ausgabe)')}\n${question}`;
+export function outputMessage(command: string, output: string, question = afterOutput()): string {
+  return `${t('assistant:chat.outputOf', { command })}\n${fence(tail(output, OUTPUT_CHARS) || t('assistant:chat.noOutput'))}\n${question}`;
 }
 
 /** What an earlier turn costs in later requests: the question, or the start of a long output. */
 export function compactMessage(content: string): string {
-  return content.length <= COMPACT_CHARS ? content : `${content.slice(0, COMPACT_CHARS)}\n…(gekürzt)`;
+  return content.length <= COMPACT_CHARS ? content : `${content.slice(0, COMPACT_CHARS)}\n…${t('common:truncated')}`;
 }
 
 /** Recent history for a request: at most `max` messages, starting with a user message. */

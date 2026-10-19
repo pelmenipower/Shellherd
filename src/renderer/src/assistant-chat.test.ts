@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { AFTER_OUTPUT, compactMessage, historyForRequest, insertableCommand, isFinished, outputMessage, parseAnswer, questionMessage, tail } from './assistant-chat';
+import { afterEach, describe, expect, it } from 'vitest';
+import { i18n } from './i18n';
+import { afterOutput, compactMessage, historyForRequest, insertableCommand, isFinished, outputMessage, parseAnswer, questionMessage, tail } from './assistant-chat';
+
+afterEach(async () => { await i18n.changeLanguage('de-DE'); });
 
 describe('assistant chat', () => {
   it('splits answers into text and commands, also while streaming', () => {
@@ -25,8 +28,8 @@ describe('assistant chat', () => {
     expect(message.endsWith('\nWarum?')).toBe(true);
     expect(questionMessage('Und jetzt?', 'root@cp1:/#')).toContain('root@cp1:/#');
     expect(outputMessage('ls', '')).toContain('(keine Ausgabe)');
-    expect(outputMessage('kubectl get ns', 'default Active').endsWith(AFTER_OUTPUT)).toBe(true);
-    expect(AFTER_OUTPUT).toContain('Nur wenn mein Ziel noch offen ist');
+    expect(outputMessage('kubectl get ns', 'default Active').endsWith(afterOutput())).toBe(true);
+    expect(afterOutput()).toContain('Nur wenn mein Ziel noch offen ist');
     expect(outputMessage('kubectl get ns', 'default Active', 'Welche sind älter als 100 Tage?')).toMatch(/default Active\n```\nWelche/);
   });
 
@@ -43,5 +46,14 @@ describe('assistant chat', () => {
     const history = [{ role: 'assistant' as const, content: 'alt' }, { role: 'user' as const, content: 'a' }, { role: 'assistant' as const, content: '' }, { role: 'user' as const, content: 'b' }];
     expect(historyForRequest(history)).toEqual([{ role: 'user', content: 'a' }, { role: 'user', content: 'b' }]);
     expect(historyForRequest(history, 1)).toEqual([{ role: 'user', content: 'b' }]);
+  });
+
+  it('writes the context sent to the model in the UI language', async () => {
+    await i18n.changeLanguage('en-US');
+    expect(outputMessage('ls', '')).toBe(`Output of ls:\n\`\`\`\n(no output)\n\`\`\`\n${afterOutput()}`);
+    expect(afterOutput()).toBe('Briefly interpret the output. Only if my goal is still open: next command.');
+    expect(questionMessage('Why?', '')).toContain('(empty)');
+    expect(compactMessage('x'.repeat(5000)).endsWith('(truncated)')).toBe(true);
+    expect(isFinished('Done. All set.')).toBe(true);
   });
 });
