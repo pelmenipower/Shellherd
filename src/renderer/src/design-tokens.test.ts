@@ -70,6 +70,10 @@ const SPACES = [2, 4, 6, 8, 10, 12, 16, 20, 24, 32];
 // TSX couples to these: ROW_HEIGHT 24 (ResourceTable/ContainerTable), pane header 32 (SplitTerminalArea), sidebar 44/24.
 const LOCKED: Record<string, string> = { '--control-xs': '24px', '--bar-sm': '24px', '--bar-md': '32px', '--bar-lg': '44px', '--dur-toast': '220ms',
   ...Object.fromEntries(SPACES.map(n => [`--space-${n}`, `${n}px`])) };
+// Bars whose height comes from flex/flex-basis: the base must be a --bar-* token (TSX and toast offsets couple to it).
+const BAR_SELECTORS = new Set(['.app-status', '.app-header', '.view-bar']);
+// Custom properties set outside CSS (inline style from TSX). Checked 2026-10: there are none; add names here with the setting file.
+const INLINE_VARS: ReadonlySet<string> = new Set<string>();
 const PX = /^-?(?:\d+\.?\d*|\.\d+)px$/;
 
 /** Splits a value on top-level spaces and commas; a function call (calc, min, max, clamp, var ...) stays one part. */
@@ -103,7 +107,7 @@ function movingKeyframesOf(css: string): Set<string> {
 }
 
 /** Lints one stylesheet and returns violations as "<file> <rule> <selector> { <property>: <value> }". */
-function lint(file: string, css: string, shared: ReadonlySet<string> = new Set()): string[] {
+function lint(file: string, css: string, shared: ReadonlySet<string> = new Set(), tokenNames?: ReadonlySet<string>): string[] {
   const isTokens = file === 'tokens.css';
   const out: string[] = [];
   const add = (rule: string, selector: string, property: string, value: string): void => {
@@ -113,6 +117,7 @@ function lint(file: string, css: string, shared: ReadonlySet<string> = new Set()
   const blocks = tokenize(css);
   let hasMotion = false;
   const movingKeyframes = new Set([...shared, ...movingKeyframesOf(css)]);
+  const localNames = new Set(blocks.flatMap(block => block.declarations.map(item => item.property)).filter(name => name.startsWith('--')));
   const zIndexOk = (raw: string): boolean => {
     const value = raw.replace(/\s*!important\s*$/i, '').trim();
     return value === 'auto' || /^var\(--layer-[\w-]+\)$/.test(value) || /^calc\(\s*var\(--layer-[\w-]+\)\s*[+-]\s*\d+\s*\)$/.test(value);
@@ -134,6 +139,16 @@ function lint(file: string, css: string, shared: ReadonlySet<string> = new Set()
         if ((property === 'font-size' && pxLiterals(value).length > 0) || (property === 'font' && /(^|\s)\d+\.?\d*px(\/|\s|$)/.test(value))) add('R15', selector, property, value);
         if ((/^(?:padding|margin)(?:-|$)/.test(property) || /^(?:row-|column-)?gap$/.test(property))
           && pxLiterals(value).some(n => !(n === 0 || n === 1 || n < 0 || n >= 48))) add('R16', selector, property, value);
+      }
+      if (tokenNames) {
+        for (const match of value.matchAll(/var\(\s*(--[\w-]+)/g)) {
+          const name = match[1];
+          if (!tokenNames.has(name) && !INLINE_VARS.has(name) && !localNames.has(name)) add('R18', selector, property, value);
+        }
+      }
+      if (!isTokens && (property === 'flex' || property === 'flex-basis') && selector.split(',').some(part => BAR_SELECTORS.has(part.trim()))) {
+        const base = property === 'flex-basis' ? value.replace(/\s*!important\s*$/i, '') : valueParts(value.replace(/\s*!important\s*$/i, ''))[2];
+        if (!base || !/^var\(--bar-[\w-]+\)$/.test(base)) add('R17', selector, property, value);
       }
       if (/var\(\s*--(?:ui-[\w-]+|surface(?:-raised|-hover)?|border|text|text-muted|accent)\s*\)/.test(value)) add('R12', selector, property, value);
       if ((property === 'transition' || property === 'transition-property') && /(?<![-\w])all(?![-\w])/.test(value)) add('R2', selector, property, value);
@@ -191,6 +206,9 @@ function lint(file: string, css: string, shared: ReadonlySet<string> = new Set()
   return out;
 }
 
+/** Collects every custom property declared in a stylesheet. */
+const declaredNamesOf = (css: string): Set<string> => new Set(tokenize(css).flatMap(block => block.declarations.map(item => item.property)).filter(name => name.startsWith('--')));
+
 const RULE_IDS = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R7b', 'R8', 'R11', 'R12', 'R13', 'R14', 'R15', 'R16'];
 
 const BAD_FIXTURE = `
@@ -234,10 +252,11 @@ describe('design tokens lint', () => {
     }
   });
 
+  const TOKEN_NAMES = declaredNamesOf(readFileSync(`${ROOT}tokens.css`, 'utf8'));
   const SHARED_MOVING = new Set(FILES.flatMap(file => [...movingKeyframesOf(readFileSync(`${ROOT}${file}`, 'utf8'))]));
   for (const file of FILES) {
     it(file, () => {
-      const found = lint(file, readFileSync(`${ROOT}${file}`, 'utf8'), SHARED_MOVING);
+      const found = lint(file, readFileSync(`${ROOT}${file}`, 'utf8'), SHARED_MOVING, TOKEN_NAMES);
       expect(found).toEqual([]);
     });
   }
@@ -295,6 +314,27 @@ describe('design tokens lint', () => {
     expect(tokens.some(line => line.includes(' R4 '))).toBe(true);
     expect(lint('styles.css', 'body { margin: 0; }').some(line => line.includes(' R10 '))).toBe(true);
     expect(lint('other.css', "@import './tokens.css';").some(line => line.includes(' R10 '))).toBe(true);
+  });
+
+  it('R18 flags var() names that tokens.css does not declare', () => {
+    const names = new Set(['--space-8', '--color-text']);
+    const bad = lint('fixture.css', '.a { padding: var(--space-14); } .b { margin: var(--space-md, 4px); } .c { color: var(--color-text); }', new Set(), names);
+    expect(bad.filter(line => line.split(' ')[1] === 'R18').length).toBe(2);
+    expect(lint('fixture.css', '.a { padding: var(--space-8); color: var(--color-text); }', new Set(), names)).toEqual([]);
+    // a name declared in the same file is not an R18 hit (R11 still flags the declaration)
+    const local = lint('fixture.css', '.a { --local: 1; width: var(--local); }', new Set(), names);
+    expect(local.some(line => line.split(' ')[1] === 'R18')).toBe(false);
+    // without a token set the rule is off
+    expect(lint('fixture.css', '.a { padding: var(--nope); }')).toEqual([]);
+  });
+
+  it('R17 requires a --bar-* base in flex of the bar selectors', () => {
+    for (const css of ['.app-status { flex: 0 0 26px; }', '.app-header { flex: 0 0 var(--space-12); }', '.view-bar { flex-basis: 30px; }', '.app-status { flex: none; }']) {
+      expect(lint('fixture.css', css).some(line => line.split(' ')[1] === 'R17'), css).toBe(true);
+    }
+    for (const css of ['.app-status { flex: 0 0 var(--bar-sm); }', '.view-bar { flex-basis: var(--bar-md); }', '.other { flex: 0 0 26px; }']) {
+      expect(lint('fixture.css', css), css).toEqual([]);
+    }
   });
 
   it('accepts the negative fixture', () => {
