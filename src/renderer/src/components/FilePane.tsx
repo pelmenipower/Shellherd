@@ -5,7 +5,7 @@ import type { FileSide, SortKey, SortOrder } from '../file-browser';
 import { ContextMenu } from './ContextMenu';
 import { formatDate, formatSize, isDirectory, joinPath, nameError, nextSelection, parentPath, pathSegments, sortEntries } from '../file-browser';
 
-export const FILES_MIME = 'application/x-terminus-files';
+export const FILES_MIME = 'application/x-shellherd-files';
 /** Drag payload between the two sides of one file tab. */
 export interface FileDrag { tabId: string; side: FileSide; dir: string; names: string[] }
 

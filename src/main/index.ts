@@ -17,6 +17,8 @@ import { windowRegistry } from './windows';
 import type { WindowRole } from './windows';
 import { registerWindowIpcHandlers } from './window-ipc';
 import { FileAssociation, vaultFileFromArgs } from './file-association';
+import { brandIconPath } from './brand';
+import { migrateUserData } from './user-data';
 import { testConnection } from './connection-test';
 import { registerAiIpcHandlers } from './ai/ipc';
 import type { AssistantService } from './ai/assistant';
@@ -57,11 +59,13 @@ function closeSecondaryWindows(): void {
 }
 
 function createWindow(role: WindowRole, bounds?: Rectangle): BrowserWindow {
+  const icon = brandIconPath();
   const window = new BrowserWindow({
     ...(bounds ?? { width: 1280, height: 800 }),
     minWidth: role === 'main' ? 900 : 480,
     minHeight: role === 'main' ? 600 : 320,
-    title: role === 'main' ? 'Terminus' : 'Terminus – Sitzungen',
+    title: role === 'main' ? 'Shellherd' : 'Shellherd – Sitzungen',
+    ...(icon ? { icon } : {}),
     backgroundColor: '#0b1120',
     show: false,
     webPreferences: {
@@ -109,7 +113,7 @@ function guardMainWindowClose(window: BrowserWindow, ownerId: number): void {
     if (confirmingClose) return;
     confirmingClose = true;
     void dialog.showMessageBox(window, {
-      type: 'question', title: 'Terminus schließen', message: 'Alle aktiven Verbindungen in allen Fenstern trennen und Terminus schließen?',
+      type: 'question', title: 'Shellherd schließen', message: 'Alle aktiven Verbindungen in allen Fenstern trennen und Shellherd schließen?',
       buttons: ['Abbrechen', 'Trennen und schließen'], defaultId: 0, cancelId: 0, noLink: true,
     }).then(result => {
       if (result.response === 1 && !window.isDestroyed()) {
@@ -146,7 +150,10 @@ function guardSecondaryWindowClose(window: BrowserWindow, ownerId: number): void
   });
 }
 
-// One Terminus per user: a vault opened from Explorer goes to the running window.
+// Taskbar grouping and toast identity on Windows.
+if (process.platform === 'win32') app.setAppUserModelId('com.pelmenipower.shellherd');
+
+// One Shellherd per user: a vault opened from Explorer goes to the running window.
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 let launchFile = vaultFileFromArgs(process.argv);
@@ -164,7 +171,9 @@ if (rdpSurfaceMode() === 'child') app.commandLine.appendSwitch('disable-direct-c
 
 app.whenReady().then(() => {
   if (!singleInstance) return;
-  const association = new FileAssociation(process.execPath, process.defaultApp ? app.getAppPath() : null);
+  // Before anything reads userData (known hosts, last vault): take over the legacy profile files once.
+  migrateUserData(join(app.getPath('appData'), 'Terminus'), app.getPath('userData'));
+  const association = new FileAssociation(process.execPath, process.defaultApp ? app.getAppPath() : null, brandIconPath());
   ipcMain.handle(IPC_CHANNELS.vaultLaunchFile, event => {
     windowRegistry.requireMain(event);
     const file = launchFile;

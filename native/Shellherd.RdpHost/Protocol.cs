@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using System.Web.Script.Serialization;
 
-namespace Terminus.RdpHost
+namespace Shellherd.RdpHost
 {
     /// <summary>Newline-delimited JSON over private stdin/stdout pipes. Serialized JSON never contains raw newlines.</summary>
     public static class Protocol

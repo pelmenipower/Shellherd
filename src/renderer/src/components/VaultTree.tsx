@@ -41,7 +41,7 @@ interface VaultTreeProps {
   containers?: ContainerTreeProps;
 }
 
-const NODE_MIME = 'application/x-terminus-node';
+const NODE_MIME = 'application/x-shellherd-node';
 type DropHint = { id: string | null; kind: 'before' | 'after' | 'into' };
 
 function findTreeNode(nodes: VaultNode[], id: string): VaultNode | undefined {

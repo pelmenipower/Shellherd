@@ -4,7 +4,7 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace Terminus.RdpHost
+namespace Shellherd.RdpHost
 {
     public sealed class OpenRequest
     {
@@ -29,7 +29,7 @@ namespace Terminus.RdpHost
 
     /// <summary>
     /// One RDP connection. The control lives either in its own window (P2 harness) or in a surface
-    /// embedded into the Terminus window (P3 variants A/B). All members run on the STA UI thread.
+    /// embedded into the Shellherd window (P3 variants A/B). All members run on the STA UI thread.
     /// </summary>
     public sealed class RdpSession : IRdpEventTarget
     {
@@ -74,7 +74,7 @@ namespace Terminus.RdpHost
             {
                 window = new Form
                 {
-                    Text = "Terminus RDP-Prototyp - " + request.Server,
+                    Text = "Shellherd RDP - " + request.Server,
                     ClientSize = new Size(request.Width, request.Height),
                     StartPosition = FormStartPosition.CenterScreen,
                 };
@@ -135,7 +135,7 @@ namespace Terminus.RdpHost
             }
         }
 
-        /// <summary>Moves the surface to another Terminus window without touching the connection.</summary>
+        /// <summary>Moves the surface to another Shellherd window without touching the connection.</summary>
         public void Reparent(IntPtr newParent)
         {
             if (mode == SurfaceMode.Window || closed) return;
@@ -304,7 +304,7 @@ namespace Terminus.RdpHost
                 SetSmartSizing(true);
                 return;
             }
-            // Terminus hides the surface meanwhile; the control's own reconnect screens stay invisible.
+            // Shellherd hides the surface meanwhile; the control's own reconnect screens stay invisible.
             Resizing(true);
             SetSmartSizing(false);
             updatePending = true;
@@ -348,7 +348,7 @@ namespace Terminus.RdpHost
             onClosed(this);
         }
 
-        /// <summary>Diagnostics only; the main process logs these with TERMINUS_RDP_DEBUG=1.</summary>
+        /// <summary>Diagnostics only; the main process logs these with SHELLHERD_RDP_DEBUG=1.</summary>
         private void Trace(string name, string detail)
         {
             var payload = Protocol.Message("trace");

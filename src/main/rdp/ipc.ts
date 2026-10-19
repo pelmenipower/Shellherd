@@ -25,14 +25,14 @@ function parse<T>(schema: z.ZodType<T>, request: unknown): T {
 }
 
 export function rdpSurfaceMode(): RdpSurfaceMode {
-  return process.env.TERMINUS_RDP_MODE === 'child' ? 'child' : 'owned';
+  return process.env.SHELLHERD_RDP_MODE === 'child' ? 'child' : 'owned';
 }
 
 export function registerRdpIpcHandlers(): RdpSessionManager {
   const manager = new RdpSessionManager({
-    executable: join(__dirname, '../rdp-host/Terminus.RdpHost.exe'),
+    executable: join(__dirname, '../rdp-host/Shellherd.RdpHost.exe'),
     // Owned surfaces (variant B) are the default: child windows (A) are hidden by Chromium's
-    // DirectComposition and share the input queue with Terminus. A stays available for experiments.
+    // DirectComposition and share the input queue with Shellherd. A stays available for experiments.
     mode: rdpSurfaceMode(),
     getTarget: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);

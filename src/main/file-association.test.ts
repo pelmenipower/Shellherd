@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { launchCommand, registryEntries, vaultFileFromArgs } from './file-association';
+import { iconValue, launchCommand, legacyRegistryDeletes, pointsToVaultProgId, registryEntries, vaultFileFromArgs } from './file-association';
 
 describe('vault file association', () => {
   it('finds an existing vault file among Explorer arguments', () => {
@@ -11,15 +11,37 @@ describe('vault file association', () => {
   });
 
   it('quotes the launch command and passes the app folder only in development', () => {
-    expect(launchCommand('C:\\Program Files\\Terminus\\Terminus.exe', null)).toBe('"C:\\Program Files\\Terminus\\Terminus.exe" "%1"');
-    expect(launchCommand('C:\\dev\\electron.exe', 'C:\\dev\\Terminus')).toBe('"C:\\dev\\electron.exe" "C:\\dev\\Terminus" "%1"');
+    expect(launchCommand('C:\\Program Files\\Shellherd\\Shellherd.exe', null)).toBe('"C:\\Program Files\\Shellherd\\Shellherd.exe" "%1"');
+    expect(launchCommand('C:\\dev\\electron.exe', 'C:\\dev\\Shellherd')).toBe('"C:\\dev\\electron.exe" "C:\\dev\\Shellherd" "%1"');
   });
 
   it('writes only per-user keys and names the open verb', () => {
     const entries = registryEntries('"x.exe" "%1"', '"x.exe",0');
     expect(entries.every(args => args[1].startsWith('HKCU\\Software\\Classes\\'))).toBe(true);
-    expect(entries).toContainEqual(['add', 'HKCU\\Software\\Classes\\.term', '/ve', '/t', 'REG_SZ', '/d', 'Terminus.Vault', '/f']);
-    expect(entries).toContainEqual(['add', 'HKCU\\Software\\Classes\\Terminus.Vault\\shell\\open', '/ve', '/t', 'REG_SZ', '/d', 'Mit Terminus öffnen', '/f']);
-    expect(entries.at(-1)).toEqual(['add', 'HKCU\\Software\\Classes\\Terminus.Vault\\shell\\open\\command', '/ve', '/t', 'REG_SZ', '/d', '"x.exe" "%1"', '/f']);
+    expect(entries).toContainEqual(['add', 'HKCU\\Software\\Classes\\.term', '/ve', '/t', 'REG_SZ', '/d', 'Shellherd.Vault', '/f']);
+    expect(entries).toContainEqual(['add', 'HKCU\\Software\\Classes\\Shellherd.Vault\\shell\\open', '/ve', '/t', 'REG_SZ', '/d', 'Mit Shellherd öffnen', '/f']);
+    expect(entries.at(-1)).toEqual(['add', 'HKCU\\Software\\Classes\\Shellherd.Vault\\shell\\open\\command', '/ve', '/t', 'REG_SZ', '/d', '"x.exe" "%1"', '/f']);
+  });
+
+  it('removes only the legacy per-user keys', () => {
+    const deletes = legacyRegistryDeletes();
+    expect(deletes).toEqual([
+      ['delete', 'HKCU\\Software\\Classes\\Terminus.Vault', '/f'],
+      ['delete', 'HKCU\\Software\\Classes\\.term\\OpenWithProgids', '/v', 'Terminus.Vault', '/f'],
+      ['delete', 'HKCU\\Software\\Classes\\.terminus\\OpenWithProgids', '/v', 'Terminus.Vault', '/f'],
+    ]);
+    expect(deletes.every(args => args[1].startsWith('HKCU\\Software\\Classes\\'))).toBe(true);
+    expect(deletes.some(args => args[1] === 'HKCU\\Software\\Classes\\.term' || /Microsoft/.test(args[1]))).toBe(false);
+  });
+
+  it('recognises our ProgIDs in a .term default value', () => {
+    expect(pointsToVaultProgId('    (Standard)    REG_SZ    Shellherd.Vault')).toBe(true);
+    expect(pointsToVaultProgId('    (Standard)    REG_SZ    Terminus.Vault')).toBe(true);
+    expect(pointsToVaultProgId('    (Standard)    REG_SZ    SomeEditor.term')).toBe(false);
+    expect(pointsToVaultProgId('')).toBe(false);
+  });
+
+  it('quotes the icon path for DefaultIcon', () => {
+    expect(iconValue('C:\\a b\\icon.ico')).toBe('"C:\\a b\\icon.ico",0');
   });
 });

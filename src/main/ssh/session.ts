@@ -248,7 +248,7 @@ export class SshSessionManager {
     this.status(session, 'connected');
   }
 
-  /** With a stored password, `sudo -v` prompts on the tty with a marker that Terminus answers; otherwise sudo -n. */
+  /** With a stored password, `sudo -v` prompts on the tty with a marker that Shellherd answers; otherwise sudo -n. */
   private sudoMode(session: Session, connection: SshConnectionNode): SudoMode {
     const setting = sudoSetting(connection);
     if (setting.kind !== 'prompt') return setting;
@@ -283,7 +283,7 @@ export class SshSessionManager {
   private sudoGaveUp(session: Session): void {
     if (!this.active(session) || !session.sudo) return;
     this.releaseSudoHold(session);
-    this.output(session, Buffer.from('\r\n[Terminus] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben.\r\n', 'utf8'));
+    this.output(session, Buffer.from('\r\n[Shellherd] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben.\r\n', 'utf8'));
   }
 
   private releaseSudoHold(session: Session): void {

@@ -72,11 +72,11 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
           : 'vault.term';
 
       const options = {
-        title: 'Terminus-Vault speichern',
+        title: 'Shellherd-Vault speichern',
         defaultPath: suggestedName,
         filters: [
           {
-            name: 'Terminus Vault',
+            name: 'Shellherd Vault',
             extensions: ['term', 'terminus'],
           },
         ],
@@ -117,13 +117,13 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         BrowserWindow.fromWebContents(event.sender);
 
       const options: OpenDialogOptions = {
-        title: 'Terminus-Vault auswählen',
+        title: 'Shellherd-Vault auswählen',
         // Starts in the folder of the last vault; any other file can still be picked.
         ...(await lastVault.get().then(last => last ? { defaultPath: last } : {})),
         properties: ['openFile'],
         filters: [
           {
-            name: 'Terminus Vault',
+            name: 'Shellherd Vault',
             extensions: ['term', 'terminus'],
           },
         ],

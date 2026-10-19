@@ -352,7 +352,7 @@ function involvedOf(row: KubeRow): { kind: string; name: string; ref?: KubeRef }
 }
 
 const involvedReason = (involved: { kind: string; ref?: KubeRef }): string | undefined =>
-  involved.ref ? undefined : `Objekte vom Typ ${involved.kind} zeigt Terminus nicht an.`;
+  involved.ref ? undefined : `Objekte vom Typ ${involved.kind} zeigt Shellherd nicht an.`;
 
 function eventGroups(env: Env, row: KubeRow): Group[] {
   const involved = involvedOf(row);

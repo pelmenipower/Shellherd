@@ -14,7 +14,7 @@ if (!server) {
 const [domain, username] = account.includes('\\') ? account.split('\\', 2) : [undefined, account || undefined];
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const helper = spawn(join(root, 'out', 'rdp-host', 'Terminus.RdpHost.exe'), [], { stdio: ['pipe', 'pipe', 'inherit'] });
+const helper = spawn(join(root, 'out', 'rdp-host', 'Shellherd.RdpHost.exe'), [], { stdio: ['pipe', 'pipe', 'inherit'] });
 const send = message => helper.stdin.write(`${JSON.stringify(message)}\n`);
 
 createInterface({ input: helper.stdout }).on('line', line => {

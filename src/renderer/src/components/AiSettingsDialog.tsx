@@ -63,7 +63,7 @@ export function AiSettingsDialog({ settings, busy, onSave, onClose }: AiSettings
   return (
     <dialog ref={dialogRef} className="confirm-dialog ai-settings-dialog" aria-labelledby={`${id}-title`} onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
       <h2 id={`${id}-title`}>KI-Anbieter</h2>
-      <p className="ai-intro">API-Schlüssel werden verschlüsselt im Vault gespeichert und nur vom Terminus-Hauptprozess verwendet. Was du den Assistenten fragst, geht samt Terminalausschnitt an den gewählten Anbieter.</p>
+      <p className="ai-intro">API-Schlüssel werden verschlüsselt im Vault gespeichert und nur vom Shellherd-Hauptprozess verwendet. Was du den Assistenten fragst, geht samt Terminalausschnitt an den gewählten Anbieter.</p>
       {!draft && <>
         {providers.length ? <ul className="ai-provider-list">
           {providers.map(provider => <li key={provider.id}>
@@ -95,7 +95,7 @@ export function AiSettingsDialog({ settings, busy, onSave, onClose }: AiSettings
         {field('Anzeigename', 'name')}
         {field(draft.kind === 'azure' ? 'Deployment-Name' : 'Modell', 'model', draft.kind === 'azure' ? 'z. B. das kleine Chat-Modell „minichat“ oder gpt-4o-mini.' : undefined)}
         {(draft.kind === 'openai' || draft.kind === 'azure') && field(draft.kind === 'azure' ? 'Endpoint' : 'Basis-URL', 'baseUrl',
-          draft.kind === 'azure' ? 'Projekt- oder Ressourcen-URL aus dem Foundry-Portal, z. B. https://<ressource>.services.ai.azure.com/api/projects/<projekt>. Terminus findet den passenden Aufrufweg selbst.' : undefined)}
+          draft.kind === 'azure' ? 'Projekt- oder Ressourcen-URL aus dem Foundry-Portal, z. B. https://<ressource>.services.ai.azure.com/api/projects/<projekt>. Shellherd findet den passenden Aufrufweg selbst.' : undefined)}
         {draft.kind === 'azure' && field('API-Version (optional)', 'apiVersion', 'Meist leer lassen. Gilt nur für die Wege /models und /openai/deployments.')}
         {field(draft.kind === 'openai' ? 'API-Schlüssel (leer für lokale Modelle)' : 'API-Schlüssel', 'apiKey')}
         <div className="form-actions">

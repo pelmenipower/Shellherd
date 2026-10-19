@@ -1,10 +1,10 @@
-# Terminus-Designsystem
+# Shellherd-Designsystem
 
 Alle Farben, Maße, Ebenen, Schatten und Bewegungswerte stehen in `src/renderer/src/tokens.css`. Jede andere Stylesheet-Datei nutzt nur `var(--…)`. Die Pipeline-Unterlagen sind `docs/superpowers/specs/2026-10-19-design-system-design.md`, die Validierung `…-validation.md` und der Plan unter `docs/superpowers/plans/`. Stufe 2: `docs/superpowers/specs/2026-10-19-design-system-stage2-design.md`, Validierung `docs/superpowers/specs/2026-10-19-design-system-stage2-validation.md`.
 
 ## Roter Faden
 
-**Terminus ist ein dichtes, dunkles Ops-Werkzeug. Es bewegt sich fast nichts, was leuchtet, ist Cyan, und was gefärbt ist, ist ein Zustand.**
+**Shellherd ist ein dichtes, dunkles Ops-Werkzeug. Es bewegt sich fast nichts, was leuchtet, ist Cyan, und was gefärbt ist, ist ein Zustand.**
 
 1. **Drei Flächenstufen, eine Linie.** Bühne `#070b14` (Terminal, Code, Manifest), App-Grund `#090e17` (Hintergrund, View-Leiste), Panel `#111925` (Leisten, Seitenleiste, Dialoge, Menüs), erhöht `#182334` (Controls, Zeilen-Hover), Hover `#233045`. Eine Linienfarbe `#29374b`, eine stärkere `#496078` für Hover-Ränder und aktive Tabs.
 2. **Cyan ist das einzige Signal.** `#67e8f9` steht für Fokus, aktive Tabs, Links, Auswahl-Rand, Fortschritt und Primärbutton. Ausgewählt (dauerhaft, Zeilen) ist **ein** opakes Blau `#183245`. Aktiv in View-Tabs, Menüfokus und Badges ist **eine** Tönung `rgb(103 232 249 / 14%)`. Hover auf Buttons, Tabs und Chips ist `--color-bg-hover`. Ein einzelnes Drop-Ziel bekommt 22 %, eine ganze Ablagefläche 6 %. Mehr Stufen gibt es nicht.
@@ -13,6 +13,10 @@ Alle Farben, Maße, Ebenen, Schatten und Bewegungswerte stehen in `src/renderer/
 5. **Vier Control-Höhen.** 24 in Tabellen und Chip-Leisten, 28 in Leisten und Menüs, 32 Standard, 36 für Formulareingaben und Suche, 32 für die Inline-Eingaben im Datei-Prompt und im Rechte-Dialog. Die Umbenennen-Eingabe der View-Tabs und die Pfad-Eingabe im Dateibrowser sind 24 hoch. Leisten sind 32 hoch (Pane, View, Datei, Dock, Transfer, Editor- und Assistent-Kopf), der App-Kopf 44, die Statusleiste 24.
 6. **Drei Radien.** 4 innen (Tabs, Zeilen, Menüeinträge, Icon-Knöpfe in Leisten), 5 Standard (Buttons, Eingaben, Popover, Menüs), 8 für Dialoge und Karten. Pillen nutzen `999px` (Chips, Badges). Ausnahme: Das Layout-Menü hat 4.
 7. **Motion ist Ausnahme.** Druck (120 ms), Dialog (200 ms), Popover (160 ms), Hinweis (180 ms), Fehlerhinweis (220 ms ein, 150 ms aus), Puls (1 s), Abblenden bei verlorener Verbindung (200 ms). Alles, was per Tastatur erreichbar ist, alle Listen, Tabs, Chips und die Terminalausgabe reagieren sofort. Hover-Farbwechsel haben keine Transition.
+
+## Marke
+
+Das Shellherd-Zeichen (`resources/mark-64.png`) ist das einzige Rasterbild der Oberfläche: 24 px im App-Kopf (`.brand-icon`), 36 px auf der Startkarte (`.brand-mark`). Keine CSS-Radien, Filter oder Schatten darauf; die runden Ecken stecken im Asset. Das Orange im Zeichen ist Bildinhalt, kein Signal; Signalfarbe bleibt Cyan. Erzeugung: `npm run icons` aus `resources/brand/shellherd-master.png` (48–256 px, Kopf- und Startzeichen) und den vereinfachten Kleinvarianten `resources/brand/shellherd-small-32.png` (24, 32 px) und `resources/brand/shellherd-small-16.png` (16 px).
 
 ## Tokens
 

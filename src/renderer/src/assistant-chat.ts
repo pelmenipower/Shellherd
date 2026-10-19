@@ -58,7 +58,7 @@ export function questionMessage(question: string, screen: string): string {
   return `Terminal:\n${fence(tail(screen, SCREEN_CHARS) || '(leer)')}\n${question}`;
 }
 
-/** Sent by Terminus itself after Enter: classify the output; continue only towards an open goal. */
+/** Sent by Shellherd itself after Enter: classify the output; continue only towards an open goal. */
 export const AFTER_OUTPUT = 'Ordne die Ausgabe kurz ein. Nur wenn mein Ziel noch offen ist: nächster Befehl.';
 
 /** Output of the command the user just ran. */

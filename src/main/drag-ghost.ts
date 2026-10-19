@@ -21,7 +21,7 @@ html,body{margin:0;height:100%;background:transparent;font:13px "Segoe UI",syste
 }
 
 /**
- * Translucent outline that follows a tab dragged outside all Terminus windows and shows where the
+ * Translucent outline that follows a tab dragged outside all Shellherd windows and shows where the
  * new window will open. It never takes focus or mouse input, so the drag in the source window continues.
  */
 export class DragGhost {

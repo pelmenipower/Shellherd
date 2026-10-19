@@ -374,7 +374,7 @@ export function createKubeApi(config: KubeConfig): KubeApi {
       await call(async () => {
         const header = headerOf(ref);
         const spec = { ...body, ...header, metadata: { ...(body as { metadata?: object }).metadata, ...header.metadata } };
-        await objects().patch(spec as KubernetesObject, undefined, undefined, 'terminus', undefined, PatchStrategy.MergePatch);
+        await objects().patch(spec as KubernetesObject, undefined, undefined, 'shellherd', undefined, PatchStrategy.MergePatch);
       });
     },
 
@@ -385,7 +385,7 @@ export function createKubeApi(config: KubeConfig): KubeApi {
     async createJobFrom(cron, jobName) {
       await call(async () => {
         const cronObject = (await objects().read(headerOf(cron))) as KubeObject;
-        await objects().create(manualJobBody(cronObject, jobName) as KubernetesObject, undefined, undefined, 'terminus');
+        await objects().create(manualJobBody(cronObject, jobName) as KubernetesObject, undefined, undefined, 'shellherd');
       });
     },
 

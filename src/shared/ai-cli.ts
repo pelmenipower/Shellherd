@@ -1,6 +1,6 @@
 import type { AiCliConnectionNode, AiCliTool } from './vault/types';
 
-/** AI command line tools Terminus can start in a tab; each brings its own login. */
+/** AI command line tools Shellherd can start in a tab; each brings its own login. */
 export const AI_CLI_TOOLS: Record<Exclude<AiCliTool, 'custom'>, { label: string; command: string; install: string }> = {
   claude: { label: 'Claude Code', command: 'claude', install: 'npm install -g @anthropic-ai/claude-code' },
   codex: { label: 'Codex CLI', command: 'codex', install: 'npm install -g @openai/codex' },

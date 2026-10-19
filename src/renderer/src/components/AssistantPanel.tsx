@@ -26,7 +26,7 @@ interface ChatEntry {
   compact: string;
   /** Shown in the panel. */
   shown: string;
-  /** Sent by Terminus after Enter (command output); shown as a quiet note, not as the user's words. */
+  /** Sent by Shellherd after Enter (command output); shown as a quiet note, not as the user's words. */
   automatic?: boolean;
   pending?: boolean;
   error?: string;
@@ -42,8 +42,8 @@ interface Conversation {
   output?: { command: string; text: string };
 }
 
-const PROVIDER_KEY = 'terminus.aiProvider';
-const AUTO_KEY = 'terminus.aiStepByStep';
+const PROVIDER_KEY = 'shellherd.aiProvider';
+const AUTO_KEY = 'shellherd.aiStepByStep';
 const read = (key: string): string | null => { try { return localStorage.getItem(key); } catch { return null; } };
 const write = (key: string, value: string): void => { try { localStorage.setItem(key, value); } catch { /* per-window convenience only */ } };
 
