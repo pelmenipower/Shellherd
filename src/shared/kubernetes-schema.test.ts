@@ -29,6 +29,19 @@ describe('kubernetes schemas', () => {
     expect(KubeTerminalTargetSchema.safeParse({ namespace: 'shop', pod: 'api-1', container: 'api', mode: 'shell' }).success).toBe(true);
     expect(KubeTerminalTargetSchema.safeParse({ namespace: 'shop', pod: 'api-1', container: 'api;rm', mode: 'shell' }).success).toBe(false);
   });
+  it('validates the optional log format of terminal targets', () => {
+    const target = { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'logs' };
+    expect(KubeTerminalTargetSchema.safeParse({ ...target, format: 'compact' }).success).toBe(true);
+    expect(KubeTerminalTargetSchema.safeParse({ ...target, format: 'raw' }).success).toBe(true);
+    expect(KubeTerminalTargetSchema.safeParse(target).success).toBe(true);
+    expect(KubeTerminalTargetSchema.safeParse({ ...target, format: 'pretty' }).success).toBe(false);
+  });
+  it('accepts an optional logFormat in the snapshot', () => {
+    const base = { query: { kind: 'pods', namespace: null }, crumbs: [], dock: 'logs' };
+    expect(KubeViewSnapshotSchema.safeParse({ ...base, logFormat: 'raw' }).success).toBe(true);
+    expect(KubeViewSnapshotSchema.safeParse({ ...base, logFormat: 'compact' }).success).toBe(true);
+    expect(KubeViewSnapshotSchema.safeParse({ ...base, logFormat: 'x' }).success).toBe(false);
+  });
   it('keeps old snapshots without filters valid and accepts a filter of one kind', () => {
     const base = { query: { kind: 'pods', namespace: null }, crumbs: [], dock: 'logs' };
     expect(KubeViewSnapshotSchema.safeParse(base).success).toBe(true);

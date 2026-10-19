@@ -1,3 +1,4 @@
+import { LogFormatter } from './log-format';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { RequestOptions } from 'node:https';
@@ -207,6 +208,7 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
     finished = true;
     io.end(code, message);
   };
+  const formatter = new LogFormatter(target.format ?? 'compact');
 
   const run = async () => {
     const cluster = config.getCurrentCluster();
@@ -220,7 +222,12 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
 
     for await (const chunk of response.body) {
       if (finished) break;
-      io.data(Buffer.from(chunk));
+      const text = formatter.feed(Buffer.from(chunk));
+      if (text) io.data(Buffer.from(text));
+    }
+    if (!finished) {
+      const rest = formatter.flush();
+      if (rest) io.data(Buffer.from(rest));
     }
     finish(0);
   };
@@ -228,6 +235,11 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
   run().catch((error: unknown) => {
     // After close() the abort error is expected: finish() is blocked, so nothing is reported.
     if (controller.signal.aborted) return;
+    // Show the held partial line before the error, so it is not lost.
+    if (!finished) {
+      const rest = formatter.flush();
+      if (rest) io.data(Buffer.from(rest));
+    }
     finish(null, toApiError(error).message);
   });
 

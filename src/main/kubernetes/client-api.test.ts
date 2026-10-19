@@ -145,9 +145,46 @@ describe('openLogs', () => {
     await flush();
     fake.end();
     await flush();
-    expect(io.data).toHaveBeenCalledWith(Buffer.from('line 1\n'));
+    expect(io.data).toHaveBeenCalledWith(Buffer.from('line 1\r\n'));
     expect(io.end).toHaveBeenCalledTimes(1);
     expect(io.end).toHaveBeenCalledWith(0, undefined);
+  });
+
+  it('formats JSON lines compactly by default and flushes a partial last line at the end', async () => {
+    const fake = fakeLogRequest();
+    const io = fakeIo();
+    openLogs(testConfig(), logsTarget, io, fake.sendRequest);
+    fake.push('{"level":"info","msg":"one"}\n{"level":"info","msg":"two"}');
+    await flush();
+    expect(io.data).toHaveBeenCalledTimes(1);
+    expect(io.data).toHaveBeenCalledWith(Buffer.from('INFO  one\r\n'));
+    fake.end();
+    await flush();
+    expect(io.data).toHaveBeenLastCalledWith(Buffer.from('INFO  two'));
+    expect(io.end).toHaveBeenCalledWith(0, undefined);
+  });
+
+  it('shows the held partial line before a mid-stream body error', async () => {
+    const fake = fakeLogRequest();
+    const io = fakeIo();
+    openLogs(testConfig(), logsTarget, io, fake.sendRequest);
+    fake.push('{"level":"info","msg":"held"}');
+    await flush();
+    expect(io.data).not.toHaveBeenCalled();
+    fake.fail(new Error('socket hang up'));
+    await flush();
+    expect(io.data).toHaveBeenCalledWith(Buffer.from('INFO  held'));
+    expect(io.end).toHaveBeenCalledTimes(1);
+    expect(io.end.mock.calls[0][0]).toBeNull();
+  });
+
+  it('only fixes line ends in raw mode and for previous logs', async () => {
+    const fake = fakeLogRequest();
+    const io = fakeIo();
+    openLogs(testConfig(), { ...previousTarget, format: 'raw' }, io, fake.sendRequest);
+    fake.push('{"level":"info","msg":"one"}\n');
+    await flush();
+    expect(io.data).toHaveBeenCalledWith(Buffer.from('{"level":"info","msg":"one"}\r\n'));
   });
 
   it('treats an abort after close as a clean end without throwing', async () => {
