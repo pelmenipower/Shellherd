@@ -1,9 +1,10 @@
 import { ACTION_KINDS, KIND_INFO, KUBE_KINDS, KUBE_NAME, MAX_REPLICAS, NOT_CONNECTED_MESSAGE, READ_ONLY_MESSAGE, refKey, type KubeAction, type KubeKind, type KubeRef, type KubeRow } from '../../shared/kubernetes';
+import { attentionChip, CHIPS, knownChips } from '../../shared/kube-status';
 import { visibleRows, type KubeViewState } from './kube-view';
 
 export type CommandGroup = 'Navigation' | 'Ansicht' | 'Aktionen';
 export type CommandId = 'down' | 'up' | 'drill' | 'back' | 'filter' | 'command' | 'tab' | 'logs' | 'shell' | 'events' | 'yaml'
-  | 'describe' | 'previous' | 'menu' | 'restart' | 'scale' | 'delete' | 'toggleDock' | 'popout' | 'help' | 'kind' | 'namespace';
+  | 'describe' | 'previous' | 'menu' | 'restart' | 'scale' | 'delete' | 'toggleDock' | 'popout' | 'help' | 'kind' | 'namespace' | 'attention' | 'resetFilter' | 'status';
 export interface CommandContext { state: KubeViewState; readOnly: boolean }
 export interface KubeCommand {
   id: CommandId;
@@ -77,7 +78,13 @@ export const KUBE_COMMANDS: KubeCommand[] = [
     command: { name: 'ns', syntax: ':ns <name|all>', example: ':ns shop' } },
   { id: 'help', group: 'Navigation', description: 'Hilfe mit allen Tasten und Befehlen', keys: ['?'], bindings: ['?'],
     command: { name: 'help', syntax: ':help', example: ':help' } },
-  { id: 'filter', group: 'Ansicht', description: 'Liste filtern', keys: ['/'], bindings: ['/'] },
+  { id: 'filter', group: 'Ansicht', description: 'Suchen: Freitext, Qualifier, Labels', keys: ['/'], bindings: ['/'],
+    command: { name: 'filter', syntax: ':filter <suche>', example: ':filter status:crash' } },
+  { id: 'attention', group: 'Ansicht', description: 'Nur auffällige Zeilen ein/aus (Events: Warning)', keys: ['w'], bindings: ['w'],
+    unavailable: context => attentionChip(context.state.query.kind) ? undefined : 'Dieser Reiter hat keinen Chip „Auffällig“.' },
+  { id: 'resetFilter', group: 'Ansicht', description: 'Suche und Status-Filter des Reiters zurücksetzen', keys: ['F'], bindings: ['F'] },
+  { id: 'status', group: 'Ansicht', description: 'Status-Filter setzen', keys: [], bindings: [],
+    command: { name: 'status', syntax: ':status <id>[,<id>] | :status alle', example: ':status failed,waiting' } },
   { id: 'logs', group: 'Ansicht', description: 'Logs des Pods anzeigen', keys: ['l'], bindings: ['l'], unavailable: onlyForPods },
   { id: 'previous', group: 'Ansicht', description: 'Logs des vorherigen Containers anzeigen', keys: ['p'], bindings: ['p'], unavailable: onlyForPods },
   { id: 'shell', group: 'Ansicht', description: 'Shell im Container öffnen', keys: ['s'], bindings: ['s'],
@@ -115,11 +122,12 @@ export function commandForKey(binding: string): KubeCommand | undefined {
 
 export type ParsedCommand =
   | { id: 'kind'; kind: KubeKind } | { id: 'namespace'; namespace: string | null } | { id: 'scale'; replicas: number }
+  | { id: 'filter'; text: string } | { id: 'status'; chips: string[] | 'all' }
   | { id: 'restart' } | { id: 'delete' } | { id: 'help' } | { error: string };
 
 /** Command names that take an argument; their completion ends with a space. */
-const TAKES_ARGUMENT = new Set(['ns', 'scale']);
-const PLAIN_COMMANDS = ['delete', 'help', 'ns', 'restart', 'scale'];
+const TAKES_ARGUMENT = new Set(['ns', 'scale', 'filter', 'status']);
+const PLAIN_COMMANDS = ['delete', 'filter', 'help', 'ns', 'restart', 'scale', 'status'];
 
 export function parseCommandLine(line: string): ParsedCommand {
   const text = line.trim().replace(/^:/, '');
@@ -141,6 +149,13 @@ export function parseCommandLine(line: string): ParsedCommand {
       if (!(replicas <= MAX_REPLICAS)) return { error: `Replicas: ganze Zahl von 0 bis ${MAX_REPLICAS}.` };
       return { id: 'scale', replicas };
     }
+    case 'filter':
+      return { id: 'filter', text: text.slice(name.length).trim() };
+    case 'status': {
+      if (arg === '') return { error: 'Status fehlt. Syntax: :status <id>[,<id>] | :status alle' };
+      if (['alle', 'all'].includes(arg.toLowerCase())) return { id: 'status', chips: 'all' };
+      return { id: 'status', chips: arg.toLowerCase().split(',').map(part => part.trim()).filter(Boolean) };
+    }
     case 'restart':
       return { id: 'restart' };
     case 'delete':
@@ -152,7 +167,20 @@ export function parseCommandLine(line: string): ParsedCommand {
   }
 }
 
-export function completions(prefix: string, namespaces: string[]): string[] {
+/** New chip list for `:status`: replaces the chips of the groups the ids belong to, keeps other groups; 'all' clears. */
+export function applyStatusCommand(kind: KubeKind, current: readonly string[], chips: string[] | 'all'): string[] | { error: string } {
+  const defs = CHIPS[kind];
+  if (defs.length === 0) return { error: `Für ${KIND_INFO[kind].label} gibt es keine Status-Filter.` };
+  if (chips === 'all') return [];
+  const unknown = chips.find(id => !defs.some(def => def.id === id));
+  if (unknown !== undefined) return { error: `Unbekannter Status „${unknown}“. Möglich: ${defs.map(def => def.id).join(', ')}` };
+  const groups = new Set(defs.filter(def => chips.includes(def.id)).map(def => def.group));
+  const kept = knownChips(kind, current).filter(id => !groups.has(defs.find(def => def.id === id)!.group));
+  return [...kept, ...knownChips(kind, chips)];
+}
+
+/** chipIds: chip ids of the current kind for `:status` completion. */
+export function completions(prefix: string, namespaces: string[], chipIds?: string[]): string[] {
   const text = prefix.replace(/^:/, '');
   const space = text.indexOf(' ');
   if (space === -1) {
@@ -161,7 +189,17 @@ export function completions(prefix: string, namespaces: string[]): string[] {
       .filter(name => name.startsWith(text))
       .map(name => `:${name}${TAKES_ARGUMENT.has(name) ? ' ' : ''}`);
   }
-  if (text.slice(0, space) !== 'ns') return [];
+  const name = text.slice(0, space);
+  if (name === 'status') {
+    if (!chipIds) return [];
+    const argument = text.slice(space + 1);
+    const comma = argument.lastIndexOf(',');
+    const head = argument.slice(0, comma + 1);
+    return ['alle', ...chipIds].sort()
+      .filter(id => id.startsWith(argument.slice(comma + 1)))
+      .map(id => `:status ${head}${id}`);
+  }
+  if (name !== 'ns') return [];
   const argument = text.slice(space + 1);
   return ['all', ...namespaces].sort()
     .filter(name => name.startsWith(argument))

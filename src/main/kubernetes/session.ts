@@ -28,7 +28,6 @@ const NOT_CONNECTED = 'Der Cluster ist gerade nicht verbunden.';
 const RECONNECTING = 'Die Verbindung zum Cluster wird gerade wiederhergestellt.';
 const CONNECT_FAILED = 'Die Verbindung zum Cluster ist fehlgeschlagen.';
 const DISABLED = 'Diese Verbindung ist deaktiviert.';
-const DEFAULT_NAMESPACE = 'default';
 const ENDED = 'Die Cluster-Sitzung wurde beendet.';
 /** How long a terminal waits for a reconnect, like the SSH start timer. */
 const READY_WAIT_MS = 30_000;
@@ -244,7 +243,8 @@ class Session {
     this.access = access;
     this.hostName = access.connection.name;
     const parsed = parseKubeconfig(access.kubeconfig, cluster.context);
-    this.contextNamespace = parsed.namespace ?? DEFAULT_NAMESPACE;
+    // Without a namespace in the vault or the context the tab shows all namespaces.
+    this.contextNamespace = parsed.namespace;
     this.emitStatus();
     const tunnel = await this.deps.openTunnel(access, parsed.server);
     if (this.disposed) { tunnel.close(); throw new Error(ENDED); }

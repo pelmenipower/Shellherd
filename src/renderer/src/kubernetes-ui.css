@@ -61,6 +61,18 @@
 .kube-kind-tabs { display: flex; flex: none; flex-wrap: wrap; gap: 4px; padding: 4px 8px; border-bottom: 1px solid var(--ui-border); }
 .kube-kind { min-height: 24px; padding: 2px 8px; background: var(--ui-raised); font-size: 12px; }
 .kube-kind-on { color: var(--ui-accent); border-color: #496078; background: #233045; }
+.kube-chipbar { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 8px; border-bottom: 1px solid var(--ui-border); }
+.kube-filter-chip { cursor: pointer; background: none; line-height: 18px; }
+.kube-filter-chip:hover { color: var(--ui-text); }
+.kube-chip-on, .kube-chip-on:hover { color: var(--ui-accent); border-color: #496078; background: #233045; }
+.kube-chip-zero { opacity: .5; }
+.kube-chip-sep { width: 1px; height: 14px; margin: 0 4px; background: var(--ui-border); }
+.kube-chip-count { font-variant-numeric: tabular-nums; opacity: .8; }
+.kube-chipbar-end { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 11px; color: var(--ui-muted); }
+.kube-chipbar-reset, .kube-empty-action { min-height: 22px; padding: 0 8px; font-size: 11px; background: transparent; }
+.kube-empty-block { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding-bottom: 12px; }
+.kube-empty-action { margin-left: 12px; }
+.kube-prompt-clear { min-height: 22px; padding: 0 6px; background: transparent; color: var(--ui-muted); }
 .kube-kind kbd { font-size: 10px; color: var(--ui-muted); }
 .kube-table-focus { flex: 1; min-height: 0; display: flex; flex-direction: column; outline: none; }
 .kube-table-scroll { flex: 1; min-height: 0; overflow: auto; position: relative; }
@@ -101,7 +113,7 @@
 .kube-help-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .kube-help-head h2 { margin: 0; font-size: 15px; flex: none; }
 .kube-help-head input { max-width: 320px; }
-.kube-help-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.kube-help-columns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
 .kube-help-columns h3 { margin: 0 0 6px; font-size: 13px; color: var(--ui-accent); }
 .kube-help-columns h4 { margin: 8px 0 4px; font-size: 12px; color: var(--ui-muted); font-weight: 500; }
 .kube-help-columns dl { margin: 0; }

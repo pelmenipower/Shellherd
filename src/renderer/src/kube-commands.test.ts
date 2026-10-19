@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ACTION_KINDS, type KubeAction, type KubeKind, type KubeRow } from '../../shared/kubernetes';
-import { KUBE_COMMANDS, actionReason, bindingOf, commandForKey, completions, parseCommandLine, podNotRunning } from './kube-commands';
+import { CHIPS } from '../../shared/kube-status';
+import { KUBE_COMMANDS, actionReason, applyStatusCommand, bindingOf, commandForKey, completions, parseCommandLine, podNotRunning } from './kube-commands';
 import { initialKubeView, type KubeViewState } from './kube-view';
 
 const READY = { state: 'ready', name: 'c', production: false, readOnly: false, metrics: true } as const;
@@ -98,5 +99,54 @@ describe('kube commands', () => {
   it('completes commands and namespaces', () => {
     expect(completions(':n', [])).toEqual([':nodes', ':ns ']);
     expect(completions(':ns s', ['shop', 'monitoring', 'system'])).toEqual([':ns shop', ':ns system']);
+  });
+});
+
+describe('search and status commands', () => {
+  it('binds w and F, available per kind', () => {
+    expect(commandForKey('w')?.id).toBe('attention');
+    expect(commandForKey('F')?.id).toBe('resetFilter');
+    expect(bindingOf({ key: 'F', ctrlKey: false, shiftKey: true, altKey: false, metaKey: false })).toBe('F');
+    const attention = commandForKey('w')!;
+    expect(attention.unavailable?.({ state: withRow('pods'), readOnly: false })).toBeUndefined();
+    expect(attention.unavailable?.({ state: withRow('events'), readOnly: false })).toBeUndefined();
+    for (const kind of ['cronjobs', 'services', 'ingresses'] as const) {
+      expect(attention.unavailable?.({ state: withRow(kind), readOnly: false })).toBe('Dieser Reiter hat keinen Chip „Auffällig“.');
+    }
+    expect(commandForKey('F')!.unavailable).toBeUndefined();
+  });
+
+  it('parses :filter keeping the text after the name', () => {
+    expect(parseCommandLine(':filter status:crash')).toEqual({ id: 'filter', text: 'status:crash' });
+    expect(parseCommandLine(':filter "a  b"  ')).toEqual({ id: 'filter', text: '"a  b"' });
+    expect(parseCommandLine(':filter')).toEqual({ id: 'filter', text: '' });
+  });
+
+  it('parses :status', () => {
+    expect(parseCommandLine(':status Failed, waiting,,')).toEqual({ id: 'status', chips: ['failed', 'waiting'] });
+    expect(parseCommandLine(':status alle')).toEqual({ id: 'status', chips: 'all' });
+    expect(parseCommandLine(':status all')).toEqual({ id: 'status', chips: 'all' });
+    expect(parseCommandLine(':status Alle')).toEqual({ id: 'status', chips: 'all' });
+    expect(parseCommandLine(':status ALL')).toEqual({ id: 'status', chips: 'all' });
+    expect(parseCommandLine(':status')).toEqual({ error: 'Status fehlt. Syntax: :status <id>[,<id>] | :status alle' });
+  });
+
+  it('applies :status per group', () => {
+    expect(applyStatusCommand('pods', ['attention', 'running'], ['failed', 'waiting'])).toEqual(['attention', 'waiting', 'failed']);
+    expect(applyStatusCommand('pods', ['running'], 'all')).toEqual([]);
+    expect(applyStatusCommand('ingresses', [], ['x'])).toEqual({ error: 'Für Ingress gibt es keine Status-Filter.' });
+    expect(applyStatusCommand('ingresses', [], 'all')).toEqual({ error: 'Für Ingress gibt es keine Status-Filter.' });
+    expect(applyStatusCommand('pods', [], ['failed', 'nope'])).toEqual({ error: `Unbekannter Status „nope“. Möglich: ${CHIPS.pods.map(c => c.id).join(', ')}` });
+  });
+
+  it('completes :status with chip ids of the kind', () => {
+    expect(completions(':sta', [])).toEqual([':status ']);
+    expect(completions(':st', [])).toContain(':status ');
+    expect(completions(':fi', [])).toEqual([':filter ']);
+    expect(completions(':status fa', [], ['failed', 'waiting'])).toEqual([':status failed']);
+    expect(completions(':status failed,wa', [], ['failed', 'waiting'])).toEqual([':status failed,waiting']);
+    expect(completions(':status a', [], ['x'])).toEqual([':status alle']);
+    expect(completions(':status ', [])).toEqual([]);
+    expect(completions(':filter ', [], ['failed'])).toEqual([]);
   });
 });

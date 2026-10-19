@@ -1,9 +1,11 @@
 import {
+  app,
   BrowserWindow,
   dialog,
   ipcMain,
 } from 'electron';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
+import { LastVaultFile } from './last-vault';
 
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { VaultSessionManager } from './session';
@@ -43,6 +45,8 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
   const handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: never[]) => unknown): void => {
     ipcMain.handle(channel, (event, ...args) => { guard(event); return listener(event, ...(args as never[])); });
   };
+  const lastVault = new LastVaultFile(join(app.getPath('userData'), 'last-vault.json'));
+  handle(IPC_CHANNELS.lastVaultFile, () => lastVault.get());
 
   handle(IPC_CHANNELS.selectPrivateKeyFile, async (event): Promise<SelectVaultFileResult> => {
     vaultSessionManager.getSnapshot();
@@ -96,6 +100,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         filePath,
         request.password,
       );
+      await lastVault.set(filePath);
 
       onSessionChange();
       return {
@@ -113,6 +118,8 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
 
       const options: OpenDialogOptions = {
         title: 'Terminus-Vault auswählen',
+        // Starts in the folder of the last vault; any other file can still be picked.
+        ...(await lastVault.get().then(last => last ? { defaultPath: last } : {})),
         properties: ['openFile'],
         filters: [
           {
@@ -161,6 +168,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         request.filePath,
         request.password,
       );
+      await lastVault.set(snapshot.filePath);
 
       onSessionChange();
       onVaultChange();

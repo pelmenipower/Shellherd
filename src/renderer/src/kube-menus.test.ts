@@ -84,7 +84,7 @@ describe('A1 pods', () => {
   it('lists the groups in order for a running two-container pod', () => {
     const entries = rowMenu(pod());
     expect(labels(entries)).toEqual([
-      'Container anzeigen', 'Pods auf Node worker2 anzeigen', 'Deployment api anzeigen', 'Filtern: app=api', 'Filtern: app.kubernetes.io/name=api', '---',
+      'Container anzeigen', 'Pods auf Node worker2 anzeigen', 'Deployment api anzeigen', 'Filtern: app=api', 'Filtern: app.kubernetes.io/name=api', 'Nur Läuft anzeigen', '---',
       'Logs', 'Logs des vorherigen Containers', 'Shell öffnen', 'Events', 'YAML', 'Describe', 'Logs als Tab öffnen', 'Shell als Tab öffnen', '---',
       'Kopieren', 'Name', 'Namespace/Name', 'Image', 'Labels', 'Pod-IP', 'kubectl logs -f', 'kubectl exec', 'kubectl describe', '---', 'Pod löschen…',
     ]);
@@ -144,7 +144,7 @@ describe('A1 pods', () => {
     expect(items(preferred).filter(entry => entry.id.startsWith('filter-')).map(entry => entry.label)).toEqual(['Filtern: app=x', 'Filtern: app.kubernetes.io/name=n', 'Filtern: app.kubernetes.io/instance=i']);
     const fallback = rowMenu(pod({ labels: { a: '1', b: '2', c: '3', d: '4' } }));
     expect(items(fallback).filter(entry => entry.id.startsWith('filter-')).map(entry => entry.label)).toEqual(['Filtern: a=1', 'Filtern: b=2', 'Filtern: c=3']);
-    expect(find(fallback, 'filter-a=1').run).toMatchObject({ actions: [expect.anything(), { type: 'filter', text: 'a=1' }] });
+    expect(find(fallback, 'filter-a=1').run).toMatchObject({ actions: [expect.anything(), { type: 'search', text: 'a=1' }] });
   });
   it('disables logs and shell for a Completed pod, shell with its reason', () => {
     const entries = rowMenu(pod({ cells: { status: 'Completed' } }));
@@ -327,7 +327,7 @@ describe('A4 cronjobs', () => {
     expect(viewActions(drill)).toEqual([
       { type: 'select', key: 'cronjobs/shop/backup' },
       { type: 'openQuery', query: { kind: 'jobs', namespace: 'shop' }, crumb: 'CronJob backup' },
-      { type: 'filter', text: 'backup' },
+      { type: 'search', text: 'owner:backup' },
     ]);
   });
   it('offers Fortsetzen for a suspended cronjob and copies the matching patch', () => {
@@ -596,17 +596,40 @@ describe('H header and I background', () => {
   });
   it('lists the background menu', () => {
     const entries = menu({ type: 'background' });
-    expect(labels(entries)).toEqual(['Filter leeren', 'Alle Namespaces', 'Sortierung aufheben', '---', 'Hilfe…']);
-    expect(find(entries, 'filter-clear')).toMatchObject({ disabled: true, hint: 'Kein Filter gesetzt.' });
+    expect(labels(entries)).toEqual(['Suche leeren', 'Status-Filter leeren', 'Alle Namespaces', 'Sortierung aufheben', '---', 'Hilfe…']);
+    expect(has(entries, 'filter-clear')).toBe(false);
+    expect(find(entries, 'search-clear')).toMatchObject({ disabled: true, hint: 'Keine Suche gesetzt.', run: { actions: [{ type: 'search', text: '' }] } });
+    expect(find(entries, 'chips-clear')).toMatchObject({ disabled: true, hint: 'Kein Status-Filter gesetzt.', run: { actions: [{ type: 'setChips', ids: [] }] } });
     expect(find(entries, 'sort-clear')).toMatchObject({ disabled: true, hint: 'Standard: Reihenfolge des Eintreffens' });
     expect(find(entries, 'help')).toMatchObject({ run: { type: 'help' }, hint: '?' });
     expect(find(entries, 'namespace').run).toMatchObject({ actions: [{ type: 'setNamespace', namespace: null }] });
   });
+  it('enables search-clear and chips-clear independently (C22)', () => {
+    const textOnly = menu({ type: 'background' }, context({ state: state({ filters: { pods: { text: 'api', chips: [] } } }) }));
+    expect(find(textOnly, 'search-clear').disabled).toBeUndefined();
+    expect(find(textOnly, 'chips-clear').disabled).toBe(true);
+    const chipsOnly = menu({ type: 'background' }, context({ state: state({ filters: { pods: { text: '', chips: ['failed'] } } }) }));
+    expect(find(chipsOnly, 'search-clear').disabled).toBe(true);
+    expect(find(chipsOnly, 'chips-clear')).toMatchObject({ run: { actions: [{ type: 'setChips', ids: [] }] } });
+    expect(find(chipsOnly, 'chips-clear').disabled).toBeUndefined();
+  });
+  it('uses the events default sort for "Sortierung aufheben" (C21)', () => {
+    const events = (sort: KubeViewState['sort']) => state({ query: { kind: 'events', namespace: 'shop' }, sort });
+    const atDefault = menu({ type: 'background' }, context({ state: events({ key: 'last', descending: true }) }));
+    expect(find(atDefault, 'sort-clear')).toMatchObject({ disabled: true, hint: 'Standard: Zuletzt absteigend' });
+    const otherDirection = menu({ type: 'background' }, context({ state: events({ key: 'last', descending: false }) }));
+    expect(find(otherDirection, 'sort-clear').disabled).toBeUndefined();
+    const nullSort = menu({ type: 'header', column: KIND_COLUMNS.events[0] }, context({ state: events(null) }));
+    expect(find(nullSort, 'sort-clear').disabled).toBeUndefined();
+    expect(find(nullSort, 'sort-clear').run).toEqual({ type: 'view', actions: [{ type: 'sortBy', sort: null }] });
+    const podsDefault = menu({ type: 'header', column }, context({ state: state({ sort: null }) }));
+    expect(find(podsDefault, 'sort-clear')).toMatchObject({ disabled: true, hint: 'Standard: Reihenfolge des Eintreffens' });
+  });
   it('clears a set filter and sort, and goes back to the default namespace from all (C26)', () => {
-    const ctx = context({ state: state({ filter: 'api', sort: { key: 'name', descending: true }, query: { kind: 'pods', namespace: null } }) });
+    const ctx = context({ state: state({ filters: { pods: { text: 'api', chips: [] } }, sort: { key: 'name', descending: true }, query: { kind: 'pods', namespace: null } }) });
     const entries = menu({ type: 'background' }, ctx);
-    expect(find(entries, 'filter-clear')).toMatchObject({ run: { actions: [{ type: 'filter', text: '' }] } });
-    expect(find(entries, 'filter-clear').disabled).toBeUndefined();
+    expect(find(entries, 'search-clear')).toMatchObject({ run: { actions: [{ type: 'search', text: '' }] } });
+    expect(find(entries, 'search-clear').disabled).toBeUndefined();
     expect(find(entries, 'sort-clear').disabled).toBeUndefined();
     expect(find(entries, 'namespace')).toMatchObject({ label: 'Zurück zu shop', run: { actions: [{ type: 'setNamespace', namespace: 'shop' }] } });
     const none = menu({ type: 'background' }, context({ status: { ...READY, namespace: undefined }, state: state({ query: { kind: 'pods', namespace: null } }) }));
@@ -758,5 +781,46 @@ describe('invariants', () => {
     const snapshot = JSON.stringify(r);
     expect(rowMenu(r)).toEqual(rowMenu(r));
     expect(JSON.stringify(r)).toBe(snapshot);
+  });
+});
+
+describe('T6 "Nur <Chip> anzeigen" (C24)', () => {
+  const onlyId = (entries: MenuEntry[]) => items(entries).find(entry => entry.id.startsWith('only-'));
+  const expectOnly = (entries: MenuEntry[], r: KubeRow, id: string, label: string) => {
+    expect(find(entries, `only-${id}`)).toMatchObject({ label: `Nur ${label} anzeigen`, run: { type: 'view', actions: [{ type: 'select', key: refKey(r.ref) }, { type: 'setChips', ids: [id] }] } });
+    expect(find(entries, `only-${id}`).hint).toBeUndefined();
+  };
+  it('pods: first matching status chip, last in the first group after the filter entries', () => {
+    const bad = pod({ tone: 'bad', cells: { status: 'CrashLoopBackOff' } });
+    const entries = rowMenu(bad);
+    expectOnly(entries, bad, 'failed', 'Fehler');
+    const ids = items(entries).map(entry => entry.id);
+    const last = ids.filter(id => id.startsWith('filter-')).pop() as string;
+    expect(ids.indexOf('only-failed')).toBe(ids.indexOf(last) + 1);
+    expect(labels(entries)[labels(entries).indexOf('Nur Fehler anzeigen') + 1]).toBe('---');
+    expectOnly(rowMenu(pod()), pod(), 'running', 'Läuft');
+    expect(onlyId(rowMenu(pod({ cells: { status: 'Whatever' } })))).toBeUndefined();
+  });
+  it('jobs, services, nodes and events get their chip; other kinds none', () => {
+    const job = row('jobs', 'j', { cells: { status: 'Failed' }, tone: 'bad' });
+    expect(onlyId(rowMenu(job))?.id).toBe('only-failed');
+    const service = row('services', 's', { cells: { type: 'NodePort', clusterIp: '10.0.0.1' }, selector: { a: 'b' } });
+    expectOnly(rowMenu(service), service, 'nodeport', 'NodePort');
+    const cordoned = node({ unschedulable: true });
+    expectOnly(rowMenu(cordoned), cordoned, 'cordoned', 'Gesperrt');
+    expect(onlyId(rowMenu(node()))).toBeUndefined();
+    const event = row('events', 'e', { cells: { type: 'Warning' }, involved: { kind: 'Pod', name: 'api-1', ref: { kind: 'pods', namespace: 'shop', name: 'api-1' } } });
+    expectOnly(rowMenu(event), event, 'warning', 'Warning');
+    expect(onlyId(rowMenu(deployment()))).toBeUndefined();
+    expect(onlyId(rowMenu(row('cronjobs', 'c')))).toBeUndefined();
+    expect(onlyId(rowMenu(row('ingresses', 'i')))).toBeUndefined();
+  });
+  it('an event without an involved object has the entry as its only first group', () => {
+    const entries = rowMenu(row('events', 'e', { cells: { type: 'Normal', message: 'm' } }));
+    expect(labels(entries).slice(0, 2)).toEqual(['Nur Normal anzeigen', '---']);
+  });
+  it('does not read the selection (C14)', () => {
+    const r = pod({ tone: 'bad' });
+    expect(rowMenu(r, context({ state: state({ selected: 'other' }) }))).toEqual(rowMenu(r, context({ state: state({ selected: null }) })));
   });
 });

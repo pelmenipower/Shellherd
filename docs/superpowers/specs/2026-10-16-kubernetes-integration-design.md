@@ -147,7 +147,7 @@ Von oben nach unten:
 | Services | Name, Typ, Cluster-IP, Ports, Alter |
 | Ingress | Name, Hosts, Adresse, Alter |
 | Nodes | Name, Status, Rollen, CPU/RAM, Pods, Kubelet-Version |
-| Events | Typ, Grund, Objekt, Meldung, Anzahl, zuletzt. Warnungen stehen oben. |
+| Events | Typ, Grund, Objekt, Meldung, Anzahl, zuletzt. Neueste zuerst (Standardsortierung Zuletzt ↓); Warnungen per `w`. |
 
 **Drill-down:** Deployment, StatefulSet, DaemonSet oder Job führt zu seinen Pods (über den Label-Selector),
 ein Pod zu seinen Containern, eine Node zu den Pods darauf, ein Service zu den Pods hinter ihm.
@@ -189,7 +189,9 @@ Die Tasten gelten, sobald der Fokus in der Tabelle liegt. Die Maus bietet übera
 | `↑↓` / `j k` | Auswahl bewegen |
 | `Enter` | Drill-down |
 | `Esc` / `Backspace` | eine Ebene zurück |
-| `/` | Filter nach Name oder Label (`app=api`), `Esc` leert ihn |
+| `/` | Suche: Freitext, `"Phrase"`, `!term`, `key=value`, `feld:wert`, `restarts>3`; `Esc` leert sie |
+| `w` | Nur Auffälliges ein/aus (Events: nur Warning) |
+| `F` | Suche und Status-Filter des Reiters zurücksetzen |
 | `:` | Befehl, mit Autovervollständigung |
 | `1`–`9`, `0` | Reiter direkt wählen |
 | `l` `s` `e` `y` `d` | Bereich: Logs / Shell / Events / YAML / Describe |

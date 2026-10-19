@@ -20,5 +20,10 @@ export const KubeProbeRequestSchema = z.object({ connectionId: z.string().min(1)
 export const KubeTerminalTargetSchema: z.ZodType<KubeTerminalTarget> = z.object({ namespace: KubeNameSchema, pod: KubeNameSchema, container: KubeNameSchema,
   mode: z.enum(['logs', 'previous', 'shell']) }).strict();
 const DockModeSchema: z.ZodType<DockMode> = z.enum(['logs', 'shell', 'events', 'yaml', 'describe']);
+const KubeFilterSnapshotSchema = z.object({
+  text: z.string().max(200).optional(),
+  chips: z.array(z.string().max(40)).max(16).optional(),
+}).strict();
 export const KubeViewSnapshotSchema: z.ZodType<KubeViewSnapshot> = z.object({ query: KubeQuerySchema, crumbs: z.array(z.string().max(300)).max(8),
-  selected: z.string().max(600).optional(), dock: DockModeSchema }).strict();
+  selected: z.string().max(600).optional(), dock: DockModeSchema,
+  filters: z.partialRecord(z.enum(KUBE_KINDS), KubeFilterSnapshotSchema).optional() }).strict();
