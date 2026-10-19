@@ -1,8 +1,7 @@
 /* Dock bar additions: copy button and log format toggle. */
 .kube-dock-copy { min-height: 24px; padding: 2px 8px; font-size: 12px; }
-.kube-dock-copy:disabled { opacity: 0.5; cursor: not-allowed; }
 .kube-dock-format { display: inline-flex; }
 .kube-dock-format button { min-height: 24px; padding: 2px 8px; font-size: 12px; border-radius: 0; }
-.kube-dock-format button:first-child { border-radius: 4px 0 0 4px; }
-.kube-dock-format button:last-child { border-radius: 0 4px 4px 0; margin-left: -1px; }
-.kube-dock-format button[aria-pressed="true"] { background: var(--ui-accent); color: #04121a; }
+.kube-dock-format button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.kube-dock-format button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-left: -1px; }
+.kube-dock-format button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-on-accent); }
