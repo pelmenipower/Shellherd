@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { FileEntry } from '../../../shared/sftp';
 import { isDirectory, modeText, parseMode } from '../file-browser';
 import { useNativeSurfaceBlock } from '../native-surface';
+import { useT } from '../i18n';
 
 interface PermissionsDialogProps {
   entries: FileEntry[];
@@ -10,11 +11,12 @@ interface PermissionsDialogProps {
   onApply: (mode: number, recursive: boolean) => void;
 }
 
-const who = [{ label: 'Besitzer', shift: 6 }, { label: 'Gruppe', shift: 3 }, { label: 'Andere', shift: 0 }];
-const what = [{ label: 'Lesen', bit: 4 }, { label: 'Schreiben', bit: 2 }, { label: 'Ausführen', bit: 1 }];
+const who = [{ id: 'owner', shift: 6 }, { id: 'group', shift: 3 }, { id: 'others', shift: 0 }] as const;
+const what = [{ id: 'read', bit: 4 }, { id: 'write', bit: 2 }, { id: 'execute', bit: 1 }] as const;
 
 /** chmod for server files: checkboxes and octal value stay in sync. */
 export function PermissionsDialog({ entries, busy, onCancel, onApply }: PermissionsDialogProps) {
+  const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [mode, setMode] = useState(() => (entries[0]?.mode ?? 0o644) & 0o7777);
@@ -34,28 +36,31 @@ export function PermissionsDialog({ entries, busy, onCancel, onApply }: Permissi
   return (
     <dialog ref={dialogRef} className="confirm-dialog conflict-dialog permissions-dialog" aria-labelledby={`${id}-title`}
       onCancel={event => { event.preventDefault(); if (!busy) onCancel(); }}>
-      <h2 id={`${id}-title`}>Rechte für {entries.length === 1 ? `„${entries[0].name}“` : `${entries.length} Einträge`}</h2>
-      {mixed && <p className="editor-hint">Die Einträge haben unterschiedliche Rechte; angezeigt sind die des ersten.</p>}
+      <h2 id={`${id}-title`}>{t('files:permissions.title', {
+        target: entries.length === 1 ? t('files:permissions.one', { name: entries[0].name }) : t('files:transfer.entries', { count: entries.length }),
+      })}</h2>
+      {mixed && <p className="editor-hint">{t('files:permissions.mixed')}</p>}
       <table className="permissions-grid">
-        <thead><tr><th scope="col"><span className="visually-hidden">Wer</span></th>{what.map(item => <th key={item.bit} scope="col">{item.label}</th>)}</tr></thead>
-        <tbody>{who.map(row => <tr key={row.shift}><th scope="row">{row.label}</th>
+        <thead><tr><th scope="col"><span className="visually-hidden">{t('files:permissions.who')}</span></th>{what.map(item => <th key={item.bit} scope="col">{t(`files:permissions.${item.id}`)}</th>)}</tr></thead>
+        <tbody>{who.map(row => <tr key={row.shift}><th scope="row">{t(`files:permissions.${row.id}`)}</th>
           {what.map(column => {
             const bit = column.bit << row.shift;
-            return <td key={column.bit}><input type="checkbox" aria-label={`${row.label}: ${column.label}`} checked={(mode & bit) !== 0}
-              disabled={busy} onChange={() => toggle(bit)} /></td>;
+            return <td key={column.bit}><input type="checkbox"
+              aria-label={t('files:permissions.cell', { who: t(`files:permissions.${row.id}`), what: t(`files:permissions.${column.id}`) })}
+              checked={(mode & bit) !== 0} disabled={busy} onChange={() => toggle(bit)} /></td>;
           })}
         </tr>)}</tbody>
       </table>
-      <label className="permissions-octal">Oktal
+      <label className="permissions-octal">{t('files:permissions.octal')}
         <input value={text} inputMode="numeric" spellCheck={false} disabled={busy} aria-invalid={!valid || undefined}
           onChange={event => { setText(event.target.value); const parsed = parseMode(event.target.value); if (parsed !== null) setMode(parsed); }} />
       </label>
-      {!valid && <p className="field-error" role="alert">Bitte drei oder vier Ziffern von 0 bis 7 eingeben, z. B. 644.</p>}
+      {!valid && <p className="field-error" role="alert">{t('files:permissions.invalid')}</p>}
       {hasFolder && <label className="editor-checkbox"><input type="checkbox" checked={recursive} disabled={busy} onChange={event => setRecursive(event.target.checked)} />
-        Auch für alle Dateien und Ordner darin setzen</label>}
+        {t('files:permissions.recursive')}</label>}
       <div className="form-actions">
-        <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>Abbrechen</button>
-        <button type="button" className="primary-button" disabled={busy || !valid} onClick={() => onApply(mode, recursive)}>{busy ? 'Bitte warten …' : 'Übernehmen'}</button>
+        <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>{t('common:actions.cancel')}</button>
+        <button type="button" className="primary-button" disabled={busy || !valid} onClick={() => onApply(mode, recursive)}>{busy ? t('common:wait') : t('files:permissions.apply')}</button>
       </div>
     </dialog>
   );

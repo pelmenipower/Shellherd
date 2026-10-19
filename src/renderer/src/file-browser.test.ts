@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { FileEntry } from '../../shared/sftp';
-import { formatSize, ipcErrorText, modeText, parseMode, joinPath, nameError, nextSelection, parentPath, pathSegments, sortEntries } from './file-browser';
+import { i18n } from './i18n';
+import { formatSize, ipcErrorText, modeText, parseMode, joinPath, nameError, nextSelection, parentPath, formatDate, pathSegments, sortEntries } from './file-browser';
 
 const file = (name: string, size = 0, modified = 0): FileEntry => ({ name, type: 'file', size, modified });
 const folder = (name: string): FileEntry => ({ name, type: 'directory', size: 0, modified: 0 });
@@ -57,5 +58,20 @@ describe('file browser', () => {
     expect(parseMode('rwx')).toBeNull();
     expect(modeText(0o100644)).toBe('644');
     expect(modeText(0o4755)).toBe('4755');
+  });
+});
+
+
+describe('file browser in en-US', () => {
+  afterEach(async () => { await i18n.changeLanguage('de-DE'); });
+
+  it('formats sizes, dates and name errors in English', async () => {
+    await i18n.changeLanguage('en-US');
+    expect(formatSize(1536)).toBe('1.5 KB');
+    expect(formatSize(512)).toBe('512 B');
+    expect(formatDate(Date.UTC(2026, 9, 19, 13, 5))).toMatch(/^\d{1,2}\/\d{1,2}\/\d{2},\s\d{1,2}:\d{2}\s?[AP]M$/u);
+    expect(formatDate(0)).toBe('');
+    expect(nameError('remote', 'a/b')).toBe('The name must not contain a slash.');
+    expect(ipcErrorText('')).toBe('The file action failed.');
   });
 });
