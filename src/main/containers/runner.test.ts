@@ -67,6 +67,14 @@ beforeEach(async () => {
       const stream = acceptExec();
       if (info.command === 'hang') return;
       if (info.command.includes(' -v && printf')) { simulateSudo(stream, info.command); return; }
+      if (info.command === 'flood') {
+        let sent = 0;
+        const timer = setInterval(() => {
+          stream.write('x'.repeat(65_536));
+          if (++sent === 4) { clearInterval(timer); stream.exit(0); stream.end(); }
+        }, 20);
+        return;
+      }
       if (info.command === 'fail') { stream.stderr.write('boom\n'); stream.exit(3); stream.end(); return; }
       stream.write(`ran:${info.command}\n`); stream.exit(0); stream.end();
     })));
@@ -102,6 +110,17 @@ describe('openRemoteHost', () => {
   it('refuses an unconfirmed host key with a readable error', async () => {
     await expect(openRemoteHost(connection, async () => false)).rejects.toThrow(HostAccessError);
     await expect(openRemoteHost(connection, async () => false)).rejects.toThrow('Der Server-Schlüssel wurde nicht bestätigt.');
+  });
+});
+
+describe('openRemoteHost output limit', () => {
+  it('keeps at most the given limit per stream, the default 1 MiB otherwise', async () => {
+    const host = await openRemoteHost(connection, async () => true);
+    const limited = await host.run('flood', 5_000, undefined, 100_000);
+    expect(limited.stdout.length).toBeGreaterThanOrEqual(100_000);
+    expect(limited.stdout.length).toBeLessThan(262_144);
+    expect((await host.run('flood', 5_000)).stdout.length).toBe(262_144);
+    host.close();
   });
 });
 
