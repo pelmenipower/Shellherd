@@ -1,9 +1,9 @@
 ---
 name: feature-pipeline
-description: Pflicht-Ablauf für jedes neue Feature und jede größere Änderung in Terminus. Fable konzipiert, Opus validiert, Sonnet baut parallel in Wellen, Opus prüft. Laden, sobald etwas gebaut, erweitert oder umgebaut werden soll (nicht für Ein-Zeilen-Fixes).
+description: Pflicht-Ablauf für jedes neue Feature und jede größere Änderung in Shellherd. Fable konzipiert, Opus validiert, Sonnet baut parallel in Wellen, Opus prüft. Laden, sobald etwas gebaut, erweitert oder umgebaut werden soll (nicht für Ein-Zeilen-Fixes).
 ---
 
-# Feature-Pipeline für Terminus
+# Feature-Pipeline für Shellherd
 
 Dieser Ablauf gilt für jedes Feature. Zwischen den Stufen fragst du nicht nach Freigabe („frag nicht nach, mach es selber“). Entscheidungen hältst du als `Ruling: <was> — <warum> — <Kosten, falls falsch>` im Ledger fest und nennst sie am Ende. Nur vier Dinge halten an: unumkehrbare oder destruktive Schritte, Sicherheitsfragen, Seiteneffekte außerhalb des Repos, die man normalerweise vorher abstimmt, und ein Plan, bei dem jeder Weg nur geraten wäre.
 
