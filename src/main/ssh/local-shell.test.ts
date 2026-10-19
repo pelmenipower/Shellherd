@@ -69,7 +69,7 @@ describe('local shell sessions', () => {
     const { sessionId } = manager.prepare(1, { connectionId: 'ps', cols: 80, rows: 24 });
     await manager.connect(1, sessionId);
     expect(spawnShell).not.toHaveBeenCalled();
-    expect(events.at(-1)).toMatchObject({ status: 'error', message: expect.stringContaining('Startordner') });
+    expect(events.at(-1)).toMatchObject({ status: 'error', error: { code: 'ssh.startFolderMissing', params: { folder: 'C:\\does-not-exist-terminus' } } });
   });
 
   it.runIf(process.platform === 'win32')('starts an installed AI CLI in cmd /k and explains a missing one', async () => {
@@ -86,13 +86,13 @@ describe('local shell sessions', () => {
     installed = false;
     const second = manager.prepare(1, { connectionId: 'ai', cols: 80, rows: 24 });
     await manager.connect(1, second.sessionId);
-    expect(events.at(-1)).toMatchObject({ sessionId: second.sessionId, status: 'error', message: expect.stringContaining('npm install -g @anthropic-ai/claude-code') });
+    expect(events.at(-1)).toMatchObject({ sessionId: second.sessionId, status: 'error', error: { code: 'ssh.aiToolNotInstalled', params: expect.objectContaining({ install: expect.stringContaining('npm install -g @anthropic-ai/claude-code') }) } });
     expect(spawnShell).toHaveBeenCalledTimes(1);
     manager.closeAll();
   });
 
   it('refuses RDP connections as terminal sessions', () => {
     const { manager } = setup({ id: 'r', type: 'connection', protocol: 'rdp', name: 'R', host: 'h', port: 3389, rdp: { clipboard: true }, tags: [] });
-    expect(() => manager.prepare(1, { connectionId: 'r', cols: 80, rows: 24 })).toThrow(/keine Terminalverbindung/);
+    expect(() => manager.prepare(1, { connectionId: 'r', cols: 80, rows: 24 })).toThrow(expect.objectContaining({ code: 'ssh.notTerminal' }));
   });
 });

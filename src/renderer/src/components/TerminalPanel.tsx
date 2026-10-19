@@ -8,6 +8,7 @@ import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import { liveSessions } from '../session-registry';
 import { terminalAccess } from '../terminal-access';
 import { xtermTheme } from '../terminal-theme';
+import { errorText } from '../error-text';
 import type { SshStatus } from '../../../shared/ssh';
 
 interface TerminalPanelProps {
@@ -106,7 +107,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
         connected = event.status === 'connected';
         setStatus(event.status);
         onStatusChange(tabId, event.status);
-        if (event.message) showError(event.message);
+        if (event.error) showError(errorText(event.error));
         if (connected && visibleRef.current && focusedRef.current) term.focus();
       }
     });
@@ -161,8 +162,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
           if (disposed) return;
           setStatus('error');
           onStatusChange(tabId, 'error');
-          const message = caught instanceof Error ? caught.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Der SSH-Start ist fehlgeschlagen.';
-          showError(message);
+          showError(errorText(caught, 'Der SSH-Start ist fehlgeschlagen.'));
           if (sessionId) void window.desktopApi.sshClose({ sessionId }).catch(() => {});
         }
       })();

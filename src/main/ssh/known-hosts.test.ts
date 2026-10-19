@@ -29,7 +29,7 @@ describe('SSH known hosts', () => {
     const confirm = vi.fn(async () => true);
     const hosts = new KnownHosts(await fixture(), confirm);
     await hosts.verify('server.test', 22, Buffer.from('old'), () => true);
-    await expect(hosts.verify('server.test', 22, Buffer.from('changed'), () => true)).rejects.toThrow('geändert');
+    await expect(hosts.verify('server.test', 22, Buffer.from('changed'), () => true)).rejects.toThrow(expect.objectContaining({ code: 'ssh.hostKeyChanged' }));
     expect(confirm).toHaveBeenCalledTimes(1);
   });
   it('keeps different ports separate', async () => {
@@ -52,7 +52,7 @@ describe('SSH known hosts', () => {
     const filePath = await fixture();
     await writeFile(filePath, '{}');
     const confirm = vi.fn(async () => true);
-    await expect(new KnownHosts(filePath, confirm).verify('server.test', 22, Buffer.from('key'), () => true)).rejects.toThrow('gelesen');
+    await expect(new KnownHosts(filePath, confirm).verify('server.test', 22, Buffer.from('key'), () => true)).rejects.toThrow(expect.objectContaining({ code: 'ssh.hostKeysUnreadable' }));
     expect(confirm).not.toHaveBeenCalled();
   });
   it('serializes concurrent trust decisions without losing hosts or duplicating prompts', async () => {
@@ -71,7 +71,7 @@ describe('SSH known hosts', () => {
     expect(accepted).toEqual([true, true, true]);
     expect(prompts).toBe(2); expect(maximumOutstanding).toBe(1);
     expect(Object.keys(JSON.parse(await readFile(filePath, 'utf8')).hosts)).toHaveLength(2);
-    await expect(hosts.verify('first.test', 22, Buffer.from('changed'), () => true)).rejects.toThrow('geändert');
+    await expect(hosts.verify('first.test', 22, Buffer.from('changed'), () => true)).rejects.toThrow(expect.objectContaining({ code: 'ssh.hostKeyChanged' }));
     expect(await hosts.verify('second.test', 22, Buffer.from('second'), () => true)).toBe(true);
   });
 

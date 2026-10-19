@@ -1,18 +1,19 @@
 import { open } from 'node:fs/promises';
 import type { ConnectConfig } from 'ssh2';
+import { AppError } from '../../shared/errors';
 import type { SftpConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 
 export function agentSocket(platform = process.platform, socket = process.env.SSH_AUTH_SOCK): string {
   if (socket) return socket;
   if (platform === 'win32') return '\\\\.\\pipe\\openssh-ssh-agent';
-  throw new Error('Kein SSH-Agent gefunden. Starte einen Agent oder wähle eine andere Authentifizierung.');
+  throw new AppError('ssh.noAgent');
 }
 
 async function readPrivateKey(path: string): Promise<Buffer> {
   const file = await open(path, 'r');
   try {
     const stat = await file.stat();
-    if (!stat.isFile() || stat.size > 1024 * 1024) throw new Error('Invalid key file');
+    if (!stat.isFile() || stat.size > 1024 * 1024) throw new AppError('ssh.keyFileUnreadable');
     return await file.readFile();
   } finally { await file.close(); }
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AppError } from '../../shared/errors';
 import { TerminalTargetSchema } from '../../shared/containers-schema';
 import { KubeTerminalTargetSchema } from '../../shared/kubernetes-schema';
 
@@ -12,6 +13,6 @@ export const AckSchema = z.object({ ...session, sequence: z.number().int().posit
 
 export function parseRequest<T>(schema: z.ZodType<T>, request: unknown): T {
   const result = schema.safeParse(request);
-  if (!result.success) throw new Error('Ungültige Terminal-Anfrage.');
+  if (!result.success) throw new AppError('ssh.invalidRequest');
   return result.data;
 }

@@ -9,7 +9,8 @@ import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode } from
 import type { SshEvent, TerminalSize } from '../../shared/ssh';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
 import type { KubeStream, TerminalIo } from '../kubernetes/api';
-import { agentSocket, SshSessionManager, targetExitMessage } from './session';
+import { agentSocket, publicError, SshSessionManager, targetExitError } from './session';
+import { AppError } from '../../shared/errors';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
@@ -179,13 +180,13 @@ describe('SSH session manager with a real local SSH server', () => {
     const second = manager.prepare(2, { connectionId: connection.id, cols: 80, rows: 24 }).sessionId;
     await manager.connect(2, second);
     await waitFor(() => events.some(event => event.type === 'status' && event.sessionId === second && event.status === 'connected'));
-    await expect(manager.connect(2, id)).rejects.toThrow('verfügbar');
-    expect(() => manager.close(2, id)).toThrow('verfügbar');
+    await expect(manager.connect(2, id)).rejects.toThrow(expect.objectContaining({ code: 'ssh.notAvailable' }));
+    expect(() => manager.close(2, id)).toThrow(expect.objectContaining({ code: 'ssh.notAvailable' }));
     await manager.connect(1, id);
     await waitFor(() => hasStatus('connected'));
-    await expect(manager.input(2, id, 'input')).rejects.toThrow('verfügbar');
-    expect(() => manager.resize(2, id, { cols: 80, rows: 24 })).toThrow('verfügbar');
-    expect(() => manager.acknowledge(2, id, 1)).toThrow('verfügbar');
+    await expect(manager.input(2, id, 'input')).rejects.toThrow(expect.objectContaining({ code: 'ssh.notAvailable' }));
+    expect(() => manager.resize(2, id, { cols: 80, rows: 24 })).toThrow(expect.objectContaining({ code: 'ssh.notAvailable' }));
+    expect(() => manager.acknowledge(2, id, 1)).toThrow(expect.objectContaining({ code: 'ssh.notAvailable' }));
     manager.closeOwner(1);
     expect(manager.hasOwner(1)).toBe(false);
     expect(manager.hasOwner(2)).toBe(true);
@@ -213,7 +214,7 @@ describe('SSH session manager with a real local SSH server', () => {
 
   it('limits simultaneous reservations and releases a slot on close', () => {
     const ids = Array.from({ length: MAX_SSH_SESSIONS }, () => prepare());
-    expect(() => prepare()).toThrow(`Maximal ${MAX_SSH_SESSIONS}`);
+    expect(() => prepare()).toThrow(expect.objectContaining({ code: 'ssh.sessionLimit', params: { max: MAX_SSH_SESSIONS } }));
     manager.close(1, ids[0]);
     expect(() => prepare()).not.toThrow();
   });
@@ -223,16 +224,17 @@ describe('SSH session manager with a real local SSH server', () => {
     await manager.connect(1, prepare());
     await waitFor(() => hasStatus('error'));
     expect(JSON.stringify(events)).not.toContain('wrong-synthetic-secret');
-    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', message: expect.stringContaining('Anmeldung') }));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', error: { code: 'ssh.authFailed' } }));
     expect(manager.hasOwner(1)).toBe(false);
   });
 
   it('rejects changed host keys before authentication', async () => {
     manager = new SshSessionManager({ getConnection: () => connection, spawnShell: noShell,
-      verifyHost: async () => { throw new HostKeyError('Server-Schlüssel geändert'); },
+      verifyHost: async () => { throw new HostKeyError('ssh.hostKeyChanged'); },
       emit: (_owner, event) => events.push(event) });
     await manager.connect(1, prepare());
     await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: { code: 'ssh.hostKeyChanged' } }));
     expect(hasStatus('connected')).toBe(false);
     expect(manager.hasOwner(1)).toBe(false);
   });
@@ -330,7 +332,7 @@ describe('SSH session manager with a real local SSH server', () => {
   it('ends a container tab when sudo rejects the stored password', async () => {
     await manager.connect(1, sudoTab('sudo-wrong'));
     await waitFor(() => hasStatus('error'));
-    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', message: 'Das sudo-Passwort wurde abgelehnt.' }));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', error: { code: 'containers.sudoRejected' } }));
     expect(sudoInput.join('')).toBe('synthetic-password\n');
     expect(output()).not.toContain('terminus-');
     expect(JSON.stringify(events)).not.toContain('synthetic-password');
@@ -355,7 +357,7 @@ describe('SSH session manager with a real local SSH server', () => {
     connection = { ...connection, authentication: { method: 'password', password: 'synthetic\npassword' } };
     await manager.connect(1, sudoTab('web-1'));
     await waitFor(() => hasStatus('error'));
-    expect(events).toContainEqual(expect.objectContaining({ status: 'error', message: 'Das Passwort enthält einen Zeilenumbruch und kann nicht für sudo verwendet werden.' }));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: expect.objectContaining({ code: expect.stringMatching(/^containers\./) }) }));
     expect(execCommands).toEqual([]);
     expect(peers).toHaveLength(0);
   });
@@ -367,7 +369,7 @@ describe('SSH session manager with a real local SSH server', () => {
     events = [];
     await manager.connect(1, sudoTab('web-1'));
     await waitFor(() => hasStatus('error'));
-    expect(events).toContainEqual(expect.objectContaining({ status: 'error', message: 'Das sudo-Passwort wurde abgelehnt.' }));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: { code: 'containers.sudoRejected' } }));
     expect(execCommands).toHaveLength(1);
     expect(peers).toHaveLength(1);
     expect(sudoInput.join('')).toBe('synthetic-password\n');
@@ -380,7 +382,7 @@ describe('SSH session manager with a real local SSH server', () => {
     await Promise.all(ids.map(id => manager.connect(1, id)));
     await waitFor(() => statusesOf(ids, 'error').length === 3);
     for (const id of ids) {
-      expect(events).toContainEqual(expect.objectContaining({ sessionId: id, status: 'error', message: 'Das sudo-Passwort wurde abgelehnt.' }));
+      expect(events).toContainEqual(expect.objectContaining({ sessionId: id, status: 'error', error: { code: 'containers.sudoRejected' } }));
     }
     expect(sudoInput.join('')).toBe('synthetic-password\n');
     expect(execCommands).toHaveLength(1);
@@ -429,14 +431,14 @@ describe('SSH session manager with a real local SSH server', () => {
     sudoRejections.markRejected(connection.id, connectionFingerprint(connection));
     await manager.connect(1, sudoTab('web-1'));
     await waitFor(() => hasStatus('error'));
-    expect(events).toContainEqual(expect.objectContaining({ status: 'error', message: 'Das sudo-Passwort wurde abgelehnt.' }));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: { code: 'containers.sudoRejected' } }));
     expect(peers).toHaveLength(0);
   });
 
   it('explains a server that does not cache sudo credentials', async () => {
     await manager.connect(1, sudoTab('sudo-nocache'));
     await waitFor(() => hasStatus('error'));
-    expect(events).toContainEqual(expect.objectContaining({ status: 'error', message: 'sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein.' }));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: { code: 'containers.sudoNotCached' } }));
   });
 
   it('gives control back to the user when sudo does not answer in time', async () => {
@@ -479,7 +481,7 @@ describe('SSH session manager with a real local SSH server', () => {
     const id = manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { ...web, ref: 'missing', name: 'missing' }, mode: 'shell' } }).sessionId;
     await manager.connect(1, id);
     await waitFor(() => hasStatus('error'));
-    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', message: 'Container „missing“ wurde nicht gefunden.' }));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', error: { code: 'ssh.containerNotFound', params: { name: 'missing' } } }));
   });
 
   it('closes normally when the user ends the shell after typing, whatever the exit code', async () => {
@@ -501,7 +503,7 @@ describe('SSH session manager with a real local SSH server', () => {
   });
 
   it('rejects invalid targets before connecting', () => {
-    expect(() => manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { ...web, ref: '$(id)' }, mode: 'shell' } })).toThrow('Ungültige Container-Angabe.');
+    expect(() => manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { ...web, ref: '$(id)' }, mode: 'shell' } })).toThrow(expect.objectContaining({ code: expect.stringMatching(/^containers\./) }));
     expect(() => manager.prepare(1, { connectionId: LOCAL_CONTAINER_HOST, cols: 80, rows: 24 })).toThrow();
   });
 });
@@ -540,7 +542,7 @@ describe('Kubernetes pod terminals', () => {
   }
 
   it('requires the cluster tab for a cluster without a pod target', () => {
-    expect(() => kube.prepare(1, { connectionId: 'k1', cols: 80, rows: 24 })).toThrow('Cluster öffnen sich im Cluster-Tab.');
+    expect(() => kube.prepare(1, { connectionId: 'k1', cols: 80, rows: 24 })).toThrow(expect.objectContaining({ code: 'ssh.clusterInTab' }));
     expect(opened).toHaveLength(0);
   });
 
@@ -561,13 +563,13 @@ describe('Kubernetes pod terminals', () => {
     expect(kube.owns(1, clean.id)).toBe(false);
 
     const failed = await openPod();
-    failed.io.end(137, 'x');
-    expect(lastStatus(failed.id)).toMatchObject({ status: 'error', message: 'x' });
+    failed.io.end(137, { code: 'ssh.podTerminalFailed' });
+    expect(lastStatus(failed.id)).toMatchObject({ status: 'error', error: { code: 'ssh.podTerminalFailed' } });
 
     const silent = await openPod();
     silent.io.end(1);
     expect(lastStatus(silent.id)).toMatchObject({ status: 'closed' });
-    expect(lastStatus(silent.id)).not.toHaveProperty('message');
+    expect(lastStatus(silent.id)).not.toHaveProperty('error');
   });
 
   it('writes input, resizes the stream and closes it with the tab', async () => {
@@ -588,7 +590,7 @@ describe('Kubernetes pod terminals', () => {
   });
 
   it('refuses a shell on a read-only cluster but allows logs and previous logs', async () => {
-    expect(() => kube.prepare(1, { connectionId: 'k2', cols: 80, rows: 24, kube: { ...target, mode: 'shell' } })).toThrow('Dieser Cluster ist schreibgeschützt.');
+    expect(() => kube.prepare(1, { connectionId: 'k2', cols: 80, rows: 24, kube: { ...target, mode: 'shell' } })).toThrow(expect.objectContaining({ code: 'kubernetes.readOnly' }));
     const logs = await openPod('logs', 'k2');
     expect(lastStatus(logs.id)).toMatchObject({ status: 'connected' });
     const previous = await openPod('previous', 'k2');
@@ -596,17 +598,17 @@ describe('Kubernetes pod terminals', () => {
   });
 
   it('refuses a pod target on a connection that is not a cluster', () => {
-    expect(() => kube.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, kube: target })).toThrow('Pod-Terminals gibt es nur für Kubernetes-Cluster.');
+    expect(() => kube.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, kube: target })).toThrow(expect.objectContaining({ code: 'ssh.podTerminalOnlyKube' }));
   });
 
   it('rejects invalid pod names and modes before connecting', () => {
-    expect(() => kube.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: { ...target, pod: 'api/../x' } })).toThrow('Ungültige Pod-Angabe.');
-    expect(() => kube.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: { ...target, mode: 'exec' as never } })).toThrow('Ungültige Pod-Angabe.');
+    expect(() => kube.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: { ...target, pod: 'api/../x' } })).toThrow(expect.objectContaining({ code: 'ssh.invalidPod' }));
+    expect(() => kube.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: { ...target, mode: 'exec' as never } })).toThrow(expect.objectContaining({ code: 'ssh.invalidPod' }));
   });
 
   it('fails before connecting when cluster terminals are not wired', () => {
     const plain = new SshSessionManager({ getConnection: () => structuredClone(vault.k1), verifyHost: async () => true, spawnShell: noShell, emit: () => {} });
-    expect(() => plain.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: target })).toThrow('Pod-Terminals sind nicht verfügbar.');
+    expect(() => plain.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: target })).toThrow(expect.objectContaining({ code: 'ssh.podTerminalUnavailable' }));
   });
 
   it('holds output during a window transfer and delivers it to the new owner', async () => {
@@ -623,19 +625,19 @@ describe('Kubernetes pod terminals', () => {
   });
 });
 
-describe('targetExitMessage', () => {
+describe('targetExitError', () => {
   const web = { kind: 'container' as const, runtime: 'docker' as const, ref: 'web-1', name: 'web-1' };
   it('explains failed container commands', () => {
-    expect(targetExitMessage({ item: web, mode: 'shell' }, 0, '')).toBeUndefined();
-    expect(targetExitMessage({ item: web, mode: 'shell' }, 127, '')).toBe('Keine Shell im Container gefunden.');
-    expect(targetExitMessage({ item: web, mode: 'logs' }, 1, 'No such container: web-1')).toBe('Container „web-1“ wurde nicht gefunden.');
-    expect(targetExitMessage({ item: { kind: 'vm', vmid: 100, name: 'w' }, mode: 'shell' }, 255, 'unable to find a serial interface')).toContain('Serielle Schnittstelle');
-    expect(targetExitMessage({ item: web, mode: 'shell' }, 130, '')).toBeUndefined();
+    expect(targetExitError({ item: web, mode: 'shell' }, 0, '')).toBeUndefined();
+    expect(targetExitError({ item: web, mode: 'shell' }, 127, '')).toEqual({ code: 'ssh.noShellInContainer' });
+    expect(targetExitError({ item: web, mode: 'logs' }, 1, 'No such container: web-1')).toEqual({ code: 'ssh.containerNotFound', params: { name: 'web-1' } });
+    expect(targetExitError({ item: { kind: 'vm', vmid: 100, name: 'w' }, mode: 'shell' }, 255, 'unable to find a serial interface')).toEqual({ code: 'ssh.serialConsoleUnavailable' });
+    expect(targetExitError({ item: web, mode: 'shell' }, 130, '')).toBeUndefined();
   });
   it('stays silent once the user typed or without a serial hint', () => {
-    expect(targetExitMessage({ item: web, mode: 'shell' }, 127, '', true)).toBeUndefined();
-    expect(targetExitMessage({ item: web, mode: 'shell' }, 1, 'No such container: x', true)).toBeUndefined();
-    expect(targetExitMessage({ item: { kind: 'vm', vmid: 100, name: 'w' }, mode: 'shell' }, 255, 'connection lost')).toBeUndefined();
+    expect(targetExitError({ item: web, mode: 'shell' }, 127, '', true)).toBeUndefined();
+    expect(targetExitError({ item: web, mode: 'shell' }, 1, 'No such container: x', true)).toBeUndefined();
+    expect(targetExitError({ item: { kind: 'vm', vmid: 100, name: 'w' }, mode: 'shell' }, 255, 'connection lost')).toBeUndefined();
   });
 });
 
@@ -653,7 +655,7 @@ describe.runIf(process.platform === 'win32')('local container tabs', () => {
     await local.connect(1, id);
     expect(spawned).toEqual([{ file: 'C:\\bin\\docker.exe', args: ['exec', '-it', 'web-1', 'sh', '-c', 'command -v bash >/dev/null 2>&1 && exec bash || exec sh'] }]);
     exit?.({ exitCode: 127 });
-    expect(localEvents).toContainEqual(expect.objectContaining({ status: 'error', message: 'Keine Shell im Container gefunden.' }));
+    expect(localEvents).toContainEqual(expect.objectContaining({ status: 'error', error: { code: 'ssh.noShellInContainer' } }));
   });
 });
 
@@ -661,6 +663,27 @@ describe('SSH agent socket selection', () => {
   it('uses OpenSSH on Windows and respects SSH_AUTH_SOCK', () => {
     expect(agentSocket('win32', '')).toBe('\\\\.\\pipe\\openssh-ssh-agent');
     expect(agentSocket('linux', '/synthetic/agent.sock')).toBe('/synthetic/agent.sock');
-    expect(() => agentSocket('linux', '')).toThrow('SSH-Agent');
+    expect(() => agentSocket('linux', '')).toThrow(expect.objectContaining({ code: 'ssh.noAgent' }));
+  });
+});
+
+describe('publicError', () => {
+  it('passes coded errors through unchanged', () => {
+    expect(publicError(new AppError('ssh.notAvailable'))).toEqual({ code: 'ssh.notAvailable' });
+    expect(publicError(new HostKeyError('ssh.hostKeyChanged'))).toEqual({ code: 'ssh.hostKeyChanged' });
+    expect(publicError(new AppError('ssh.startFolderMissing', { folder: 'x' }))).toEqual({ code: 'ssh.startFolderMissing', params: { folder: 'x' } });
+  });
+  it('maps library errors to ssh codes and never leaks library text', () => {
+    const errno = (code: string) => Object.assign(new Error('secret library text'), { code });
+    expect(publicError(errno('ENOENT'))).toEqual({ code: 'ssh.keyFileUnreadable' });
+    expect(publicError(errno('EACCES'))).toEqual({ code: 'ssh.keyFileUnreadable' });
+    expect(publicError(errno('ECONNREFUSED'))).toEqual({ code: 'ssh.connectionRefused' });
+    expect(publicError(errno('ENOTFOUND'))).toEqual({ code: 'ssh.hostNotFound' });
+    expect(publicError(errno('EAI_AGAIN'))).toEqual({ code: 'ssh.hostNotFound' });
+    expect(publicError(errno('ETIMEDOUT'))).toEqual({ code: 'ssh.timeout' });
+    expect(publicError(Object.assign(new Error('x'), { level: 'client-authentication' }))).toEqual({ code: 'ssh.authFailed' });
+    expect(publicError(Object.assign(new Error('x'), { level: 'client-timeout' }))).toEqual({ code: 'ssh.timeout' });
+    expect(publicError(new Error('secret library text'))).toEqual({ code: 'ssh.failed' });
+    expect(publicError(undefined)).toEqual({ code: 'ssh.failed' });
   });
 });

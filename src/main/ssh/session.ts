@@ -9,17 +9,19 @@ import type { ConnectionNode, LocalConnectionNode, LocalShellProtocol, SshConnec
 import { AI_CLI_TOOLS, aiCliCommandLine } from '../../shared/ai-cli';
 import { locateCommand } from './locate';
 import type { SshEvent, SshPrepareRequest, SshStatus, TerminalSize } from '../../shared/ssh';
+import { AppError } from '../../shared/errors';
+import type { CodedError } from '../../shared/errors';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
 import { sshConnectConfig } from './client-config';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import type { TerminalTarget } from '../../shared/containers';
-import { ContainerInputError, remoteCommand, sudoSetting, terminalArgv } from '../containers/commands';
+import { remoteCommand, sudoSetting, terminalArgv } from '../containers/commands';
 import type { SudoMode } from '../containers/commands';
 import { SUDO_NOT_CACHED, SUDO_REJECTED } from '../containers/parsers';
 import { connectionFingerprint, SudoRejections } from '../containers/sudo-rejections';
 import { createSudoMarker, SudoWatcher } from '../containers/sudo';
-import { KUBE_NAME, READ_ONLY_MESSAGE } from '../../shared/kubernetes';
+import { KUBE_NAME } from '../../shared/kubernetes';
 import type { KubeTerminalMode, KubeTerminalTarget } from '../../shared/kubernetes';
 import { KubeApiError } from '../kubernetes/api';
 import type { KubeStream, TerminalIo } from '../kubernetes/api';
@@ -108,25 +110,26 @@ export function shellEnvironment(source: NodeJS.ProcessEnv = process.env): Recor
     entry[1] !== undefined && !entry[0].toUpperCase().startsWith('ELECTRON_')));
 }
 
-class LocalShellError extends Error {}
+export class LocalShellError extends AppError {}
 
-export function publicError(error: unknown): string {
-  if (error instanceof HostKeyError || error instanceof LocalShellError || error instanceof ContainerInputError) return error.message;
+/** Coded errors pass through; everything else maps to an ssh.* code, never to library text. */
+export function publicError(error: unknown): CodedError {
+  if (error instanceof AppError) return error.toCoded();
   const code = (error as NodeJS.ErrnoException)?.code;
-  if (code === 'ENOENT' || code === 'EACCES') return 'Die private Schlüsseldatei konnte nicht gelesen werden. Prüfe Pfad und Zugriffsrechte.';
-  if (code === 'ECONNREFUSED') return 'Der Server lehnt die Verbindung ab. Prüfe Host und Port.';
-  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'Der Host konnte nicht gefunden werden.';
-  if ((error as { level?: string })?.level === 'client-authentication') return 'SSH-Anmeldung fehlgeschlagen. Prüfe Benutzer und Authentifizierung.';
-  if ((error as { level?: string })?.level === 'client-timeout' || code === 'ETIMEDOUT') return 'Zeitüberschreitung beim Verbindungsaufbau.';
-  return 'Die SSH-Verbindung ist fehlgeschlagen. Prüfe Host, Benutzer und Authentifizierung.';
+  if (code === 'ENOENT' || code === 'EACCES') return { code: 'ssh.keyFileUnreadable' };
+  if (code === 'ECONNREFUSED') return { code: 'ssh.connectionRefused' };
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return { code: 'ssh.hostNotFound' };
+  if ((error as { level?: string })?.level === 'client-authentication') return { code: 'ssh.authFailed' };
+  if ((error as { level?: string })?.level === 'client-timeout' || code === 'ETIMEDOUT') return { code: 'ssh.timeout' };
+  return { code: 'ssh.failed' };
 }
 
 /** Why a container tab ended; undefined when the output already says enough or the user ended it. */
-export function targetExitMessage(target: TerminalTarget, code: number | null | undefined, tail: string, typed = false): string | undefined {
+export function targetExitError(target: TerminalTarget, code: number | null | undefined, tail: string, typed = false): CodedError | undefined {
   if (typed || code === undefined || code === null || code === 0) return undefined;
-  if (/No such container/i.test(tail)) return `Container „${target.item.name}“ wurde nicht gefunden.`;
-  if (target.item.kind === 'container' && target.mode === 'shell' && (code === 126 || code === 127)) return 'Keine Shell im Container gefunden.';
-  if (target.item.kind === 'vm' && /serial/i.test(tail)) return 'Die serielle Konsole ist nicht verfügbar. Serielle Schnittstelle in der VM-Hardware hinzufügen.';
+  if (/No such container/i.test(tail)) return { code: 'ssh.containerNotFound', params: { name: target.item.name } };
+  if (target.item.kind === 'container' && target.mode === 'shell' && (code === 126 || code === 127)) return { code: 'ssh.noShellInContainer' };
+  if (target.item.kind === 'vm' && /serial/i.test(tail)) return { code: 'ssh.serialConsoleUnavailable' };
   return undefined;
 }
 
@@ -138,16 +141,16 @@ export class SshSessionManager {
   }
 
   prepare(ownerId: number, request: SshPrepareRequest): { sessionId: string } {
-    if (this.sessions.size >= MAX_SSH_SESSIONS) throw new Error(`Maximal ${MAX_SSH_SESSIONS} Terminal-Sessions gleichzeitig. Schließe zuerst einen Tab.`);
+    if (this.sessions.size >= MAX_SSH_SESSIONS) throw new AppError('ssh.sessionLimit', { max: MAX_SSH_SESSIONS });
     const local = request.connectionId === LOCAL_CONTAINER_HOST;
-    if (local && !request.target) throw new Error('Die Verbindung wurde nicht gefunden.');
+    if (local && !request.target) throw new AppError('ssh.connectionNotFound');
     const connection = local ? undefined : this.dependencies.getConnection(request.connectionId);
-    if (connection?.protocol === 'rdp' || connection?.protocol === 'sftp') throw new Error('Diese Verbindung ist keine Terminalverbindung.');
-    if (connection?.protocol === 'kubernetes' && !request.kube) throw new Error('Cluster öffnen sich im Cluster-Tab.');
+    if (connection?.protocol === 'rdp' || connection?.protocol === 'sftp') throw new AppError('ssh.notTerminal');
+    if (connection?.protocol === 'kubernetes' && !request.kube) throw new AppError('ssh.clusterInTab');
     if (request.kube) this.checkKubeRequest(request.kube, connection);
-    if (connection && request.target && connection.protocol !== 'ssh') throw new Error('Container-Tabs gibt es nur für SSH-Verbindungen.');
+    if (connection && request.target && connection.protocol !== 'ssh') throw new AppError('ssh.containerTabsSshOnly');
     if (connection?.protocol === 'ssh' && (!connection.host.trim() || !connection.username?.trim())) {
-      throw new Error('Bitte speichere Host und Benutzername, bevor du die Verbindung startest.');
+      throw new AppError('ssh.hostUserMissing');
     }
     // Validates the target now so the tab fails before any connection is made.
     if (request.target) terminalArgv(request.target);
@@ -157,7 +160,7 @@ export class SshSessionManager {
       outputBytes: 0, inputBytes: 0, sequence: 0, ...(request.target ? { target: request.target, tail: '' } : {}),
       ...(request.kube ? { kube: { ...request.kube } } : {}) };
     this.sessions.set(id, session);
-    session.timer = setTimeout(() => this.finish(session, 'error', 'Der Terminalstart wurde abgebrochen.'), 30_000);
+    session.timer = setTimeout(() => this.finish(session, 'error', { code: 'ssh.startAborted' }), 30_000);
     if (connection?.protocol === 'ssh') {
       const client = new Client();
       session.client = client;
@@ -170,7 +173,7 @@ export class SshSessionManager {
 
   private owned(ownerId: number, id: string): Session {
     const session = this.sessions.get(id);
-    if (!session || session.ownerId !== ownerId) throw new Error('Die Terminalverbindung ist nicht verfügbar.');
+    if (!session || session.ownerId !== ownerId) throw new AppError('ssh.notAvailable');
     return session;
   }
 
@@ -178,7 +181,7 @@ export class SshSessionManager {
 
   async connect(ownerId: number, id: string): Promise<void> {
     const session = this.owned(ownerId, id);
-    if (session.phase !== 'prepared') throw new Error('Die Terminalverbindung wurde bereits gestartet.');
+    if (session.phase !== 'prepared') throw new AppError('ssh.alreadyStarted');
     clearTimeout(session.timer);
     session.timer = undefined;
     session.phase = 'connecting';
@@ -187,16 +190,16 @@ export class SshSessionManager {
       if (session.connectionId === LOCAL_CONTAINER_HOST) { await this.startLocalContainer(session); return; }
       const connection = this.dependencies.getConnection(session.connectionId);
       if (session.kube) { await this.startKubeTerminal(session, session.kube, connection); return; }
-      if (session.target && connection.protocol !== 'ssh') throw new Error('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
+      if (session.target && connection.protocol !== 'ssh') throw new AppError('ssh.connectionTypeChanged');
       if (connection.protocol === 'powershell' || connection.protocol === 'cmd' || connection.protocol === 'aicli') { await this.startLocalShell(session, connection); return; }
-      if (connection.protocol !== 'ssh' || !session.client) throw new Error('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
+      if (connection.protocol !== 'ssh' || !session.client) throw new AppError('ssh.connectionTypeChanged');
       const client = session.client;
       // Decided before connecting, so an unusable password fails without contacting the host.
       const sudo = session.target ? this.sudoMode(session, connection) : undefined;
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
           .then(valid => {
-            if (!valid && this.active(session)) this.finish(session, 'error', 'Der Server-Schlüssel wurde nicht bestätigt.');
+            if (!valid && this.active(session)) this.finish(session, 'error', { code: 'ssh.hostKeyRejected' });
             callback(valid && this.active(session));
           }).catch(error => {
             this.finish(session, 'error', publicError(error));
@@ -229,7 +232,7 @@ export class SshSessionManager {
     const release = await this.sudoRejections.acquire(session.connectionId);
     if (!this.active(session) || session.sudo !== pending) { release(); return false; }
     pending.release = release;
-    if (this.sudoRejections.isRejected(session.connectionId, pending.fingerprint)) throw new ContainerInputError(SUDO_REJECTED);
+    if (this.sudoRejections.isRejected(session.connectionId, pending.fingerprint)) throw new AppError(SUDO_REJECTED);
     return true;
   }
 
@@ -254,7 +257,7 @@ export class SshSessionManager {
     if (setting.kind !== 'prompt') return setting;
     const fingerprint = connectionFingerprint(connection);
     // A refused password is not tried again (account lockout) until the connection changes.
-    if (this.sudoRejections.isRejected(connection.id, fingerprint)) throw new ContainerInputError(SUDO_REJECTED);
+    if (this.sudoRejections.isRejected(connection.id, fingerprint)) throw new AppError(SUDO_REJECTED);
     const marker = createSudoMarker('sudo');
     const ready = createSudoMarker('ready');
     session.sudo = { watcher: new SudoWatcher({ prompt: marker, ready }), password: setting.password, fingerprint };
@@ -271,7 +274,7 @@ export class SshSessionManager {
     // A second prompt means sudo refused the password; never send it twice.
     if (sudo.watcher.count > 1 || !sudo.password) {
       this.sudoRejections.markRejected(session.connectionId, sudo.fingerprint);
-      this.finish(session, 'error', SUDO_REJECTED);
+      this.finish(session, 'error', { code: SUDO_REJECTED });
       return;
     }
     const password = sudo.password;
@@ -283,7 +286,7 @@ export class SshSessionManager {
   private sudoGaveUp(session: Session): void {
     if (!this.active(session) || !session.sudo) return;
     this.releaseSudoHold(session);
-    this.output(session, Buffer.from('\r\n[Shellherd] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben.\r\n', 'utf8'));
+    this.output(session, Buffer.from('\r\n[Shellherd] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben.\r\n', 'utf8')); // i18n-ignore: needs a main.json key
   }
 
   private releaseSudoHold(session: Session): void {
@@ -303,23 +306,23 @@ export class SshSessionManager {
 
   private ended(session: Session): void {
     const notCached = session.sudoReady && !session.typed && session.exitCode && /sudo: a password is required/i.test(session.tail ?? '');
-    const message = notCached ? SUDO_NOT_CACHED : session.target ? targetExitMessage(session.target, session.exitCode, session.tail ?? '', session.typed === true) : undefined;
-    this.finish(session, message ? 'error' : 'closed', message);
+    const error: CodedError | undefined = notCached ? { code: SUDO_NOT_CACHED } : session.target ? targetExitError(session.target, session.exitCode, session.tail ?? '', session.typed === true) : undefined;
+    this.finish(session, error ? 'error' : 'closed', error);
   }
 
   private async startLocalContainer(session: Session): Promise<void> {
-    if (process.platform !== 'win32') throw new LocalShellError('Lokale Container-Tabs sind nur unter Windows verfügbar.');
+    if (process.platform !== 'win32') throw new LocalShellError('ssh.localContainerWindowsOnly');
     const target = session.target!;
-    if (target.item.kind !== 'container') throw new LocalShellError('Proxmox gibt es nur auf entfernten Hosts.');
+    if (target.item.kind !== 'container') throw new LocalShellError('ssh.proxmoxRemoteOnly');
     const argv = terminalArgv(target);
     const file = await (this.dependencies.locate ?? locateCommand)(argv[0]);
-    if (!file) throw new LocalShellError(`${argv[0]} ist nicht installiert oder nicht im PATH.`);
+    if (!file) throw new LocalShellError('ssh.programNotInstalled', { program: argv[0] });
     if (!this.active(session)) return;
     let pty: IPty;
     try {
       pty = this.dependencies.spawnShell(file, argv.slice(1), { name: 'xterm-256color', cols: session.size.cols, rows: session.size.rows,
         cwd: homedir(), env: shellEnvironment(), useConpty: true });
-    } catch { throw new LocalShellError(`${argv[0]} konnte nicht gestartet werden.`); }
+    } catch { throw new LocalShellError('ssh.programStartFailed', { program: argv[0] }); }
     session.pty = pty;
     session.phase = 'connected';
     pty.onData(data => this.output(session, Buffer.from(data, 'utf8')));
@@ -328,10 +331,10 @@ export class SshSessionManager {
   }
 
   private async startLocalShell(session: Session, connection: LocalConnectionNode): Promise<void> {
-    if (process.platform !== 'win32') throw new LocalShellError('Lokale PowerShell- und CMD-Sitzungen sind nur unter Windows verfügbar.');
+    if (process.platform !== 'win32') throw new LocalShellError('ssh.localShellWindowsOnly');
     const cwd = connection.workingDirectory?.trim() || homedir();
     const folder = await stat(cwd).catch(() => undefined);
-    if (!folder?.isDirectory()) throw new LocalShellError(`Der Startordner „${cwd}“ existiert nicht.`);
+    if (!folder?.isDirectory()) throw new LocalShellError('ssh.startFolderMissing', { folder: cwd });
     if (!this.active(session)) return;
     let file: string;
     let args: string[] | string;
@@ -340,7 +343,7 @@ export class SshSessionManager {
       if (connection.tool !== 'custom') {
         const tool = AI_CLI_TOOLS[connection.tool];
         if (!await (this.dependencies.locate ?? locateCommand)(tool.command)) {
-          throw new LocalShellError(`${tool.label} ist nicht installiert oder nicht im PATH. Installation: ${tool.install}`);
+          throw new LocalShellError('ssh.aiToolNotInstalled', { tool: tool.label, install: tool.install });
         }
         if (!this.active(session)) return;
       }
@@ -352,7 +355,7 @@ export class SshSessionManager {
     try {
       pty = this.dependencies.spawnShell(file, args, { name: 'xterm-256color', cols: session.size.cols, rows: session.size.rows,
         cwd, env: shellEnvironment(), useConpty: true });
-    } catch { throw new LocalShellError('Die lokale Shell konnte nicht gestartet werden.'); }
+    } catch { throw new LocalShellError('ssh.localShellStartFailed'); }
     session.pty = pty;
     session.phase = 'connected';
     pty.onData(data => this.output(session, Buffer.from(data, 'utf8')));
@@ -362,27 +365,27 @@ export class SshSessionManager {
 
   /** Cluster terminals are checked before connecting, so a refused request never reaches the cluster. */
   private checkKubeRequest(kube: KubeTerminalTarget, connection: ConnectionNode | undefined): void {
-    if (connection?.protocol !== 'kubernetes') throw new Error('Pod-Terminals gibt es nur für Kubernetes-Cluster.');
-    if (!this.dependencies.openKubeTerminal) throw new Error('Pod-Terminals sind nicht verfügbar.');
+    if (connection?.protocol !== 'kubernetes') throw new AppError('ssh.podTerminalOnlyKube');
+    if (!this.dependencies.openKubeTerminal) throw new AppError('ssh.podTerminalUnavailable');
     if (!KUBE_NAME.test(kube.namespace) || !KUBE_NAME.test(kube.pod) || !KUBE_NAME.test(kube.container) || !KUBE_TERMINAL_MODES.includes(kube.mode)) {
-      throw new Error('Ungültige Pod-Angabe.');
+      throw new AppError('ssh.invalidPod');
     }
-    if (kube.mode === 'shell' && connection.readOnly) throw new Error(READ_ONLY_MESSAGE);
+    if (kube.mode === 'shell' && connection.readOnly) throw new AppError('kubernetes.readOnly');
   }
 
   /** Output and exit come back through `io`; the stream is closed if the tab went away while opening. */
   private async startKubeTerminal(session: Session, target: KubeTerminalTarget, connection: ConnectionNode): Promise<void> {
-    if (connection.protocol !== 'kubernetes') throw new LocalShellError('Die Verbindungsart hat sich geändert. Öffne den Tab erneut.');
-    if (target.mode === 'shell' && connection.readOnly) throw new LocalShellError(READ_ONLY_MESSAGE);
+    if (connection.protocol !== 'kubernetes') throw new LocalShellError('ssh.connectionTypeChanged');
+    if (target.mode === 'shell' && connection.readOnly) throw new LocalShellError('kubernetes.readOnly');
     const open = this.dependencies.openKubeTerminal;
-    if (!open) throw new LocalShellError('Pod-Terminals sind nicht verfügbar.');
+    if (!open) throw new LocalShellError('ssh.podTerminalUnavailable');
     const io: TerminalIo = {
       data: chunk => this.output(session, chunk),
-      end: (code, message) => { session.exitCode = code; this.finish(session, message ? 'error' : 'closed', message); },
+      end: (code, error) => { session.exitCode = code; this.finish(session, error ? 'error' : 'closed', error); },
     };
     let stream: KubeStream;
     try { stream = await open(session.connectionId, target, session.size, io); }
-    catch (error) { throw new LocalShellError(error instanceof KubeApiError ? error.message : 'Das Pod-Terminal konnte nicht geöffnet werden.'); }
+    catch (error) { throw new LocalShellError('ssh.podTerminalFailed', undefined, error instanceof KubeApiError ? error.message : undefined); }
     if (!this.active(session)) { stream.close(); return; }
     session.kubeStream = stream;
     session.phase = 'connected';
@@ -391,8 +394,8 @@ export class SshSessionManager {
 
   private clearKey(session: Session): void { session.key?.fill(0); session.key = undefined; }
 
-  private status(session: Session, status: 'connecting' | 'connected' | 'closed' | 'error', message?: string): void {
-    this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(message ? { message } : {}) });
+  private status(session: Session, status: 'connecting' | 'connected' | 'closed' | 'error', error?: CodedError): void {
+    this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error } : {}) });
   }
 
   private output(session: Session, chunk: Buffer): void {
@@ -400,20 +403,20 @@ export class SshSessionManager {
     if (session.target) session.tail = ((session.tail ?? '') + chunk.subarray(-2048).toString('utf8')).slice(-2048);
     if (session.handover) {
       // Streams are paused; only chunks already in flight arrive here.
-      if (session.handover.bytes + chunk.length > OUTPUT_LIMIT) { this.finish(session, 'error', 'Die Terminalausgabe konnte nicht übergeben werden.'); return; }
+      if (session.handover.bytes + chunk.length > OUTPUT_LIMIT) { this.finish(session, 'error', { code: 'ssh.handoverFailed' }); return; }
       session.handover.held.push(chunk);
       session.handover.bytes += chunk.length;
       return;
     }
     if (session.outputBytes + chunk.length > OUTPUT_LIMIT) {
-      this.finish(session, 'error', 'Die Terminalausgabe konnte nicht schnell genug verarbeitet werden.');
+      this.finish(session, 'error', { code: 'ssh.outputTooSlow' });
       return;
     }
     const sequence = ++session.sequence;
     session.outstanding.set(sequence, chunk.length);
     session.outputBytes += chunk.length;
     if (session.outputBytes >= OUTPUT_HIGH) { session.stream?.pause(); session.stream?.stderr.pause(); session.pty?.pause(); session.kubeStream?.pause(); }
-    if (!session.timer) session.timer = setTimeout(() => this.finish(session, 'error', 'Das Terminal reagiert nicht mehr.'), 30_000);
+    if (!session.timer) session.timer = setTimeout(() => this.finish(session, 'error', { code: 'ssh.notResponding' }), 30_000);
     this.dependencies.emit(session.ownerId, { type: 'data', sessionId: session.id, sequence, data: new Uint8Array(chunk) });
   }
 
@@ -431,11 +434,11 @@ export class SshSessionManager {
 
   async input(ownerId: number, id: string, data: string): Promise<void> {
     const session = this.owned(ownerId, id);
-    if (session.phase !== 'connected' || (!session.stream && !session.pty && !session.kubeStream)) throw new Error('Das Terminal ist noch nicht verbunden.');
+    if (session.phase !== 'connected' || (!session.stream && !session.pty && !session.kubeStream)) throw new AppError('ssh.notConnected');
     // While sudo authenticates, keystrokes would end up in its password line.
     if (session.sudo) return;
     const bytes = Buffer.byteLength(data);
-    if (bytes > 16_384 || session.inputBytes + bytes > INPUT_LIMIT) throw new Error('Zu viele Terminaleingaben. Bitte warte kurz.');
+    if (bytes > 16_384 || session.inputBytes + bytes > INPUT_LIMIT) throw new AppError('ssh.tooMuchInput');
     if (!bytes) return;
     session.inputBytes += bytes;
     session.typed = true;
@@ -443,7 +446,7 @@ export class SshSessionManager {
       if (session.pty) { session.pty.write(data); return; }
       if (session.kubeStream) { session.kubeStream.write(data); return; }
       await new Promise<void>((resolve, reject) => session.stream!.write(data, error => error ? reject(error) : resolve()));
-    } catch { throw new Error('Die Terminaleingabe konnte nicht gesendet werden.'); }
+    } catch { throw new AppError('ssh.inputFailed'); }
     finally { session.inputBytes -= bytes; }
   }
 
@@ -494,7 +497,7 @@ export class SshSessionManager {
   owns(ownerId: number, id: string): boolean { return this.sessions.get(id)?.ownerId === ownerId; }
   hasOwner(ownerId: number): boolean { return [...this.sessions.values()].some(session => session.ownerId === ownerId); }
 
-  private finish(session: Session, status: 'closed' | 'error', message?: string): void {
+  private finish(session: Session, status: 'closed' | 'error', error?: CodedError): void {
     if (!this.active(session)) return;
     this.sessions.delete(session.id);
     clearTimeout(session.timer);
@@ -505,6 +508,6 @@ export class SshSessionManager {
     session.stream?.destroy();
     session.client?.destroy();
     try { session.pty?.kill(); } catch { /* already exited */ }
-    this.status(session, status, message);
+    this.status(session, status, error);
   }
 }
