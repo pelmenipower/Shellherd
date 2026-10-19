@@ -7,11 +7,11 @@ Alle Farben, Maße, Ebenen, Schatten und Bewegungswerte stehen in `src/renderer/
 **Terminus ist ein dichtes, dunkles Ops-Werkzeug. Es bewegt sich fast nichts, was leuchtet, ist Cyan, und was gefärbt ist, ist ein Zustand.**
 
 1. **Drei Flächenstufen, eine Linie.** Bühne `#070b14` (Terminal, Code, Manifest), App-Grund `#090e17` (Hintergrund, View-Leiste), Panel `#111925` (Leisten, Seitenleiste, Dialoge, Menüs), erhöht `#182334` (Controls, Zeilen-Hover), Hover `#233045`. Eine Linienfarbe `#29374b`, eine stärkere `#496078` für Hover-Ränder und aktive Tabs.
-2. **Cyan ist das einzige Signal.** `#67e8f9` steht für Fokus, aktive Tabs, Links, Auswahl-Rand, Fortschritt und Primärbutton. Ausgewählt (dauerhaft, Zeilen) ist **ein** opakes Blau `#183245`. Aktiv oder gehovert in Menüs, Tabs und Chips ist **eine** Tönung `rgb(103 232 249 / 14%)`. Ein einzelnes Drop-Ziel bekommt 22 %, eine ganze Ablagefläche 6 %. Mehr Stufen gibt es nicht.
+2. **Cyan ist das einzige Signal.** `#67e8f9` steht für Fokus, aktive Tabs, Links, Auswahl-Rand, Fortschritt und Primärbutton. Ausgewählt (dauerhaft, Zeilen) ist **ein** opakes Blau `#183245`. Aktiv in View-Tabs, Menüfokus und Badges ist **eine** Tönung `rgb(103 232 249 / 14%)`. Hover auf Buttons, Tabs und Chips ist `--color-bg-hover`. Ein einzelnes Drop-Ziel bekommt 22 %, eine ganze Ablagefläche 6 %. Mehr Stufen gibt es nicht.
 3. **Ampel nur für Zustände.** Ein Grün `#4ade80`, ein Gelb `#fcd34d`, ein Rot `#fb7185` für Punkte und Icons. Gefahr-Text ist `#fda4af`, die Gefahr-Fläche `#341c25`, der Gefahr-Rand `#713442`. Nie dekorativ.
 4. **Zwei Textstufen.** Text `#e2eaf4`, gedämpft `#a7b7cb`, dazu Code-Text `#dce9f8`. Dunklere Grautöne gibt es nicht.
-5. **Vier Control-Höhen.** 24 in Tabellen und Chip-Leisten, 28 in Leisten und Menüs, 32 Standard, 36 für Formulareingaben und Suche. Leisten sind 32 hoch (Pane, Datei, Dock, View, Transfer), der App-Kopf 44, die Statusleiste 24.
-6. **Drei Radien.** 4 innen (Tabs, Zeilen, Menüeinträge, Icon-Knöpfe in Leisten), 5 Standard (Buttons, Eingaben, Chips, Popover, Menüs), 8 für Dialoge und Karten. Pillen nutzen `999px`.
+5. **Vier Control-Höhen.** 24 in Tabellen und Chip-Leisten, 28 in Leisten und Menüs, 32 Standard, 36 für Formulareingaben und Suche. Leisten sind 32 hoch (Pane, Datei, Dock, Transfer), die View-Leiste 30, der App-Kopf 44, die Statusleiste 24.
+6. **Drei Radien.** 4 innen (Tabs, Zeilen, Menüeinträge, Icon-Knöpfe in Leisten), 5 Standard (Buttons, Eingaben, Popover, Menüs), 8 für Dialoge und Karten. Pillen nutzen `999px` (Chips, Badges). Ausnahme: Das Layout-Menü hat 4.
 7. **Motion ist Ausnahme.** Druck (120 ms), Dialog (200 ms), Popover (160 ms), Hinweis (180 ms), Puls (1 s). Alles, was per Tastatur erreichbar ist, alle Listen, Tabs, Chips und die Terminalausgabe reagieren sofort. Hover-Farbwechsel haben keine Transition.
 
 ## Tokens
@@ -73,9 +73,9 @@ Geometrie bleibt in Stufe 1 literal im CSS. Die Abstands-, Typ-, Control- und Le
 | Name | Rolle | Wert | Beispiel |
 |---|---|---|---|
 | `--radius-sm` | innen | `4px` | Tabs, Zeilen, Menüeinträge |
-| `--radius-md` | Standard | `5px` | Buttons, Eingaben, Chips, Popover |
+| `--radius-md` | Standard | `5px` | Buttons, Eingaben, Popover |
 | `--radius-lg` | groß | `8px` | Dialoge, Karten |
-| `--radius-pill` | Pille | `999px` | Badges |
+| `--radius-pill` | Pille | `999px` | Chips, Badges |
 
 ### Schrift (`--font-*`, `--fs-*`)
 
@@ -110,10 +110,10 @@ Die Reihenfolge `header < popover < menu < modal < toast` ist verbindlich.
 |---|---|---|
 | `--layer-sticky` | `1` | klebende Tabellenköpfe |
 | `--layer-handle` | `10` | Griffe |
-| `--layer-chrome` | `25` | schmale Seitenleiste und Ähnliches |
-| `--layer-drag` | `45` | Drag-Vorschau und Marker |
+| `--layer-chrome` | `25` | Pane-Chrome, Layout-Menü (+5) |
+| `--layer-drag` | `45` | Drag-Vorschau, Marker (+1), schmale Seitenleiste |
 | `--layer-header` | `60` | App-Kopf |
-| `--layer-popover` | `70` | Picker und Popover |
+| `--layer-popover` | `70` | Workspace-Menü und andere DOM-Popover (native `popover` liegt im Top-Layer) |
 | `--layer-menu` | `80` | Menüs |
 | `--layer-modal` | `90` | Dialoge und Hilfe |
 | `--layer-toast` | `100` | Hinweise |
@@ -172,7 +172,8 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 |---|---|---|---|---|---|
 | Button `:active` (alle außer Ausnahmeliste) | zig/Tag | animieren, minimal | Feedback | `transform: scale(.97)`, `--ease-out`, `--dur-press` | kein Druck |
 | Flache Druckelemente (siehe Ausnahmeliste unten) | 100+/Tag, teils Tastatur | nicht | Breite Flächen skalieren sichtbar, Listen- und Tabnavigation | eine `:not()`-Liste in `styles.css` | – |
-| Bestätigungs-, KI-, Konflikt-, Release-Notes-Dialog (`.confirm-dialog`) | gelegentlich | animieren | harten Wechsel vermeiden | `opacity 0→1`, `scale(.97)→1`, `--ease-out`, `--dur-modal`, `::backdrop` nur `opacity`, Origin `center`, kein Exit | nur `opacity` |
+| Übrige Dialoge: Bestätigungs-, KI-, Konflikt-, Release-Notes-Dialog (`.confirm-dialog`) | gelegentlich | animieren | harten Wechsel vermeiden | `opacity 0→1`, `scale(.97)→1`, `--ease-out`, `--dur-modal`, `::backdrop` nur `opacity`, Origin `center`, kein Exit | nur `opacity` |
+| Bestätigungen, die eine Taste auslösen kann (Kube-/Container-Aktionen `.kube-confirm`, Datei-Löschen `[data-instant]`) | Tastatur, Entf | nicht, erscheinen sofort | Tastatur-Aktionen werden nie animiert, ein Element hat ein Verhalten | die Ausnahme steht in den `:not(.kube-confirm):not([data-instant])` der Dialog-Regeln in `styles.css` | – |
 | Workflow-Palette (`.workflow-palette`) | Strg+Umschalt+Leertaste, 100+/Tag | nicht | Tastatur, Command-Palette | hat nicht die Klasse `.confirm-dialog` | – |
 | Hilfe-Overlay Kube/Container (`.kube-modal`) | Taste `?` | nicht | Tastatur | liegt auf `--layer-modal`, über dem App-Kopf | – |
 | Kontextmenü (`.context-menu`) | zig/Tag, Shift+F10 und Menütaste | nicht | Tastatur-erreichbar, hoher Takt | Schatten `--shadow-overlay` | – |
@@ -228,15 +229,15 @@ Der Test `src/renderer/src/design-tokens.test.ts` liest alle CSS-Dateien unter `
 - **R3:** Bewegungswerte nutzen keine Keyword-Easings, und außerhalb von `tokens.css` steht weder `cubic-bezier(` noch `steps(`.
 - **R4:** Außerhalb von `tokens.css` steht in Bewegungswerten keine literale Dauer, und in `tokens.css` ist jedes `--dur-*` höchstens 300 ms, außer `--dur-pulse`.
 - **R5:** Kein Wert enthält `scale(0)`.
-- **R6:** `z-index` ist nie eine bloße Zahl, sondern `var(--layer-*)`, `calc(var(--layer-*) + n)` oder `auto`.
-- **R7:** Eine Datei mit Bewegung enthält `prefers-reduced-motion`.
-- **R7b:** `transform`-Bewegung in `@starting-style`, bei `:active` oder in einem Transition-Wert liegt hinter `prefers-reduced-motion: no-preference`.
+- **R6:** `z-index` ist nur `auto`, `var(--layer-*)` oder `calc(var(--layer-*) ± n)`, ein `!important` wird vorher abgetrennt.
+- **R7:** Eine Datei mit Bewegung enthält einen Block unter einer `prefers-reduced-motion`-At-Rule (Kommentare zählen nicht).
+- **R7b:** `transform`-Bewegung in `@starting-style`, bei `:active` oder in einem Transition-Wert liegt hinter `prefers-reduced-motion: no-preference`. Das gilt auch für `animation`/`animation-name` mit einem Keyframe, dessen Schritte `transform`, `translate`, `scale` oder `rotate` setzen.
 - **R8:** `:hover`-Regeln mit Bewegung liegen in `@media (hover: hover)`.
 - **R9:** `tokens.css` deklariert die drei Kurven wörtlich, alle Aliase, alle `--color-*`-Namen und `@keyframes tm-pulse`, und die Ebenen sind nach `header < popover < menu < modal < toast` geordnet.
 - **R10:** `styles.css` beginnt mit `@import './tokens.css';`, und keine andere Datei enthält `@import`.
 - **R11:** Außerhalb von `tokens.css` deklariert keine Regel eine Custom Property.
 - **R12:** Außerhalb von `tokens.css` nutzt kein Wert einen Alias.
-- **R13:** Bühnenflächen deklarieren kein `transform`, `transition*`, `animation*`, `filter` und `will-change`.
+- **R13:** Bühnenflächen deklarieren kein `transform`, `translate`, `scale`, `rotate`, `transition*`, `animation*`, `filter` und `will-change`.
 
 Der Selbsttest `flags every rule` lintet eine Fixture mit je einem Verstoß, eine Negativ-Fixture muss 0 Treffer liefern.
 

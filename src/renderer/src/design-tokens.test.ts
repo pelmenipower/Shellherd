@@ -51,7 +51,7 @@ function tokenize(css: string): Block[] {
 const isMotion = (property: string): boolean => /^(transition|animation)(-|$)/.test(property);
 const TRANSFORM_PROPS = ['transform', 'translate', 'scale', 'rotate'];
 const STAGE = /\.(?:terminal-panel|terminal-container|split-terminal-stage|rdp-surface|kube-dock-terminal)(?![\w-])/;
-const STAGE_FORBIDDEN = (property: string): boolean => property === 'transform' || property === 'filter' || property === 'will-change' || isMotion(property);
+const STAGE_FORBIDDEN = (property: string): boolean => TRANSFORM_PROPS.includes(property) || property === 'filter' || property === 'will-change' || isMotion(property);
 
 const EASES = {
   '--ease-out': 'cubic-bezier(0.23, 1, 0.32, 1)',
@@ -76,6 +76,16 @@ function lint(file: string, css: string): string[] {
   const stripped = css.replace(/^﻿/, '').replace(/\/\*[\s\S]*?\*\//g, '');
   const blocks = tokenize(css);
   let hasMotion = false;
+  // Keyframe names whose steps move something (transform, translate, scale, rotate).
+  const movingKeyframes = new Set<string>();
+  for (const block of blocks) {
+    const frames = block.ancestors.find(item => /^@keyframes\s/.test(item));
+    if (frames && block.declarations.some(({ property }) => TRANSFORM_PROPS.includes(property))) movingKeyframes.add(frames.replace(/^@keyframes\s+/, '').trim());
+  }
+  const zIndexOk = (raw: string): boolean => {
+    const value = raw.replace(/\s*!important\s*$/i, '').trim();
+    return value === 'auto' || /^var\(--layer-[\w-]+\)$/.test(value) || /^calc\(\s*var\(--layer-[\w-]+\)\s*[+-]\s*\d+\s*\)$/.test(value);
+  };
 
   for (const block of blocks) {
     const { selector, ancestors } = block;
@@ -87,7 +97,7 @@ function lint(file: string, css: string): string[] {
         if (/var\(\s*--[\w-]+\s*,/.test(value)) add('R1', selector, property, value);
         if (motion && /(?:cubic-bezier|steps)\(/.test(value)) add('R3', selector, property, value);
         if (motion && /(?<![\w.-])(?:\d+\.?\d*|\.\d+)m?s(?![\w-])/.test(value)) add('R4', selector, property, value);
-        if (property === 'z-index' && /^-?\d+$/.test(value)) add('R6', selector, property, value);
+        if (property === 'z-index' && !zIndexOk(value)) add('R6', selector, property, value);
         if (property.startsWith('--')) add('R11', selector, property, value);
         if (/var\(\s*--(?:ui-[\w-]+|surface(?:-raised|-hover)?|border|text|text-muted|accent)\s*\)/.test(value)) add('R12', selector, property, value);
       }
@@ -98,11 +108,14 @@ function lint(file: string, css: string): string[] {
       const gated = ancestors.some(item => /prefers-reduced-motion:\s*no-preference/.test(item));
       if (TRANSFORM_PROPS.includes(property) && value !== 'none' && (ancestors.includes('@starting-style') || /:active/.test(selector)) && !gated) add('R7b', selector, property, value);
       if (motion && value.includes('transform') && !gated) add('R7b', selector, property, value);
+      if ((property === 'animation' || property === 'animation-name') && !gated
+        && [...movingKeyframes].some(name => new RegExp(`(?<![\\w-])${name}(?![\\w-])`).test(value))) add('R7b', selector, property, value);
       if (/:hover/.test(selector) && (TRANSFORM_PROPS.includes(property) || motion) && !/\(hover:\s*hover\)/.test(ancestorText)) add('R8', selector, property, value);
       if (STAGE.test(selector) && STAGE_FORBIDDEN(property)) add('R13', selector, property, value);
     }
   }
-  if (hasMotion && !css.includes('prefers-reduced-motion')) add('R7', '-', 'motion', 'no prefers-reduced-motion');
+  const reducedMotionPath = blocks.some(block => block.ancestors.some(item => /prefers-reduced-motion/.test(item)));
+  if (hasMotion && !reducedMotionPath) add('R7', '-', 'motion', 'no prefers-reduced-motion');
   if (file === 'styles.css') {
     if (!stripped.trim().startsWith("@import './tokens.css';")) add('R10', '-', '@import', 'styles.css must start with the tokens import');
   } else if (/@import/.test(stripped)) {
@@ -151,6 +164,9 @@ const BAD_FIXTURE = `
 .terminal-panel { transform: none; }
 `;
 
+const MOVING_KEYFRAMES = '@keyframes slide { from { transform: translateY(-4px); } to { transform: none; } }';
+
+
 const GOOD_FIXTURE = `
 .release-notes-dialog { text-transform: uppercase; color: var(--color-text); }
 #add { color: var(--color-accent); }
@@ -178,6 +194,36 @@ describe('design tokens lint', () => {
     const found = lint('fixture.css', BAD_FIXTURE);
     for (const id of RULE_IDS) expect(found.some(line => line.split(' ')[1] === id), id).toBe(true);
     expect(found.filter(line => line.split(' ')[1] === 'R1').length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('R7b flags an animation whose keyframes move, unless gated', () => {
+    const bad = lint('fixture.css', `${MOVING_KEYFRAMES} .l { animation: slide var(--dur-popover) var(--ease-out); }`);
+    expect(bad.some(line => line.includes(' R7b .l '))).toBe(true);
+    const gated = `${MOVING_KEYFRAMES} @media (prefers-reduced-motion: no-preference) { .l { animation: slide var(--dur-popover) var(--ease-out); } }
+      @media (prefers-reduced-motion: reduce) { .l { animation: none; } }`;
+    expect(lint('fixture.css', gated)).toEqual([]);
+    const fade = lint('fixture.css', '@keyframes fade { from { opacity: 0; } } .m { animation-name: fade; } @media (prefers-reduced-motion: reduce) { .m { animation: none; } }');
+    expect(fade).toEqual([]);
+  });
+
+  it('R7 ignores prefers-reduced-motion in comments', () => {
+    const css = '/* TODO prefers-reduced-motion */ .n { transition: opacity var(--dur-fade) linear; }';
+    expect(lint('fixture.css', css).some(line => line.split(' ')[1] === 'R7')).toBe(true);
+  });
+
+  it('R13 flags individual transform properties on stage surfaces', () => {
+    for (const property of ['translate', 'scale', 'rotate']) {
+      expect(lint('fixture.css', `.terminal-container { ${property}: 1; }`).some(line => line.includes(' R13 '))).toBe(true);
+    }
+  });
+
+  it('R6 allows only layer tokens and auto', () => {
+    for (const value of ['5 !important', 'calc(40 + 5)', 'var(--x)', 'inherit']) {
+      expect(lint('fixture.css', `.o { z-index: ${value}; }`).some(line => line.includes(' R6 ')), value).toBe(true);
+    }
+    for (const value of ['auto', 'var(--layer-modal)', 'var(--layer-modal) !important', 'calc(var(--layer-chrome) + 5)', 'calc(var(--layer-drag) - 1)']) {
+      expect(lint('fixture.css', `.o { z-index: ${value}; }`), value).toEqual([]);
+    }
   });
 
   it('flags a broken tokens file and a missing import', () => {
