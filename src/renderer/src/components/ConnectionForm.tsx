@@ -133,7 +133,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
                 <ConnectionIcon icon={icon} color={fields.color || undefined} />
               </button>)}
             </div>
-            <input type="color" aria-label="Verbindungsfarbe" title="Verbindungsfarbe wählen" value={/^#[\da-f]{6}$/i.test(fields.color) ? fields.color : '#a7b7cb'}
+            <input type="color" aria-label="Verbindungsfarbe" title="Verbindungsfarbe wählen" value={/^#[\da-f]{6}$/i.test(fields.color) ? fields.color : '#aeb3bc'}
               disabled={busy} onChange={event => setField('color', event.target.value)} />
             <button className="secondary-button" type="button" disabled={busy || !fields.color} onClick={() => setField('color', '')}>Standardfarbe</button>
           </div>
