@@ -27,6 +27,10 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
 import { containerConnection, isRunning, tabLabel, toTerminalConnection } from './terminal-tabs';
+import type { TerminalConnection, TerminalTab } from './terminal-tabs';
+import { newClusterFromSsh } from './cluster-form';
+import type { KubeProbeResult, KubeViewSnapshot } from '../../shared/kubernetes';
+import type { KubernetesConnectionNode } from '../../shared/vault/types';
 import { connectionAddress, connectionsIn, disabledNotice, NEW_CONNECTION_KINDS, skippedNotice } from '../../shared/vault/connections';
 import { LOCAL_CONTAINER_HOST, toTarget } from '../../shared/containers';
 import type { ContainerAction, DiscoveredItem, TerminalTargetMode } from '../../shared/containers';
@@ -144,6 +148,11 @@ export default function App() {
   const [folderName, setFolderName] =
     useState('');
   const terminals = useTerminalTabs();
+  // Live view of each open cluster tab, saved with workspaces; a restored tab keeps its saved view on the tab itself.
+  const kubeViews = useRef(new Map<string, KubeViewSnapshot>());
+  const saveKubeView = useCallback((tabId: string, view: KubeViewSnapshot) => { kubeViews.current.set(tabId, view); }, []);
+  // Prefilled cluster that the connection form saves as a new connection.
+  const [clusterDraft, setClusterDraft] = useState<KubernetesConnectionNode | null>(null);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const terminalLayout = useTerminalLayout(terminals.tabs, terminals.activeTabId);
   const transfer = useTabTransfer(terminals, terminalLayout, setError);
@@ -496,7 +505,7 @@ export default function App() {
     const windows = await window.desktopApi.workspaceWindows().catch(() => []);
     const { windows: _windows, views: _views, ...rest } = existing ?? {};
     const workspace = { ...rest, id: existing?.id ?? crypto.randomUUID(), name: name.trim(),
-      ...toWorkspaceViews(terminalLayout.viewsState, terminals.tabs), ...(windows.length ? { windows } : {}) };
+      ...toWorkspaceViews(terminalLayout.viewsState, tabsWithKubeViews()), ...(windows.length ? { windows } : {}) };
     const workspaces = upsertWorkspace(vault.workspaces, workspace);
     if (!await persistVault({ ...vault, workspaces })) return null;
     setActiveWorkspaceId(workspace.id);
@@ -577,9 +586,40 @@ export default function App() {
     navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorOpen(true); setEditorDirty(false); setError(null); });
   }
 
+  /** Tabs with the live view of each cluster tab, for saving a workspace. */
+  function tabsWithKubeViews(): TerminalTab[] {
+    return terminals.tabs.map(tab => kubeViews.current.has(tab.id) ? { ...tab, kubeView: kubeViews.current.get(tab.id) } : tab);
+  }
+
+  /** Pod logs or shell detached from a cluster tab: a tab of its own, subject to the session limit. */
+  function openPopout(connection: TerminalConnection): void {
+    if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
+    terminals.open(connection);
+  }
+
+  /** Probes the cluster through an SSH connection, then opens the new-cluster form prefilled in the same folder. */
+  async function setupCluster(sshId: string): Promise<void> {
+    const ssh = vault ? findNode(vault.nodes, sshId) : undefined;
+    if (!vault || busy || ssh?.type !== 'connection' || ssh.protocol !== 'ssh') return;
+    if (ssh.disabled) { setError(disabledNotice(ssh)); return; }
+    const probe = await window.desktopApi.kubeProbe({ connectionId: sshId }).catch((caught: unknown): KubeProbeResult | null => {
+      setError(caught instanceof Error ? caught.message : 'Der Kubernetes-Cluster konnte nicht geprüft werden.');
+      return null;
+    });
+    if (!probe) return;
+    const draft = newClusterFromSsh(ssh, vault.nodes, probe, crypto.randomUUID());
+    navigateEditor(() => {
+      setClusterDraft(draft);
+      setNewConnectionTarget({ protocol: 'kubernetes', parentId: parentFolderId(vault.nodes, sshId) ?? '' });
+      setShowConnectionForm(true); setEditorOpen(true); setEditorDirty(false); setShowFolderForm(false); setError(null);
+      setEditorRevision(value => value + 1);
+    });
+  }
+
   /** parentId: target folder ('' = vault root); undefined uses the current selection. */
   function newConnection(protocol: ConnectionProtocol = 'ssh', parentId?: string): void {
     navigateEditor(() => {
+      setClusterDraft(null);
       setNewConnectionTarget({ protocol, parentId: parentId ?? null });
       setShowConnectionForm(true); setEditorOpen(true); setEditorDirty(false); setShowFolderForm(false); setError(null);
     });
@@ -671,7 +711,7 @@ export default function App() {
   if (screen === 'vault' && vault) {
     const connectionCount = countConnections(vault.nodes);
     const activeWorkspace = vault.workspaces.find(item => item.id === activeWorkspaceId);
-    const currentViews = toWorkspaceViews(terminalLayout.viewsState, terminals.tabs);
+    const currentViews = toWorkspaceViews(terminalLayout.viewsState, tabsWithKubeViews());
     const workspaceDirty = activeWorkspace
       ? JSON.stringify([activeWorkspace.layout, activeWorkspace.views]) !== JSON.stringify([currentViews.layout, currentViews.views])
       : terminals.tabs.length > 0;
@@ -740,7 +780,7 @@ export default function App() {
           <LocalContainers containers={containerTree} disabled={busy} />
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy} containers={containerTree}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); setError(null); })}
-            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} />
+            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} />
           {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu. Über „Neu“ oder Rechtsklick wählst du die Verbindungsart.</p><button type="button" className="secondary-button" onClick={() => newConnection()}>Neue SSH-Verbindung</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}${!terminals.tabs.length ? ' no-terminals' : ''}`}>
@@ -750,7 +790,7 @@ export default function App() {
               focused={terminalLayout.focused} busy={busy} onLayout={terminalLayout.setLayout} onFocus={terminalLayout.setFocused}
               onSelect={terminals.select} onStatus={terminals.updateStatus} onClose={requestCloseTab}
               externalHover={transfer.externalHover} pendingDock={transfer.pendingDock} onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff}
-              viewControls={viewControls} />
+              viewControls={viewControls} onPopout={openPopout} onSnapshot={saveKubeView} />
           </div>
           {!terminals.tabs.length && !editorOpen && !transfer.externalHover && <WelcomePage vaultName={vault.name} version={version} onShowReleaseNotes={() => setShowReleaseNotes(true)} connectionCount={connectionCount}
             workspaces={vault.workspaces} busy={busy} onNewConnection={protocol => newConnection(protocol)}
@@ -762,11 +802,12 @@ export default function App() {
               </button></div>
             {showConnectionForm || selectedNode?.type === 'connection' ? <ConnectionForm
               key={`${showConnectionForm ? `new-${newConnectionTarget.protocol}-${newConnectionTarget.parentId ?? selectedNodeId ?? 'root'}` : selectedNode?.id}-${editorRevision}`}
-              connection={!showConnectionForm && selectedNode?.type === 'connection' ? selectedNode : undefined} nodes={vault.nodes}
+              connection={showConnectionForm ? clusterDraft ?? undefined : selectedNode?.type === 'connection' ? selectedNode : undefined} isNew={showConnectionForm}
+              nodes={vault.nodes}
               protocol={showConnectionForm ? newConnectionTarget.protocol : undefined}
               initialParentId={showConnectionForm ? newConnectionTarget.parentId ?? (selectedNode?.type === 'folder' ? selectedNode.id : '') : parentFolderId(vault.nodes, selectedNodeId ?? '') ?? ''}
-              busy={busy} onDirtyChange={setEditorDirty} onConnect={() => { if (selectedNode?.type === 'connection') connectNode(selectedNode.id); }}
-              onSave={saveConnection} onSaveAndConnect={saveAndConnect} onCancel={closeEditor} onDelete={deleteSelectedNode}
+              busy={busy} onDirtyChange={setEditorDirty} onConnect={showConnectionForm ? undefined : () => { if (selectedNode?.type === 'connection') connectNode(selectedNode.id); }}
+              onSave={saveConnection} onSaveAndConnect={saveAndConnect} onCancel={closeEditor} onDelete={showConnectionForm ? undefined : deleteSelectedNode}
               onTest={connection => window.desktopApi.connectionTest(connection)}
               onPickKey={async () => { const result = await window.desktopApi.selectPrivateKeyFile(); return result.canceled ? null : result.filePath; }} />
               : selectedNode?.type === 'folder' ? <FolderEditor key={`${selectedNode.id}-${editorRevision}`} folder={selectedNode} busy={busy}

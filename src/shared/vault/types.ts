@@ -1,5 +1,6 @@
 import type { ConnectionIconName } from './appearance';
 import type { ContainerTarget, TerminalTargetMode } from '../containers';
+import type { KubeViewSnapshot } from '../kubernetes';
 
 export type Authentication =
   | {
@@ -16,7 +17,7 @@ export type Authentication =
     };
 
 /** Connection kinds. Remote kinds connect to a host; local kinds start a shell on this computer. */
-export type ConnectionProtocol = 'ssh' | 'sftp' | 'rdp' | 'powershell' | 'cmd' | 'aicli';
+export type ConnectionProtocol = 'ssh' | 'sftp' | 'rdp' | 'powershell' | 'cmd' | 'aicli' | 'kubernetes';
 export type LocalShellProtocol = 'powershell' | 'cmd';
 
 interface ConnectionBase {
@@ -88,7 +89,22 @@ export interface AiCliConnectionNode extends ConnectionBase {
 }
 
 export type LocalConnectionNode = LocalShellConnectionNode | AiCliConnectionNode;
-export type ConnectionNode = RemoteConnectionNode | LocalConnectionNode;
+
+/** Kubernetes cluster reached through SSH connections; see docs/superpowers/specs/2026-10-16-kubernetes-integration-design.md. */
+export interface KubernetesConnectionNode extends ConnectionBase {
+  protocol: 'kubernetes';
+  /** Ordered SSH connection ids; the first reachable one carries the tunnel. */
+  accessHosts: string[];
+  kubeconfig: { source: 'auto' } | { source: 'path'; path: string };
+  /** Context in the kubeconfig; default is current-context. */
+  context?: string;
+  /** Namespace the tab opens with; default is "default". */
+  namespace?: string;
+  production: boolean;
+  readOnly: boolean;
+}
+
+export type ConnectionNode = RemoteConnectionNode | LocalConnectionNode | KubernetesConnectionNode;
 
 export interface FolderNode {
   id: string;
@@ -179,6 +195,9 @@ export type WorkspaceLayout = WorkspacePane | WorkspaceSplit;
 /** A container tab in a workspace; `index` is its position in `connectionIds` (the host's SSH connection). */
 export interface WorkspaceContainerTab { index: number; target: ContainerTarget; mode: TerminalTargetMode }
 
+/** A cluster tab; `index` is its position in `connectionIds` (the cluster connection). */
+export interface WorkspaceKubeTab { index: number; view: KubeViewSnapshot }
+
 export interface WorkspacePane {
   type: 'pane';
   connectionIds: string[];
@@ -186,6 +205,7 @@ export interface WorkspacePane {
   /** Positions in `connectionIds` of SSH connections opened as file browser instead of terminal. */
   fileBrowsers?: number[];
   containerTabs?: WorkspaceContainerTab[];
+  kubeTabs?: WorkspaceKubeTab[];
 }
 
 export interface WorkspaceSplit {

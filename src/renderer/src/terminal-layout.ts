@@ -154,13 +154,15 @@ export function resizeBounds(split: LiveSplit, pixels: number): { min: number; m
 }
 export function savedLayout(layout: LiveLayout, tabs: TerminalTab[]): WorkspaceLayout {
   if (layout.type === 'split') return { type: 'split', direction: layout.direction, ratio: layout.ratio, first: savedLayout(layout.first, tabs), second: savedLayout(layout.second, tabs) };
-  // Local container tabs have no vault connection to come back to.
-  const saved = layout.tabIds.flatMap(id => tabs.find(tab => tab.id === id) ?? []).filter(tab => tab.connection.id !== LOCAL_CONTAINER_HOST);
+  // Local container tabs have no vault connection to come back to; pod logs and shells are not restored.
+  const saved = layout.tabIds.flatMap(id => tabs.find(tab => tab.id === id) ?? [])
+    .filter(tab => tab.connection.id !== LOCAL_CONTAINER_HOST && !tab.connection.kube);
   const active = layout.activeTabId ? saved.find(tab => tab.id === layout.activeTabId)?.connection.id : undefined;
   const fileBrowsers = saved.flatMap((tab, index) => tab.connection.view === 'files' ? [index] : []);
   const containerTabs = saved.flatMap((tab, index) => tab.connection.target ? [{ index, target: tab.connection.target.item, mode: tab.connection.target.mode }] : []);
+  const kubeTabs = saved.flatMap((tab, index) => tab.connection.protocol === 'kubernetes' && tab.kubeView ? [{ index, view: tab.kubeView }] : []);
   return { type: 'pane', connectionIds: saved.map(tab => tab.connection.id), ...(active ? { activeConnectionId: active } : {}),
-    ...(fileBrowsers.length ? { fileBrowsers } : {}), ...(containerTabs.length ? { containerTabs } : {}) };
+    ...(fileBrowsers.length ? { fileBrowsers } : {}), ...(containerTabs.length ? { containerTabs } : {}), ...(kubeTabs.length ? { kubeTabs } : {}) };
 }
 export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => ConnectionNode | undefined, uuid: () => string): { layout: LiveLayout; tabs: TerminalTab[]; activeTabId: string | null; skipped: number } {
   const tabs: TerminalTab[] = [];
@@ -177,7 +179,9 @@ export function restoreLayout(saved: WorkspaceLayout, lookup: (id: string) => Co
       const target = container && connection.protocol === 'ssh'
         ? containerConnection(connection.id, connection.name, connectionAddress(connection), { item: container.target, mode: container.mode })
         : toTerminalConnection(connection, node.fileBrowsers?.includes(index));
-      tabs.push({ id: tabId, connection: target, ordinal: tabs.filter(tab => sameTarget(tab.connection, target)).length + 1, status: 'connecting' });
+      const kubeView = node.kubeTabs?.find(entry => entry.index === index)?.view;
+      tabs.push({ id: tabId, connection: target, ordinal: tabs.filter(tab => sameTarget(tab.connection, target)).length + 1, status: 'connecting',
+        ...(kubeView && target.protocol === 'kubernetes' ? { kubeView } : {}) });
       return tabId;
     });
     const activeTabId = tabIds.find(id => tabs.find(tab => tab.id === id)?.connection.id === node.activeConnectionId) ?? tabIds[0] ?? null;

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
-import { Server } from 'ssh2';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { Client, Server } from 'ssh2';
 import type { Connection, ServerChannel } from 'ssh2';
 import type { SshConnectionNode } from '../../shared/vault/types';
 import { remoteCommand } from './commands';
@@ -191,5 +193,29 @@ describe('runLocal', () => {
       callback(Object.assign(new Error('maxBuffer'), { killed: true, code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }), 'big', '');
     }) as never;
     expect(await runLocal('docker', ['ps'], 1_000, exec)).toEqual({ code: null, stdout: 'big', stderr: 'Die Ausgabe ist zu groß.' });
+  });
+});
+
+describe('RemoteHost.forward', () => {
+  /** Fake ssh2 client: ready on connect, forwardOut answered by the given handler. */
+  function openFakeHost(forwardOut: (...args: unknown[]) => void) {
+    const fake = Object.assign(new EventEmitter(), {
+      connect() { setImmediate(() => fake.emit('ready')); },
+      forwardOut,
+      end() {},
+      destroy() {},
+    });
+    return openRemoteHost(connection, async () => true, () => fake as unknown as Client);
+  }
+  it('forwards a channel to the target through the SSH connection', async () => {
+    const calls: unknown[][] = [];
+    const channel = new PassThrough();
+    const host = await openFakeHost((...args: unknown[]) => { calls.push(args.slice(0, 4)); (args[4] as (e: Error | undefined, s: unknown) => void)(undefined, channel); });
+    await expect(host.forward('10.0.0.5', 6443)).resolves.toBe(channel);
+    expect(calls).toEqual([['127.0.0.1', 0, '10.0.0.5', 6443]]);
+  });
+  it('rejects forward with a readable error when the server refuses', async () => {
+    const host = await openFakeHost((...args: unknown[]) => (args[4] as (e: Error) => void)(new Error('Connection refused')));
+    await expect(host.forward('10.0.0.5', 6443)).rejects.toThrow('Der API-Server ist vom Zugangs-Host aus nicht erreichbar (10.0.0.5:6443).');
   });
 });

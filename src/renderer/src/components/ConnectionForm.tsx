@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ConnectionNode, ConnectionProtocol, VaultNode } from '../../../shared/vault/types';
 import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folderOptions } from '../connection-form';
-import type { ConnectionFields } from '../connection-form';
+import type { ConnectionFields, ConnectionTextField } from '../connection-form';
+import { validateCluster } from '../cluster-form';
+import { ClusterForm } from './ClusterForm';
 import { ConfirmDialog } from './ConfirmDialog';
 import './editor-ui.css';
 import { CONNECTION_ICONS } from '../../../shared/vault/appearance';
@@ -13,11 +15,14 @@ import type { ConnectionTestResult } from '../../../shared/connection-test';
 const newTitles: Record<ConnectionProtocol, string> = {
   ssh: 'Neue SSH-Verbindung', sftp: 'Neue SFTP-Verbindung (Dateien)', rdp: 'Neue Remotedesktop-Verbindung (RDP)',
   powershell: 'Neue lokale PowerShell', cmd: 'Neue lokale Eingabeaufforderung (CMD)', aicli: 'Neue KI-CLI (Claude Code, Codex, Gemini)',
+  kubernetes: 'Neuer Kubernetes-Cluster',
 };
-const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', sftp: 'Dateien öffnen', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten', aicli: 'CLI starten' };
+const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', sftp: 'Dateien öffnen', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten', aicli: 'CLI starten', kubernetes: 'Cluster öffnen' };
 
 interface ConnectionFormProps {
   connection?: ConnectionNode;
+  /** `connection` is a prefilled draft that is not in the vault yet (cluster setup from an SSH host): saved like a new connection. */
+  isNew?: boolean;
   /** Kind of a new connection; existing connections keep their protocol. */
   protocol?: ConnectionProtocol;
   nodes: VaultNode[];
@@ -34,13 +39,13 @@ interface ConnectionFormProps {
   onTest?: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
 }
 
-export function ConnectionForm({ connection, protocol: requestedProtocol, nodes, initialParentId, busy, onSave, onCancel, onDelete, onConnect,
+export function ConnectionForm({ connection, isNew = false, protocol: requestedProtocol, nodes, initialParentId, busy, onSave, onCancel, onDelete, onConnect,
   onDirtyChange, onSaveAndConnect, onPickKey, onTest }: ConnectionFormProps) {
   const prefix = useId();
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const submittingRef = useRef(false);
   const protocol = connection?.protocol ?? requestedProtocol ?? 'ssh';
-  const remote = protocol !== 'powershell' && protocol !== 'cmd' && protocol !== 'aicli';
+  const remote = protocol !== 'powershell' && protocol !== 'cmd' && protocol !== 'aicli' && protocol !== 'kubernetes';
   const sshAuth = protocol === 'ssh' || protocol === 'sftp';
   const [fields, setFields] = useState<ConnectionFields>(() => fieldsFromConnection(protocol, connection));
   const [parentId, setParentId] = useState(initialParentId);
@@ -71,11 +76,17 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
     setFields(current => ({ ...current, [field]: value }));
     setError(current => current?.field === field ? null : current);
   }
+  function updateCluster(patch: Partial<ConnectionFields>): void {
+    setFields(current => ({ ...current, ...patch }));
+    setError(current => current?.field && current.field in patch ? null : current);
+  }
   async function submit(connect: boolean): Promise<void> {
     if (busy || submittingRef.current) return;
     submittingRef.current = true;
     try {
       const updated = connectionFromFields(connection?.id ?? crypto.randomUUID(), fields, protocol);
+      const clusterProblem = updated.protocol === 'kubernetes' ? validateCluster(updated, nodes) : null;
+      if (clusterProblem) { setError({ message: clusterProblem }); return; }
       setError(null);
       const saved = await (connect && onSaveAndConnect ? onSaveAndConnect : onSave)(updated, parentId);
       if (saved) { setSavedSignature(JSON.stringify({ fields, parentId })); onDirtyChange?.(false); }
@@ -88,7 +99,7 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
       }
     } finally { submittingRef.current = false; }
   }
-  const textField = (label: string, field: keyof ConnectionFields, secret = false) => (
+  const textField = (label: string, field: ConnectionTextField, secret = false) => (
     <div className="editor-field">
       <label htmlFor={`${prefix}-${field}`}>{label}</label>
       <div className="editor-input-group">
@@ -110,7 +121,7 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
 
   return (
     <section className="node-editor compact-editor" aria-label="Verbindung bearbeiten">
-      <h2>{connection ? `${PROTOCOLS[protocol].short}-Verbindung bearbeiten` : newTitles[protocol]}</h2>
+      <h2>{connection && !isNew ? `${PROTOCOLS[protocol].short}-Verbindung bearbeiten` : newTitles[protocol]}</h2>
       <form noValidate data-editor-form onSubmit={event => { event.preventDefault(); void submit(false); }}>
         {textField('Verbindungsname', 'name')}
         <fieldset className="connection-appearance">
@@ -127,6 +138,7 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
             <button className="secondary-button" type="button" disabled={busy || !fields.color} onClick={() => setField('color', '')}>Standardfarbe</button>
           </div>
         </fieldset>
+        {protocol === 'kubernetes' && <ClusterForm idPrefix={prefix} fields={fields} nodes={nodes} busy={busy} error={error} onChange={updateCluster} />}
         {remote && <div className="editor-host-row">{textField('Host', 'host')}{textField('Port', 'port')}</div>}
         {protocol === 'rdp' && <>
           <div className="editor-auth-row">{textField('Benutzername', 'username')}{textField('Domäne (optional)', 'domain')}</div>
@@ -189,9 +201,9 @@ export function ConnectionForm({ connection, protocol: requestedProtocol, nodes,
         </div>}
         <div className="form-actions editor-action-bar">
           <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>Abbrechen</button>
-          {onTest && <button className="secondary-button" type="button" disabled={busy || test?.running} title="Prüft die eingegebenen Daten, ohne zu speichern"
+          {onTest && protocol !== 'kubernetes' && <button className="secondary-button" type="button" disabled={busy || test?.running} title="Prüft die eingegebenen Daten, ohne zu speichern"
             onClick={() => { void runTest(); }}>{test?.running ? 'Teste …' : 'Verbindung testen'}</button>}
-          <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !dirty)}>{busy ? 'Speichert ...' : 'Verbindung speichern'}</button>
+          <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !isNew && !dirty)}>{busy ? 'Speichert ...' : 'Verbindung speichern'}</button>
           {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>{connectLabels[protocol]}</button>
             : onSaveAndConnect && <button className="primary-button" type="button" disabled={busy} onClick={() => { void submit(true); }}>Speichern und verbinden</button>}
         </div>

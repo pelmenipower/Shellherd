@@ -20,7 +20,7 @@ Dazu kommen einfache Aktionen: Start, Stop, Restart und Logs.
 
 - Datei-Browser in Container und VMs (Phase 2, als weitere Implementierung von `FileSystem` in `src/main/files/file-system.ts`)
 - Proxmox-REST-API und Cluster-weite Sicht
-- Kubernetes
+- Kubernetes (eigene Spec: `2026-10-16-kubernetes-integration-design.md`)
 - Container als feste Favoriten im Vault speichern
 - Ressourcen-Graphen, Container anlegen und Images verwalten
 

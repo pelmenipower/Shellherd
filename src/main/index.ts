@@ -7,6 +7,8 @@ import { registerFileIpcHandlers } from './files/ipc';
 import { registerContainerIpcHandlers } from './containers/ipc';
 import { SudoRejections } from './containers/sudo-rejections';
 import type { ContainerDiscovery } from './containers/discovery';
+import { registerKubernetesIpcHandlers } from './kubernetes/ipc';
+import type { KubeSessions } from './kubernetes/session';
 import type { SftpSessionManager } from './files/sftp-session';
 import type { SshSessionManager } from './ssh/session';
 import { rdpSurfaceMode, registerRdpIpcHandlers } from './rdp/ipc';
@@ -29,6 +31,7 @@ import {
 
 let sshSessionManager: SshSessionManager;
 let containerDiscovery: ContainerDiscovery | undefined;
+let kubeSessions: KubeSessions | undefined;
 let rdpSessionManager: RdpSessionManager;
 let sftpSessionManager: SftpSessionManager;
 let assistant: AssistantService | undefined;
@@ -36,11 +39,12 @@ let assistant: AssistantService | undefined;
 // SSH, local shells, RDP and SFTP share every lifecycle path: crash, navigation, close, lock and quit.
 const closeOwnerSessions = (ownerId: number): void => {
   sshSessionManager.closeOwner(ownerId); rdpSessionManager.closeOwner(ownerId); sftpSessionManager.closeOwner(ownerId);
+  kubeSessions?.closeOwner(ownerId);
   assistant?.cancelOwner(ownerId);
 };
-const closeAllSessions = (): void => { sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); assistant?.cancelAll(); containerDiscovery?.closeAll(); };
+const closeAllSessions = (): void => { sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); assistant?.cancelAll(); containerDiscovery?.closeAll(); kubeSessions?.closeAll(); };
 const hasOwnerSessions = (ownerId: number): boolean =>
-  sshSessionManager.hasOwner(ownerId) || rdpSessionManager.hasOwner(ownerId) || sftpSessionManager.hasOwner(ownerId);
+  sshSessionManager.hasOwner(ownerId) || rdpSessionManager.hasOwner(ownerId) || sftpSessionManager.hasOwner(ownerId) || (kubeSessions?.hasOwner(ownerId) ?? false);
 const hasAnySessions = (): boolean => BrowserWindow.getAllWindows().some(window => !window.isDestroyed() && hasOwnerSessions(window.webContents.id));
 
 /** Detached windows close without moving their tabs (vault lock, workspace replacement, app exit). */
@@ -179,7 +183,10 @@ app.whenReady().then(() => {
   const knownHosts = createKnownHosts();
   // One memory of refused sudo passwords for container lists and container tabs.
   const sudoRejections = new SudoRejections();
-  sshSessionManager = registerSshIpcHandlers(knownHosts, sudoRejections);
+  const kubes = registerKubernetesIpcHandlers(knownHosts, sudoRejections);
+  kubeSessions = kubes;
+  sshSessionManager = registerSshIpcHandlers(knownHosts, sudoRejections,
+    (clusterId, target, size, io) => kubes.openTerminal(clusterId, target, size, io));
   containerDiscovery = registerContainerIpcHandlers(knownHosts, sudoRejections);
   rdpSessionManager = registerRdpIpcHandlers();
   sftpSessionManager = registerFileIpcHandlers(knownHosts);

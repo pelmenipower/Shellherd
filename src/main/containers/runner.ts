@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { Client } from 'ssh2';
+import type { Duplex } from 'node:stream';
 import type { SshConnectionNode } from '../../shared/vault/types';
 import { sshConnectConfig } from '../ssh/client-config';
 import type { RunResult } from './parsers';
@@ -17,6 +18,8 @@ export interface SudoPrompt { marker: string; ready: string; password: string; o
 
 export interface RemoteHost {
   run(command: string, timeoutMs: number, sudo?: SudoPrompt): Promise<RunResult>;
+  /** A TCP channel to host:port as seen from the SSH server. */
+  forward(host: string, port: number): Promise<Duplex>;
   close(): void;
   readonly closed: boolean;
 }
@@ -44,6 +47,14 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
   return {
     get closed() { return closed; },
     close() { closed = true; client.end(); },
+    forward(host, port) {
+      return new Promise((resolve, reject) => {
+        client.forwardOut('127.0.0.1', 0, host, port, (error, channel) => {
+          if (error) reject(new HostAccessError(`Der API-Server ist vom Zugangs-Host aus nicht erreichbar (${host}:${port}).`));
+          else resolve(channel);
+        });
+      });
+    },
     run(command, timeoutMs, sudo) {
       return new Promise((resolve, reject) => {
         client.exec(command, (error, stream) => {
