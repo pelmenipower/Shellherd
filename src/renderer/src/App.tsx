@@ -481,7 +481,7 @@ export default function App() {
           label: 'Erneut versuchen',
           // Only retry on the state the failed save started from; a newer save must not be overwritten.
           run: () => {
-            if (saveInProgress.current) notify.info('Nicht erneut gespeichert', { body: 'Gerade läuft eine andere Speicherung. Versuche es danach noch einmal.' });
+            if (saveInProgress.current) notify.info('Nicht erneut gespeichert', { body: 'Gerade läuft eine andere Speicherung. Wiederhole die Änderung danach.' });
             else if (vaultRef.current === previousVault) void persistVault(updatedVault, failureTitle);
             else notify.info('Nicht erneut gespeichert', { body: 'Der Vault hat sich inzwischen geändert. Wiederhole die Änderung.' });
           },
