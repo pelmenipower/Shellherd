@@ -1,8 +1,16 @@
 # Changelog
 
-Alle nennenswerten Änderungen an Terminus. Die Versionsnummer folgt [Semantic Versioning](https://semver.org/lang/de/):
+Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus). Die Versionsnummer folgt [Semantic Versioning](https://semver.org/lang/de/):
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
+
+## [0.10.0] – 2026-10-19
+
+- Terminus heißt jetzt Shellherd: neues Programmsymbol in Fenster, Taskleiste, Kopfzeile und Startkarte, neuer Name in allen Texten. Vault-Dateien (`.term`, ältere `.terminus`) und ihr Format bleiben unverändert.
+- Einstellungen ziehen beim ersten Start automatisch um: bekannte SSH-Hostschlüssel und die zuletzt geöffnete Vault-Datei werden aus dem alten Terminus-Ordner übernommen; der alte Ordner bleibt bestehen.
+- Dateiverknüpfung: „Mit Shellherd öffnen“ ersetzt beim nächsten Verknüpfen den alten Eintrag; `.term` zeigt im Explorer das Shellherd-Symbol.
+- Der RDP-Helfer heißt `Shellherd.RdpHost.exe`; die Entwickler-Schalter heißen `SHELLHERD_RDP_DEBUG`, `SHELLHERD_RDP_MODE` und `SHELLHERD_RDP_SMARTSIZE`.
+- Lokale Oberflächen-Vorlieben (gewählter KI-Anbieter, Assistent offen, gesehene Release-Notes) starten nach dem Umzug einmal neu.
 
 ## [0.9.0] – 2026-10-18
 

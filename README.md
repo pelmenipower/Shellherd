@@ -1,6 +1,10 @@
-# Terminus
+# Shellherd
 
-Lokaler SSH-Verbindungsmanager mit verschlüsselten, portablen `.terminus`-Vaults.
+<img src="resources/icon.png" width="96" alt="Shellherd">
+
+Lokaler Verbindungsmanager für SSH, RDP, Container und Kubernetes mit verschlüsselten, portablen Vault-Dateien (`.term`).
+
+Shellherd hieß bis Version 0.9.0 Terminus; Vault-Dateien (`.term`, ältere `.terminus`) bleiben kompatibel. Beim ersten Start übernimmt Shellherd die Einstellungen (bekannte Hostschlüssel, zuletzt geöffnete Vault-Datei) einmalig aus `%APPDATA%\Terminus`; der alte Ordner bleibt unverändert. Repository: <https://github.com/pelmenipower/Shellherd>.
 
 ## Lokal starten
 
@@ -22,6 +26,10 @@ npm run build
 ## Designsystem
 
 Farben, Maße, Radien, Ebenen, Schatten und Bewegung kommen aus einer Datei: `src/renderer/src/tokens.css`. Die Regeln für neue Oberflächen stehen in [`docs/design-system.md`](docs/design-system.md). Der Test `src/renderer/src/design-tokens.test.ts` prüft alle CSS-Dateien auf harte Farben und Maße, eingebaute Easings, feste Dauern und z-index-Werte sowie auf Bewegung ohne `prefers-reduced-motion`.
+
+## Icons
+
+Programmsymbol und Oberflächenzeichen entstehen aus `resources/brand/shellherd-master.png` und den Kleinvarianten in `resources/brand/`. `npm run icons` erzeugt daraus `resources/icon.png`, `resources/icon.ico` und `resources/mark-64.png`.
 
 ## Aktueller Stand
 
@@ -105,7 +113,7 @@ folgt in einem weiteren Schritt.
 
 ## Container und VMs
 
-Beim Aufklappen einer SSH-Verbindung erkennt Terminus, ob Docker und Podman
+Beim Aufklappen einer SSH-Verbindung erkennt Shellherd, ob Docker und Podman
 installiert sind, und zeigt je Laufzeit einen Eintrag `Docker-Ansicht` bzw.
 `Podman-Ansicht`; ein Klick öffnet die Container-Ansicht oder wechselt zu einem
 bereits offenen Tab. Ein weiterer Tab entsteht über das Kontextmenü des Eintrags
@@ -125,10 +133,10 @@ wiederholen.
 Der SSH-Benutzer braucht Zugriff auf Docker über die Gruppe `docker`; für Proxmox
 muss er die Befehle als root ausführen können. Alternativ führt die Option
 `Container-Befehle mit sudo ausführen` die Befehle pro SSH-Verbindung mit sudo aus.
-Meldet sich die Verbindung per Passwort an, beantwortet Terminus die sudo-Abfrage
+Meldet sich die Verbindung per Passwort an, beantwortet Shellherd die sudo-Abfrage
 einmal mit dem gespeicherten Passwort, aber nur, wenn sudo tatsächlich fragt. Bei
 Anmeldung per Schlüssel oder Agent läuft `sudo -n`; dafür ist eine NOPASSWD-Regel
-für diesen Benutzer nötig. Lehnt sudo das Passwort ab, sendet Terminus es erst
+für diesen Benutzer nötig. Lehnt sudo das Passwort ab, sendet Shellherd es erst
 wieder, wenn die Verbindungseinstellungen geändert wurden.
 
 Container-Tabs von SSH-Hosts werden in Workspaces gespeichert, lokale Container-Tabs
@@ -171,18 +179,18 @@ Grenzen:
 ## Kubernetes
 
 Ein Cluster wird aus einer bestehenden SSH-Verbindung eingerichtet: Im Kontextmenü
-`Als Kubernetes-Cluster einrichten…` wählen. Terminus liest auf dem Host die kubeconfig
+`Als Kubernetes-Cluster einrichten…` wählen. Shellherd liest auf dem Host die kubeconfig
 und schlägt Name, Context und weitere Zugangs-Hosts vor, etwa `k8s-cp2` und
 `k8s-cp3` im selben Namensmuster. Die Zugangs-Hosts werden der Reihe nach
-probiert. Fällt einer aus, verbindet Terminus über den nächsten neu; der Status zeigt,
+probiert. Fällt einer aus, verbindet Shellherd über den nächsten neu; der Status zeigt,
 über welchen Host der Cluster gerade erreichbar ist.
 
 Die kubeconfig wird in dieser Reihenfolge gesucht: `$KUBECONFIG` der Login-Shell
 (erste Datei), `~/.kube/config`, dann `/etc/kubernetes/admin.conf`. Die Datei unter
-`/etc/kubernetes` liest Terminus per sudo mit der Anmeldung der SSH-Verbindung:
-Ist ein Passwort gespeichert, beantwortet Terminus die sudo-Abfrage damit, sonst
+`/etc/kubernetes` liest Shellherd per sudo mit der Anmeldung der SSH-Verbindung:
+Ist ein Passwort gespeichert, beantwortet Shellherd die sudo-Abfrage damit, sonst
 nutzt es `sudo -n` (dafür braucht der Benutzer NOPASSWD). Kubeconfigs mit `exec`- oder
-`auth-provider`-Abschnitten lehnt Terminus ab, weil deren Plugins auf diesem Rechner
+`auth-provider`-Abschnitten lehnt Shellherd ab, weil deren Plugins auf diesem Rechner
 statt auf dem Server laufen würden.
 
 Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
@@ -229,7 +237,7 @@ Beim ersten Kontakt den angezeigten SHA-256-Fingerprint mit einer
 vertrauenswürdigen Quelle vergleichen. Nur ausdrücklich bestätigte Schlüssel
 werden in `known-hosts.json` im Electron-Benutzerdatenverzeichnis gespeichert.
 Diese Datei enthält Hosts, Ports und öffentliche Fingerprints, keine Zugangsdaten.
-Sie ist eine eigene Terminus-Vertrauensdatei; OpenSSHs `known_hosts` wird noch
+Sie liegt unter `%APPDATA%\Shellherd\known-hosts.json`; beim ersten Start übernimmt Shellherd sie einmalig aus `%APPDATA%\Terminus`. Sie ist eine eigene Shellherd-Vertrauensdatei; OpenSSHs `known_hosts` wird noch
 nicht importiert. Abweichende Schlüssel und beschädigte Vertrauensdateien brechen
 die Verbindung ab. Ein Schlüsselwechsel muss mit dem Server-Administrator geklärt
 werden; eine Oberfläche zur gezielten Verwaltung vertrauter Hosts folgt später.
