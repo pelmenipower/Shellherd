@@ -136,8 +136,9 @@ label { font-size: 12px; font-weight: 500; color: var(--color-text-muted); }
 .file-drop-hint { position: fixed; top: 12px; left: 50%; z-index: var(--layer-toast); transform: translateX(-50%); padding: 8px 14px; border: 1px solid var(--color-accent); border-radius: var(--radius-md); background: var(--color-bg-raised); color: var(--color-text); font-size: 13px; pointer-events: none; box-shadow: var(--shadow-overlay); }
 
 /* Motion: opacity always, movement only without reduced motion. Gate: docs/design-system.md. */
-.confirm-dialog[open], .confirm-dialog[open]::backdrop { transition: opacity var(--dur-modal) var(--ease-out); }
-@starting-style { .confirm-dialog[open], .confirm-dialog[open]::backdrop { opacity: 0; } }
+/* Confirmations a key can trigger (.kube-confirm, [data-instant]) appear instantly: keyboard-triggered → no animation. */
+.confirm-dialog:not(.kube-confirm):not([data-instant])[open], .confirm-dialog:not(.kube-confirm):not([data-instant])[open]::backdrop { transition: opacity var(--dur-modal) var(--ease-out); }
+@starting-style { .confirm-dialog:not(.kube-confirm):not([data-instant])[open], .confirm-dialog:not(.kube-confirm):not([data-instant])[open]::backdrop { opacity: 0; } }
 .file-drop-hint { transition: opacity var(--dur-hint) var(--ease-out); }
 @starting-style { .file-drop-hint { opacity: 0; } }
 @media (prefers-reduced-motion: no-preference) {
@@ -147,10 +148,10 @@ label { font-size: 12px; font-weight: 500; color: var(--color-text-muted); }
     .kube-crumb, .kube-link, .kube-filter-chip, .kube-node, .kube-dock-format button, .link-button, .version-button,
     .connection-picker-option, .workspace-definition-actions button, .workspace-current-actions button,
     .pane-layout-menu button, .file-row-head button, .file-path nav button) { transform: scale(.97); }
-  .confirm-dialog[open] { transition: opacity var(--dur-modal) var(--ease-out), transform var(--dur-modal) var(--ease-out); }
+  .confirm-dialog:not(.kube-confirm):not([data-instant])[open] { transition: opacity var(--dur-modal) var(--ease-out), transform var(--dur-modal) var(--ease-out); }
   .file-drop-hint { transition: opacity var(--dur-hint) var(--ease-out), transform var(--dur-hint) var(--ease-out); }
   @starting-style {
-    .confirm-dialog[open] { transform: scale(.97); }
+    .confirm-dialog:not(.kube-confirm):not([data-instant])[open] { transform: scale(.97); }
     .file-drop-hint { transform: translate(-50%, -8px); }
   }
 }
