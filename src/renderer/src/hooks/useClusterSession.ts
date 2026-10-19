@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { codedFrom } from '../../../shared/errors';
 import { queryKey } from '../../../shared/kubernetes';
 import type { KubeActionRequest, KubeDetail, KubeDetailMode, KubeRef, KubeViewSnapshot } from '../../../shared/kubernetes';
+import { t } from '../i18n';
 import { initialKubeView, kubeViewReducer, type KubeViewAction, type KubeViewState } from '../kube-view';
 
 /**
@@ -63,13 +64,13 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
 
   const detail = useCallback((ref: KubeRef, mode: KubeDetailMode): Promise<KubeDetail> => {
     const id = viewIdRef.current;
-    if (!id) return Promise.reject(new Error('Die Ansicht ist nicht geöffnet.'));
+    if (!id) return Promise.reject(new Error(t('kubernetes:viewNotOpen')));
     return window.desktopApi.kubeDetail({ viewId: id, ref, mode });
   }, []);
 
   const action = useCallback((request: Omit<KubeActionRequest, 'viewId'>): Promise<void> => {
     const id = viewIdRef.current;
-    if (!id) return Promise.reject(new Error('Die Ansicht ist nicht geöffnet.'));
+    if (!id) return Promise.reject(new Error(t('kubernetes:viewNotOpen')));
     return window.desktopApi.kubeAction({ ...request, viewId: id });
   }, []);
 

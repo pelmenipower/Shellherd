@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { KIND_INFO, type KubeProblem, type KubeRef } from '../../../../shared/kubernetes';
 import { errorText } from '../../error-text';
+import { useT } from '../../i18n';
 import { menuHandlers, type MenuOpener } from '../../kube-menu-trigger';
 
 type OnMenu = MenuOpener;
@@ -13,13 +14,14 @@ interface ProblemBannerProps {
 
 /** One line that lists the cluster problems; a single problem is shown directly. */
 export function ProblemBanner({ problems, onJump, onMenu }: ProblemBannerProps) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   if (problems.length === 0) return null;
   const [first] = problems;
   if (problems.length === 1) {
     return (
       <div className="kube-banner" role="status">
-        <span className="kube-tone-bad">1 Problem:</span>{' '}
+        <span className="kube-tone-bad">{t('kubernetes:problems.single')}</span>{' '}
         <button type="button" className="kube-link" onClick={() => onJump(first.ref)} {...menuHandlers(onMenu, { type: 'problem', problem: first })}>{errorText(first.error)}</button>
       </div>
     );
@@ -27,7 +29,7 @@ export function ProblemBanner({ problems, onJump, onMenu }: ProblemBannerProps) 
   return (
     <div className="kube-banner" role="status">
       <button type="button" className="kube-link kube-tone-bad" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {problems.length} Probleme {open ? '▴' : '▾'}
+        {t('kubernetes:problems.count', { count: problems.length })} {open ? '▴' : '▾'}
       </button>
       {open && (
         <ul className="kube-banner-list">

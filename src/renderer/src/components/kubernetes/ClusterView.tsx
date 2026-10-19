@@ -4,6 +4,7 @@ import type { SshStatus } from '../../../../shared/ssh';
 import { kubeTabName, type TerminalConnection } from '../../terminal-tabs';
 import { useClusterSession } from '../../hooks/useClusterSession';
 import { errorText } from '../../error-text';
+import { useT } from '../../i18n';
 import { actionReason, bindingOf, commandForKey, type KubeCommand } from '../../kube-commands';
 import { menuFor, type MenuTarget } from '../../kube-menus';
 import { runMenuAction, type MenuRunner } from '../../kube-menu-run';
@@ -47,6 +48,7 @@ const TICK_MS = 10_000;
 
 /** Cluster tab: header, node strip, problems, the resource table and the detail dock. */
 export function ClusterView({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, onPopout, initialView, onSnapshot, sshForNode, onOpenSsh }: ClusterViewProps) {
+  const { t } = useT();
   const { state, dispatch, retry, detail, action } = useClusterSession(connection.id, initialView, null);
   const rootRef = useRef<HTMLElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -149,19 +151,19 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     const reason = actionReason(kind, {
       ref: target?.ref ?? null, readOnly, connected: status?.state === 'ready', kind: state.containersOf ? 'pods' : state.query.kind,
     });
-    if (reason || !target) { say(reason ?? 'Wähle zuerst eine Zeile.'); return; }
+    if (reason || !target) { say(reason ?? t('kubernetes:view.selectRowFirst')); return; }
     confirm(target.ref, kind, target.replicas, replicas);
   };
 
   const openTab = (target: KubeTerminalTarget) => {
-    if (!onPopout) { say('Hier lässt sich kein Tab öffnen.'); return; }
+    if (!onPopout) { say(t('kubernetes:view.noTabHere')); return; }
     onPopout({ ...connection, name: kubeTabName(target, clusterName), kube: target });
   };
 
   const popout = () => {
-    if (!onPopout) { say('Hier lässt sich kein Tab öffnen.'); return; }
-    if (!terminalMode) { say('Als Tab öffnen gibt es nur für Logs und Shell.'); return; }
-    if (!podRef || !container) { say('Wähle einen Pod mit Container.'); return; }
+    if (!onPopout) { say(t('kubernetes:view.noTabHere')); return; }
+    if (!terminalMode) { say(t('kubernetes:view.popoutOnlyTerminal')); return; }
+    if (!podRef || !container) { say(t('kubernetes:view.selectPodWithContainer')); return; }
     openTab({ namespace: podRef.namespace ?? '', pod: podRef.name, container, mode: terminalMode, ...(terminalMode !== 'shell' && state.logFormat === 'raw' ? { format: 'raw' as const } : {}) });
   };
 
@@ -182,11 +184,11 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     const x = (rect?.left ?? 0) + 24;
     const y = rect?.bottom ?? 0;
     if (state.containersOf) {
-      if (!state.container) { say('Wähle zuerst eine Zeile.'); return; }
+      if (!state.container) { say(t('kubernetes:view.selectRowFirst')); return; }
       openMenu({ type: 'container', pod: state.containersOf, name: state.container }, x, y);
       return;
     }
-    if (!selectedRow) { say('Wähle zuerst eine Zeile.'); return; }
+    if (!selectedRow) { say(t('kubernetes:view.selectRowFirst')); return; }
     openMenu({ type: 'row', row: selectedRow }, x, y);
   };
 
@@ -207,7 +209,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     arm: () => setArmedFor(menuArmKey(target)),
     copy: (text, label) => {
       const shown = text.includes('\n') ? label : text.length > 60 ? `${text.slice(0, 60)}…` : text;
-      window.desktopApi.writeClipboardText(text).then(() => say(`Kopiert: ${shown}`), () => say('Kopieren fehlgeschlagen.'));
+      window.desktopApi.writeClipboardText(text).then(() => say(t('kubernetes:view.copied', { text: shown })), () => say(t('kubernetes:view.copyFailed')));
     },
     confirm: (ref, kind, currentReplicas) => confirm(ref, kind, currentReplicas),
     popout: openTab,
@@ -296,10 +298,10 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
 
   let statusText: ReactNode;
   if (notice) statusText = notice;
-  else if (!status || status.state === 'connecting') statusText = 'verbinde …';
-  else if (status.state === 'ready') statusText = status.host ? `bereit über ${status.host}` : 'bereit';
-  else if (status.state === 'reconnecting') statusText = 'getrennt – verbinde neu …';
-  else statusText = status.error ? errorText(status.error) : 'Verbindung fehlgeschlagen.';
+  else if (!status || status.state === 'connecting') statusText = t('kubernetes:status.connecting');
+  else if (status.state === 'ready') statusText = status.host ? t('kubernetes:status.readyVia', { host: status.host }) : t('kubernetes:status.ready');
+  else if (status.state === 'reconnecting') statusText = t('kubernetes:status.reconnecting');
+  else statusText = status.error ? errorText(status.error) : t('kubernetes:status.failed');
 
   return (
     <section ref={rootRef} className={`kube-view${focused ? ' focused-pane' : ''}`} style={style} hidden={!visible}
@@ -307,15 +309,15 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
       <header className="kube-header">
         <div className="kube-title">
           <strong>{clusterName}</strong>
-          {status?.production && <span className="kube-chip kube-chip-bad">Produktion</span>}
-          {readOnly && <span className="kube-chip">Nur lesen</span>}
+          {status?.production && <span className="kube-chip kube-chip-bad">{t('kubernetes:view.production')}</span>}
+          {readOnly && <span className="kube-chip">{t('kubernetes:view.readOnly')}</span>}
         </div>
-        <nav className="kube-crumbs" aria-label="Pfad" onContextMenu={event => event.preventDefault()}>
+        <nav className="kube-crumbs" aria-label={t('kubernetes:view.path')} onContextMenu={event => event.preventDefault()}>
           <label className="kube-ns">
             <span>ns:</span>
-            <select value={state.query.namespace ?? ALL_NAMESPACES} aria-label="Namespace"
+            <select value={state.query.namespace ?? ALL_NAMESPACES} aria-label={t('kubernetes:view.namespace')}
               onChange={event => dispatch({ type: 'setNamespace', namespace: event.target.value === ALL_NAMESPACES ? null : event.target.value })}>
-              <option value={ALL_NAMESPACES}>alle</option>
+              <option value={ALL_NAMESPACES}>{t('kubernetes:view.allNamespaces')}</option>
               {namespaceOptions.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
           </label>
@@ -327,11 +329,11 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
           {state.containersOf && <span className="kube-crumb-current">› {state.containersOf.ref.name}</span>}
         </nav>
         <div className="kube-prompt">
-          <button type="button" className="kube-help-button" aria-label="Hilfe" title="Hilfe (?)" onClick={() => setHelp(true)}>?</button>
+          <button type="button" className="kube-help-button" aria-label={t('kubernetes:view.help')} title={t('kubernetes:view.helpTitle')} onClick={() => setHelp(true)}>?</button>
         </div>
         <p className={`kube-status${status?.state === 'error' ? ' kube-status-error' : ''}`} role="status">
           <span>{statusText}</span>
-          {status?.state === 'error' && <button type="button" onClick={retry}>Erneut versuchen</button>}
+          {status?.state === 'error' && <button type="button" onClick={retry}>{t('common:actions.retry')}</button>}
         </p>
       </header>
       <div className={`kube-body${status?.state === 'reconnecting' ? ' kube-stale' : ''}`}>
@@ -343,9 +345,9 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
           detail={detail} onMode={mode => dispatch({ type: 'dock', mode })} onArm={() => { setArmedFor(armKey); dispatch({ type: 'dock', mode: 'shell' }); }}
           onToggle={() => dispatch({ type: 'toggleDock' })} onPopout={onPopout ? popout : undefined} epoch={epoch + dockReloads} onMenu={(target, x, y) => openMenu(target, x, y)}
           logFormat={state.logFormat} onLogFormat={format => dispatch({ type: 'setLogFormat', format })} onSay={say}
-          onCopy={(text, label, info) => { window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text, info)), () => say('Kopieren fehlgeschlagen.')); }} />
+          onCopy={(text, label, info) => { window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text, info)), () => say(t('kubernetes:view.copyFailed'))); }} />
       </div>
-      {menu && <ContextMenu x={menu.x} y={menu.y} label="Kontextmenü" entries={menuEntries(menu)} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} label={t('kubernetes:view.contextMenu')} entries={menuEntries(menu)} onClose={() => setMenu(null)} />}
       {help && <HelpOverlay state={state} readOnly={readOnly} onClose={() => setHelp(false)} />}
       {pending && (
         <ConfirmAction pending={pending} cluster={{ name: clusterName, production }}

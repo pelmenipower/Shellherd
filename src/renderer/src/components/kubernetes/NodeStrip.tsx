@@ -1,4 +1,5 @@
 import type { NodeTile } from '../../../../shared/kubernetes';
+import { useT } from '../../i18n';
 import { menuHandlers, type MenuOpener } from '../../kube-menu-trigger';
 
 type OnMenu = MenuOpener;
@@ -26,14 +27,15 @@ function dotTone(node: NodeTile): 'ok' | 'warn' | 'bad' {
 }
 
 export function NodeStrip({ nodes, onJump, onMenu }: NodeStripProps) {
+  const { t } = useT();
   if (nodes.length === 0) return null;
   const labels = shortNodeNames(nodes.map(node => node.name));
   const withoutMetrics = nodes.every(node => node.cpu === undefined && node.memory === undefined);
   return (
-    <div className="kube-nodes" role="list" aria-label="Nodes">
+    <div className="kube-nodes" role="list" aria-label={t('kubernetes:nodes.label')}>
       {nodes.map((node, index) => {
         const tone = dotTone(node);
-        const title = [node.name, node.ready ? 'bereit' : 'nicht bereit', ...node.pressure, node.unschedulable ? 'gesperrt' : ''].filter(Boolean).join(', ');
+        const title = [node.name, node.ready ? t('kubernetes:nodes.ready') : t('kubernetes:nodes.notReady'), ...node.pressure, node.unschedulable ? t('kubernetes:nodes.cordoned') : ''].filter(Boolean).join(', ');
         return (
           <button key={node.name} type="button" role="listitem" className={`kube-node kube-node-${tone}`} title={title}
             onClick={() => onJump(node.name)} {...menuHandlers(onMenu, { type: 'node', tile: node })}>
@@ -43,7 +45,7 @@ export function NodeStrip({ nodes, onJump, onMenu }: NodeStripProps) {
           </button>
         );
       })}
-      {withoutMetrics && <span className="kube-node-hint">Auslastung nicht verfügbar</span>}
+      {withoutMetrics && <span className="kube-node-hint">{t('kubernetes:nodes.noMetrics')}</span>}
     </div>
   );
 }

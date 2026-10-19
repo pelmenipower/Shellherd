@@ -1,1 +1,260 @@
-{}
+{
+  "loading": "Loading …",
+  "viewNotOpen": "The view is not open.",
+  "filter": {
+    "empty": "(none)"
+  },
+  "groups": {
+    "namespace": "Namespace",
+    "node": "Node",
+    "status": "Status",
+    "owner": "Owner",
+    "roles": "Roles",
+    "type": "Type",
+    "reason": "Reason",
+    "objectKind": "Object kind"
+  },
+  "filterHelp": {
+    "text": {
+      "form": "Text",
+      "description": "Column contains the text"
+    },
+    "select": {
+      "form": "Selection",
+      "description": "Column has exactly this value; “(none)” for empty cells"
+    },
+    "number": {
+      "description": "Compare number columns; a bare number means equal"
+    },
+    "age": {
+      "description": "Age younger (<) or older (>) than; units s, m, h, d"
+    },
+    "note": "All filters apply together, case does not matter. Invalid input is marked red and does not filter. F resets all filters of the tab; the grouping stays.",
+    "groupNote": "Groups are sorted by name, “(none)” comes last. Clicking the group row expands and collapses it; j and k skip group rows.",
+    "textFilterNote": "Context menus set text filters such as app=api or owner:nightly. They appear as a “Filter: …” chip at the start of the bar and can be removed with ×.",
+    "numberKind": "Number",
+    "ageKind": "Age"
+  },
+  "columns": {
+    "name": "Name",
+    "ready": "Ready",
+    "status": "Status",
+    "restarts": "Restarts",
+    "cpu": "CPU",
+    "memory": "RAM",
+    "node": "Node",
+    "age": "Age",
+    "upToDate": "Up to date",
+    "image": "Image",
+    "completions": "Completed",
+    "lastRun": "Last run",
+    "schedule": "Schedule",
+    "type": "Type",
+    "clusterIp": "Cluster IP",
+    "ports": "Ports",
+    "hosts": "Hosts",
+    "address": "Address",
+    "roles": "Roles",
+    "pods": "Pods",
+    "version": "Kubelet",
+    "reason": "Reason",
+    "object": "Object",
+    "message": "Message",
+    "count": "Count",
+    "last": "Last seen",
+    "namespace": "Namespace",
+    "container": "Container"
+  },
+  "chips": {
+    "attention": "Needs attention",
+    "complete": "Complete",
+    "incomplete": "Incomplete",
+    "zero": "Scaled to 0",
+    "running": "Running",
+    "waiting": "Waiting",
+    "failed": "Error",
+    "jobFailed": "Failed",
+    "completed": "Completed",
+    "terminating": "Terminating",
+    "notready": "Not ready",
+    "restarts": "With restarts",
+    "success": "Succeeded",
+    "active": "Active",
+    "suspended": "Suspended",
+    "clusterip": "ClusterIP",
+    "nodeport": "NodePort",
+    "loadbalancer": "LoadBalancer",
+    "externalname": "ExternalName",
+    "headless": "Headless",
+    "noselector": "No selector",
+    "cordoned": "Cordoned",
+    "pressure": "Pressure",
+    "controlplane": "Control plane",
+    "warning": "Warning",
+    "normal": "Normal",
+    "last5m": "Last 5 min",
+    "last15m": "Last 15 min"
+  },
+  "qualifiers": {
+    "namespace": "Namespace",
+    "node": "Node",
+    "status": "Status",
+    "containerImage": "Image of a container",
+    "owner": "Owner (whole name)",
+    "podIp": "Pod IP",
+    "containerName": "Container name",
+    "image": "Image",
+    "schedule": "Schedule",
+    "type": "Type",
+    "clusterIp": "Cluster IP",
+    "port": "Port",
+    "host": "Host",
+    "address": "Address",
+    "role": "Role",
+    "internalIp": "Internal IP",
+    "kubeletVersion": "Kubelet version",
+    "reason": "Reason",
+    "object": "Object (kind/name)",
+    "eventType": "Type (Normal, Warning)",
+    "objectKind": "Kind of the object"
+  },
+  "search": {
+    "syntax": "term  \"a phrase\"  !term  key=value  key!=value  field:value  !field:value  restarts>3  count>=5",
+    "note": "Case does not matter. Unknown qualifiers count as text.",
+    "forms": {
+      "term": {
+        "form": "term",
+        "description": "Substring in a search field of the tab; all terms must match"
+      },
+      "phrase": {
+        "form": "\"a phrase\"",
+        "description": "Term with spaces"
+      },
+      "not": {
+        "form": "!term",
+        "description": "No search field contains the term"
+      },
+      "label": {
+        "form": "key=value",
+        "description": "Label has exactly this value"
+      },
+      "labelNot": {
+        "form": "key!=value",
+        "description": "Label is missing or has a different value"
+      },
+      "field": {
+        "form": "field:value",
+        "description": "Substring in a field (qualifiers of the tab below)"
+      },
+      "fieldNot": {
+        "form": "!field:value",
+        "description": "Field does not contain the value"
+      },
+      "number": {
+        "form": "restarts>3",
+        "description": "Number comparison with > >= < <= = (pods: restarts, events: count)"
+      }
+    }
+  },
+  "view": {
+    "selectRowFirst": "Select a row first.",
+    "noTabHere": "A tab cannot be opened here.",
+    "popoutOnlyTerminal": "“Open as tab” is only available for logs and shell.",
+    "selectPodWithContainer": "Select a pod with a container.",
+    "copied": "Copied: {{text}}",
+    "copyFailed": "Copy failed.",
+    "production": "Production",
+    "readOnly": "Read only",
+    "path": "Path",
+    "namespace": "Namespace",
+    "allNamespaces": "all",
+    "help": "Help",
+    "helpTitle": "Help (?)",
+    "contextMenu": "Context menu"
+  },
+  "status": {
+    "connecting": "connecting …",
+    "readyVia": "ready via {{host}}",
+    "ready": "ready",
+    "reconnecting": "disconnected – reconnecting …",
+    "failed": "Connection failed."
+  },
+  "dock": {
+    "tabs": {
+      "logs": "Logs",
+      "shell": "Shell",
+      "events": "Events",
+      "yaml": "YAML",
+      "describe": "Describe"
+    },
+    "loadFailed": "The view could not be loaded.",
+    "previousLogs": "Previous logs",
+    "nothingToCopy": "Nothing to copy.",
+    "label": "Details",
+    "resize": "Resize",
+    "followsSelection": "follows selection",
+    "popout": "Open as tab",
+    "logFormat": "Log format",
+    "compact": "Compact",
+    "raw": "Raw",
+    "collapse": "Collapse panel",
+    "expand": "Expand panel",
+    "selectPodForShell": "Select a pod to see a shell.",
+    "selectPodForLogs": "Select a pod to see logs.",
+    "noContainer": "This pod has no container.",
+    "shellOnDemand": "The shell only starts on a button press so that changing the selection does not open a connection.",
+    "openShell": "Open shell",
+    "selectRow": "Select a row.",
+    "noEvents": "No events."
+  },
+  "nodes": {
+    "label": "Nodes",
+    "ready": "ready",
+    "notReady": "not ready",
+    "cordoned": "cordoned",
+    "noMetrics": "Usage not available"
+  },
+  "problems": {
+    "single": "1 problem:",
+    "count_one": "{{count}} problem",
+    "count_other": "{{count}} problems"
+  },
+  "table": {
+    "resources": "Resources",
+    "filters": "Filters",
+    "textFilter": "Filter: {{text}}",
+    "textFilterRemove": "Remove text filter",
+    "attentionKey": "Key w",
+    "shownOf": "{{shown}} of {{total}}",
+    "resetAllTitle": "Reset all filters (F)",
+    "reset": "Reset",
+    "groupBy": "Group by",
+    "namespaceOnlyAll": "Namespace – only with all namespaces",
+    "resetFilter": "Reset filters",
+    "searchAllNamespaces": "Search in all namespaces",
+    "columnFilter": "Filter {{column}}",
+    "columnFilterClear": "Clear filter {{column}}",
+    "all": "all",
+    "numberHint": "Number: >3, >=3, <3, <=3, =3 or 3",
+    "ageHint": "Age: <10m, >1h, <2d (units s, m, h, d)",
+    "invalidFilter": "Invalid, does not filter. {{hint}}",
+    "filterPlaceholder": "Filter …",
+    "noEntries": "No entries.",
+    "noMatches": "No matches for the filters."
+  },
+  "help": {
+    "intro": "Every column header has a filter field below it. / jumps to the “{{column}}” field.",
+    "noChips": "No status filters.",
+    "label": "Cluster view help",
+    "title": "Keys and filters",
+    "searchPlaceholder": "Search …",
+    "searchLabel": "Search help",
+    "keys": "Keys",
+    "filters": "Filters",
+    "example": "· Example:",
+    "columnFilters": "Column filters for {{kind}}",
+    "chipFilters": "Status filters for {{kind}}",
+    "groupBy": "Grouping for {{kind}}",
+    "textFilter": "Text filter"
+  }
+}

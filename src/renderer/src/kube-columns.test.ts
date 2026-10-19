@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { i18n } from './i18n';
 import { KIND_COLUMNS, KUBE_KINDS, type KubeKind, type KubeRow } from '../../shared/kubernetes';
 import {
-  EMPTY_VALUE, FILTER_HELP, facetValues, FILTER_KIND_LABEL, GROUP_OPTIONS, cellValues, columnFilterKind, columnValues, columnsFor, compileColumnFilters,
+  EMPTY_VALUE, FILTER_HELP, emptyLabel, facetValues, FILTER_KIND_LABEL, GROUP_OPTIONS, cellValues, columnFilterKind, columnValues, columnsFor, compileColumnFilters,
   groupKey, groupRows, isValidColumnFilter, parseAgeFilter, parseNumberFilter, primaryFilterColumn,
 } from './kube-columns';
 
@@ -15,7 +16,7 @@ const ago = (ms: number) => new Date(NOW - ms).toISOString();
 describe('columnsFor', () => {
   it('adds Namespace after name for namespaced kinds with all namespaces', () => {
     expect(columnsFor('pods', null).map(c => c.key)).toEqual(['name', 'namespace', 'ready', 'status', 'restarts', 'cpu', 'memory', 'node', 'age']);
-    expect(columnsFor('pods', null)[1]).toEqual({ key: 'namespace', label: 'Namespace' });
+    expect(columnsFor('pods', null)[1]).toEqual({ key: 'namespace' });
   });
   it('is KIND_COLUMNS for a namespace and for nodes', () => {
     expect(columnsFor('pods', 'shop')).toBe(KIND_COLUMNS.pods);
@@ -293,5 +294,19 @@ describe('facetValues', () => {
   it('applies otherPredicate (chips and search)', () => {
     const result = facetValues(rows, 'pods', col('pods', 'status'), undefined, NOW, r => r.ref.name.startsWith('db'));
     expect(result).toEqual([{ value: 'Running', label: 'Running (2)', count: 2 }]);
+  });
+});
+
+describe('language switch (en-US)', () => {
+  afterEach(async () => { await i18n.changeLanguage('de-DE'); });
+  it('translates group options, help texts and the empty label; stored values stay', async () => {
+    await i18n.changeLanguage('en-US');
+    expect(GROUP_OPTIONS.nodes.map(o => o.label)).toEqual(['Status', 'Roles']);
+    expect(FILTER_KIND_LABEL).toEqual({ text: 'Text', select: 'Selection', number: 'Number', age: 'Age' });
+    expect(FILTER_HELP[0].description).toBe('Column contains the text');
+    expect(emptyLabel()).toBe('(none)');
+    const result = facetValues([row('pods', 'x', {}, {}, 'shop')], 'pods', col('pods', 'status'), undefined, NOW, () => true);
+    expect(result).toEqual([{ value: EMPTY_VALUE, label: '(none) (1)', count: 1 }]);
+    expect(EMPTY_VALUE).toBe('(ohne)');
   });
 });

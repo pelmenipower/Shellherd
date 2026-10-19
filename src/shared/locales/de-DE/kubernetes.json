@@ -1,1 +1,260 @@
-{}
+{
+  "loading": "Lade …",
+  "viewNotOpen": "Die Ansicht ist nicht geöffnet.",
+  "filter": {
+    "empty": "(ohne)"
+  },
+  "groups": {
+    "namespace": "Namespace",
+    "node": "Node",
+    "status": "Status",
+    "owner": "Owner",
+    "roles": "Rollen",
+    "type": "Typ",
+    "reason": "Grund",
+    "objectKind": "Objekt-Art"
+  },
+  "filterHelp": {
+    "text": {
+      "form": "Text",
+      "description": "Spalte enthält den Text"
+    },
+    "select": {
+      "form": "Auswahl",
+      "description": "Spalte hat genau diesen Wert; „(ohne)“ für leere Zellen"
+    },
+    "number": {
+      "description": "Zahlenspalten vergleichen; eine reine Zahl heißt gleich"
+    },
+    "age": {
+      "description": "Alter jünger (<) oder älter (>) als; Einheiten s, m, h, d"
+    },
+    "note": "Alle Filter gelten zusammen, Groß- und Kleinschreibung zählen nicht. Ungültige Eingaben sind rot markiert und filtern nicht. F setzt alle Filter des Reiters zurück, die Gruppierung bleibt.",
+    "groupNote": "Gruppen sind nach Name sortiert, „(ohne)“ steht am Ende. Ein Klick auf die Gruppenzeile klappt sie auf und zu; j und k überspringen Gruppenzeilen.",
+    "textFilterNote": "Kontextmenüs setzen Textfilter wie app=api oder owner:nightly. Sie stehen als Chip „Filter: …“ am Anfang der Leiste und lassen sich mit × entfernen.",
+    "numberKind": "Zahl",
+    "ageKind": "Alter"
+  },
+  "columns": {
+    "name": "Name",
+    "ready": "Ready",
+    "status": "Status",
+    "restarts": "Restarts",
+    "cpu": "CPU",
+    "memory": "RAM",
+    "node": "Node",
+    "age": "Alter",
+    "upToDate": "Aktuell",
+    "image": "Image",
+    "completions": "Abgeschlossen",
+    "lastRun": "Letzter Lauf",
+    "schedule": "Zeitplan",
+    "type": "Typ",
+    "clusterIp": "Cluster-IP",
+    "ports": "Ports",
+    "hosts": "Hosts",
+    "address": "Adresse",
+    "roles": "Rollen",
+    "pods": "Pods",
+    "version": "Kubelet",
+    "reason": "Grund",
+    "object": "Objekt",
+    "message": "Meldung",
+    "count": "Anzahl",
+    "last": "Zuletzt",
+    "namespace": "Namespace",
+    "container": "Container"
+  },
+  "chips": {
+    "attention": "Auffällig",
+    "complete": "Vollständig",
+    "incomplete": "Nicht vollständig",
+    "zero": "Auf 0",
+    "running": "Läuft",
+    "waiting": "Wartet",
+    "failed": "Fehler",
+    "jobFailed": "Fehlgeschlagen",
+    "completed": "Abgeschlossen",
+    "terminating": "Beendet",
+    "notready": "Nicht bereit",
+    "restarts": "Mit Neustarts",
+    "success": "Erfolgreich",
+    "active": "Aktiv",
+    "suspended": "Angehalten",
+    "clusterip": "ClusterIP",
+    "nodeport": "NodePort",
+    "loadbalancer": "LoadBalancer",
+    "externalname": "ExternalName",
+    "headless": "Headless",
+    "noselector": "Ohne Selector",
+    "cordoned": "Gesperrt",
+    "pressure": "Druck",
+    "controlplane": "Control-Plane",
+    "warning": "Warning",
+    "normal": "Normal",
+    "last5m": "Letzte 5 min",
+    "last15m": "Letzte 15 min"
+  },
+  "qualifiers": {
+    "namespace": "Namespace",
+    "node": "Node",
+    "status": "Status",
+    "containerImage": "Image eines Containers",
+    "owner": "Besitzer (ganzer Name)",
+    "podIp": "Pod-IP",
+    "containerName": "Container-Name",
+    "image": "Image",
+    "schedule": "Zeitplan",
+    "type": "Typ",
+    "clusterIp": "Cluster-IP",
+    "port": "Port",
+    "host": "Host",
+    "address": "Adresse",
+    "role": "Rolle",
+    "internalIp": "Interne IP",
+    "kubeletVersion": "Kubelet-Version",
+    "reason": "Grund",
+    "object": "Objekt (Kind/Name)",
+    "eventType": "Typ (Normal, Warning)",
+    "objectKind": "Kind des Objekts"
+  },
+  "search": {
+    "syntax": "term  \"ein satz\"  !term  key=value  key!=value  feld:wert  !feld:wert  restarts>3  count>=5",
+    "note": "Groß- und Kleinschreibung zählen nicht. Unbekannte Qualifier gelten als Text.",
+    "forms": {
+      "term": {
+        "form": "term",
+        "description": "Teilstring in einem Suchfeld des Reiters; mehrere Begriffe müssen alle passen"
+      },
+      "phrase": {
+        "form": "\"ein satz\"",
+        "description": "Begriff mit Leerzeichen"
+      },
+      "not": {
+        "form": "!term",
+        "description": "Kein Suchfeld enthält den Begriff"
+      },
+      "label": {
+        "form": "key=value",
+        "description": "Label hat genau diesen Wert"
+      },
+      "labelNot": {
+        "form": "key!=value",
+        "description": "Label fehlt oder hat einen anderen Wert"
+      },
+      "field": {
+        "form": "feld:wert",
+        "description": "Teilstring in einem Feld (Qualifier des Reiters unten)"
+      },
+      "fieldNot": {
+        "form": "!feld:wert",
+        "description": "Feld enthält den Wert nicht"
+      },
+      "number": {
+        "form": "restarts>3",
+        "description": "Zahlenvergleich mit > >= < <= = (Pods: restarts, Events: count)"
+      }
+    }
+  },
+  "view": {
+    "selectRowFirst": "Wähle zuerst eine Zeile.",
+    "noTabHere": "Hier lässt sich kein Tab öffnen.",
+    "popoutOnlyTerminal": "Als Tab öffnen gibt es nur für Logs und Shell.",
+    "selectPodWithContainer": "Wähle einen Pod mit Container.",
+    "copied": "Kopiert: {{text}}",
+    "copyFailed": "Kopieren fehlgeschlagen.",
+    "production": "Produktion",
+    "readOnly": "Nur lesen",
+    "path": "Pfad",
+    "namespace": "Namespace",
+    "allNamespaces": "alle",
+    "help": "Hilfe",
+    "helpTitle": "Hilfe (?)",
+    "contextMenu": "Kontextmenü"
+  },
+  "status": {
+    "connecting": "verbinde …",
+    "readyVia": "bereit über {{host}}",
+    "ready": "bereit",
+    "reconnecting": "getrennt – verbinde neu …",
+    "failed": "Verbindung fehlgeschlagen."
+  },
+  "dock": {
+    "tabs": {
+      "logs": "Logs",
+      "shell": "Shell",
+      "events": "Events",
+      "yaml": "YAML",
+      "describe": "Describe"
+    },
+    "loadFailed": "Die Ansicht konnte nicht geladen werden.",
+    "previousLogs": "Vorherige Logs",
+    "nothingToCopy": "Nichts zu kopieren.",
+    "label": "Details",
+    "resize": "Höhe ändern",
+    "followsSelection": "folgt Auswahl",
+    "popout": "Als Tab öffnen",
+    "logFormat": "Log-Darstellung",
+    "compact": "Kompakt",
+    "raw": "Roh",
+    "collapse": "Panel einklappen",
+    "expand": "Panel ausklappen",
+    "selectPodForShell": "Wähle einen Pod, um eine Shell zu sehen.",
+    "selectPodForLogs": "Wähle einen Pod, um Logs zu sehen.",
+    "noContainer": "Dieser Pod hat keinen Container.",
+    "shellOnDemand": "Die Shell startet erst auf Knopfdruck, damit Auswahlwechsel keine Verbindung öffnen.",
+    "openShell": "Shell öffnen",
+    "selectRow": "Wähle eine Zeile.",
+    "noEvents": "Keine Ereignisse."
+  },
+  "nodes": {
+    "label": "Nodes",
+    "ready": "bereit",
+    "notReady": "nicht bereit",
+    "cordoned": "gesperrt",
+    "noMetrics": "Auslastung nicht verfügbar"
+  },
+  "problems": {
+    "single": "1 Problem:",
+    "count_one": "{{count}} Problem",
+    "count_other": "{{count}} Probleme"
+  },
+  "table": {
+    "resources": "Ressourcen",
+    "filters": "Filter",
+    "textFilter": "Filter: {{text}}",
+    "textFilterRemove": "Textfilter entfernen",
+    "attentionKey": "Taste w",
+    "shownOf": "{{shown}} von {{total}}",
+    "resetAllTitle": "Alle Filter zurücksetzen (F)",
+    "reset": "Zurücksetzen",
+    "groupBy": "Gruppieren nach",
+    "namespaceOnlyAll": "Namespace – nur bei allen Namespaces",
+    "resetFilter": "Filter zurücksetzen",
+    "searchAllNamespaces": "In allen Namespaces suchen",
+    "columnFilter": "Filter {{column}}",
+    "columnFilterClear": "Filter {{column}} leeren",
+    "all": "alle",
+    "numberHint": "Zahl: >3, >=3, <3, <=3, =3 oder 3",
+    "ageHint": "Alter: <10m, >1h, <2d (Einheiten s, m, h, d)",
+    "invalidFilter": "Ungültig, filtert nicht. {{hint}}",
+    "filterPlaceholder": "Filter …",
+    "noEntries": "Keine Einträge.",
+    "noMatches": "Keine Treffer für die Filter."
+  },
+  "help": {
+    "intro": "Unter jedem Spaltenkopf steht ein Filterfeld. / springt in das Feld „{{column}}“.",
+    "noChips": "Keine Status-Filter.",
+    "label": "Hilfe zur Cluster-Ansicht",
+    "title": "Tasten und Filter",
+    "searchPlaceholder": "Suchen …",
+    "searchLabel": "Hilfe durchsuchen",
+    "keys": "Tasten",
+    "filters": "Filter",
+    "example": "· Beispiel:",
+    "columnFilters": "Spaltenfilter für {{kind}}",
+    "chipFilters": "Status-Filter für {{kind}}",
+    "groupBy": "Gruppieren für {{kind}}",
+    "textFilter": "Textfilter"
+  }
+}

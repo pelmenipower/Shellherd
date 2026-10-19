@@ -7,7 +7,6 @@ export const KUBE_NAME = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/;
 export const LABEL_KEY = /^([a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?\/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/;
 export const LABEL_VALUE = /^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$/;
 export const MAX_REPLICAS = 1000;
-export const READ_ONLY_MESSAGE = 'Dieser Cluster ist schreibgeschützt.';
 
 export const KUBE_KINDS = ['pods', 'deployments', 'statefulsets', 'daemonsets', 'jobs', 'cronjobs', 'services', 'ingresses', 'nodes', 'events'] as const;
 export type KubeKind = typeof KUBE_KINDS[number];
@@ -66,29 +65,30 @@ export interface KubeRow {
   involved?: { kind: string; name: string; ref?: KubeRef };
 }
 
-export interface ColumnInfo { key: string; label: string; numeric?: boolean; age?: boolean; usage?: 'cpu' | 'memory' }
+/** Labels come from `columnLabel(key)` in renderer/kube-labels.ts. */
+export interface ColumnInfo { key: string; numeric?: boolean; age?: boolean; usage?: 'cpu' | 'memory' }
 export const KIND_COLUMNS: Record<KubeKind, ColumnInfo[]> = {
-  pods: [{ key: 'name', label: 'Name' }, { key: 'ready', label: 'Ready' }, { key: 'status', label: 'Status' },
-    { key: 'restarts', label: 'Restarts', numeric: true }, { key: 'cpu', label: 'CPU', usage: 'cpu' }, { key: 'memory', label: 'RAM', usage: 'memory' },
-    { key: 'node', label: 'Node' }, { key: 'age', label: 'Alter', age: true }],
-  deployments: [{ key: 'name', label: 'Name' }, { key: 'ready', label: 'Ready' }, { key: 'upToDate', label: 'Aktuell', numeric: true },
-    { key: 'image', label: 'Image' }, { key: 'age', label: 'Alter', age: true }],
-  statefulsets: [{ key: 'name', label: 'Name' }, { key: 'ready', label: 'Ready' }, { key: 'upToDate', label: 'Aktuell', numeric: true },
-    { key: 'image', label: 'Image' }, { key: 'age', label: 'Alter', age: true }],
-  daemonsets: [{ key: 'name', label: 'Name' }, { key: 'ready', label: 'Ready' }, { key: 'upToDate', label: 'Aktuell', numeric: true },
-    { key: 'image', label: 'Image' }, { key: 'age', label: 'Alter', age: true }],
-  jobs: [{ key: 'name', label: 'Name' }, { key: 'completions', label: 'Abgeschlossen' }, { key: 'status', label: 'Status' },
-    { key: 'lastRun', label: 'Letzter Lauf', age: true }, { key: 'age', label: 'Alter', age: true }],
-  cronjobs: [{ key: 'name', label: 'Name' }, { key: 'schedule', label: 'Zeitplan' }, { key: 'lastRun', label: 'Letzter Lauf', age: true },
-    { key: 'age', label: 'Alter', age: true }],
-  services: [{ key: 'name', label: 'Name' }, { key: 'type', label: 'Typ' }, { key: 'clusterIp', label: 'Cluster-IP' },
-    { key: 'ports', label: 'Ports' }, { key: 'age', label: 'Alter', age: true }],
-  ingresses: [{ key: 'name', label: 'Name' }, { key: 'hosts', label: 'Hosts' }, { key: 'address', label: 'Adresse' }, { key: 'age', label: 'Alter', age: true }],
-  nodes: [{ key: 'name', label: 'Name' }, { key: 'status', label: 'Status' }, { key: 'roles', label: 'Rollen' },
-    { key: 'cpu', label: 'CPU', usage: 'cpu' }, { key: 'memory', label: 'RAM', usage: 'memory' }, { key: 'pods', label: 'Pods', numeric: true },
-    { key: 'version', label: 'Kubelet' }],
-  events: [{ key: 'type', label: 'Typ' }, { key: 'reason', label: 'Grund' }, { key: 'object', label: 'Objekt' },
-    { key: 'message', label: 'Meldung' }, { key: 'count', label: 'Anzahl', numeric: true }, { key: 'last', label: 'Zuletzt', age: true }],
+  pods: [{ key: 'name' }, { key: 'ready' }, { key: 'status' },
+    { key: 'restarts', numeric: true }, { key: 'cpu', usage: 'cpu' }, { key: 'memory', usage: 'memory' },
+    { key: 'node' }, { key: 'age', age: true }],
+  deployments: [{ key: 'name' }, { key: 'ready' }, { key: 'upToDate', numeric: true },
+    { key: 'image' }, { key: 'age', age: true }],
+  statefulsets: [{ key: 'name' }, { key: 'ready' }, { key: 'upToDate', numeric: true },
+    { key: 'image' }, { key: 'age', age: true }],
+  daemonsets: [{ key: 'name' }, { key: 'ready' }, { key: 'upToDate', numeric: true },
+    { key: 'image' }, { key: 'age', age: true }],
+  jobs: [{ key: 'name' }, { key: 'completions' }, { key: 'status' },
+    { key: 'lastRun', age: true }, { key: 'age', age: true }],
+  cronjobs: [{ key: 'name' }, { key: 'schedule' }, { key: 'lastRun', age: true },
+    { key: 'age', age: true }],
+  services: [{ key: 'name' }, { key: 'type' }, { key: 'clusterIp' },
+    { key: 'ports' }, { key: 'age', age: true }],
+  ingresses: [{ key: 'name' }, { key: 'hosts' }, { key: 'address' }, { key: 'age', age: true }],
+  nodes: [{ key: 'name' }, { key: 'status' }, { key: 'roles' },
+    { key: 'cpu', usage: 'cpu' }, { key: 'memory', usage: 'memory' }, { key: 'pods', numeric: true },
+    { key: 'version' }],
+  events: [{ key: 'type' }, { key: 'reason' }, { key: 'object' },
+    { key: 'message' }, { key: 'count', numeric: true }, { key: 'last', age: true }],
 };
 
 export interface NodeTile {
@@ -145,7 +145,6 @@ export const ACTION_KINDS: Record<KubeAction, KubeKind[]> = {
   restart: ['deployments', 'statefulsets', 'daemonsets'], scale: ['deployments', 'statefulsets'], delete: ['pods', 'jobs'],
   cordon: ['nodes'], uncordon: ['nodes'], suspend: ['cronjobs'], resume: ['cronjobs'], trigger: ['cronjobs'],
 };
-export const NOT_CONNECTED_MESSAGE = 'Der Cluster ist gerade nicht verbunden.';
 
 /** Name of a job started by hand from a CronJob: `<cron>-manual-<unix>`, cut to 63 chars, DNS-1123, never ending in '-'. The suffix always stays whole. */
 export function manualJobName(cron: string, unix: number): string {

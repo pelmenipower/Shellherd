@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent, type RefObject } from 'react';
 import { KIND_INFO, KUBE_KINDS, refKey, type ColumnInfo, type KubeKind, type KubeRow } from '../../../../shared/kubernetes';
 import { activeFilter, activeGrouping, columnsOf, compileFilter, filterOf, formatAge, formatUsage, isFiltered, searchedRows, sparkline, tableItems, type KubeViewAction, type KubeViewState } from '../../kube-view';
-import { EMPTY_VALUE, GROUP_OPTIONS, columnFilterKind, facetValues, isValidColumnFilter, type FacetOption } from '../../kube-columns';
+import { useT } from '../../i18n';
+import { chipLabel, columnLabel } from '../../kube-labels';
+import { GROUP_OPTIONS, columnFilterKind, facetValues, isValidColumnFilter, type FacetOption } from '../../kube-columns';
 import { CHIPS, attentionChip, chipCounts } from '../../../../shared/kube-status';
 import { rowMenuTarget } from '../../kube-menu-run';
 import type { MenuTarget } from '../../kube-menus';
@@ -10,8 +12,6 @@ const ROW_HEIGHT = 24;
 /** Above this many items (rows plus group rows) only the visible window is rendered. */
 const WINDOW_THRESHOLD = 200;
 const OVERSCAN = 10;
-const NUMBER_TITLE = 'Zahl: >3, >=3, <3, <=3, =3 oder 3';
-const AGE_TITLE = 'Alter: <10m, >1h, <2d (Einheiten s, m, h, d)';
 
 interface ResourceTableProps {
   state: KubeViewState;
@@ -24,6 +24,7 @@ interface ResourceTableProps {
 
 /** Kind tabs and the k9s-style table. Keys are handled by the view; this component only renders and scrolls. */
 export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: ResourceTableProps) {
+  const { t, i18n } = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ top: 0, height: 480 });
   const kind = state.query.kind;
@@ -73,8 +74,10 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
   const counts = useMemo(() => chipCounts(kind, searchedRows(state), state.now), [state.rows, kind, filter.text, filter.columns, state.query.namespace, state.now]);
   const showBar = !inContainers;
   const columns: ColumnInfo[] = inContainers
-    ? [{ key: 'name', label: 'Container' }, { key: 'image', label: 'Image' }]
+    ? [{ key: 'name' }, { key: 'image' }]
     : columnsOf(state);
+  // The container list names its first column "Container"; the table's name column is "Name".
+  const headerLabel = (column: ColumnInfo): string => columnLabel(inContainers && column.key === 'name' ? 'container' : column.key);
   const now = state.now || Date.now();
   // Facets of all select filters, computed once per input change (not per row render): each counts the rows that pass
   // all other column filters plus chips and search text.
@@ -87,7 +90,7 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.rows, kind, active.text, active.chips, active.columns, state.now, state.query.namespace, inContainers]);
+  }, [state.rows, kind, active.text, active.chips, active.columns, state.now, state.query.namespace, inContainers, i18n.language]);
   const windowed = !inContainers && items.length > WINDOW_THRESHOLD;
   const first = windowed ? Math.max(0, Math.floor(scroll.top / ROW_HEIGHT) - OVERSCAN) : 0;
   const last = windowed ? Math.min(items.length, first + Math.ceil(scroll.height / ROW_HEIGHT) + 2 * OVERSCAN) : items.length;
@@ -104,7 +107,7 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
 
   return (
     <div className="kube-table-area">
-      <div className="kube-kind-tabs" role="tablist" aria-label="Ressourcen" onContextMenu={event => event.preventDefault()}>
+      <div className="kube-kind-tabs" role="tablist" aria-label={t('kubernetes:table.resources')} onContextMenu={event => event.preventDefault()}>
         {KUBE_KINDS.map((candidate, index) => {
           const digit = index === 9 ? '0' : String(index + 1);
           const on = candidate === kind && !inContainers;
@@ -117,10 +120,10 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
         })}
       </div>
       {showBar && (
-        <div className="kube-chipbar" role="toolbar" aria-label="Filter" onContextMenu={event => event.preventDefault()}>
+        <div className="kube-chipbar" role="toolbar" aria-label={t('kubernetes:table.filters')} onContextMenu={event => event.preventDefault()}>
           {searchText !== '' && (
-            <span className="kube-chip kube-text-chip">Filter: {searchText}{' '}
-              <button type="button" className="kube-text-chip-clear" aria-label="Textfilter entfernen"
+            <span className="kube-chip kube-text-chip">{t('kubernetes:table.textFilter', { text: searchText })}{' '}
+              <button type="button" className="kube-text-chip-clear" aria-label={t('kubernetes:table.textFilterRemove')}
                 onClick={() => dispatch({ type: 'search', text: '' })}>×</button>
             </span>
           )}
@@ -130,10 +133,10 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
             return (
               <Fragment key={chip.id}>
                 {index > 0 && chipDefs[index - 1].group !== chip.group && <span className="kube-chip-sep" aria-hidden="true" />}
-                <button type="button" aria-pressed={on} title={chip.id === attention ? 'Taste w' : undefined}
+                <button type="button" aria-pressed={on} title={chip.id === attention ? t('kubernetes:table.attentionKey') : undefined}
                   className={`kube-chip kube-filter-chip${on ? ' kube-chip-on' : ''}${count === 0 ? ' kube-chip-zero' : ''}`}
                   onClick={() => dispatch({ type: 'toggleChip', id: chip.id })}>
-                  {chip.label} <span className="kube-chip-count">{count}</span>
+                  {chipLabel(chip.id, kind)} <span className="kube-chip-count">{count}</span>
                 </button>
               </Fragment>
             );
@@ -141,23 +144,23 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
           <span className="kube-chipbar-end">
             {filtered && !state.loading && (
               <>
-                <span>{rows.length} von {state.rows.length}</span>
-                <button type="button" className="kube-chipbar-reset" title="Alle Filter zurücksetzen (F)"
-                  onClick={() => dispatch({ type: 'clearFilter' })}>Zurücksetzen</button>
+                <span>{t('kubernetes:table.shownOf', { shown: rows.length, total: state.rows.length })}</span>
+                <button type="button" className="kube-chipbar-reset" title={t('kubernetes:table.resetAllTitle')}
+                  onClick={() => dispatch({ type: 'clearFilter' })}>{t('kubernetes:table.reset')}</button>
               </>
             )}
-            <label className="kube-group-by">Gruppieren nach
-              <select aria-label="Gruppieren nach" value={grouping?.by ?? ''}
+            <label className="kube-group-by">{t('kubernetes:table.groupBy')}
+              <select aria-label={t('kubernetes:table.groupBy')} value={grouping?.by ?? ''}
                 onKeyDown={event => returnFocus(event, tableRef)}
                 onChange={event => {
                   dispatch({ type: 'setGroupBy', groupBy: GROUP_OPTIONS[kind].find(option => option.id === event.target.value)?.id ?? null });
                   // A select that keeps focus swallows j/k and type-ahead would change the choice again.
                   tableRef.current?.focus({ preventScroll: true });
                 }}>
-                <option value="">keine</option>
+                <option value="">{t('common:none')}</option>
                 {GROUP_OPTIONS[kind].map(option => {
                   const blocked = option.allNamespacesOnly === true && state.query.namespace !== null;
-                  return <option key={option.id} value={option.id} disabled={blocked}>{blocked ? 'Namespace – nur bei allen Namespaces' : option.label}</option>;
+                  return <option key={option.id} value={option.id} disabled={blocked}>{blocked ? t('kubernetes:table.namespaceOnlyAll') : option.label}</option>;
                 })}
               </select>
             </label>
@@ -182,7 +185,7 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
                       onContextMenu={event => open(event, inContainers ? { type: 'background' } : { type: 'header', column })}
                       aria-sort={sorted ? (state.sort?.descending ? 'descending' : 'ascending') : undefined}
                       onClick={inContainers ? undefined : () => dispatch({ type: 'sort', key: column.key })}>
-                      {column.label}{sorted ? (state.sort?.descending ? ' ▾' : ' ▴') : ''}
+                      {headerLabel(column)}{sorted ? (state.sort?.descending ? ' ▾' : ' ▴') : ''}
                     </th>
                   );
                 })}
@@ -191,7 +194,7 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
                 <tr className="kube-filter-row">
                   {columns.map(column => (
                     <th key={column.key} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}>
-                      <FilterField kind={kind} column={column} current={filter.columns?.[column.key] ?? ''} options={facets[column.key]}
+                      <FilterField kind={kind} column={column} label={headerLabel(column)} current={filter.columns?.[column.key] ?? ''} options={facets[column.key]}
                         dispatch={dispatch} tableRef={tableRef} />
                     </th>
                   ))}
@@ -245,12 +248,12 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
           </table>
           {!inContainers && rows.length === 0 && (
             <div className="kube-empty-block">
-              <p className={`kube-empty${state.trouble ? ' error-message' : ''}`} role={state.trouble ? 'alert' : undefined}>{emptyText(state)}</p>
+              <p className={`kube-empty${state.trouble ? ' error-message' : ''}`} role={state.trouble ? 'alert' : undefined}>{emptyText(state, t)}</p>
               {!state.trouble && !state.loading && state.rows.length > 0 && filtered && (
-                <button type="button" className="kube-empty-action" onClick={() => dispatch({ type: 'clearFilter' })}>Filter zurücksetzen</button>
+                <button type="button" className="kube-empty-action" onClick={() => dispatch({ type: 'clearFilter' })}>{t('kubernetes:table.resetFilter')}</button>
               )}
               {widenable(state) && (
-                <button type="button" className="kube-empty-action" onClick={() => dispatch({ type: 'setNamespace', namespace: null })}>In allen Namespaces suchen</button>
+                <button type="button" className="kube-empty-action" onClick={() => dispatch({ type: 'setNamespace', namespace: null })}>{t('kubernetes:table.searchAllNamespaces')}</button>
               )}
             </div>
           )}
@@ -264,6 +267,8 @@ export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: Resou
 interface FilterFieldProps {
   kind: KubeKind;
   column: ColumnInfo;
+  /** Header text of the column, for the field's accessible name. */
+  label: string;
   /** Raw stored value of this column's filter. */
   current: string;
   /** Facet options of a select column. */
@@ -281,7 +286,8 @@ function returnFocus(event: KeyboardEvent<HTMLElement>, tableRef: RefObject<HTML
   tableRef.current?.focus({ preventScroll: true });
 }
 
-function FilterField({ kind, column, current, options = [], dispatch, tableRef }: FilterFieldProps) {
+function FilterField({ kind, column, label, current, options = [], dispatch, tableRef }: FilterFieldProps) {
+  const { t } = useT();
   const filterKind = columnFilterKind(kind, column);
   const key = column.key;
   const isSelect = filterKind === 'select';
@@ -290,24 +296,24 @@ function FilterField({ kind, column, current, options = [], dispatch, tableRef }
   const set = (value: string) => dispatch({ type: 'setColumnFilter', key, value });
   if (isSelect) {
     return (
-      <select data-column-filter={key} aria-label={`Filter ${column.label}`} value={current}
+      <select data-column-filter={key} aria-label={t('kubernetes:table.columnFilter', { column: label })} value={current}
         onKeyDown={event => returnFocus(event, tableRef)}
         onChange={event => { set(event.target.value); tableRef.current?.focus({ preventScroll: true }); }}>
-        <option value="">alle</option>
+        <option value="">{t('kubernetes:table.all')}</option>
         {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     );
   }
   const valid = isValidColumnFilter(kind, column, current);
-  const hint = filterKind === 'number' ? NUMBER_TITLE : filterKind === 'age' ? AGE_TITLE : undefined;
-  const title = hint === undefined ? undefined : valid ? hint : `Ungültig, filtert nicht. ${hint}`;
+  const hint = filterKind === 'number' ? t('kubernetes:table.numberHint') : filterKind === 'age' ? t('kubernetes:table.ageHint') : undefined;
+  const title = hint === undefined ? undefined : valid ? hint : t('kubernetes:table.invalidFilter', { hint });
   return (
     <span className="kube-col-filter">
-      <input type="text" size={1} data-column-filter={key} aria-label={`Filter ${column.label}`} placeholder="Filter …" maxLength={100}
+      <input type="text" size={1} data-column-filter={key} aria-label={t('kubernetes:table.columnFilter', { column: label })} placeholder={t('kubernetes:table.filterPlaceholder')} maxLength={100}
         spellCheck={false} autoComplete="off" value={current} aria-invalid={!valid} className={valid ? undefined : 'kube-filter-invalid'} title={title}
         onChange={event => set(event.target.value)}
         onKeyDown={event => returnFocus(event, tableRef)} />
-      {current && <button type="button" className="kube-col-filter-clear" aria-label={`Filter ${column.label} leeren`} onClick={() => set('')}>×</button>}
+      {current && <button type="button" className="kube-col-filter-clear" aria-label={t('kubernetes:table.columnFilterClear', { column: label })} onClick={() => set('')}>×</button>}
     </span>
   );
 }
@@ -318,12 +324,12 @@ function widenable(state: KubeViewState): boolean {
   return state.query.namespace !== null && KIND_INFO[state.query.kind].namespaced && state.crumbs.length === 0;
 }
 
-function emptyText(state: KubeViewState): string {
+function emptyText(state: KubeViewState, t: ReturnType<typeof useT>['t']): string {
   if (state.trouble) return state.trouble;
-  if (state.loading) return 'Lade …';
-  if (state.rows.length === 0) return 'Keine Einträge.';
-  if (isFiltered(activeFilter(state))) return 'Keine Treffer für die Filter.';
-  return 'Keine Einträge.';
+  if (state.loading) return t('kubernetes:loading');
+  if (state.rows.length === 0) return t('kubernetes:table.noEntries');
+  if (isFiltered(activeFilter(state))) return t('kubernetes:table.noMatches');
+  return t('kubernetes:table.noEntries');
 }
 
 /** The pod's container images come from the `image:<container>` cells when the main side provides them. */
