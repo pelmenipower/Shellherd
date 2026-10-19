@@ -6,6 +6,7 @@ import { ContainerDiscovery } from './discovery';
 import type { RemoteHost, SudoPrompt } from './runner';
 import { inspectArgv, inventoryArgv, listArgv, remoteCommand, shellJoin } from './commands';
 import { connectionFingerprint, SudoRejections } from './sudo-rejections';
+import { SUDO_NOT_CACHED } from './parsers';
 import type { RunResult } from './parsers';
 
 const ok = (stdout: string): RunResult => ({ code: 0, stdout, stderr: '' });
@@ -473,6 +474,11 @@ describe('ContainerDiscovery inventory over SSH', () => {
     expect((await discovery.inventory('h1')).problems).toEqual(all);
     expect(host.sudo.filter(Boolean)).toHaveLength(1);
   });
+  it('explains a sudo that does not cache the login', async () => {
+    const host = batchHost('has:docker\n', { containers: { code: 1, stdout: '', stderr: 'sudo: a password is required' } }, { sudoReady: true });
+    const discovery = new ContainerDiscovery({ getConnection: passwordConnection, openRemote: async () => host, runLocal: vi.fn() });
+    expect((await discovery.inventory('h1')).problems.containers).toBe(SUDO_NOT_CACHED);
+  });
   it('is strict about a requested runtime: error before any list, no sudo', async () => {
     const host = batchHost('has:docker\n', {});
     const discovery = new ContainerDiscovery({ getConnection: passwordConnection, openRemote: async () => host, runLocal: vi.fn() });
@@ -501,7 +507,12 @@ describe('ContainerDiscovery inventory on this computer', () => {
     const runLocal = vi.fn(async (file: string) => file === 'docker' ? ok(CONTAINERS) : missing);
     const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal });
     await expect(discovery.inventory(LOCAL_CONTAINER_HOST, 'podman')).rejects.toThrow('Podman wurde auf diesem Host nicht gefunden.');
-    expect(runLocal.mock.calls).toEqual([['docker', inventoryArgv('docker', 'containers').slice(1), 15_000], ['podman', inventoryArgv('podman', 'containers').slice(1), 15_000]]);
+    // A fixed tab never runs the other runtime.
+    expect(runLocal.mock.calls).toEqual([['podman', inventoryArgv('podman', 'containers').slice(1), 15_000]]);
+    runLocal.mockClear();
+    // A free tab still probes both.
+    expect((await discovery.inventory(LOCAL_CONTAINER_HOST)).runtime).toBe('docker');
+    expect(runLocal.mock.calls.map(call => call[0]).slice(0, 2)).toEqual(['docker', 'podman']);
   });
   it('rejects when both runtimes are missing', async () => {
     const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal: vi.fn(async () => missing) });

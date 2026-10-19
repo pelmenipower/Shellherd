@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -84,6 +84,28 @@ describe('inventoryBatchCommand', () => {
       expect(split.networks).toEqual({ code: 0, stdout: 'out-network\n', stderr: '' });
     } finally { rmSync(directory, { recursive: true, force: true }); }
   }, 30_000);
+  it.runIf(hasSh())('round-trips prompt mode with one sudo login under the same parent shell', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'terminus-fake-sudo-batch-'));
+    try {
+      const log = join(directory, 'sudo.log');
+      // Fake sudo: logs $PPID per call; -v succeeds, -n runs the rest.
+      writeFileSync(join(directory, 'sudo'), `#!/bin/sh\nwhile [ $# -gt 0 ]; do case "$1" in -v) echo "v $PPID" >> '${log}'; exit 0;; -n) echo "n $PPID" >> '${log}'; shift;; -S) shift;; -p) shift 2;; *) break;; esac; done\nexec "$@"\n`, { mode: 0o755 });
+      writeFileSync(join(directory, 'docker'), '#!/bin/sh\necho "out-$1"\nexit 0\n', { mode: 0o755 });
+      const env = { ...process.env, PATH: `${directory}:${process.env.PATH}` };
+      const command = inventoryBatchCommand('docker', M, prompt);
+      const stdout = execFileSync('sh', ['-c', command], { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'ignore'] });
+      const ready = prompt.kind === 'prompt' ? prompt.ready : '';
+      expect(stdout.startsWith(ready)).toBe(true);
+      const split = splitInventoryBatch({ code: 0, stdout: stdout.slice(ready.length), stderr: '' }, M);
+      expect(split.containers).toMatchObject({ code: 0, stdout: 'out-ps\n' });
+      expect(split.networks).toMatchObject({ code: 0, stdout: 'out-network\n' });
+      const lines = readFileSync(log, 'utf8').trim().split('\n').map(line => line.split(' '));
+      expect(lines.filter(([kind]) => kind === 'v')).toHaveLength(1);
+      expect(lines.filter(([kind]) => kind === 'n')).toHaveLength(4);
+      // Same parent shell for -v and every -n, or sudo's cached login would not carry over.
+      expect(new Set(lines.map(([, ppid]) => ppid)).size).toBe(1);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  }, 30_000);
 });
 
 describe('splitInventoryBatch', () => {
@@ -129,6 +151,15 @@ describe('splitInventoryBatch', () => {
     const result = split({ code: null, stdout: `${'x'.repeat(BATCH_OUTPUT_LIMIT - 40)}\n${M}:containers:0\n${'y'.repeat(100)}` });
     expect(result.containers.code).toBe(0);
     for (const kind of ['images', 'volumes', 'networks'] as const) expect(result[kind]).toMatchObject({ code: null, stderr: BATCH_TOO_LARGE });
+  });
+  it('reports truncated stderr without markers as too large', () => {
+    const result = split({ stdout: stream({ containers: 'a' }), stderr: 'e'.repeat(BATCH_OUTPUT_LIMIT) });
+    for (const kind of INVENTORY_KINDS) expect(result[kind].stderr).toBe(BATCH_TOO_LARGE);
+    const partial = split({ stdout: stream({}), stderr: `x
+${M}:containers:0
+${'e'.repeat(BATCH_OUTPUT_LIMIT)}` });
+    expect(partial.containers.stderr).toBe('x');
+    expect(partial.images.stderr).toBe(BATCH_TOO_LARGE);
   });
   it('is not fooled by quoted, foreign, duplicate or out-of-order marker lines', () => {
     const foreign = '[terminus-list-ffffffffffffffff]';

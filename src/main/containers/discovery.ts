@@ -100,7 +100,7 @@ export class ContainerDiscovery {
       if (connection) sudoSetting(connection);
       const runtimes: ContainerRuntime[] = [];
       const build = async (lists: (rt: ContainerRuntime) => Promise<Record<InventoryKind, RunResult>>): Promise<ContainerInventory> => {
-        // A requested runtime is strict: nothing runs for another one (P6).
+        // A requested runtime is strict: nothing runs for another one (P6), locally too (its list is the probe).
         if (runtime && !runtimes.includes(runtime)) throw new HostAccessError(`${RUNTIME_LABEL[runtime]} wurde auf diesem Host nicht gefunden.`);
         if (runtimes.length === 0) throw new HostAccessError('Auf diesem Host wurde weder Docker noch Podman gefunden.');
         const rt = runtime ?? runtimes[0];
@@ -121,8 +121,9 @@ export class ContainerDiscovery {
           return this.dependencies.runLocal(argv[0], argv.slice(1), LIST_TIMEOUT);
         };
         // Local has no probe: the container list doubles as one, a missing program means no runtime.
+        // A fixed tab (runtime set) only runs its own runtime's list.
         const probed = new Map<ContainerRuntime, RunResult>();
-        for (const rt of ['docker', 'podman'] as const) {
+        for (const rt of runtime ? [runtime] : ['docker', 'podman'] as const) {
           const result = await local(rt, 'containers');
           if (result.notFound) continue;
           runtimes.push(rt);

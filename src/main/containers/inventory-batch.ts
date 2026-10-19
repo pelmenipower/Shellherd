@@ -58,11 +58,13 @@ export function splitInventoryBatch(result: RunResult, marker: string): Record<I
   if (result.sudoNoPrompt) flags.sudoNoPrompt = true;
   if (result.sudoReady) flags.sudoReady = true;
   const results = {} as Record<InventoryKind, RunResult>;
+  const errCut = result.stderr.length >= BATCH_OUTPUT_LIMIT;
   for (const kind of INVENTORY_KINDS) {
     const hit = out.found.get(kind);
+    const errHit = err.found.get(kind);
     results[kind] = hit
-      ? { code: hit.code, stdout: hit.segment, stderr: err.found.get(kind)?.segment ?? '', ...(result.sudoReady ? { sudoReady: true } : {}) }
-      : { code: null, stdout: '', stderr: result.stdout.length >= BATCH_OUTPUT_LIMIT ? BATCH_TOO_LARGE : err.rest, ...flags };
+      ? { code: hit.code, stdout: hit.segment, stderr: errHit ? errHit.segment : errCut ? BATCH_TOO_LARGE : '', ...(result.sudoReady ? { sudoReady: true } : {}) }
+      : { code: null, stdout: '', stderr: result.stdout.length >= BATCH_OUTPUT_LIMIT || (errCut && !errHit) ? BATCH_TOO_LARGE : err.rest, ...flags };
   }
   return results;
 }
