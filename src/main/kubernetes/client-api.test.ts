@@ -212,8 +212,8 @@ describe('openLogs', () => {
     try {
       const io = fakeIo();
       const stream = openLogs(testConfig(`http://127.0.0.1:${port}`), logsTarget, io);
-      await new Promise(resolve => setTimeout(resolve, 100));
-      expect(io.data).toHaveBeenCalled();
+      // Wait for the first chunk instead of a fixed delay: under a busy suite it can take longer than 100 ms.
+      await vi.waitFor(() => expect(io.data).toHaveBeenCalled(), { timeout: 5_000 });
       stream.close();
       stream.close();
       await new Promise(resolve => setTimeout(resolve, 100));
