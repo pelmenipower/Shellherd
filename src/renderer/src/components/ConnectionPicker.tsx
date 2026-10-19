@@ -39,11 +39,14 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
     const above = rect.top - 14;
     const downward = below >= Math.min(320, above);
     const height = Math.min(360, downward ? below : above);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
     Object.assign(popover.current.style, {
       width: `${width}px`, maxHeight: `${height}px`,
-      left: `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`,
+      left: `${left}px`,
       top: downward ? `${rect.bottom + 6}px` : 'auto',
       bottom: downward ? 'auto' : `${window.innerHeight - rect.top + 6}px`,
+      // Scale in from the trigger: its centre on the edge that faces it.
+      transformOrigin: `${Math.round(rect.left + rect.width / 2 - left)}px ${downward ? 'top' : 'bottom'}`,
     });
     setQuery('');
     popover.current.showPopover();
