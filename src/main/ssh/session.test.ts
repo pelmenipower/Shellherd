@@ -9,7 +9,10 @@ import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode } from
 import type { SshEvent, TerminalSize } from '../../shared/ssh';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
 import type { KubeStream, TerminalIo } from '../kubernetes/api';
-import { agentSocket, SshSessionManager, targetExitMessage } from './session';
+import { agentSocket, classifyError, publicError, SshSessionManager, targetExitMessage } from './session';
+import { AgentError } from './client-config';
+import { sessionLimitText } from '../../shared/vault/connections';
+import { ContainerInputError } from '../containers/commands';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
@@ -662,5 +665,126 @@ describe('SSH agent socket selection', () => {
     expect(agentSocket('win32', '')).toBe('\\\\.\\pipe\\openssh-ssh-agent');
     expect(agentSocket('linux', '/synthetic/agent.sock')).toBe('/synthetic/agent.sock');
     expect(() => agentSocket('linux', '')).toThrow('SSH-Agent');
+  });
+});
+
+function statusEvents(): Extract<SshEvent, { type: 'status' }>[] { return events.filter((event): event is Extract<SshEvent, { type: 'status' }> => event.type === 'status'); }
+function steps(): string[] { return events.flatMap(event => event.type === 'step' ? [event.step] : []); }
+
+describe('SSH connection steps and failure codes', () => {
+  it('reports the four steps in order for an ssh2 session', async () => {
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('connected'));
+    expect(steps()).toEqual(['reach', 'hostkey', 'auth', 'shell']);
+    const firstStep = events.findIndex(event => event.type === 'step');
+    expect(events.findIndex(event => event.type === 'status' && event.status === 'connecting')).toBeLessThan(firstStep);
+  });
+
+  it('stops after hostkey when the key is rejected and reports hostkey-rejected', async () => {
+    manager = new SshSessionManager({ getConnection: () => connection, spawnShell: noShell,
+      verifyHost: async () => false, emit: (_owner, event) => events.push(event) });
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('error'));
+    expect(steps()).toEqual(['reach', 'hostkey']);
+    expect(statusEvents().at(-1)).toMatchObject({ status: 'error', message: 'Der Server-Schlüssel wurde nicht bestätigt.', code: 'hostkey-rejected' });
+  });
+
+  it('reports hostkey-changed with both fingerprints only in detail', async () => {
+    manager = new SshSessionManager({ getConnection: () => connection, spawnShell: noShell,
+      verifyHost: async () => { throw new HostKeyError('Der Server-Schlüssel hat sich geändert.', 'changed', { expected: 'SHA256:old', received: 'SHA256:new' }); },
+      emit: (_owner, event) => events.push(event) });
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('error'));
+    const failure = statusEvents().at(-1)!;
+    expect(failure).toMatchObject({ code: 'hostkey-changed', message: 'Der Server-Schlüssel hat sich geändert.', detail: 'erwartet SHA256:old\nerhalten SHA256:new' });
+    expect(failure.message).not.toContain('SHA256');
+  });
+
+  it('reports auth for a refused password', async () => {
+    connection.authentication = { method: 'password', password: 'wrong-synthetic-secret' };
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('error'));
+    expect(statusEvents().at(-1)).toMatchObject({ code: 'auth' });
+    expect(steps()).toEqual(['reach', 'hostkey', 'auth']);
+    expect(JSON.stringify(events)).not.toContain('wrong-synthetic-secret');
+  });
+
+  it('reports closed-by-server when the server ends an untouched session', async () => {
+    await manager.connect(1, prepare());
+    await waitFor(() => hasStatus('connected'));
+    peers[0].end();
+    await waitFor(() => hasStatus('closed'));
+    expect(statusEvents().at(-1)).toMatchObject({ status: 'closed', code: 'closed-by-server' });
+  });
+
+  it('reports a plain close when the user closes or typed before the end', async () => {
+    const id = prepare();
+    await manager.connect(1, id);
+    await waitFor(() => hasStatus('connected'));
+    manager.close(1, id);
+    expect(statusEvents().at(-1)).not.toHaveProperty('code');
+    events = [];
+    const second = prepare();
+    await manager.connect(1, second);
+    await waitFor(() => hasStatus('connected'));
+    await manager.input(1, second, 'exit\r');
+    shell!.end();
+    await waitFor(() => hasStatus('closed'));
+    expect(statusEvents().at(-1)).not.toHaveProperty('code');
+  });
+
+  it('uses the shared limit text and the new wording for missing fields and input floods', async () => {
+    Array.from({ length: MAX_SSH_SESSIONS }, () => prepare());
+    expect(() => prepare()).toThrow(sessionLimitText());
+    manager.closeAll();
+    connection.username = '';
+    expect(() => prepare()).toThrow('Speichere Host und Benutzername, bevor du die Verbindung startest.');
+    connection.username = 'synthetic-user';
+    const id = prepare();
+    await manager.connect(1, id);
+    await waitFor(() => hasStatus('connected'));
+    await expect(manager.input(1, id, 'x'.repeat(20_000))).rejects.toThrow('Zu viele Terminaleingaben. Warte kurz.');
+  });
+
+  it.runIf(process.platform === 'win32')('sends only the shell step for a local container', async () => {
+    const localEvents: SshEvent[] = [];
+    const pty = { onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write() {}, resize() {}, kill() {}, pause() {}, resume() {} };
+    const local = new SshSessionManager({ getConnection: () => { throw new Error('no vault lookups'); },
+      verifyHost: async () => true, locate: async command => `C:\\bin\\${command}.exe`, emit: (_owner, event) => localEvents.push(event),
+      spawnShell: () => pty as never });
+    const id = local.prepare(1, { connectionId: LOCAL_CONTAINER_HOST, cols: 80, rows: 24, target: { item: { kind: 'container', runtime: 'docker', ref: 'web-1', name: 'web-1' }, mode: 'shell' } }).sessionId;
+    await local.connect(1, id);
+    expect(localEvents.filter(event => event.type === 'step')).toEqual([{ type: 'step', sessionId: id, step: 'shell' }]);
+  });
+});
+
+describe('classifyError', () => {
+  const raw = (props: object, message = 'raw text') => Object.assign(new Error(message), props);
+  it('maps host key errors with fingerprints in detail', () => {
+    expect(classifyError(new HostKeyError('geändert', 'changed', { expected: 'a', received: 'b' }))).toEqual({ code: 'hostkey-changed', message: 'geändert', detail: 'erwartet a\nerhalten b' });
+    expect(classifyError(new HostKeyError('nicht lesbar'))).toEqual({ code: 'hostkey-store', message: 'nicht lesbar' });
+  });
+  it('maps agent and input errors without detail', () => {
+    expect(classifyError(new AgentError('Kein SSH-Agent'))).toEqual({ code: 'agent', message: 'Kein SSH-Agent' });
+    expect(classifyError(new ContainerInputError('Ungültig'))).toEqual({ code: 'unknown', message: 'Ungültig' });
+  });
+  it('maps errno and ssh2 levels with the unchanged texts and the raw text as detail', () => {
+    expect(classifyError(raw({ code: 'ENOENT' }))).toEqual({ code: 'key-file', message: 'Die private Schlüsseldatei konnte nicht gelesen werden. Prüfe Pfad und Zugriffsrechte.', detail: 'raw text' });
+    expect(classifyError(raw({ code: 'EACCES' })).code).toBe('key-file');
+    expect(classifyError(raw({ code: 'ECONNREFUSED' }))).toEqual({ code: 'refused', message: 'Der Server lehnt die Verbindung ab. Prüfe Host und Port.', detail: 'raw text' });
+    expect(classifyError(raw({ code: 'ENOTFOUND' }))).toMatchObject({ code: 'not-found', message: 'Der Host konnte nicht gefunden werden.' });
+    expect(classifyError(raw({ code: 'EAI_AGAIN' })).code).toBe('not-found');
+    expect(classifyError(raw({ level: 'client-authentication' }))).toMatchObject({ code: 'auth', message: 'SSH-Anmeldung fehlgeschlagen. Prüfe Benutzer und Authentifizierung.' });
+    expect(classifyError(raw({ level: 'client-timeout' }))).toMatchObject({ code: 'timeout', message: 'Zeitüberschreitung beim Verbindungsaufbau.' });
+    expect(classifyError(raw({ code: 'ETIMEDOUT' })).code).toBe('timeout');
+    expect(classifyError(new Error('boom'))).toEqual({ code: 'unknown', message: 'Die SSH-Verbindung ist fehlgeschlagen. Prüfe Host, Benutzer und Authentifizierung.', detail: 'boom' });
+  });
+  it('cuts the detail at 500 characters and omits empty or non-error detail', () => {
+    expect(classifyError(new Error('x'.repeat(900))).detail).toHaveLength(500);
+    expect(classifyError(new Error('')).detail).toBeUndefined();
+    expect(classifyError('text')).not.toHaveProperty('detail');
+  });
+  it('keeps publicError equal to the classified message', () => {
+    expect(publicError(raw({ code: 'ECONNREFUSED' }))).toBe('Der Server lehnt die Verbindung ab. Prüfe Host und Port.');
   });
 });

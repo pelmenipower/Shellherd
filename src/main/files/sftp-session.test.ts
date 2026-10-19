@@ -5,6 +5,8 @@ import type { ConnectionNode } from '../../shared/vault/types';
 import type { SftpEvent } from '../../shared/sftp';
 import { localFileSystem } from './file-system';
 import { SftpSessionManager } from './sftp-session';
+import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
+import { sessionLimitText } from '../../shared/vault/connections';
 import { permissionText, remoteEntry } from './sftp-file-system';
 
 const nodes: Record<string, ConnectionNode> = {
@@ -66,5 +68,48 @@ describe('SFTP sessions', () => {
     const attrs = { mode: 0o120777, size: 7, mtime: 10, atime: 0, uid: 0, gid: 0 };
     expect(remoteEntry('link', attrs, { ...attrs, mode: 0o040755 })).toMatchObject({ type: 'link', linkTarget: 'directory', size: 0, modified: 10_000 });
     expect(remoteEntry('broken', attrs, null)).toMatchObject({ type: 'link', size: 0 });
+  });
+});
+
+describe('SFTP connection failures', () => {
+  it('uses the shared limit text and the new wording for missing fields', () => {
+    const { manager } = setup();
+    for (let index = 0; index < MAX_SFTP_SESSIONS; index++) manager.open(1, 'files');
+    expect(() => manager.open(1, 'files')).toThrow(sessionLimitText(MAX_SFTP_SESSIONS));
+    manager.closeAll();
+    nodes.blank = { ...nodes.files, id: 'blank', username: '' } as ConnectionNode;
+    expect(() => setup().manager.open(1, 'blank')).toThrow('Speichere Host und Benutzername, bevor du die Verbindung startest.');
+    delete nodes.blank;
+  });
+
+  it('reports a connection error with code and raw text', async () => {
+    const { manager, events, clients } = setup();
+    const { sessionId } = manager.open(1, 'files');
+    await vi.waitFor(() => expect(clients[0].connect).toHaveBeenCalled());
+    clients[0].emit('error', Object.assign(new Error('connect ECONNREFUSED 1.2.3.4:22'), { code: 'ECONNREFUSED' }));
+    expect(events.at(-1)).toEqual({ ownerId: 1, event: { type: 'status', sessionId, status: 'error', message: 'Der Server lehnt die Verbindung ab. Prüfe Host und Port.',
+      code: 'refused', detail: 'connect ECONNREFUSED 1.2.3.4:22' } });
+  });
+
+  it('reports closed-by-server when the client closes on its own', async () => {
+    const { manager, events, clients } = setup();
+    const { sessionId } = manager.open(1, 'files');
+    await vi.waitFor(() => expect(clients[0].connect).toHaveBeenCalled());
+    clients[0].emit('close');
+    expect(events.at(-1)).toEqual({ ownerId: 1, event: { type: 'status', sessionId, status: 'closed', code: 'closed-by-server' } });
+    manager.closeAll();
+  });
+
+  it('reports hostkey-rejected when the key is not confirmed', async () => {
+    const events: SftpEvent[] = [];
+    let verifier: ((key: Buffer, callback: (valid: boolean) => void) => void) | undefined;
+    const client = Object.assign(new EventEmitter(), { destroy: vi.fn(),
+      connect: vi.fn((config: { hostVerifier: typeof verifier }) => { verifier = config.hostVerifier; }) });
+    const manager = new SftpSessionManager({ getConnection: id => nodes[id], verifyHost: async () => false,
+      emit: (_owner, event) => events.push(event), local: localFileSystem, openFile: async () => {}, createClient: () => client as unknown as Client });
+    manager.open(1, 'files');
+    await vi.waitFor(() => expect(verifier).toBeDefined());
+    verifier!(Buffer.from('key'), () => {});
+    await vi.waitFor(() => expect(events.at(-1)).toMatchObject({ status: 'error', message: 'Der Server-Schlüssel wurde nicht bestätigt.', code: 'hostkey-rejected' }));
   });
 });

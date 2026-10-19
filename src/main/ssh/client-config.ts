@@ -2,10 +2,13 @@ import { open } from 'node:fs/promises';
 import type { ConnectConfig } from 'ssh2';
 import type { SftpConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 
+/** No SSH agent is available; classified as code 'agent'. */
+export class AgentError extends Error {}
+
 export function agentSocket(platform = process.platform, socket = process.env.SSH_AUTH_SOCK): string {
   if (socket) return socket;
   if (platform === 'win32') return '\\\\.\\pipe\\openssh-ssh-agent';
-  throw new Error('Kein SSH-Agent gefunden. Starte einen Agent oder wähle eine andere Authentifizierung.');
+  throw new AgentError('Kein SSH-Agent gefunden. Starte einen Agent oder wähle eine andere Authentifizierung.');
 }
 
 async function readPrivateKey(path: string): Promise<Buffer> {
