@@ -1,1 +1,36 @@
-{}
+{
+  "window": {
+    "main": "Shellherd",
+    "secondary": "Shellherd – Sessions"
+  },
+  "dialogs": {
+    "cancel": "Cancel",
+    "closeApp": {
+      "title": "Quit Shellherd",
+      "message": "Disconnect all active connections in all windows and quit Shellherd?",
+      "confirm": "Disconnect and quit"
+    },
+    "closeWindow": {
+      "title": "Close window",
+      "message": "Disconnect all connections in this window and close it?",
+      "detail": "Drag tabs you want to keep into another window first.",
+      "confirm": "Disconnect and close"
+    },
+    "hostKey": {
+      "title": "Unknown SSH server",
+      "message": "Check the server key for {{host}}:{{port}}",
+      "detail": "SHA-256 fingerprint:\n{{fingerprint}}\n\nCompare this fingerprint with a trusted source. If you confirm, this server key is saved for future connections.",
+      "confirm": "Trust and save key"
+    },
+    "privateKey": {
+      "title": "Select private SSH key"
+    },
+    "vaultSave": {
+      "title": "Save Shellherd vault"
+    },
+    "vaultOpen": {
+      "title": "Select Shellherd vault"
+    },
+    "vaultFilter": "Shellherd Vault"
+  }
+}

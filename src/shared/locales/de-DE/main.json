@@ -1,1 +1,36 @@
-{}
+{
+  "window": {
+    "main": "Shellherd",
+    "secondary": "Shellherd – Sitzungen"
+  },
+  "dialogs": {
+    "cancel": "Abbrechen",
+    "closeApp": {
+      "title": "Shellherd schließen",
+      "message": "Alle aktiven Verbindungen in allen Fenstern trennen und Shellherd schließen?",
+      "confirm": "Trennen und schließen"
+    },
+    "closeWindow": {
+      "title": "Fenster schließen",
+      "message": "Alle Verbindungen in diesem Fenster trennen und das Fenster schließen?",
+      "detail": "Tabs, die du behalten willst, ziehst du vorher in ein anderes Fenster.",
+      "confirm": "Trennen und schließen"
+    },
+    "hostKey": {
+      "title": "Unbekannter SSH-Server",
+      "message": "Server-Schlüssel für {{host}}:{{port}} prüfen",
+      "detail": "SHA-256-Fingerprint:\n{{fingerprint}}\n\nVergleiche diesen Fingerprint mit einer vertrauenswürdigen Quelle. Bei Bestätigung wird dieser Server-Schlüssel für künftige Verbindungen gespeichert.",
+      "confirm": "Schlüssel vertrauen und speichern"
+    },
+    "privateKey": {
+      "title": "Privaten SSH-Schlüssel auswählen"
+    },
+    "vaultSave": {
+      "title": "Shellherd-Vault speichern"
+    },
+    "vaultOpen": {
+      "title": "Shellherd-Vault auswählen"
+    },
+    "vaultFilter": "Shellherd Vault"
+  }
+}
