@@ -1,0 +1,73 @@
+---
+name: run-app
+description: Shellherd (Electron) starten, per Playwright durchklicken und Screenshots machen – mit isoliertem Profil, synthetischem Demo-Vault und lokalem SSH-Testserver. Laden, wenn die App laufen, eine Änderung in der echten App geprüft oder Screenshots (z. B. für README oder Review) gemacht werden sollen.
+---
+
+# Shellherd starten und bedienen
+
+Die App läuft aus `out/` unter Playwright. Ein kleiner HTTP-Treiber auf `127.0.0.1:9333` nimmt Befehle per `curl` oder `fetch` entgegen. Nichts davon berührt echte Daten:
+
+- **Profil isoliert:** `appData`/`userData` liegen unter `%TEMP%\shellherd-run\profile` (Override: `SHELLHERD_RUN_DIR`). `%APPDATA%\Shellherd` (Hostschlüssel, zuletzt geöffneter Vault) bleibt unberührt.
+- **Nur synthetische Zugangsdaten:** Demo-Vault `demo.term` mit Passwort `synthetic-vault-demo`, Testserver `demo` / `synthetic-demo`. Nie einen echten Vault öffnen.
+- **Native Dialoge ersetzt:** Speichern/Öffnen liefern `profile\demo.term`, Nachfragen (auch „Unbekannter SSH-Server“) antworten mit ihrem letzten Knopf. Sonst gehen Windows-Dialoge auf dem echten Desktop auf und blockieren den Treiber. Abschalten mit `SHELLHERD_RUN_REAL_DIALOGS=1`.
+
+Getestet unter Windows 11. Unter Linux braucht Electron zusätzlich `xvfb-run` und `--no-sandbox` (nicht erprobt).
+
+## Ablauf
+
+```bash
+npx electron-vite build          # out/ muss aktuell sein; nach jedem Build den Treiber neu starten
+npm run drive:sshd               # Hintergrund: SSH-Testserver 127.0.0.1:2222
+npm run drive                    # Hintergrund: App + Treiber, meldet "driver ready on 9333"
+node .claude/skills/run-app/demo-setup.mjs   # Demo-Vault anlegen oder entsperren
+curl -s "http://127.0.0.1:9333/ss?name=start&crop=status"
+curl -s http://127.0.0.1:9333/quit          # am Ende; Testserver-Prozess ebenfalls beenden
+```
+
+Bereitschaft abwarten: `for i in $(seq 1 60); do curl -s -m 2 http://127.0.0.1:9333/windows && break; sleep 1; done`.
+
+Screenshots landen in `%TEMP%\shellherd-run\shots` (Override: `SCREENSHOT_DIR`). **Screenshot immer ansehen** (Read auf die PNG) – ein leeres Fenster ist ein Startfehler.
+
+## Demo-Vault (`demo-setup.mjs`)
+
+| Eintrag | Ziel | Zeigt |
+|---|---|---|
+| `web-01` | `127.0.0.1:2222`, richtiges Passwort | erfolgreiche Sitzung, Befehle `uptime`, `df -h /`, `systemctl status nginx --no-pager \| head -3`, `docker ps --format "table {{.Names}}\t{{.Status}}"` |
+| `db-main` | `127.0.0.1:2222`, falsches Passwort | Fehlerkarte „Anmeldung abgelehnt“ |
+| `legacy-app` | `127.0.0.1:1` | Fehlerkarte „Verbindung abgelehnt“ |
+| Ordner `Staging` | leer | Hinweis „Nichts zu verbinden“ über Rechtsklick → „Alle verbinden“ |
+
+Im Testserver beendet `exit` die Sitzung, `sudo reboot` simuliert einen Abbruch durch den Server (Leiste „Verbindung getrennt“).
+
+## Befehle des Treibers
+
+| Route | Body / Query | Wirkung |
+|---|---|---|
+| `POST /click` | Playwright-Selektor | Linksklick |
+| `POST /rclick`, `POST /dblclick` | Selektor | Rechts-/Doppelklick |
+| `POST /fill` | `Selektor\nWert` | Eingabefeld setzen (React-tauglich) |
+| `POST /type` | Text | Tippen in das fokussierte Element (xterm) |
+| `GET /key?k=Enter` | Playwright-Tastenname | Taste drücken |
+| `POST /eval` | JS (Funktionsrumpf, `return` erlaubt) | im Renderer ausführen, Ergebnis als JSON |
+| `POST /main` | JS mit `electron` | im Main-Prozess ausführen |
+| `POST /text` | Selektor (leer = `body`) | sichtbarer Text |
+| `GET /ss?name=x&crop=status` | – | Screenshot; `crop=status` schneidet die Statusleiste (Vault-Pfad) ab |
+| `GET /windows`, `GET /use?i=1` | – | Fenster auflisten / wechseln (Nebenfenster) |
+| `GET /quit` | – | App schließen, Treiber beenden |
+
+Häufige Wege:
+
+- **Verbinden:** `POST /click` mit `text=web-01 >> nth=0`, dann `GET /key?k=Enter`.
+- **Im Terminal tippen:** `POST /click` mit `.xterm-helper-textarea >> nth=0` (Bereich wählen), dann `/type` und `/key?k=Enter`.
+- **Menüeinträge** tragen Hinweise in Unter-Spans; per `/eval` über den Textanfang klicken: `[...document.querySelectorAll('[role=menuitem]')].find(i => i.textContent.trim().startsWith('Alle verbinden')).click()`.
+- **Bereich teilen:** Knopf `aria-label^="Layout für Bereich"`, dann Knopf mit Text „Nebeneinander teilen“.
+
+## Stolpersteine
+
+- **Umlaute in `curl --data-binary` unter Git Bash** kommen kaputt an (`Vault öffnen` trifft nichts). In Selektoren `text-matches("Vault .ffnen")` nutzen oder Schritte als Node-Skript mit `fetch` schreiben wie `demo-setup.mjs`.
+- **`/type` in normale Eingabefelder** verliert Zeichen, wenn React neu rendert. Für Felder immer `/fill`, `/type` nur fürs Terminal.
+- **BusyButtons** enthalten unsichtbare Platzhalter-Labels (`aria-hidden`); `:text-is("Speichern")` trifft sie nicht. Über die Klasse wählen, z. B. `.workspace-save`.
+- **Nach einem Build** lädt `location.reload()` nicht zuverlässig das neue Bundle. Treiber mit `/quit` beenden und neu starten.
+- **Einzelinstanz-Sperre:** Ein zweiter Treiber auf demselben Profil beendet sich sofort. Eine normal laufende Shellherd-Instanz (anderes Profil) stört nicht.
+- **README-Screenshots** immer mit `crop=status` – die Statusleiste zeigt den Vault-Pfad mit dem Windows-Benutzernamen.
+- Cluster, Container, SFTP und RDP brauchen echte Gegenstellen und sind mit dem Testserver nicht abgedeckt.

@@ -85,6 +85,22 @@ npm run dev
 | `npm run typecheck` | TypeScript checks for main and renderer |
 | `npm test` | Run the test suite (Vitest) |
 | `npm run dist` | Build installer and portable exe into `dist/` |
+| `npm run drive` | Start the app under Playwright for automated clicking and screenshots |
+| `npm run drive:sshd` | Local SSH test server with synthetic credentials for `drive` |
+
+### Driving the app (screenshots, UI checks)
+
+[`.claude/skills/run-app/`](.claude/skills/run-app/SKILL.md) runs the built app under Playwright with an isolated profile, a synthetic demo vault and a local SSH test server. Native dialogs are stubbed, and real vaults and `%APPDATA%\Shellherd` are never touched. A small HTTP driver accepts clicks, typing and screenshots:
+
+```powershell
+npx electron-vite build
+npm run drive:sshd                              # second terminal
+npm run drive                                   # third terminal
+node .claude/skills/run-app/demo-setup.mjs      # demo vault with web-01, db-main, legacy-app
+curl "http://127.0.0.1:9333/ss?name=start&crop=status"
+```
+
+The skill file lists every driver command and the known pitfalls. Claude Code loads it as the `run-app` skill; the README screenshots were taken this way.
 
 Built with Electron, TypeScript, React, xterm.js, ssh2 and the Kubernetes JavaScript client. UI rules are documented in [`docs/design-system.md`](docs/design-system.md).
 

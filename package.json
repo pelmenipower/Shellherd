@@ -27,7 +27,9 @@
     "dist": "npm run build && electron-builder --win --publish never",
     "release-notes": "node scripts/release-notes.mjs",
     "rdp:try": "node scripts/rdp-try.mjs",
-    "icons": "electron scripts/icons/make-icons.mjs"
+    "icons": "electron scripts/icons/make-icons.mjs",
+    "drive": "node .claude/skills/run-app/driver.mjs",
+    "drive:sshd": "node .claude/skills/run-app/sshd.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
@@ -53,6 +55,7 @@
     "electron": "^44.4.2",
     "electron-builder": "26.17.0",
     "electron-vite": "^4.0.0",
+    "playwright-core": "1.55.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
     "vitest": "5.0.1"

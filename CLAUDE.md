@@ -18,4 +18,5 @@ Ausnahme sind kleine, klar umrissene Fehlerbehebungen (eine Ursache, wenige Zeil
 ## Prüfen
 
 - `npm run typecheck` und `npx vitest run` müssen vor jedem Commit grün sein.
+- Sichtbare Änderungen zusätzlich in der echten App prüfen: Skill `run-app` (`.claude/skills/run-app/SKILL.md`). Er startet die App isoliert mit synthetischem Demo-Vault und lokalem SSH-Testserver und macht Screenshots. Echte Vaults und `%APPDATA%\Shellherd` werden dabei nie geöffnet.
 - Specs liegen in `docs/superpowers/specs/`, Pläne in `docs/superpowers/plans/`. Validierungs-Anhänge (`…-validation.md`) sind bindend.
