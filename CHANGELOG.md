@@ -4,6 +4,14 @@ Alle nennenswerten Änderungen an Terminus. Die Versionsnummer folgt [Semantic V
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.8.0] – 2026-10-18
+
+- Kubernetes-Tabelle mit Spaltenfiltern: Text (enthält), Auswahl für Namespace, Status, Typ, Node und Rollen, Zahlen (`>3`, `<=5`, `3`) und Alter (`<10m`, `>1h`, `<2d`). `/` springt in den Namensfilter (Events: Meldung), `F` setzt alle Filter des Reiters zurück.
+- „Gruppieren nach“ (z. B. Namespace, Node, Status, Owner) mit auf- und zuklappbaren Gruppen; Filter und Gruppierung bleiben je Reiter und im Workspace erhalten.
+- Die Befehlszeile oben rechts (`/`-Suche und `:`-Befehle wie `:ns`, `:filter`, `:status`) entfällt. Namespaces ohne Pods erreicht man über „alle“ und den Namespace-Filter. Textfilter aus dem Kontextmenü (z. B. `app=api`) erscheinen als Chip „Filter: …“.
+- Zuletzt geöffnete Vault-Datei wird beim Start vorausgewählt.
+- Cluster-Tab startet ohne konfigurierten Namespace mit allen Namespaces.
+
 ## [0.7.0] – 2026-10-18
 
 - Kubernetes-Suche: mehrere Begriffe (UND), `"Phrase"`, `!Ausschluss`, `key=value` und `key!=value` für Labels, `feld:wert`-Qualifier sowie Zahlenvergleiche (`restarts>3`, `count>=5`); die Hilfe (`?`) listet Syntax und Qualifier je Reiter.

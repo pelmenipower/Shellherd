@@ -534,8 +534,10 @@ function backgroundMenu(env: Env): MenuEntry[] {
   const back = status?.namespace ?? 'default';
   return assemble([], [
     [
-      item(env, 'search-clear', 'Suche leeren', view({ type: 'search', text: '' }), { reason: filter.text !== '' ? undefined : 'Keine Suche gesetzt.' }),
+      item(env, 'filter-reset', 'Alle Filter zurücksetzen', view({ type: 'clearFilter' }), { extra: 'F', reason: filter.text !== '' || filter.chips.length > 0 || Object.keys(filter.columns ?? {}).length > 0 ? undefined : 'Kein Filter gesetzt.' }),
+      item(env, 'search-clear', 'Textfilter entfernen', view({ type: 'search', text: '' }), { reason: filter.text !== '' ? undefined : 'Kein Textfilter gesetzt.' }),
       item(env, 'chips-clear', 'Status-Filter leeren', view({ type: 'setChips', ids: [] }), { reason: filter.chips.length > 0 ? undefined : 'Kein Status-Filter gesetzt.' }),
+      item(env, 'group-clear', 'Gruppierung aufheben', view({ type: 'setGroupBy', groupBy: null }), { reason: state.groups[state.query.kind] ? undefined : 'Keine Gruppierung gesetzt.' }),
       all ? item(env, 'namespace', `Zurück zu ${back}`, view({ type: 'setNamespace', namespace: back }))
         : item(env, 'namespace', 'Alle Namespaces', view({ type: 'setNamespace', namespace: null })),
       sortClearItem(env),
