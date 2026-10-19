@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
-import { emptyTerminalTabs, isRunning, tabLabel, terminalTabsReducer as reduce } from './terminal-tabs';
-import type { TerminalTabsState } from './terminal-tabs';
-const connection = { id: 'ssh', name: 'Server', host: 'example.test', port: 22, username: 'synthetic' };
+import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
+import { containerConnection, containerTabName, emptyTerminalTabs, isRunning, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
+import type { TerminalTab, TerminalTabsState } from './terminal-tabs';
+const connection = { id: 'ssh', name: 'Server', protocol: 'ssh' as const, address: 'synthetic@example.test:22' };
 function opened(): TerminalTabsState {
   return reduce(reduce(emptyTerminalTabs, { type: 'open', id: 'first', connection }), { type: 'open', id: 'second', connection });
 }
@@ -41,7 +42,7 @@ describe('terminal tab lifecycle', () => {
     expect(retained.activeTabId).toBe('other');
   });
   it('caps tab count, rejects duplicate IDs and never stores credentials in tab metadata', () => {
-    const withSecrets = { ...connection, authentication: { method: 'password' as const, password: 'synthetic-secret' } };
+    const withSecrets = { ...connection, authentication: { method: 'password' as const, password: 'synthetic-secret' } } as typeof connection;
     let state = reduce(emptyTerminalTabs, { type: 'open', id: 'first', connection: withSecrets });
     expect(JSON.stringify(state)).not.toContain('synthetic-secret');
     expect(reduce(state, { type: 'open', id: 'first', connection })).toBe(state);
@@ -49,5 +50,51 @@ describe('terminal tab lifecycle', () => {
     expect(reduce(state, { type: 'open', id: 'overflow', connection })).toBe(state);
     expect(reduce(state, { type: 'select', id: 'unknown' })).toBe(state);
     expect(reduce(state, { type: 'reset' })).toEqual(emptyTerminalTabs);
+  });
+  it('builds tab metadata per protocol without credentials', () => {
+    expect(toTerminalConnection({ id: 'r', type: 'connection', protocol: 'rdp', name: 'Desk', host: 'h', port: 3389, username: 'D\\u',
+      password: 'synthetic-secret', rdp: { clipboard: true }, tags: [] })).toEqual({ id: 'r', name: 'Desk', protocol: 'rdp', address: 'D\\u@h:3389' });
+    expect(toTerminalConnection({ id: 'p', type: 'connection', protocol: 'powershell', name: 'PS', tags: [] }))
+      .toEqual({ id: 'p', name: 'PS', protocol: 'powershell', address: 'Lokal · PowerShell' });
+  });
+  it('adopts tabs from other windows with their status and session', () => {
+    const state = reduce(opened(), { type: 'adopt', id: 'moved', connection, status: 'connected',
+      adopt: { session: { kind: 'terminal', sessionId: 'synthetic' }, snapshot: 'screen' } });
+    expect(state.activeTabId).toBe('moved');
+    expect(state.tabs.at(-1)).toMatchObject({ id: 'moved', status: 'connected', ordinal: 3, adopt: { snapshot: 'screen' } });
+    expect(reduce(state, { type: 'adopt', id: 'moved', connection, status: 'closed', adopt: {} })).toBe(state);
+  });
+});
+
+const shell = { item: { kind: 'container' as const, runtime: 'docker' as const, ref: 'web-1', name: 'web-1' }, mode: 'shell' as const };
+
+describe('container tabs', () => {
+  it('names tabs after the container and the host', () => {
+    expect(containerTabName(shell, 'server01')).toBe('web-1 @ server01');
+    expect(containerTabName({ ...shell, mode: 'logs' }, 'server01')).toBe('Logs: web-1 @ server01');
+    expect(containerTabName({ item: { kind: 'lxc', vmid: 101, name: 'ct-web' }, mode: 'shell' }, 'pve1')).toBe('CT 101 ct-web @ pve1');
+    expect(containerTabName({ item: { kind: 'vm', vmid: 100, name: 'win11' }, mode: 'shell' }, 'pve1')).toBe('VM 100 win11 @ pve1');
+  });
+  it('keeps the target when opening and tells targets apart', () => {
+    const tab = containerConnection('h1', 'server01', 'admin@server01', shell);
+    const state = reduce(emptyTerminalTabs, { type: 'open', id: 't1', connection: tab });
+    expect(state.tabs[0].connection.target).toEqual(shell);
+    expect(sameTarget(tab, containerConnection('h1', 'server01', 'admin@server01', { ...shell, mode: 'logs' }))).toBe(false);
+    expect(sameTarget(tab, { id: 'h1', name: 'server01', protocol: 'ssh', address: 'admin@server01' })).toBe(false);
+  });
+  it('keeps local container tabs when the vault changes', () => {
+    const local = containerConnection(LOCAL_CONTAINER_HOST, 'Dieser Computer', 'lokal', shell);
+    let state = reduce(emptyTerminalTabs, { type: 'open', id: 't1', connection: local });
+    state = reduce(state, { type: 'retainConnections', connectionIds: [] });
+    expect(state.tabs).toHaveLength(1);
+  });
+  it('treats container tabs as POSIX shells, also on this computer', () => {
+    const tab = (connection: TerminalTab['connection']): TerminalTab => ({ id: 't', connection, ordinal: 1, status: 'connected' });
+    expect(shellOf(tab(containerConnection(LOCAL_CONTAINER_HOST, 'Dieser Computer', 'lokal', shell)))).toBe('ssh');
+    expect(shellOf(tab(containerConnection('h1', 'server01', 'admin@server01', shell)))).toBe('ssh');
+    expect(shellOf(tab({ id: 'c', name: 'CMD', protocol: 'cmd', address: 'lokal' }))).toBe('cmd');
+    expect(shellOf(tab({ id: 'p', name: 'PS', protocol: 'powershell', address: 'lokal' }))).toBe('powershell');
+    expect(shellOf(tab({ id: 's', name: 'Dateien', protocol: 'sftp', address: 'x', view: 'files' }))).toBeNull();
+    expect(shellOf(undefined)).toBeNull();
   });
 });

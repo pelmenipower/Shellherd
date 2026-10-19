@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SerializeAddon } from '@xterm/addon-serialize';
 import '@xterm/xterm/css/xterm.css';
-import type { TerminalConnection } from '../terminal-tabs';
+import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
+import { liveSessions } from '../session-registry';
+import { terminalAccess } from '../terminal-access';
 import type { SshStatus } from '../../../shared/ssh';
 
 interface TerminalPanelProps {
@@ -16,13 +19,16 @@ interface TerminalPanelProps {
   onStatusChange: (id: string, status: SshStatus) => void;
   onClose: () => void;
   onDrag?: (id: string | null) => void;
+  /** Session moved here from another window; its screen is restored from the snapshot. */
+  adopt?: AdoptedSession;
+  initialStatus?: SshStatus;
 }
 
 const statusLabels: Record<SshStatus, string> = {
   connecting: 'Verbindet ...', connected: 'Verbunden', closed: 'Verbindung beendet', error: 'Verbindung fehlgeschlagen',
 };
 
-export function TerminalPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange }: TerminalPanelProps) {
+export function TerminalPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus }: TerminalPanelProps) {
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
@@ -30,7 +36,8 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
   visibleRef.current = visible;
   const focusedRef = useRef(focused);
   focusedRef.current = focused;
-  const [status, setStatus] = useState<SshStatus>('connecting');
+  const [status, setStatus] = useState<SshStatus>(initialStatus ?? 'connecting');
+  const adoptRef = useRef(adopt);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,9 +48,16 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       fontFamily: 'Consolas, "Cascadia Mono", monospace', allowProposedApi: false,
       theme: { background: '#070b14', foreground: '#dce9f8', cursor: '#67e8f9', selectionBackground: '#164e63' } });
     const fit = new FitAddon();
+    const serialize = new SerializeAddon();
     terminal.current = term;
     fitAddon.current = fit;
     term.loadAddon(fit);
+    term.loadAddon(serialize);
+    const access = terminalAccess(term);
+    const register = (id: string): void => {
+      sessionId = id;
+      liveSessions.set(tabId, { kind: 'terminal', sessionId: id, snapshot: () => serialize.serialize({ scrollback: 5000 }), terminal: access });
+    };
     term.open(container.current!);
     fit.fit();
     const showError = (message: string): void => { if (!disposed) setError(message); };
@@ -119,13 +133,25 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     observer.observe(container.current!);
     // Defer network work so StrictMode's setup/cleanup probe creates no SSH session.
     const startTimer = setTimeout(() => {
+      const adopted = adoptRef.current;
+      if (adopted) {
+        if (adopted.snapshot) term.write(adopted.snapshot);
+        if (!adopted.session) return;
+        register(adopted.session.sessionId);
+        connected = (initialStatus ?? 'connecting') === 'connected';
+        void window.desktopApi.sshAttach({ sessionId: adopted.session.sessionId }).catch(() => showError('Die Sitzung konnte nicht übernommen werden.'));
+        // The new window may have another size; a resize also makes full-screen programs redraw.
+        void window.desktopApi.sshResize({ sessionId: adopted.session.sessionId, cols: Math.max(2, Math.min(500, term.cols)), rows: Math.max(1, Math.min(300, term.rows)) }).catch(() => {});
+        if (connected && visibleRef.current && focusedRef.current) term.focus();
+        return;
+      }
       void (async () => {
         try {
-          const result = await window.desktopApi.sshPrepare({ connectionId: connection.id,
+          const result = await window.desktopApi.sshPrepare({ connectionId: connection.id, ...(connection.target ? { target: connection.target } : {}),
             cols: Math.max(2, Math.min(500, term.cols)), rows: Math.max(1, Math.min(300, term.rows)) });
-          sessionId = result.sessionId;
-          if (disposed) { await window.desktopApi.sshClose({ sessionId }); return; }
-          await window.desktopApi.sshConnect({ sessionId });
+          if (disposed) { await window.desktopApi.sshClose({ sessionId: result.sessionId }); return; }
+          register(result.sessionId);
+          await window.desktopApi.sshConnect({ sessionId: result.sessionId });
         } catch (caught) {
           if (disposed) return;
           setStatus('error');
@@ -147,10 +173,12 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       observer.disconnect();
       input.dispose();
       resize.dispose();
+      access.dispose();
       term.dispose();
       terminal.current = null;
       fitAddon.current = null;
-      if (sessionId) void window.desktopApi.sshClose({ sessionId }).catch(() => {});
+      liveSessions.delete(tabId);
+      if (sessionId && !liveSessions.takeTransferred(sessionId)) void window.desktopApi.sshClose({ sessionId }).catch(() => {});
     };
   }, [connection.id, tabId, onStatusChange]);
 

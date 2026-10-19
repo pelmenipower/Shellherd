@@ -10,6 +10,7 @@ import type {
   WorkspacePane,
   WorkspaceSplit,
 } from './types';
+import { ContainerTargetSchema } from '../containers-schema';
 import type { EncryptedVaultFile } from './file-format';
 
 export const AuthenticationSchema = z.discriminatedUnion('method', [
@@ -29,22 +30,70 @@ export const AuthenticationSchema = z.discriminatedUnion('method', [
     }),
 ]);
 
-export const ConnectionNodeSchema = z.object({
+const connectionBase = {
     id: z.string(),
     type: z.literal('connection'),
     name: z.string(),
     comment: z.string().optional(),
 
-    host:  z.string(),
-    port:  z.number().int().min(1).max(65_535),
-    username: z.string().optional(),
-
-    authentication: AuthenticationSchema,
-
     tags: z.array(z.string()),
     color: z.string().optional(),
     icon: z.enum(CONNECTION_ICONS).optional(),
+};
+
+const remoteTarget = {
+    host: z.string(),
+    port: z.number().int().min(1).max(65_535),
+    username: z.string().optional(),
+};
+
+export const SshConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.literal('ssh'),
+    ...remoteTarget,
+    authentication: AuthenticationSchema,
+    containers: z.object({ sudo: z.boolean().optional() }).optional(),
 });
+
+export const SftpConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.literal('sftp'),
+    ...remoteTarget,
+    authentication: AuthenticationSchema,
+});
+
+export const RdpConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.literal('rdp'),
+    ...remoteTarget,
+    password: z.string().optional(),
+    rdp: z.object({
+        domain: z.string().optional(),
+        clipboard: z.boolean(),
+    }),
+});
+
+export const LocalShellConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.enum(['powershell', 'cmd']),
+    workingDirectory: z.string().optional(),
+});
+
+export const AiCliConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.literal('aicli'),
+    tool: z.enum(['claude', 'codex', 'gemini', 'custom']),
+    command: z.string().max(1000).refine(command => !/[\r\n]/.test(command)).optional(),
+    workingDirectory: z.string().optional(),
+}).refine(node => node.tool !== 'custom' || Boolean(node.command?.trim()), { message: 'Bitte gib den Befehl an.', path: ['command'] });
+
+export const ConnectionNodeSchema = z.discriminatedUnion('protocol', [
+    SshConnectionNodeSchema,
+    SftpConnectionNodeSchema,
+    RdpConnectionNodeSchema,
+    LocalShellConnectionNodeSchema,
+    AiCliConnectionNodeSchema,
+]);
 
 export const VaultNodeSchema: z.ZodType<VaultNode> = z.lazy(() =>
     z.union([ConnectionNodeSchema, FolderNodeSchema]),
@@ -62,6 +111,8 @@ export const WorkspacePaneSchema: z.ZodType<WorkspacePane> = z.object({
   type: z.literal('pane'),
   connectionIds: z.array(z.string().min(1)),
   activeConnectionId: z.string().min(1).optional(),
+  fileBrowsers: z.array(z.number().int().min(0).max(63)).max(64).optional(),
+  containerTabs: z.array(z.object({ index: z.number().int().min(0).max(63), target: ContainerTargetSchema, mode: z.enum(['shell', 'logs']) }).strict()).max(64).optional(),
 });
 
 export const WorkspaceLayoutSchema: z.ZodType<WorkspaceLayout> = z.lazy(() =>
@@ -82,11 +133,22 @@ export const WorkspaceSplitSchema: z.ZodType<WorkspaceSplit> = z.object({
   second: WorkspaceLayoutSchema,
 });
 
+export const WorkspaceViewsSchema = z.array(z.object({
+  name: z.string().min(1).max(60),
+  layout: WorkspaceLayoutSchema,
+})).min(1).max(12);
+
 export const WorkspaceSchema: z.ZodType<Workspace> = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   comment: z.string().optional(),
   layout: WorkspaceLayoutSchema,
+  views: WorkspaceViewsSchema.optional(),
+  windows: z.array(z.object({
+    bounds: z.object({ x: z.number().int(), y: z.number().int(), width: z.number().int().min(320).max(20_000), height: z.number().int().min(240).max(20_000) }),
+    layout: WorkspaceLayoutSchema,
+    views: WorkspaceViewsSchema.optional(),
+  })).max(8).optional(),
 });
 
 export const VaultSettingsSchema: z.ZodType<VaultSettings> = z.object({
@@ -98,9 +160,33 @@ export const VaultSettingsSchema: z.ZodType<VaultSettings> = z.object({
     confirmBeforeClosingSession: z.boolean(),
 });
 
+export const AiProviderSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(80),
+  kind: z.enum(['openai', 'azure', 'anthropic', 'gemini']),
+  model: z.string().min(1).max(200),
+  apiKey: z.string().max(4096).optional(),
+  baseUrl: z.string().url().max(2048).optional(),
+  apiVersion: z.string().max(40).optional(),
+});
+
+export const AiSettingsSchema = z.object({
+  providers: z.array(AiProviderSchema).max(20),
+  defaultProviderId: z.string().optional(),
+});
+
+export const WorkflowSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(120),
+  command: z.string().min(1).max(4000).refine(command => !/[\r\n]/.test(command), 'Ein Workflow ist eine Zeile.'),
+  description: z.string().max(2000).optional(),
+  tags: z.array(z.string().min(1).max(40)).max(20),
+  shell: z.enum(['ssh', 'powershell', 'cmd']).optional(),
+});
+
 export const VaultSchema: z.ZodType<Vault> = z.object({
   format: z.literal('terminus-vault'),
-  version: z.literal(1),
+  version: z.literal(2),
 
   id: z.string().min(1),
   name: z.string().min(1),
@@ -112,6 +198,8 @@ export const VaultSchema: z.ZodType<Vault> = z.object({
   nodes: z.array(VaultNodeSchema),
   workspaces: z.array(WorkspaceSchema),
   settings: VaultSettingsSchema,
+  ai: AiSettingsSchema.optional(),
+  workflows: z.array(WorkflowSchema).max(1000).optional(),
 });
 
 export const EncryptedVaultFileSchema: z.ZodType<EncryptedVaultFile> =

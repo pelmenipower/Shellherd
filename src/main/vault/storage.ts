@@ -1,4 +1,6 @@
+import { constants } from 'node:fs';
 import {
+  copyFile,
   mkdir,
   readFile,
   rename,
@@ -17,12 +19,13 @@ import { EncryptedVaultFileSchema } from '../../shared/vault/schema';
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import type { Vault } from '../../shared/vault/types';
 
-const FILE_EXTENSION = '.terminus';
+/** New vaults are `.term` files; `.terminus` files of earlier versions keep their name. */
+const FILE_EXTENSION = '.term';
 
 export function ensureVaultFileExtension(
   filePath: string,
 ): string {
-  return filePath.toLowerCase().endsWith(FILE_EXTENSION)
+  return /\.(term|terminus)$/i.test(filePath)
     ? filePath
     : `${filePath}${FILE_EXTENSION}`;
 }
@@ -59,6 +62,32 @@ export async function writeEncryptedVaultFile(
   }
 
   return finalPath;
+}
+
+/**
+ * Copies the still-encrypted original next to it before a format upgrade overwrites it.
+ * Existing backups are never overwritten.
+ */
+export async function backupVaultFile(
+  filePath: string,
+  label: string,
+): Promise<string> {
+  const extension = /\.terminus$/i.test(filePath) ? '.terminus' : FILE_EXTENSION;
+  const base = filePath.replace(/\.(term|terminus)$/i, '');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const target = `${base}.${label}-backup-${stamp}${attempt ? `-${attempt}` : ''}${extension}`;
+
+    try {
+      await copyFile(filePath, target, constants.COPYFILE_EXCL);
+      return target;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+  }
+
+  throw new Error('Für die Vault-Sicherung wurde kein freier Dateiname gefunden.');
 }
 
 export async function readEncryptedVaultFile(

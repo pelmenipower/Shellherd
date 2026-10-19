@@ -1,10 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, webContents } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { join } from 'node:path';
+import { spawn as spawnShell } from 'node-pty';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { vaultSessionManager } from '../vault/ipc';
 import { KnownHosts } from './known-hosts';
 import { findConnection, SshSessionManager } from './session';
+import { SudoRejections } from '../containers/sudo-rejections';
 import { AckSchema, InputSchema, PrepareSchema, ResizeSchema, SessionSchema, parseRequest } from './validation';
 
 export function requireSshSender(event: IpcMainInvokeEvent): number {
@@ -15,8 +17,9 @@ export function requireSshSender(event: IpcMainInvokeEvent): number {
   return event.sender.id;
 }
 
-export function registerSshIpcHandlers(): SshSessionManager {
-  const knownHosts = new KnownHosts(join(app.getPath('userData'), 'known-hosts.json'), async prompt => {
+/** One instance for terminals and file transfers: it serializes confirmations and writes. */
+export function createKnownHosts(): KnownHosts {
+  return new KnownHosts(join(app.getPath('userData'), 'known-hosts.json'), async prompt => {
     const parent = BrowserWindow.getFocusedWindow();
     const options = {
       type: 'warning' as const,
@@ -28,12 +31,17 @@ export function registerSshIpcHandlers(): SshSessionManager {
     const result = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
     return result.response === 1;
   });
+}
+
+export function registerSshIpcHandlers(knownHosts: KnownHosts, sudoRejections = new SudoRejections()): SshSessionManager {
   const manager = new SshSessionManager({
+    sudoRejections,
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
-      if (!connection) throw new Error('Die SSH-Verbindung wurde nicht gefunden.');
+      if (!connection) throw new Error('Die Verbindung wurde nicht gefunden.');
       return connection;
     },
+    spawnShell,
     verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);
@@ -58,6 +66,7 @@ export function registerSshIpcHandlers(): SshSessionManager {
     // A final output acknowledgment may arrive after a remote close.
     manager.acknowledge(ownerId, parsed.sessionId, parsed.sequence);
   });
+  ipcMain.handle(IPC_CHANNELS.sshAttach, (event, request: unknown) => manager.attach(requireSshSender(event), parseRequest(SessionSchema, request).sessionId));
   ipcMain.handle(IPC_CHANNELS.sshClose, (event, request: unknown) => manager.close(requireSshSender(event), parseRequest(SessionSchema, request).sessionId));
   return manager;
 }

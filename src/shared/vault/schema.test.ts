@@ -12,6 +12,7 @@ describe('ConnectionNodeSchema', () => {
         const connection = {
             id: 'connection-api',
             type: 'connection',
+            protocol: 'ssh',
             name: 'API Server',
             host: 'api.example.local',
             port: 22,
@@ -67,7 +68,7 @@ describe('ConnectionNodeSchema', () => {
 
 describe('VaultSchema', () => {
   it('round-trips optional connection appearance without requiring it in old vaults', () => {
-    const node = { id: 'appearance', type: 'connection', name: 'DB', host: 'example.test', port: 22, authentication: { method: 'agent' }, tags: [] };
+    const node = { id: 'appearance', type: 'connection', protocol: 'ssh', name: 'DB', host: 'example.test', port: 22, authentication: { method: 'agent' }, tags: [] };
     expect(ConnectionNodeSchema.parse(node).icon).toBeUndefined();
     const vault = VaultSchema.parse({ ...exampleVault, nodes: [{ ...node, icon: 'database', color: '#fbbf24' }] });
     expect(vault.nodes[0]).toMatchObject({ icon: 'database', color: '#fbbf24' });

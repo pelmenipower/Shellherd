@@ -96,6 +96,34 @@ und den passenden Schlüssel enthalten. Auf Unix muss `SSH_AUTH_SOCK` gesetzt se
 Agent-Forwarding ist deaktiviert. Interaktive MFA-/Keyboard-Interactive-Anmeldung
 folgt in einem weiteren Schritt.
 
+## Container und VMs
+
+Beim Aufklappen einer SSH-Verbindung erkennt Terminus Docker- und Podman-Container
+sowie Proxmox-LXC-Container und -VMs. Jedes Aufklappen lädt die Liste neu. Auf dem
+Server wird nichts installiert. Doppelklick oder Enter öffnet eine Shell nur in
+laufenden Containern und LXC-Containern. VMs bieten über das Kontextmenü
+`Serielle Konsole` an; das funktioniert nur mit einer seriellen Schnittstelle.
+Das Kontextmenü enthält `Shell öffnen`, bei Docker und Podman `Logs folgen`, bei
+Containern `Starten`, `Stoppen` und `Neu starten` sowie bei Proxmox `Starten`,
+`Herunterfahren` und `Stoppen`. Ein hartes Stoppen einer VM fragt vorher nach.
+
+`Dieser Computer` zeigt lokales Docker Desktop oder Podman, sofern es antwortet.
+Das wird nach dem Entsperren des Vaults geprüft und lässt sich über das Kontextmenü
+der freien Fläche im Verbindungsbaum (`Lokale Container suchen`) wiederholen.
+
+Der SSH-Benutzer braucht Zugriff auf Docker über die Gruppe `docker`; für Proxmox
+muss er die Befehle als root ausführen können. Alternativ führt die Option
+`Container-Befehle mit sudo ausführen` die Befehle pro SSH-Verbindung mit sudo aus.
+Meldet sich die Verbindung per Passwort an, beantwortet Terminus die sudo-Abfrage
+einmal mit dem gespeicherten Passwort, aber nur, wenn sudo tatsächlich fragt. Bei
+Anmeldung per Schlüssel oder Agent läuft `sudo -n`; dafür ist eine NOPASSWD-Regel
+für diesen Benutzer nötig. Lehnt sudo das Passwort ab, sendet Terminus es erst
+wieder, wenn die Verbindungseinstellungen geändert wurden.
+
+Container-Tabs von SSH-Hosts werden in Workspaces gespeichert, lokale Container-Tabs
+nicht. Diese Version bietet keinen Datei-Browser in Containern, keine Proxmox-API,
+keine Cluster-Ansicht und kein Kubernetes.
+
 ## Server-Schlüssel
 
 Beim ersten Kontakt den angezeigten SHA-256-Fingerprint mit einer

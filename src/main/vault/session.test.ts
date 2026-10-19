@@ -134,7 +134,7 @@ describe('VaultSessionManager', () => {
     const manager = new VaultSessionManager();
     try {
       const { vault } = await manager.unlock(filePath, password);
-      const connection = { id: 'synthetic-ssh', type: 'connection' as const, name: 'Synthetic SSH',
+      const connection = { id: 'synthetic-ssh', type: 'connection' as const, protocol: 'ssh' as const, name: 'Synthetic SSH',
         host: 'example.test', port: 22, authentication: { method: 'agent' as const }, tags: [] };
       const nodes = addNode(vault.nodes, {
         id: 'synthetic-folder', type: 'folder', name: 'Folder', children: [

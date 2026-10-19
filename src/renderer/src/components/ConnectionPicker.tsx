@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { VaultNode } from '../../../shared/vault/types';
 import { searchVaultNodes } from '../vault-search';
 import { ConnectionIcon } from './ConnectionIcon';
+import { useNativeSurfaceBlock } from '../native-surface';
+import { connectionAddress } from '../../../shared/vault/connections';
 
 interface Props {
   nodes: VaultNode[];
@@ -18,6 +20,7 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
   const search = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  useNativeSurfaceBlock(open);
   const results = searchVaultNodes(nodes, query).filter(item => item.node.type === 'connection');
 
   const close = () => { popover.current?.hidePopover(); };
@@ -77,8 +80,8 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
       <div className="connection-picker-results">
         {results.map(({ node, path }) => node.type === 'connection' && <button className="connection-picker-option" key={node.id} type="button"
           disabled={disabled || limitReached} onClick={() => { close(); onConnect(node.id); }}
-          title={`${path ? `${path} / ` : ''}${node.name} · ${node.host}:${node.port}`}>
-          <span className="connection-picker-name"><ConnectionIcon icon={node.icon} color={node.color} /><span>{node.name}</span></span><small>{path ? `${path} · ` : ''}{node.username ? `${node.username}@` : ''}{node.host}:{node.port}</small>
+          title={`${path ? `${path} / ` : ''}${node.name} · ${connectionAddress(node)}`}>
+          <span className="connection-picker-name"><ConnectionIcon icon={node.icon} color={node.color} /><span>{node.name}</span></span><small>{path ? `${path} · ` : ''}{connectionAddress(node)}</small>
         </button>)}
         {!results.length && <p className="connection-picker-hint" role="status">{query.trim() ? 'Keine passende Verbindung.' : 'Noch keine Verbindung gespeichert. Lege über „Neu“ eine Verbindung an.'}</p>}
       </div>

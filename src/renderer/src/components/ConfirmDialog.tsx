@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import './editor-ui.css';
+import { useNativeSurfaceBlock } from '../native-surface';
 
 interface ConfirmDialogProps {
   title: string;
@@ -19,6 +20,7 @@ export function ConfirmDialog({ title, description, busy, onCancel, onConfirm, c
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  useNativeSurfaceBlock(true);
 
   useEffect(() => {
     dialogRef.current?.showModal();

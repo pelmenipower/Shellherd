@@ -31,10 +31,11 @@ afterEach(async () => {
 });
 
 describe('vault storage', () => {
-  it('adds the .terminus extension', () => {
+  it('adds the .term extension and keeps .terminus files of earlier versions', () => {
     expect(ensureVaultFileExtension('my-vault')).toBe(
-      'my-vault.terminus',
+      'my-vault.term',
     );
+    expect(ensureVaultFileExtension('my-vault.TERM')).toBe('my-vault.TERM');
 
     expect(ensureVaultFileExtension('my-vault.terminus')).toBe(
       'my-vault.terminus',
@@ -54,7 +55,7 @@ describe('vault storage', () => {
 
     const loadedVault = await loadVault(savedPath, password);
 
-    expect(savedPath).toBe(`${requestedPath}.terminus`);
+    expect(savedPath).toBe(`${requestedPath}.term`);
     expect(loadedVault).toEqual(exampleVault);
   });
 

@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { dockTab, dockZone, emptyLayout, mergePane, moveTab, paneRects, panes, restoreLayout, resizeBounds, savedLayout, setRatio, splitPane, syncLayout } from './terminal-layout';
 import type { LiveLayout } from './terminal-layout';
 import type { TerminalTab } from './terminal-tabs';
-import type { WorkspaceLayout } from '../../shared/vault/types';
+import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
+import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
+import { containerConnection } from './terminal-tabs';
 
-const connection = { id: 'server', name: 'Server', host: 'example.test', port: 22, username: 'synthetic' };
+const node: ConnectionNode = { id: 'server', type: 'connection', protocol: 'ssh', name: 'Server', host: 'example.test', port: 22,
+  username: 'synthetic', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [] };
+const connection = { id: 'server', name: 'Server', protocol: 'ssh' as const, address: 'synthetic@example.test:22' };
 const tabs: TerminalTab[] = ['a', 'b', 'c'].map((id, index) => ({ id, connection, ordinal: index + 1, status: 'connected' }));
 const initial = () => syncLayout(emptyLayout(), tabs, 'c', 'root');
 const ids = (layout: LiveLayout) => panes(layout).flatMap(pane => pane.tabIds).sort();
@@ -119,7 +123,7 @@ describe('terminal layout and saved workspaces', () => {
   it('round trips references, duplicate sessions and proportions while generating fresh session IDs', () => {
     const original = splitPane(initial(), 'root', 'horizontal', 'split');
     const saved = savedLayout(original, tabs);
-    const restored = restoreLayout(saved, () => ({ ...connection, authentication: { method: 'password', password: 'synthetic-secret' } }), uuid);
+    const restored = restoreLayout(saved, () => node, uuid);
     expect(savedLayout(restored.layout, restored.tabs)).toEqual(saved);
     expect(restored.tabs).toHaveLength(3);
     expect(restored.tabs.map(tab => tab.ordinal)).toEqual([1, 2, 3]);
@@ -129,9 +133,27 @@ describe('terminal layout and saved workspaces', () => {
   });
   it('rejects missing references or layouts exceeding runtime limits before opening any session', () => {
     expect(() => restoreLayout({ type: 'pane', connectionIds: ['missing'] }, () => undefined, uuid)).toThrow('fehlende Verbindung');
-    expect(() => restoreLayout({ type: 'pane', connectionIds: Array(17).fill('server') }, () => connection, uuid)).toThrow('16 Sessions');
+    expect(() => restoreLayout({ type: 'pane', connectionIds: Array(17).fill('server') }, () => node, uuid)).toThrow('16 Sessions');
     let saved: WorkspaceLayout = { type: 'pane', connectionIds: [] };
     for (let index = 0; index < 4; index++) saved = { type: 'split', direction: 'horizontal', ratio: 0.5, first: saved, second: { type: 'pane', connectionIds: [] } };
-    expect(() => restoreLayout(saved, () => connection, uuid)).toThrow('vier Terminalbereiche');
+    expect(() => restoreLayout(saved, () => node, uuid)).toThrow('vier Terminalbereiche');
+  });
+});
+
+describe('workspaces with container tabs', () => {
+  const host = { id: 'h1', type: 'connection', protocol: 'ssh', name: 'server01', host: 'server01', port: 22, username: 'admin', authentication: { method: 'agent' }, tags: [] } as const;
+  const shell = { item: { kind: 'container' as const, runtime: 'docker' as const, ref: 'web-1', name: 'web-1' }, mode: 'shell' as const };
+  it('saves remote container tabs and restores them as container tabs; drops local ones', () => {
+    const tabs = [
+      { id: 'a', connection: { id: 'h1', name: 'server01', protocol: 'ssh' as const, address: 'admin@server01' }, ordinal: 1, status: 'connected' as const },
+      { id: 'b', connection: containerConnection('h1', 'server01', 'admin@server01', shell), ordinal: 1, status: 'connected' as const },
+      { id: 'c', connection: containerConnection(LOCAL_CONTAINER_HOST, 'Dieser Computer', 'lokal', shell), ordinal: 1, status: 'connected' as const },
+    ];
+    const saved = savedLayout({ type: 'pane', id: 'p', tabIds: ['a', 'b', 'c'], activeTabId: 'b' }, tabs);
+    expect(saved).toEqual({ type: 'pane', connectionIds: ['h1', 'h1'], activeConnectionId: 'h1', containerTabs: [{ index: 1, target: shell.item, mode: 'shell' }] });
+    let n = 0;
+    const restored = restoreLayout(saved, id => id === 'h1' ? host as never : undefined, () => `u${++n}`);
+    expect(restored.tabs.map(tab => tab.connection.target)).toEqual([undefined, shell]);
+    expect(restored.tabs[1].connection.name).toBe('web-1 @ server01');
   });
 });

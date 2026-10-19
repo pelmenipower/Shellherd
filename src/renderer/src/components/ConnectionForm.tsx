@@ -1,14 +1,25 @@
-﻿import { useEffect, useId, useRef, useState } from 'react';
-import type { ConnectionNode, VaultNode } from '../../../shared/vault/types';
-import { ConnectionFieldError, connectionFromFields, folderOptions } from '../connection-form';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { ConnectionNode, ConnectionProtocol, VaultNode } from '../../../shared/vault/types';
+import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folderOptions } from '../connection-form';
 import type { ConnectionFields } from '../connection-form';
 import { ConfirmDialog } from './ConfirmDialog';
 import './editor-ui.css';
 import { CONNECTION_ICONS } from '../../../shared/vault/appearance';
 import { ConnectionIcon, connectionIconLabels } from './ConnectionIcon';
+import { PROTOCOLS } from '../../../shared/vault/connections';
+import { AI_CLI_TOOLS } from '../../../shared/ai-cli';
+import type { ConnectionTestResult } from '../../../shared/connection-test';
+
+const newTitles: Record<ConnectionProtocol, string> = {
+  ssh: 'Neue SSH-Verbindung', sftp: 'Neue SFTP-Verbindung (Dateien)', rdp: 'Neue Remotedesktop-Verbindung (RDP)',
+  powershell: 'Neue lokale PowerShell', cmd: 'Neue lokale Eingabeaufforderung (CMD)', aicli: 'Neue KI-CLI (Claude Code, Codex, Gemini)',
+};
+const connectLabels: Record<ConnectionProtocol, string> = { ssh: 'SSH verbinden', sftp: 'Dateien öffnen', rdp: 'RDP verbinden', powershell: 'Shell starten', cmd: 'Shell starten', aicli: 'CLI starten' };
 
 interface ConnectionFormProps {
   connection?: ConnectionNode;
+  /** Kind of a new connection; existing connections keep their protocol. */
+  protocol?: ConnectionProtocol;
   nodes: VaultNode[];
   initialParentId: string;
   busy: boolean;
@@ -19,29 +30,41 @@ interface ConnectionFormProps {
   onDirtyChange?: (dirty: boolean) => void;
   onSaveAndConnect?: (connection: ConnectionNode, parentId: string) => Promise<boolean>;
   onPickKey?: () => Promise<string | null>;
+  /** Dry run with the current, possibly unsaved values. */
+  onTest?: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
 }
 
-export function ConnectionForm({ connection, nodes, initialParentId, busy, onSave, onCancel, onDelete, onConnect,
-  onDirtyChange, onSaveAndConnect, onPickKey }: ConnectionFormProps) {
+export function ConnectionForm({ connection, protocol: requestedProtocol, nodes, initialParentId, busy, onSave, onCancel, onDelete, onConnect,
+  onDirtyChange, onSaveAndConnect, onPickKey, onTest }: ConnectionFormProps) {
   const prefix = useId();
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const submittingRef = useRef(false);
-  const [fields, setFields] = useState<ConnectionFields>(() => ({
-    name: connection?.name ?? '', comment: connection?.comment ?? '', host: connection?.host ?? '',
-    port: String(connection?.port ?? 22), username: connection?.username ?? '',
-    method: connection?.authentication.method ?? 'agent',
-    password: connection?.authentication.method === 'password' ? connection.authentication.password : '',
-    keyPath: connection?.authentication.method === 'privateKey' ? connection.authentication.keyPath : '',
-    passphrase: connection?.authentication.method === 'privateKey' ? connection.authentication.passphrase ?? '' : '',
-    tags: connection?.tags.join(', ') ?? '', color: connection?.color ?? '',
-    icon: connection?.icon ?? 'terminal',
-  }));
+  const protocol = connection?.protocol ?? requestedProtocol ?? 'ssh';
+  const remote = protocol !== 'powershell' && protocol !== 'cmd' && protocol !== 'aicli';
+  const sshAuth = protocol === 'ssh' || protocol === 'sftp';
+  const [fields, setFields] = useState<ConnectionFields>(() => fieldsFromConnection(protocol, connection));
   const [parentId, setParentId] = useState(initialParentId);
   const [savedSignature, setSavedSignature] = useState(() => JSON.stringify({ fields, parentId }));
   const dirty = savedSignature !== JSON.stringify({ fields, parentId });
   const [error, setError] = useState<{ field?: keyof ConnectionFields; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [visibleSecret, setVisibleSecret] = useState(false);
+  const [test, setTest] = useState<{ running: boolean; result?: ConnectionTestResult; error?: string } | null>(null);
+  // A result belongs to the values it was run with.
+  useEffect(() => { setTest(current => current?.running ? current : null); }, [fields]);
+  async function runTest(): Promise<void> {
+    if (!onTest || test?.running) return;
+    let node: ConnectionNode;
+    try { node = connectionFromFields(connection?.id ?? 'test', fields, protocol); }
+    catch (caught) {
+      const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
+      setError({ field, message: caught instanceof Error ? caught.message : 'Bitte prüfe die Verbindungsdaten.' });
+      return;
+    }
+    setTest({ running: true });
+    try { setTest({ running: false, result: await onTest(node) }); }
+    catch (caught) { setTest({ running: false, error: caught instanceof Error ? caught.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Der Test ist fehlgeschlagen.' }); }
+  }
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   function setField(field: keyof ConnectionFields, value: string): void {
@@ -52,7 +75,7 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
     if (busy || submittingRef.current) return;
     submittingRef.current = true;
     try {
-      const updated = connectionFromFields(connection?.id ?? crypto.randomUUID(), fields);
+      const updated = connectionFromFields(connection?.id ?? crypto.randomUUID(), fields, protocol);
       setError(null);
       const saved = await (connect && onSaveAndConnect ? onSaveAndConnect : onSave)(updated, parentId);
       if (saved) { setSavedSignature(JSON.stringify({ fields, parentId })); onDirtyChange?.(false); }
@@ -60,7 +83,7 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
       const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
       setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : 'Speichern fehlgeschlagen. Deine Eingaben bleiben erhalten. Bitte versuche es erneut.' });
       if (field) {
-        if (field === 'color' && detailsRef.current) detailsRef.current.open = true;
+        if ((field === 'color' || field === 'workingDirectory') && detailsRef.current) detailsRef.current.open = true;
         requestAnimationFrame(() => document.getElementById(`${prefix}-${field}`)?.focus());
       }
     } finally { submittingRef.current = false; }
@@ -87,7 +110,7 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
 
   return (
     <section className="node-editor compact-editor" aria-label="Verbindung bearbeiten">
-      <h2>{connection ? 'Verbindung bearbeiten' : 'Neue SSH-Verbindung'}</h2>
+      <h2>{connection ? `${PROTOCOLS[protocol].short}-Verbindung bearbeiten` : newTitles[protocol]}</h2>
       <form noValidate data-editor-form onSubmit={event => { event.preventDefault(); void submit(false); }}>
         {textField('Verbindungsname', 'name')}
         <fieldset className="connection-appearance">
@@ -104,8 +127,30 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
             <button className="secondary-button" type="button" disabled={busy || !fields.color} onClick={() => setField('color', '')}>Standardfarbe</button>
           </div>
         </fieldset>
-        <div className="editor-host-row">{textField('Host', 'host')}{textField('Port', 'port')}</div>
-        <div className="editor-auth-row">
+        {remote && <div className="editor-host-row">{textField('Host', 'host')}{textField('Port', 'port')}</div>}
+        {protocol === 'rdp' && <>
+          <div className="editor-auth-row">{textField('Benutzername', 'username')}{textField('Domäne (optional)', 'domain')}</div>
+          <p className="editor-hint">Alternativ DOMÄNE\Benutzer oder benutzer@domäne als Benutzername.</p>
+          {textField('Passwort (leer: beim Verbinden fragen)', 'password', true)}
+          <label className="editor-checkbox"><input type="checkbox" checked={fields.clipboard === 'on'} disabled={busy}
+            onChange={event => setField('clipboard', event.target.checked ? 'on' : 'off')} />Zwischenablage mit dem Remotedesktop teilen</label>
+        </>}
+        {protocol === 'aicli' && <>
+          <label>Werkzeug<select value={fields.tool} disabled={busy} onChange={event => setField('tool', event.target.value)}>
+            {(Object.keys(AI_CLI_TOOLS) as (keyof typeof AI_CLI_TOOLS)[]).map(tool => <option key={tool} value={tool}>{AI_CLI_TOOLS[tool].label}</option>)}
+            <option value="custom">Eigener Befehl</option>
+          </select></label>
+          {fields.tool === 'custom' ? textField('Befehl (z. B. aider oder ollama run llama3)', 'command')
+            : <p className="editor-hint">Startet <code>{AI_CLI_TOOLS[fields.tool].command}</code> mit der eigenen Anmeldung des Werkzeugs. Nicht installiert? <code>{AI_CLI_TOOLS[fields.tool].install}</code></p>}
+          {textField('Projektordner (leer: Benutzerprofil)', 'workingDirectory')}
+          <p className="editor-hint">Nach dem Beenden bleibt der Tab eine Eingabeaufforderung in diesem Ordner.</p>
+        </>}
+        {(protocol === 'powershell' || protocol === 'cmd') && <>
+          {textField('Startordner (leer: Benutzerprofil)', 'workingDirectory')}
+          <p className="editor-hint">Startet {PROTOCOLS[protocol].short} auf diesem Computer.</p>
+        </>}
+        {protocol === 'sftp' && <p className="editor-hint">Öffnet einen Dateibrowser: links dieser Computer, rechts der Server. Anmeldung wie bei SSH.</p>}
+        {sshAuth && <><div className="editor-auth-row">
           {textField('Benutzername', 'username')}
           <label>Authentifizierung
             <select value={fields.method} disabled={busy} onChange={event => {
@@ -116,11 +161,13 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
             </select>
           </label>
         </div>
-        {fields.method === 'password' && textField('SSH-Passwort', 'password', true)}
+        {fields.method === 'password' && textField(protocol === 'sftp' ? 'Passwort' : 'SSH-Passwort', 'password', true)}
         {fields.method === 'privateKey' && <>
           {textField('Pfad zum privaten Schlüssel', 'keyPath')}
           {textField('Schlüssel-Passphrase', 'passphrase', true)}
         </>}
+        {protocol === 'ssh' && <label className="editor-checkbox"><input type="checkbox" checked={fields.containerSudo === 'on'} disabled={busy}
+          onChange={event => setField('containerSudo', event.target.checked ? 'on' : 'off')} />Container-Befehle mit sudo ausführen</label>}</>}
         <details className="editor-details" ref={detailsRef}>
           <summary>Weitere Angaben</summary>
           <div className="editor-details-content">
@@ -134,10 +181,18 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
           </div>
         </details>
         {error && !error.field && <p className="field-error" role="alert">{error.message}</p>}
+        {test && !test.running && <div className={`connection-test ${test.result?.ok ? 'is-ok' : 'is-failed'}`} role="status">
+          <strong>{test.error ?? (test.result?.ok ? 'Verbindungstest erfolgreich' : 'Verbindungstest fehlgeschlagen')}</strong>
+          {test.result && <ol>{test.result.steps.map(step => <li key={step.label} className={step.ok ? 'is-ok' : 'is-failed'}>
+            <span aria-hidden="true">{step.ok ? '✓' : '✕'}</span><span>{step.label}{step.detail && <small>{step.detail}</small>}</span>
+          </li>)}</ol>}
+        </div>}
         <div className="form-actions editor-action-bar">
           <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>Abbrechen</button>
+          {onTest && <button className="secondary-button" type="button" disabled={busy || test?.running} title="Prüft die eingegebenen Daten, ohne zu speichern"
+            onClick={() => { void runTest(); }}>{test?.running ? 'Teste …' : 'Verbindung testen'}</button>}
           <button className={onSaveAndConnect || (connection && onConnect) ? 'secondary-button' : 'primary-button'} type="submit" disabled={busy || (!!connection && !dirty)}>{busy ? 'Speichert ...' : 'Verbindung speichern'}</button>
-          {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>SSH verbinden</button>
+          {connection && !dirty && onConnect ? <button className="primary-button" type="button" disabled={busy} onClick={onConnect}>{connectLabels[protocol]}</button>
             : onSaveAndConnect && <button className="primary-button" type="button" disabled={busy} onClick={() => { void submit(true); }}>Speichern und verbinden</button>}
         </div>
       </form>
@@ -146,7 +201,7 @@ export function ConnectionForm({ connection, nodes, initialParentId, busy, onSav
         <button className="danger-button" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Verbindung löschen</button>
       </details>}
       {confirmDelete && onDelete && <ConfirmDialog title={`Verbindung „${connection?.name}“ löschen?`}
-        description="Die Verbindung wird unwiderruflich entfernt, auch aus gespeicherten Workspaces. Ihre aktiven SSH-Sessions werden beendet."
+        description="Die Verbindung wird unwiderruflich entfernt, auch aus gespeicherten Workspaces. Ihre aktiven Sitzungen werden beendet."
         busy={busy} onCancel={() => setConfirmDelete(false)} onConfirm={() => { void onDelete().then(saved => { if (saved) setConfirmDelete(false); }); }} />}
     </section>
   );

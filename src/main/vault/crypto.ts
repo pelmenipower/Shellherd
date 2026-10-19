@@ -7,6 +7,7 @@ import {
 import { argon2id } from 'hash-wasm';
 
 import { validateVaultConsistency } from '../../shared/vault/consistency';
+import { parseVaultDocument } from '../../shared/vault/migrations';
 import {
   EncryptedVaultFileSchema,
   VaultSchema,
@@ -45,6 +46,9 @@ export interface UnlockedVault {
   key: Buffer;
 
   kdf: EncryptedVaultFile['kdf'];
+
+  /** Format version the vault was migrated from in memory; the file itself is unchanged. */
+  migratedFrom?: number;
 }
 
 export async function encryptVault(
@@ -96,14 +100,26 @@ export function encryptVaultWithKey(
   key: Uint8Array,
   kdf: EncryptedVaultFile['kdf'],
 ): EncryptedVaultFile {
-  assertLength(key, KEY_LENGTH, 'Schlüssel');
-
   const validatedVault = VaultSchema.parse(vault);
   assertConsistent(validatedVault);
 
+  return encryptDocumentWithKey(validatedVault, key, kdf);
+}
+
+/**
+ * Encrypts an already validated document. Exported only so tests can
+ * produce files in older formats; application code uses encryptVaultWithKey.
+ */
+export function encryptDocumentWithKey(
+  document: unknown,
+  key: Uint8Array,
+  kdf: EncryptedVaultFile['kdf'],
+): EncryptedVaultFile {
+  assertLength(key, KEY_LENGTH, 'Schlüssel');
+
   const nonce = randomBytes(NONCE_LENGTH);
   const plaintext = Buffer.from(
-    JSON.stringify(validatedVault),
+    JSON.stringify(document),
     'utf8',
   );
 
@@ -182,7 +198,7 @@ export async function unlockVault(
   );
 
   try {
-    const vault = decryptVaultWithKey(file, key);
+    const { vault, migratedFrom } = decryptVaultWithKey(file, key);
 
     return {
       vault,
@@ -190,6 +206,7 @@ export async function unlockVault(
       kdf: {
         ...file.kdf,
       },
+      ...(migratedFrom ? { migratedFrom } : {}),
     };
   } catch (error) {
     key.fill(0);
@@ -200,7 +217,7 @@ export async function unlockVault(
 function decryptVaultWithKey(
   file: EncryptedVaultFile,
   key: Uint8Array,
-): Vault {
+): ReturnType<typeof parseVaultDocument> {
   assertLength(key, KEY_LENGTH, 'Schlüssel');
 
   const nonce = Buffer.from(
@@ -242,10 +259,10 @@ function decryptVaultWithKey(
       plaintext.toString('utf8'),
     );
 
-    const vault = VaultSchema.parse(parsed);
-    assertConsistent(vault);
+    const result = parseVaultDocument(parsed);
+    assertConsistent(result.vault);
 
-    return vault;
+    return result;
   } finally {
     plaintext.fill(0);
   }

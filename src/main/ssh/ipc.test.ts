@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IpcMainInvokeEvent } from 'electron';
-import { registerSshIpcHandlers, requireSshSender } from './ipc';
+import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ipc';
 import type { SshSessionManager } from './session';
 
 const mocks = vi.hoisted(() => ({
@@ -24,9 +24,9 @@ function sender(id = 1, subframe = false): IpcMainInvokeEvent {
 let manager: SshSessionManager;
 beforeEach(() => {
   mocks.handlers.clear(); mocks.trustedWindow = true;
-  mocks.getSnapshot.mockReturnValue({ vault: { nodes: [{ id: 'saved-id', type: 'connection', name: 'Synthetic',
+  mocks.getSnapshot.mockReturnValue({ vault: { nodes: [{ id: 'saved-id', type: 'connection', protocol: 'ssh', name: 'Synthetic',
     host: 'example.test', port: 22, username: 'synthetic-user', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [] }] } });
-  manager = registerSshIpcHandlers();
+  manager = registerSshIpcHandlers(createKnownHosts());
 });
 afterEach(() => manager.closeAll());
 

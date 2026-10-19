@@ -2,7 +2,7 @@ import type { Vault } from './types';
 
 export const exampleVault = {
   format: 'terminus-vault',
-  version: 1,
+  version: 2,
 
   id: 'vault-example',
   name: 'Meine Server',
@@ -22,6 +22,7 @@ export const exampleVault = {
         {
           id: 'connection-dev-api',
           type: 'connection',
+          protocol: 'ssh',
           name: 'Development API',
           comment: 'Lokaler Testserver',
 
