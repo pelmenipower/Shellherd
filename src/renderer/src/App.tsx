@@ -1023,7 +1023,7 @@ export default function App() {
             <h2>Vault öffnen</h2>
 
             <p className="form-description">
-              Wähle deine `.term`-Datei aus und gib anschließend
+              Wähle deine .term-Datei aus und gib anschließend
               das zugehörige Passwort ein.
             </p>
 

@@ -15,6 +15,8 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 - Cluster-Ansicht: Beim Neuverbinden bleibt die Tabelle lesbar. Eine Statusleiste zeigt „Live“ mit dem Alter der Daten, beim Neuverbinden den Host und den Versuch und danach „Wieder verbunden über …“. Aktionen sind bis dahin gesperrt.
 - Container-Ansicht: Läuft eine Aktion, zeigt die Status-Zelle den Zielzustand („stoppt“, „startet neu“) statt die Zeile auszublassen.
 - Einheitliche Texte: Aufforderungen ohne „Bitte“, „…“ als ein Zeichen, ein Statuswörterbuch für Tabs, Terminal, RDP und Dateiansicht. Statuspunkte haben überall dieselbe Größe, Pfeile an Bannern und Docks sind Symbole statt Textzeichen.
+- Wartet der Verbindungsaufbau auf die Bestätigung des Server-Schlüssels, sagt die Karte das, statt vor einer langsamen Verbindung zu warnen.
+- Behoben: Release-Notes zeigen `Tasten` und Knöpfe als Code statt mit rohen Backticks; der Punkt in Meldungen steht auf Höhe des Titels; „Details“ in der Fehlerkarte ändert die Breite nicht mehr; Checkboxen und Optionsfelder in Formularen haben wieder ihre normale Größe.
 
 ## [0.10.0] – 2026-10-19
 

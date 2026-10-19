@@ -55,7 +55,10 @@ export function ConnectionErrorCard({ connectionId, code, address, remote, messa
             <button key={action} ref={index === 0 ? primary : undefined} type="button"
               className={index === 0 ? 'primary-button' : 'secondary-button'} onClick={() => run(action)}>{ACTION_LABELS[action]}</button>
           ))}
-          {detail && <button type="button" className="connect-details-toggle" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Details ausblenden' : 'Details'}</button>}
+          {detail && <button type="button" className="connect-details-toggle" aria-expanded={open} onClick={() => setOpen(value => !value)}>
+            {/* One label in both states keeps the width; aria-expanded and the chevron carry the state. */}
+            Details <svg className={`chevron${open ? ' is-up' : ''}`} viewBox="0 0 24 24" aria-hidden="true"><path d="m5 9 7 7 7-7" /></svg>
+          </button>}
         </div>
         {detail && open && <pre className="connect-details">{detail}</pre>}
       </div>

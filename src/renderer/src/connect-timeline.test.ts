@@ -62,6 +62,12 @@ describe('connect-timeline', () => {
     expect(cardFooter(stepViews(['shell'], [], 1000, 2600), 1000, 2600)).toEqual({ text: 'Dauert länger als üblich …', slow: true });
   });
 
+  it('points to the host key prompt instead of warning when the hostkey step waits', () => {
+    const marks = [{ step: 'reach' as const, at: 1000 }, { step: 'hostkey' as const, at: 1100 }];
+    expect(cardFooter(stepViews(SSH, marks, 1000, 3000), 1000, 3000))
+      .toEqual({ text: 'Wartet auf deine Bestätigung des Server-Schlüssels …', slow: false });
+  });
+
   it('is not slow just below the limit', () => {
     expect(cardFooter(stepViews(SSH, [], 0, 1499), 0, 1499).slow).toBe(false);
   });

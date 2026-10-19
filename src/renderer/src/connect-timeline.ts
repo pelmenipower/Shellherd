@@ -37,6 +37,8 @@ export function formatSeconds(ms: number): string {
 export function cardFooter(views: readonly StepView[], startedAt: number, now: number): { text: string; slow: boolean } {
   const active = views.find(view => view.state === 'active');
   if (active && (active.ms ?? 0) >= SLOW_MS) {
+    // A known key checks in milliseconds; a long hostkey step is the confirmation dialog, not a slow server.
+    if (active.step === 'hostkey') return { text: 'Wartet auf deine Bestätigung des Server-Schlüssels …', slow: false };
     return { text: active.step === 'reach' ? 'Der Server antwortet langsam …' : 'Dauert länger als üblich …', slow: true };
   }
   return { text: `Gesamt ${formatSeconds(Math.max(0, now - startedAt))}`, slow: false };

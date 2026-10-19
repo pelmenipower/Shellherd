@@ -17,6 +17,19 @@ export function parseChangelog(markdown: string): ReleaseNotes[] {
   return releases.filter(release => release.version);
 }
 
+/** `Esc` spans of a changelog item as code parts; an unpaired backtick stays plain text. */
+export function inlineCode(text: string): { code: boolean; text: string }[] {
+  const parts: { code: boolean; text: string }[] = [];
+  let rest = text;
+  for (let match = /`([^`]+)`/.exec(rest); match; match = /`([^`]+)`/.exec(rest)) {
+    if (match.index) parts.push({ code: false, text: rest.slice(0, match.index) });
+    parts.push({ code: true, text: match[1] });
+    rest = rest.slice(match.index + match[0].length);
+  }
+  if (rest) parts.push({ code: false, text: rest });
+  return parts;
+}
+
 /** Negative, zero or positive like a sort comparator; only `x.y.z`. */
 export function compareVersions(a: string, b: string): number {
   const left = a.split('.').map(Number);

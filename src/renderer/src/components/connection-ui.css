@@ -24,7 +24,7 @@
 .connect-error p { margin: 0; line-height: 1.5; text-wrap: pretty; }
 .connect-error-next { color: var(--color-text-muted); }
 .connect-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); }
-.connect-details-toggle { margin-left: auto; padding: 0 var(--space-8); border-color: transparent; background: transparent; color: var(--color-text-muted); }
+.connect-details-toggle { display: inline-flex; align-items: center; gap: var(--space-4); margin-left: auto; padding: 0 var(--space-4); border-color: transparent; background: transparent; color: var(--color-text-muted); }
 .connect-details-toggle:hover:not(:disabled) { background: transparent; border-color: transparent; color: var(--color-text); }
 .connect-details { margin: 0; padding: var(--space-8); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-stage); color: var(--color-text-code); font: var(--fs-sm) / 1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }
 .connect-closed { flex: 0 0 auto; margin-top: var(--space-4); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); padding: var(--space-8) var(--space-10); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-panel); transition: opacity var(--dur-toast) var(--ease-out); }
