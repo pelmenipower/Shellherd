@@ -7,6 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import { liveSessions } from '../session-registry';
 import { terminalAccess } from '../terminal-access';
+import { xtermTheme } from '../terminal-theme';
 import type { SshStatus } from '../../../shared/ssh';
 
 interface TerminalPanelProps {
@@ -46,9 +47,10 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     let disposed = false;
     let sessionId: string | undefined;
     let connected = false;
+    const styles = getComputedStyle(document.documentElement);
     const term = new Terminal({ cursorBlink: true, screenReaderMode: true, scrollback: 5000, fontSize: 14,
       fontFamily: 'Consolas, "Cascadia Mono", monospace', allowProposedApi: false,
-      theme: { background: '#070b14', foreground: '#dce9f8', cursor: '#67e8f9', selectionBackground: '#164e63' } });
+      theme: xtermTheme(name => styles.getPropertyValue(name)) });
     const fit = new FitAddon();
     const serialize = new SerializeAddon();
     terminal.current = term;

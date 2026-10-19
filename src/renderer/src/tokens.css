@@ -43,9 +43,9 @@
   --color-danger-bg-hover: #512333;
   --color-danger-border: #713442;
 
-  /* Spacing (stage 2 maps literals onto it) */
-  --space-2xs: 2px; --space-xs: 4px; --space-sm: 6px; --space-md: 8px;
-  --space-lg: 12px; --space-xl: 16px; --space-2xl: 20px; --space-3xl: 24px; --space-4xl: 32px;
+  /* Spacing, named by value. The lint allows literal px only for 0, 1px, negatives, >= 48px and inside calc()/min()/max()/clamp(). */
+  --space-2: 2px; --space-4: 4px; --space-6: 6px; --space-8: 8px; --space-10: 10px;
+  --space-12: 12px; --space-16: 16px; --space-20: 20px; --space-24: 24px; --space-32: 32px;
 
   /* Radii */
   --radius-sm: 4px; --radius-md: 5px; --radius-lg: 8px; --radius-pill: 999px;
@@ -73,16 +73,8 @@
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
-  --dur-press: 120ms; --dur-fade: 150ms; --dur-popover: 160ms; --dur-hint: 180ms; --dur-modal: 200ms;
+  --dur-press: 120ms; --dur-fade: 150ms; --dur-popover: 160ms; --dur-hint: 180ms; --dur-modal: 200ms; --dur-toast: 220ms;
   --dur-pulse: 1000ms;
-
-  /* Aliases, removed in 1.0 */
-  --ui-bg: var(--color-bg-app); --ui-panel: var(--color-bg-panel); --ui-raised: var(--color-bg-raised);
-  --ui-border: var(--color-border); --ui-text: var(--color-text); --ui-muted: var(--color-text-muted);
-  --ui-accent: var(--color-accent); --ui-danger: var(--color-danger);
-  --surface: var(--color-bg-panel); --surface-raised: var(--color-bg-raised); --surface-hover: var(--color-bg-hover);
-  --border: var(--color-border); --text: var(--color-text); --text-muted: var(--color-text-muted); --accent: var(--color-accent);
-  --ui-radius: var(--radius-md); --ui-control-height: var(--control-md); --ui-input-height: var(--control-lg);
 }
 
 @keyframes tm-pulse { 50% { opacity: .35; } }
