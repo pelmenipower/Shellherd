@@ -40,7 +40,7 @@ function cleanParams(params: unknown): ErrorParams | undefined {
 function flat({ code, params, detail }: CodedError): CodedError {
   const child: CodedError = { code };
   if (params) child.params = params;
-  if (detail) child.detail = detail;
+  if (detail) child.detail = truncateDetail(detail);
   return child;
 }
 
@@ -59,7 +59,7 @@ function cleanCauses(value: unknown): ErrorCause[] | undefined {
     const child: CodedError = { code: code as ErrorCode };
     const clean = cleanParams(params);
     if (clean) child.params = clean;
-    if (typeof detail === 'string' && detail) child.detail = detail;
+    if (typeof detail === 'string' && detail) child.detail = truncateDetail(detail);
     causes.push({ label, error: child });
   }
   return causes.length > 0 ? causes : undefined;

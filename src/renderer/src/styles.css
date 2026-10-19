@@ -117,6 +117,7 @@ label { font-size: var(--fs-sm); font-weight: 500; color: var(--color-text-muted
 .file-type-setting, .language-setting { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); padding: var(--space-12); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-muted); font-size: var(--fs-md); }
 .file-type-setting small { flex-basis: 100%; color: var(--color-text); }
 .language-setting select { width: auto; }
+.language-setting .field-error { color: var(--color-danger); }
 .welcome-card .file-type-setting { margin-top: var(--space-20); text-align: left; }
 
 /* Release notes. */

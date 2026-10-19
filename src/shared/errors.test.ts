@@ -62,6 +62,14 @@ describe('errors', () => {
     expect(AppError.from(error.toCoded()).message).toBe(error.message);
   });
 
+  it('truncates cause details on encode and decode', () => {
+    const long = 'x'.repeat(600);
+    const encoded = encodeError('kubernetes.accessHostsUnreachable', undefined, undefined, [{ label: 'h1', error: { code: 'ssh.timeout', detail: long } }]);
+    expect(decodeError(encoded)?.causes?.[0].error.detail).toHaveLength(500);
+    const forged = `§kubernetes.accessHostsUnreachable ${JSON.stringify({ causes: [{ label: 'h1', error: { code: 'ssh.timeout', detail: long } }] })}`;
+    expect(decodeError(forged)?.causes?.[0].error.detail).toHaveLength(500);
+  });
+
   it('drops invalid causes and nested causes on decode', () => {
     const payload = { causes: [
       { label: 'ok', error: { code: 'ssh.timeout', causes: [{ label: 'deep', error: { code: 'core.unknown' } }] } },
