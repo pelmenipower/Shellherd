@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -64,6 +64,50 @@ describe('migrateUserData', () => {
     writeFileSync(join(source, 'a', 'b'), 'x');
     writeFileSync(join(root, 'x'), 'x');
     expect(migrateUserData(source, target, ['..\\x', 'a/b', '../x'])).toEqual([]);
+  });
+
+  it('retries a rename that fails once with EPERM', () => {
+    writeFileSync(join(source, 'known-hosts.json'), 'a');
+    let calls = 0;
+    const ops = {
+      rename: (from: string, to: string) => {
+        if (++calls === 1) throw Object.assign(new Error('locked'), { code: 'EPERM' });
+        renameSync(from, to);
+      },
+      sleep: () => {},
+    };
+    expect(migrateUserData(source, target, ['known-hosts.json'], ops)).toEqual(['known-hosts.json']);
+    expect(calls).toBe(2);
+    expect(readFileSync(join(target, 'known-hosts.json'), 'utf8')).toBe('a');
+    expect(readdirSync(target).filter(name => name.endsWith('.migrating'))).toEqual([]);
+  });
+
+  it('gives up after three failed renames and cleans up its temp file', () => {
+    writeFileSync(join(source, 'known-hosts.json'), 'a');
+    let calls = 0;
+    const ops = {
+      rename: () => {
+        calls++;
+        throw Object.assign(new Error('busy'), { code: 'EBUSY' });
+      },
+      sleep: () => {},
+    };
+    expect(migrateUserData(source, target, ['known-hosts.json'], ops)).toEqual([]);
+    expect(calls).toBe(3);
+    expect(existsSync(join(target, 'known-hosts.json'))).toBe(false);
+    expect(readdirSync(target).filter(name => name.endsWith('.migrating'))).toEqual([]);
+    expect(readFileSync(join(source, 'known-hosts.json'), 'utf8')).toBe('a');
+  });
+
+  it('removes orphaned <target>.*.migrating files from earlier runs, only that pattern', () => {
+    writeFileSync(join(source, 'known-hosts.json'), 'a');
+    mkdirSync(target);
+    writeFileSync(join(target, 'known-hosts.json.dead-beef.migrating'), 'half');
+    writeFileSync(join(target, 'last-vault.json.dead-beef.migrating'), 'other');
+    writeFileSync(join(target, 'keep.migrating'), 'x');
+    writeFileSync(join(target, 'known-hosts.json.bak'), 'x');
+    migrateUserData(source, target, ['known-hosts.json']);
+    expect(readdirSync(target).sort()).toEqual(['keep.migrating', 'known-hosts.json', 'known-hosts.json.bak', 'last-vault.json.dead-beef.migrating']);
   });
 
   it('leaves no *.migrating file behind', () => {

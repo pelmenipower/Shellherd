@@ -237,7 +237,9 @@ Beim ersten Kontakt den angezeigten SHA-256-Fingerprint mit einer
 vertrauenswürdigen Quelle vergleichen. Nur ausdrücklich bestätigte Schlüssel
 werden in `known-hosts.json` im Electron-Benutzerdatenverzeichnis gespeichert.
 Diese Datei enthält Hosts, Ports und öffentliche Fingerprints, keine Zugangsdaten.
-Sie liegt unter `%APPDATA%\Shellherd\known-hosts.json`; beim ersten Start übernimmt Shellherd sie einmalig aus `%APPDATA%\Terminus`. Sie ist eine eigene Shellherd-Vertrauensdatei; OpenSSHs `known_hosts` wird noch
+Sie liegt unter `%APPDATA%\Shellherd\known-hosts.json`; beim ersten Start übernimmt
+Shellherd sie einmalig aus `%APPDATA%\Terminus`. Sie ist eine eigene
+Shellherd-Vertrauensdatei; OpenSSHs `known_hosts` wird noch
 nicht importiert. Abweichende Schlüssel und beschädigte Vertrauensdateien brechen
 die Verbindung ab. Ein Schlüsselwechsel muss mit dem Server-Administrator geklärt
 werden; eine Oberfläche zur gezielten Verwaltung vertrauter Hosts folgt später.
