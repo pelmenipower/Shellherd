@@ -35,7 +35,8 @@
   },
   "shortcuts": {
     "palette": "Strg+Umschalt+Leertaste",
-    "assistant": "Strg+Umschalt+K"
+    "assistant": "Strg+Umschalt+K",
+    "settings": "Strg+,"
   },
   "commandGroups": {
     "navigation": "Navigation",

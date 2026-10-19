@@ -77,7 +77,9 @@
     "workflowsTitle": "Workflows suchen und eintippen ({{shortcut}})",
     "assistant": "KI-Assistent",
     "assistantTitle": "KI-Assistent ein- oder ausblenden ({{shortcut}})",
-    "lock": "Vault sperren"
+    "lock": "Vault sperren",
+    "settings": "Einstellungen",
+    "settingsTitle": "Einstellungen ({{shortcut}})"
   },
   "dialogs": {
     "unsaved": {
@@ -134,7 +136,8 @@
     "subtitle": "SSH-Verbindungen, Ordner und Workspaces in einer lokal verschlüsselten Datei.",
     "create": "Neuen Vault erstellen",
     "open": "Vault öffnen",
-    "crypto": "Argon2id und AES-256-GCM aktiv"
+    "crypto": "Argon2id und AES-256-GCM aktiv",
+    "settings": "Einstellungen"
   },
   "create": {
     "title": "Vault erstellen",
@@ -180,7 +183,8 @@
       "folder": "Rechtsklick auf einen Ordner → <strong>Alle verbinden</strong> öffnet jede Verbindung darin als Tab.",
       "split": "Tabs an den Rand eines Bereichs ziehen teilt ihn; aus dem Fenster ziehen öffnet ein eigenes Fenster.",
       "views": "Ansichten oben bündeln mehrere Bereiche; ein Workspace speichert alle Ansichten und Fenster.",
-      "files": "Im Dateibrowser: F4 bearbeitet, F5 kopiert, Umschalt+F4 legt eine Datei an."
+      "files": "Im Dateibrowser: F4 bearbeitet, F5 kopiert, Umschalt+F4 legt eine Datei an.",
+      "settings": "Sprache, Dateiverknüpfung und KI-Anbieter stehen unter Einstellungen (Zahnrad oben rechts, {{shortcut}})."
     }
   },
   "fileType": {
@@ -191,6 +195,25 @@
     "registeredMessage": ".term-Dateien öffnen sich jetzt per Doppelklick oder Rechtsklick → „Mit Shellherd öffnen“.",
     "removedMessage": "Die Verknüpfung wurde entfernt.",
     "failed": "Die Verknüpfung konnte nicht geändert werden."
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "sections": {
+      "general": "Allgemein",
+      "vault": "Vault",
+      "assistant": "KI-Assistent"
+    },
+    "locked": "Vault-Einstellungen und KI-Anbieter erscheinen nach dem Entsperren.",
+    "confirmClose": {
+      "label": "Vor dem Trennen laufender Sitzungen nachfragen",
+      "hint": "Gilt für diesen Vault und wird mit ihm gespeichert."
+    },
+    "assistant": {
+      "none": "Noch kein Anbieter eingerichtet.",
+      "summary_one": "{{count}} Anbieter, Standard: {{name}}",
+      "summary_other": "{{count}} Anbieter, Standard: {{name}}",
+      "manage": "Anbieter verwalten"
+    }
   },
   "icons": {
     "terminal": "Terminal",

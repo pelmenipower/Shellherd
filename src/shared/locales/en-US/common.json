@@ -35,7 +35,8 @@
   },
   "shortcuts": {
     "palette": "Ctrl+Shift+Space",
-    "assistant": "Ctrl+Shift+K"
+    "assistant": "Ctrl+Shift+K",
+    "settings": "Ctrl+,"
   },
   "commandGroups": {
     "navigation": "Navigation",

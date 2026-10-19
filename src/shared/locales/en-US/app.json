@@ -77,7 +77,9 @@
     "workflowsTitle": "Search and type workflows ({{shortcut}})",
     "assistant": "AI assistant",
     "assistantTitle": "Show or hide the AI assistant ({{shortcut}})",
-    "lock": "Lock vault"
+    "lock": "Lock vault",
+    "settings": "Settings",
+    "settingsTitle": "Settings ({{shortcut}})"
   },
   "dialogs": {
     "unsaved": {
@@ -134,7 +136,8 @@
     "subtitle": "SSH connections, folders and workspaces in one locally encrypted file.",
     "create": "Create new vault",
     "open": "Open vault",
-    "crypto": "Argon2id and AES-256-GCM active"
+    "crypto": "Argon2id and AES-256-GCM active",
+    "settings": "Settings"
   },
   "create": {
     "title": "Create vault",
@@ -180,7 +183,8 @@
       "folder": "Right-click a folder → <strong>Connect all</strong> opens every connection in it as a tab.",
       "split": "Dragging a tab to the edge of a pane splits it; dragging it out of the window opens a window of its own.",
       "views": "Views at the top group several panes; a workspace saves all views and windows.",
-      "files": "In the file browser: F4 edits, F5 copies, Shift+F4 creates a file."
+      "files": "In the file browser: F4 edits, F5 copies, Shift+F4 creates a file.",
+      "settings": "Language, file association and AI providers are in Settings (gear at the top right, {{shortcut}})."
     }
   },
   "fileType": {
@@ -191,6 +195,25 @@
     "registeredMessage": ".term files now open with a double-click or right-click → “Open with Shellherd”.",
     "removedMessage": "The association was removed.",
     "failed": "The association could not be changed."
+  },
+  "settings": {
+    "title": "Settings",
+    "sections": {
+      "general": "General",
+      "vault": "Vault",
+      "assistant": "AI assistant"
+    },
+    "locked": "Vault settings and AI providers appear after unlocking.",
+    "confirmClose": {
+      "label": "Ask before disconnecting running sessions",
+      "hint": "Applies to this vault and is saved with it."
+    },
+    "assistant": {
+      "none": "No provider set up yet.",
+      "summary_one": "{{count}} provider, default: {{name}}",
+      "summary_other": "{{count}} providers, default: {{name}}",
+      "manage": "Manage providers"
+    }
   },
   "icons": {
     "terminal": "Terminal",
