@@ -25,7 +25,7 @@ export function visibleBounds(bounds: Rectangle): Rectangle {
   return { x: area.x + 40, y: area.y + 40, width: Math.min(bounds.width, area.width - 80), height: Math.min(bounds.height, area.height - 80) };
 }
 
-/** Tracks Terminus windows by webContents ID. Exactly one main window owns vault, sidebar and editor. */
+/** Tracks Shellherd windows by webContents ID. Exactly one main window owns vault, sidebar and editor. */
 export class WindowRegistry {
   private entries = new Map<number, Entry>();
 
@@ -59,7 +59,7 @@ export class WindowRegistry {
   allowClose(id: number): void { const entry = this.entries.get(id); if (entry) entry.closeAllowed = true; }
   closeAllowed(id: number): boolean { return this.entries.get(id)?.closeAllowed ?? true; }
 
-  /** Topmost-by-focus Terminus window under a screen point (DIP), optionally excluding the drag source. */
+  /** Topmost-by-focus Shellherd window under a screen point (DIP), optionally excluding the drag source. */
   windowAt(point: Point, excludeId?: number): BrowserWindow | undefined {
     return [...this.entries.entries()]
       .filter(([id, entry]) => id !== excludeId && !entry.window.isDestroyed() && entry.window.isVisible() && !entry.window.isMinimized())
