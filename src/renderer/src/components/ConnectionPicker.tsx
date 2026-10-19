@@ -3,7 +3,7 @@ import type { VaultNode } from '../../../shared/vault/types';
 import { searchVaultNodes } from '../vault-search';
 import { ConnectionIcon } from './ConnectionIcon';
 import { useNativeSurfaceBlock } from '../native-surface';
-import { connectionAddress } from '../../../shared/vault/connections';
+import { connectionAddress, sessionLimitText } from '../../../shared/vault/connections';
 
 interface Props {
   nodes: VaultNode[];
@@ -80,7 +80,7 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
         <input ref={search} type="search" aria-label="Verbindung für neuen Tab suchen" placeholder="Name, Host oder Ordner …"
           value={query} onChange={event => setQuery(event.target.value)} />
       </label>
-      {limitReached && <p className="connection-picker-hint" role="status">Alle 16 Sessions sind belegt. Schließe zuerst einen Tab.</p>}
+      {limitReached && <p className="connection-picker-hint" role="status">{sessionLimitText()}</p>}
       <div className="connection-picker-results">
         {results.map(({ node, path }) => node.type === 'connection' && <button className="connection-picker-option" key={node.id} type="button"
           disabled={disabled || limitReached || node.disabled} onClick={() => { close(); onConnect(node.id); }}

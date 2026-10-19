@@ -155,7 +155,7 @@ export function ContainerDock(props: ContainerDockProps) {
       body = (
         <div className="kube-dock-terminal">
           <TerminalPanel key={dockTerminalKey(row, terminalMode, epoch)} connection={terminalConnection} tabId={`${tabId}:dock`}
-            visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} />
+            visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} embedded />
         </div>
       );
     }
@@ -185,7 +185,7 @@ export function ContainerDock(props: ContainerDockProps) {
         {terminalConnection && onPopout && !(terminalMode === 'shell' && !running) && <button type="button" className="kube-dock-popout" onClick={onPopout}>Als Tab öffnen</button>}
         <button type="button" className="kube-dock-copy" disabled={nothingToCopy} title={nothingToCopy ? 'Nichts zu kopieren.' : undefined} onClick={copy}>Kopieren</button>
         <button type="button" className="kube-dock-toggle" aria-expanded={open} aria-label={open ? 'Panel einklappen' : 'Panel ausklappen'} onClick={onToggle}>
-          {open ? '▾' : '▴'}
+          <svg className={`chevron${open ? '' : ' is-up'}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m5 9 7 7 7-7" /></svg>
         </button>
       </div>
       <div className="kube-dock-body" hidden={!open}>{body}</div>
