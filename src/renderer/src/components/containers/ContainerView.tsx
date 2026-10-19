@@ -46,6 +46,8 @@ const KIND_TABS = { containers: 'Container', images: 'Images', volumes: 'Volumes
 /** Container tab: header, chip bar, table and dock for one SSH host or this computer. */
 export function ContainerView({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, onPopout }: ContainerViewProps) {
   const [state, dispatch] = useReducer(containerViewReducer, undefined, () => initialContainerViewState(Date.now(), connection.runtime ?? null));
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const { reload } = useContainerInventory(connection.id, state.requestedRuntime, visible, dispatch);
   const rootRef = useRef<HTMLElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -110,7 +112,7 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
       dispatch({ type: 'busy', uid: row.uid, busy: false });
       reload();
       // The dock shows the state from before the action: refetch Inspect (and restart logs) for the selected row.
-      if (row.uid === state.selected) dispatch({ type: 'reloadDock' });
+      if (row.uid === stateRef.current.selected) dispatch({ type: 'reloadDock' });
     }
   };
 

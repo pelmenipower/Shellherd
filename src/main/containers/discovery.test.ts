@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SshConnectionNode } from '../../shared/vault/types';
+import type { InventoryKind } from '../../shared/containers';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import { ContainerDiscovery } from './discovery';
 import type { RemoteHost, SudoPrompt } from './runner';
-import { inspectArgv, inventoryArgv, listArgv, remoteCommand } from './commands';
+import { inspectArgv, inventoryArgv, listArgv, remoteCommand, shellJoin } from './commands';
 import { connectionFingerprint, SudoRejections } from './sudo-rejections';
+import { SUDO_NOT_CACHED } from './parsers';
 import type { RunResult } from './parsers';
 
 const ok = (stdout: string): RunResult => ({ code: 0, stdout, stderr: '' });
@@ -355,18 +357,45 @@ describe('ContainerDiscovery on this computer', () => {
 
 const cmd = (argv: string[]) => remoteCommand(argv, { kind: 'none' });
 const CONTAINERS = '{"ID":"abc","Names":"web-1","Image":"nginx","State":"running","Status":"Up 1 hour"}\n';
-const inventoryAnswers = (rt: 'docker' | 'podman', extra: Record<string, RunResult> = {}): Record<string, RunResult> => ({
-  [PROBE]: ok('has:docker\nhas:podman\n'),
-  [cmd(inventoryArgv(rt, 'containers'))]: ok(rt === 'docker' ? CONTAINERS : '[]'),
-  [cmd(inventoryArgv(rt, 'images'))]: ok(''),
-  [cmd(inventoryArgv(rt, 'volumes'))]: ok(''),
-  [cmd(inventoryArgv(rt, 'networks'))]: ok(''),
-  ...extra,
-});
+const KINDS = ['containers', 'images', 'volumes', 'networks'] as const;
+const MARKER = /\[terminus-list-[0-9a-f]{16}\]/;
+
+/** Answers PROBE and the batch: reads the list marker from the command, checks the four lists in order, joins the answers with marker lines. */
+function batchHost(probe: string, lists: Partial<Record<InventoryKind, RunResult>>, batch: Partial<RunResult> = {}, stopAfter?: InventoryKind) {
+  const host = fakeHost({ [PROBE]: ok(probe) }) as ReturnType<typeof fakeHost> & { limits: (number | undefined)[]; timeouts: number[] };
+  host.limits = [];
+  host.timeouts = [];
+  host.run = async (command, timeout, prompt, limit) => {
+    host.commands.push(command); host.sudo.push(prompt);
+    if (command === PROBE) return ok(probe);
+    host.limits.push(limit); host.timeouts.push(timeout);
+    const marker = MARKER.exec(command)![0];
+    // The script is one quoted argument of sh -c; undo that quoting to find the list commands.
+    const script = command.split(String.raw`'\''`).join("'");
+    const rt = (['docker', 'podman'] as const).find(candidate => script.includes(shellJoin(inventoryArgv(candidate, 'containers'))))!;
+    let at = 0;
+    for (const kind of KINDS) {
+      const found = script.indexOf(shellJoin(inventoryArgv(rt, kind)), at);
+      expect(found).toBeGreaterThanOrEqual(at);
+      at = found;
+    }
+    let stdout = '';
+    let stderr = '';
+    for (const kind of KINDS) {
+      const answer = lists[kind] ?? ok('');
+      stdout += `${answer.stdout}\n${marker}:${kind}:${answer.code ?? 1}\n`;
+      stderr += `${answer.stderr}\n${marker}:${kind}:${answer.code ?? 1}\n`;
+      if (kind === stopAfter) break;
+    }
+    return { code: 0, stdout, stderr, ...batch };
+  };
+  return host;
+}
+const passwordConnection = () => ssh({ containers: { sudo: true }, authentication: { method: 'password', password: 'synthetic-password' } });
 
 describe('ContainerDiscovery inventory over SSH', () => {
-  it('uses docker first, lists the kinds one after another and sets user and sudo', async () => {
-    const host = fakeHost(inventoryAnswers('docker'));
+  it('uses docker first, runs the four lists in one command and sets user and sudo', async () => {
+    const host = batchHost('has:docker\nhas:podman\n', { containers: ok(CONTAINERS) });
     const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
     const result = await discovery.inventory('h1');
     expect(result.runtime).toBe('docker');
@@ -374,14 +403,14 @@ describe('ContainerDiscovery inventory over SSH', () => {
     expect(result.rows.containers).toHaveLength(1);
     expect(result.user).toBe('admin');
     expect(result.sudo).toBe(false);
-    expect(host.commands).toEqual([PROBE, ...(['containers', 'images', 'volumes', 'networks'] as const).map(kind => cmd(inventoryArgv('docker', kind)))]);
+    expect(host.commands).toHaveLength(2);
+    expect(host.timeouts).toEqual([60_000]);
+    expect(host.limits).toEqual([4 * 1024 * 1024]);
   });
-  it('honours the runtime parameter and falls back to the first runtime for an unknown one', async () => {
-    const podman = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => fakeHost(inventoryAnswers('podman')), runLocal: vi.fn() });
-    expect((await podman.inventory('h1', 'podman')).runtime).toBe('podman');
-    const only = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(),
-      openRemote: async () => fakeHost({ ...inventoryAnswers('docker'), [PROBE]: ok('has:docker\n') }) });
-    expect((await only.inventory('h1', 'podman')).runtime).toBe('docker');
+  it('lets the runtime parameter win when both runtimes exist', async () => {
+    const host = batchHost('has:docker\nhas:podman\n', { containers: ok('[]') });
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
+    expect((await discovery.inventory('h1', 'podman')).runtime).toBe('podman');
   });
   it('rejects without a runtime and when the probe fails', async () => {
     const none = new ContainerDiscovery({ getConnection: () => ssh(), runLocal: vi.fn(), openRemote: async () => fakeHost({ [PROBE]: ok('has:pct\n') }) });
@@ -391,21 +420,75 @@ describe('ContainerDiscovery inventory over SSH', () => {
     await expect(failing.inventory('h1')).rejects.toThrow('sh: cannot fork');
   });
   it('reports a failed kind in problems and still returns the others', async () => {
-    const images = cmd(inventoryArgv('docker', 'images'));
-    const host = fakeHost(inventoryAnswers('docker', { [images]: { code: null, stdout: '', stderr: '', timedOut: true } }));
+    const host = batchHost('has:docker\n', { containers: ok(CONTAINERS), images: { code: 1, stdout: '', stderr: 'Error response from daemon: x' } });
     const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
     const result = await discovery.inventory('h1');
-    expect(result.problems).toEqual({ images: 'Der Host hat nicht rechtzeitig geantwortet.' });
+    expect(result.problems).toEqual({ images: 'Error response from daemon: x' });
     expect(result.rows.images).toEqual([]);
     expect(result.rows.containers).toHaveLength(1);
   });
-  it('sets sudo and runs the lists through sudo -n when the connection asks for it', async () => {
-    const host = fakeHost({ [PROBE]: ok('has:docker\n') });
+  it('marks the lists a timed-out batch never reached', async () => {
+    const host = batchHost('has:docker\n', { containers: ok(CONTAINERS) }, { code: null, timedOut: true }, 'containers');
+    const discovery = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => host, runLocal: vi.fn() });
+    const result = await discovery.inventory('h1');
+    const text = 'Der Host hat nicht rechtzeitig geantwortet.';
+    expect(result.problems).toEqual({ images: text, volumes: text, networks: text });
+    expect(result.rows.containers).toHaveLength(1);
+  });
+  it('runs noninteractive sudo as one sh -c command without a prompt', async () => {
+    const host = batchHost('has:docker\n', {});
     const discovery = new ContainerDiscovery({ getConnection: () => ssh({ containers: { sudo: true } }), openRemote: async () => host, runLocal: vi.fn() });
     const result = await discovery.inventory('h1');
     expect(result.sudo).toBe(true);
-    expect(result.problems.containers).toBeDefined();
-    expect(host.commands[1]).toBe(remoteCommand(inventoryArgv('docker', 'containers'), { kind: 'noninteractive' }));
+    expect(host.commands[1].startsWith('sh -c ')).toBe(true);
+    expect(host.commands[1]).toContain('sudo -n docker ps');
+    expect(host.commands[1]).toContain('sudo -n docker images');
+    expect(host.sudo[1]).toBeUndefined();
+  });
+  it('authenticates once per poll in password mode and uses fresh list markers', async () => {
+    const host = batchHost('has:docker\n', {}, { sudoReady: true });
+    const discovery = new ContainerDiscovery({ getConnection: passwordConnection, openRemote: async () => host, runLocal: vi.fn() });
+    const result = await discovery.inventory('h1');
+    expect(result.problems).toEqual({});
+    const prompts = host.sudo.filter(Boolean);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.password).toBe('synthetic-password');
+    expect(host.commands[1]).not.toContain('synthetic-password');
+    expect(host.commands[1].split(' -v ')).toHaveLength(2);
+    await discovery.inventory('h1');
+    const markers = host.commands.filter(command => command !== PROBE).map(command => MARKER.exec(command)![0]);
+    expect(new Set(markers).size).toBe(2);
+  });
+  it('reports a rejected sudo password for all four kinds and sends it only once', async () => {
+    const host = batchHost('has:docker\n', {});
+    host.run = async (command, _timeout, prompt) => {
+      host.commands.push(command); host.sudo.push(prompt);
+      return command === PROBE ? ok('has:docker\n') : { code: null, stdout: '', stderr: '', sudoRejected: true };
+    };
+    const discovery = new ContainerDiscovery({ getConnection: passwordConnection, openRemote: async () => host, runLocal: vi.fn(), idleMs: 0 });
+    const text = 'Das sudo-Passwort wurde abgelehnt.';
+    const all = { containers: text, images: text, volumes: text, networks: text };
+    expect((await discovery.inventory('h1')).problems).toEqual(all);
+    expect(host.sudo.filter(Boolean)).toHaveLength(1);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    expect((await discovery.inventory('h1')).problems).toEqual(all);
+    expect(host.sudo.filter(Boolean)).toHaveLength(1);
+  });
+  it('explains a sudo that does not cache the login', async () => {
+    const host = batchHost('has:docker\n', { containers: { code: 1, stdout: '', stderr: 'sudo: a password is required' } }, { sudoReady: true });
+    const discovery = new ContainerDiscovery({ getConnection: passwordConnection, openRemote: async () => host, runLocal: vi.fn() });
+    expect((await discovery.inventory('h1')).problems.containers).toBe(SUDO_NOT_CACHED);
+  });
+  it('is strict about a requested runtime: error before any list, no sudo', async () => {
+    const host = batchHost('has:docker\n', {});
+    const discovery = new ContainerDiscovery({ getConnection: passwordConnection, openRemote: async () => host, runLocal: vi.fn() });
+    await expect(discovery.inventory('h1', 'podman')).rejects.toThrow('Podman wurde auf diesem Host nicht gefunden.');
+    expect(host.commands).toEqual([PROBE]);
+    expect(host.sudo.filter(Boolean)).toEqual([]);
+    const proxmox = batchHost('has:pct\n', {});
+    const other = new ContainerDiscovery({ getConnection: () => ssh(), openRemote: async () => proxmox, runLocal: vi.fn() });
+    await expect(other.inventory('h1')).rejects.toThrow('Auf diesem Host wurde weder Docker noch Podman gefunden.');
+    await expect(other.inventory('h1', 'docker')).rejects.toThrow('Docker wurde auf diesem Host nicht gefunden.');
   });
 });
 
@@ -419,6 +502,17 @@ describe('ContainerDiscovery inventory on this computer', () => {
     expect(result.rows.containers).toHaveLength(1);
     expect(result.user).toBeUndefined();
     expect(result.sudo).toBe(false);
+  });
+  it('is strict about a requested runtime locally', async () => {
+    const runLocal = vi.fn(async (file: string) => file === 'docker' ? ok(CONTAINERS) : missing);
+    const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal });
+    await expect(discovery.inventory(LOCAL_CONTAINER_HOST, 'podman')).rejects.toThrow('Podman wurde auf diesem Host nicht gefunden.');
+    // A fixed tab never runs the other runtime.
+    expect(runLocal.mock.calls).toEqual([['podman', inventoryArgv('podman', 'containers').slice(1), 15_000]]);
+    runLocal.mockClear();
+    // A free tab still probes both.
+    expect((await discovery.inventory(LOCAL_CONTAINER_HOST)).runtime).toBe('docker');
+    expect(runLocal.mock.calls.map(call => call[0]).slice(0, 2)).toEqual(['docker', 'podman']);
   });
   it('rejects when both runtimes are missing', async () => {
     const discovery = new ContainerDiscovery({ getConnection: vi.fn(), openRemote: vi.fn(), runLocal: vi.fn(async () => missing) });

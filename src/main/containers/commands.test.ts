@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { actionArgv, ContainerInputError, inspectArgv, inventoryActionArgv, inventoryArgv, listArgv, localProbeArgv, PROBE_COMMAND, remoteCommand, shellJoin, SHELL_CHOICE, sudoSetting, terminalArgv } from './commands';
+import { actionArgv, ContainerInputError, inspectArgv, inventoryActionArgv, inventoryArgv, listArgv, localProbeArgv, PROBE_COMMAND, remoteCommand, remoteScript, shellJoin, SHELL_CHOICE, sudoSetting, terminalArgv } from './commands';
 import { INVENTORY_KINDS } from '../../shared/containers';
 import type { ContainerRuntime, InventoryAction, InventoryKind } from '../../shared/containers';
 import type { SshConnectionNode } from '../../shared/vault/types';
@@ -80,6 +80,25 @@ describe('remoteCommand', () => {
     const arg = "a'; echo pwned; '";
     const out = execFileSync('sh', ['-c', `printf %s ${shellJoin([arg])}`], { encoding: 'utf8' });
     expect(out).toBe(arg);
+  });
+});
+
+describe('remoteScript', () => {
+  const marker = '[terminus-sudo-0123456789abcdef]';
+  const ready = '[terminus-ready-0123456789abcdef]';
+  it('wraps the body in sh with the extended PATH; the body sets sudo -n itself', () => {
+    const expected = `sh -c 'PATH="$PATH:/usr/sbin:/sbin"; true'`;
+    expect(remoteScript('true', { kind: 'none' })).toBe(expected);
+    expect(remoteScript('true', { kind: 'noninteractive' })).toBe(expected);
+  });
+  it('validates once, signals readiness, then runs the body in braces', () => {
+    expect(remoteScript('true', { kind: 'prompt', marker, ready, stdin: true })).toBe(
+      `sh -c 'PATH="$PATH:/usr/sbin:/sbin"; sudo -S -p '\\''${marker}'\\'' -v && printf %s '\\''${ready}'\\'' && { true; }; exit $?'`);
+  });
+  it('refuses invalid markers', () => {
+    expect(() => remoteScript('true', { kind: 'prompt', marker: '%u', ready, stdin: true })).toThrow('Invalid sudo marker');
+    expect(() => remoteScript('true', { kind: 'prompt', marker: '', ready, stdin: true })).toThrow();
+    expect(() => remoteScript('true', { kind: 'prompt', marker, ready: "x'y", stdin: true })).toThrow();
   });
 });
 

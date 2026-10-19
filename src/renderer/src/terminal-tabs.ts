@@ -61,6 +61,22 @@ export function sameTarget(a: TerminalConnection, b: TerminalConnection): boolea
   return a.id === b.id && a.view === b.view && (a.runtime ?? '') === (b.runtime ?? '') && (a.target ? targetKey(a.target) : '') === (b.target ? targetKey(b.target) : '')
     && kubeKey(a.kube) === kubeKey(b.kube);
 }
+
+/** Open view of the same host and runtime: the active tab first, else the first match; undefined when none. */
+export function reusableTab(tabs: readonly TerminalTab[], activeTabId: string | null, connection: TerminalConnection): TerminalTab | undefined {
+  const matches = tabs.filter(tab => sameTarget(tab.connection, connection));
+  return matches.find(tab => tab.id === activeTabId) ?? matches[0];
+}
+export type ContainerViewPlan = { kind: 'focus'; tabId: string } | { kind: 'limit' } | { kind: 'open' };
+/** reuse → focus an open tab before the session limit applies; then MAX_SSH_SESSIONS; then open. */
+export function planContainerView(tabs: readonly TerminalTab[], activeTabId: string | null, connection: TerminalConnection, reuse: boolean): ContainerViewPlan {
+  if (reuse) {
+    const open = reusableTab(tabs, activeTabId, connection);
+    if (open) return { kind: 'focus', tabId: open.id };
+  }
+  return tabs.length >= MAX_SSH_SESSIONS ? { kind: 'limit' } : { kind: 'open' };
+}
+
 export interface TerminalTab {
   id: string;
   connection: TerminalConnection;

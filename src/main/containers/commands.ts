@@ -37,6 +37,14 @@ export function remoteCommand(argv: string[], sudo: SudoMode): string {
   return shellJoin(['sh', '-c', script]);
 }
 
+/** Runs a fixed sh script; in prompt mode after one `sudo -v`, the script itself prefixes `sudo -n` where needed. */
+export function remoteScript(body: string, sudo: SudoMode): string {
+  if (sudo.kind !== 'prompt') return shellJoin(['sh', '-c', `${PATH_PREFIX}; ${body}`]);
+  if (!SUDO_MARKER.test(sudo.marker) || !SUDO_MARKER.test(sudo.ready)) throw new Error('Invalid sudo marker');
+  const validate = shellJoin(['sudo', ...(sudo.stdin ? ['-S'] : []), '-p', sudo.marker, '-v']);
+  return shellJoin(['sh', '-c', `${PATH_PREFIX}; ${validate} && printf %s ${shellJoin([sudo.ready])} && { ${body}; }; exit $?`]);
+}
+
 /** How container commands of this connection use sudo; prompt only with a stored password. */
 export function sudoSetting(connection: SshConnectionNode): { kind: 'none' } | { kind: 'noninteractive' } | { kind: 'prompt'; password: string } {
   if (connection.containers?.sudo !== true) return { kind: 'none' };

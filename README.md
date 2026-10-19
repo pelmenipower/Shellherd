@@ -146,7 +146,8 @@ Gruppierung und Sortierung; Filter und Gruppierung bleiben je Reiter erhalten, `
 setzt die Filter zurück. Ein Tab aus der Seitenleiste ist fest auf seine Laufzeit
 gesetzt. Der freie Tab (`Container-Ansicht öffnen`, `Lokale Container-Ansicht öffnen`)
 hat einen Umschalter im Kopf, wenn Docker und Podman installiert sind. Die Liste
-aktualisiert sich alle 10 Sekunden, solange der Tab sichtbar ist, sowie nach jeder Aktion und mit `F5`.
+aktualisiert sich alle 10 Sekunden, solange der Tab sichtbar ist, sowie nach jeder
+Aktion und mit `F5`.
 
 Das Dock unter der Tabelle zeigt Logs (`l`), eine Shell (`s`, startet erst auf
 Knopfdruck, nur bei laufenden Containern) und Inspect (`i`). Bei Images, Volumes und
@@ -163,9 +164,9 @@ Grenzen:
   weil nur die Namen geprüft werden.
 - Ohne sudo zeigt Podman nur die Container des SSH-Benutzers (rootless).
 - Ein zweiter Tab desselben Hosts pollt doppelt. Mit `sudo` im Passwortmodus meldet
-  sich jeder Poll viermal per sudo an; das steht im Auth-Log des Hosts.
-- Fehlt die Laufzeit eines festen Tabs auf dem Host, zeigt der Tab einen Fehler, fragt
-  aber im Hintergrund weiter die andere Laufzeit ab.
+  sich jeder Poll einmal per sudo an; das steht im Auth-Log des Hosts.
+- Fehlt die Laufzeit eines festen Tabs auf dem Host, zeigt der Tab einen Fehler. Im
+  Hintergrund prüft er nur noch ohne sudo, ob sie wieder da ist.
 
 ## Kubernetes
 

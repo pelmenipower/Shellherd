@@ -26,7 +26,7 @@ import { FolderEditor } from './components/FolderEditor';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
-import { containerConnection, containerViewConnection, isRunning, sameTarget, tabLabel, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, containerViewConnection, isRunning, planContainerView, tabLabel, toTerminalConnection } from './terminal-tabs';
 import type { TerminalConnection, TerminalTab } from './terminal-tabs';
 import { newClusterFromSsh } from './cluster-form';
 import type { KubeProbeResult, KubeViewSnapshot } from '../../shared/kubernetes';
@@ -676,13 +676,9 @@ export default function App() {
       const name = host?.type === 'connection' ? host.name : LOCAL_HOST_NAME;
       const address = host?.type === 'connection' ? connectionAddress(host) : 'lokal';
       const connection = containerViewConnection(hostId, name, address, runtime);
-      if (reuse) {
-        // Focus an open view of the same host and runtime (the active one first) before the session limit applies.
-        const matches = terminals.tabs.filter(tab => sameTarget(tab.connection, connection));
-        const open = matches.find(tab => tab.id === terminals.activeTabId) ?? matches[0];
-        if (open) { terminals.select(open.id); setEditorOpen(false); setEditorDirty(false); setError(null); return; }
-      }
-      if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
+      const plan = planContainerView(terminals.tabs, terminals.activeTabId, connection, reuse);
+      if (plan.kind === 'focus') { terminals.select(plan.tabId); setEditorOpen(false); setEditorDirty(false); setError(null); return; }
+      if (plan.kind === 'limit') { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
       terminals.open(connection);
       setEditorOpen(false); setEditorDirty(false); setError(null);
     });
