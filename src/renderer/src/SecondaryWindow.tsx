@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionCatalog } from '../../shared/windows';
 import { SplitTerminalArea } from './components/SplitTerminalArea';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { Toast } from './components/Toast';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
 import { useTerminalLayout } from './hooks/useTerminalLayout';
 import { useTabTransfer } from './hooks/useTabTransfer';
@@ -109,7 +110,6 @@ export function SecondaryWindow() {
       description="Diese Verbindung wird beendet. Laufende Programme in der Sitzung können dadurch beendet werden."
       confirmLabel="Verbindung trennen" busy={false} onCancel={() => setPendingClose(null)}
       onConfirm={() => { setPendingClose(null); terminals.close(closingTab.id); }} />}
-    {error && <div className="app-error" role="alert"><span>{error}</span>
-      <button type="button" aria-label="Fehlermeldung schließen" onClick={() => setError(null)}>Schließen</button></div>}
+    <Toast message={error} onClose={() => setError(null)} />
   </main>;
 }

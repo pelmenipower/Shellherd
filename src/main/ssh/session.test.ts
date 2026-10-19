@@ -447,8 +447,8 @@ describe('SSH session manager with a real local SSH server', () => {
       } });
     const stuck = sudoTab('sudo-quiet');
     await manager.connect(1, stuck);
-    await waitFor(() => output().includes('[Terminus] sudo hat nicht wie erwartet geantwortet'));
-    expect(output()).toContain('\r\n[Terminus] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben.\r\n');
+    await waitFor(() => output().includes('[Shellherd] sudo hat nicht wie erwartet geantwortet'));
+    expect(output()).toContain('\r\n[Shellherd] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben.\r\n');
     // The gate is free again: another tab authenticates while the first one is still open.
     const next = sudoTab('web-1');
     await manager.connect(1, next);

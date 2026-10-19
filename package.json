@@ -1,8 +1,14 @@
 {
-  "name": "Terminus",
-  "version": "0.7.0",
+  "name": "shellherd",
+  "productName": "Shellherd",
+  "version": "0.10.0",
   "private": true,
-  "description": "A local, encrypted SSH connection manager.",
+  "description": "Shellherd – a local, encrypted connection manager for SSH, RDP, containers and Kubernetes.",
+  "homepage": "https://github.com/pelmenipower/Shellherd",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pelmenipower/Shellherd.git"
+  },
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {
@@ -16,7 +22,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "build:rdp-host": "node scripts/build-rdp-host.mjs",
-    "rdp:try": "node scripts/rdp-try.mjs"
+    "rdp:try": "node scripts/rdp-try.mjs",
+    "icons": "electron scripts/icons/make-icons.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

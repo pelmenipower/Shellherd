@@ -1,6 +1,10 @@
-# Terminus
+# Shellherd
 
-Lokaler SSH-Verbindungsmanager mit verschlüsselten, portablen `.terminus`-Vaults.
+<img src="resources/icon.png" width="96" alt="Shellherd">
+
+Lokaler Verbindungsmanager für SSH, RDP, Container und Kubernetes mit verschlüsselten, portablen Vault-Dateien (`.term`).
+
+Shellherd hieß bis Version 0.9.0 Terminus; Vault-Dateien (`.term`, ältere `.terminus`) bleiben kompatibel. Beim ersten Start übernimmt Shellherd die Einstellungen (bekannte Hostschlüssel, zuletzt geöffnete Vault-Datei) einmalig aus `%APPDATA%\Terminus`; der alte Ordner bleibt unverändert. Repository: <https://github.com/pelmenipower/Shellherd>.
 
 ## Lokal starten
 
@@ -18,6 +22,14 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+## Designsystem
+
+Farben, Maße, Radien, Ebenen, Schatten und Bewegung kommen aus einer Datei: `src/renderer/src/tokens.css`. Die Regeln für neue Oberflächen stehen in [`docs/design-system.md`](docs/design-system.md). Der Test `src/renderer/src/design-tokens.test.ts` prüft alle CSS-Dateien auf harte Farben und Maße, eingebaute Easings, feste Dauern und z-index-Werte sowie auf Bewegung ohne `prefers-reduced-motion`.
+
+## Icons
+
+Programmsymbol und Oberflächenzeichen entstehen aus `resources/brand/shellherd-master.png` und den Kleinvarianten in `resources/brand/`. `npm run icons` erzeugt daraus `resources/icon.png`, `resources/icon.ico` und `resources/mark-64.png`.
 
 ## Aktueller Stand
 
@@ -101,47 +113,84 @@ folgt in einem weiteren Schritt.
 
 ## Container und VMs
 
-Beim Aufklappen einer SSH-Verbindung erkennt Terminus Docker- und Podman-Container
-sowie Proxmox-LXC-Container und -VMs. Jedes Aufklappen lädt die Liste neu. Auf dem
-Server wird nichts installiert. Doppelklick oder Enter öffnet eine Shell nur in
-laufenden Containern und LXC-Containern. VMs bieten über das Kontextmenü
-`Serielle Konsole` an; das funktioniert nur mit einer seriellen Schnittstelle.
-Das Kontextmenü enthält `Shell öffnen`, bei Docker und Podman `Logs folgen`, bei
-Containern `Starten`, `Stoppen` und `Neu starten` sowie bei Proxmox `Starten`,
+Beim Aufklappen einer SSH-Verbindung erkennt Shellherd, ob Docker und Podman
+installiert sind, und zeigt je Laufzeit einen Eintrag `Docker-Ansicht` bzw.
+`Podman-Ansicht`; ein Klick öffnet die Container-Ansicht oder wechselt zu einem
+bereits offenen Tab. Ein weiterer Tab entsteht über das Kontextmenü des Eintrags
+(`Docker-Ansicht öffnen`). Proxmox-LXC-Container und -VMs erscheinen weiterhin als
+Liste. Jedes Aufklappen lädt neu. Auf dem Server wird nichts installiert.
+Doppelklick oder Enter öffnet eine Shell nur in laufenden LXC-Containern. VMs
+bieten über das Kontextmenü `Serielle Konsole` an; das funktioniert nur mit einer
+seriellen Schnittstelle.
+Das Kontextmenü der Proxmox-Gäste enthält `Shell öffnen`, `Starten`,
 `Herunterfahren` und `Stoppen`. Ein hartes Stoppen einer VM fragt vorher nach.
 
-`Dieser Computer` zeigt lokales Docker Desktop oder Podman, sofern es antwortet.
-Das wird nach dem Entsperren des Vaults geprüft und lässt sich über das Kontextmenü
-der freien Fläche im Verbindungsbaum (`Lokale Container suchen`) wiederholen.
+`Dieser Computer` zeigt `Docker-Ansicht` und `Podman-Ansicht`, sofern die jeweilige
+CLI installiert ist. Das wird nach dem Entsperren des Vaults geprüft und lässt sich
+über das Kontextmenü der freien Fläche im Verbindungsbaum (`Lokale Laufzeiten suchen`)
+wiederholen.
 
 Der SSH-Benutzer braucht Zugriff auf Docker über die Gruppe `docker`; für Proxmox
 muss er die Befehle als root ausführen können. Alternativ führt die Option
 `Container-Befehle mit sudo ausführen` die Befehle pro SSH-Verbindung mit sudo aus.
-Meldet sich die Verbindung per Passwort an, beantwortet Terminus die sudo-Abfrage
+Meldet sich die Verbindung per Passwort an, beantwortet Shellherd die sudo-Abfrage
 einmal mit dem gespeicherten Passwort, aber nur, wenn sudo tatsächlich fragt. Bei
 Anmeldung per Schlüssel oder Agent läuft `sudo -n`; dafür ist eine NOPASSWD-Regel
-für diesen Benutzer nötig. Lehnt sudo das Passwort ab, sendet Terminus es erst
+für diesen Benutzer nötig. Lehnt sudo das Passwort ab, sendet Shellherd es erst
 wieder, wenn die Verbindungseinstellungen geändert wurden.
 
 Container-Tabs von SSH-Hosts werden in Workspaces gespeichert, lokale Container-Tabs
 nicht. Diese Version bietet keinen Datei-Browser in Containern und keine Proxmox-API.
 Kubernetes hat einen eigenen Abschnitt.
 
+### Container-Ansicht
+
+Für Docker und Podman gibt es zusätzlich eine Ansicht im Stil des Cluster-Tabs. Sie
+öffnet sich über das Kontextmenü einer SSH-Verbindung (`Container-Ansicht öffnen`)
+oder für den eigenen Rechner über `Lokale Container-Ansicht öffnen` (Überschrift
+`Dieser Computer` oder freie Fläche im Verbindungsbaum). Die Ansicht hat vier Reiter:
+Container, Images, Volumes und Netzwerke. Jeder Reiter hat Spaltenfilter, Chips,
+Gruppierung und Sortierung; Filter und Gruppierung bleiben je Reiter erhalten, `F`
+setzt die Filter zurück. Ein Tab aus der Seitenleiste ist fest auf seine Laufzeit
+gesetzt. Der freie Tab (`Container-Ansicht öffnen`, `Lokale Container-Ansicht öffnen`)
+hat einen Umschalter im Kopf, wenn Docker und Podman installiert sind. Die Liste
+aktualisiert sich alle 10 Sekunden, solange der Tab sichtbar ist, sowie nach jeder
+Aktion und mit `F5`.
+
+Das Dock unter der Tabelle zeigt Logs (`l`), eine Shell (`s`, startet erst auf
+Knopfdruck, nur bei laufenden Containern) und Inspect (`i`). Bei Images, Volumes und
+Netzwerken gibt es nur Inspect. Starten läuft ohne Nachfrage. Stoppen, Neu starten
+und Entfernen öffnen einen Dialog; beim Entfernen von Containern, Images und Volumes
+muss man den Namen bzw. die Referenz eintippen. Verwendete Images und Volumes lassen
+sich nicht entfernen.
+
+Grenzen:
+
+- Inspect maskiert nur die Werte in `Config.Env`, deren Name sensibel klingt. Labels,
+  `Cmd` und Mounts bleiben unverändert sichtbar, ein Geheimnis in `Cmd` ist also lesbar.
+  Zugangsdaten in Werten wie `DATABASE_URL=postgres://u:p@…` werden nicht maskiert,
+  weil nur die Namen geprüft werden.
+- Ohne sudo zeigt Podman nur die Container des SSH-Benutzers (rootless).
+- Ein zweiter Tab desselben Hosts pollt doppelt. Mit `sudo` im Passwortmodus meldet
+  sich jeder Poll einmal per sudo an; das steht im Auth-Log des Hosts.
+- Fehlt die Laufzeit eines festen Tabs auf dem Host, zeigt der Tab einen Fehler. Im
+  Hintergrund prüft er nur noch ohne sudo, ob sie wieder da ist.
+
 ## Kubernetes
 
 Ein Cluster wird aus einer bestehenden SSH-Verbindung eingerichtet: Im Kontextmenü
-`Als Kubernetes-Cluster einrichten…` wählen. Terminus liest auf dem Host die kubeconfig
+`Als Kubernetes-Cluster einrichten…` wählen. Shellherd liest auf dem Host die kubeconfig
 und schlägt Name, Context und weitere Zugangs-Hosts vor, etwa `k8s-cp2` und
 `k8s-cp3` im selben Namensmuster. Die Zugangs-Hosts werden der Reihe nach
-probiert. Fällt einer aus, verbindet Terminus über den nächsten neu; der Status zeigt,
+probiert. Fällt einer aus, verbindet Shellherd über den nächsten neu; der Status zeigt,
 über welchen Host der Cluster gerade erreichbar ist.
 
 Die kubeconfig wird in dieser Reihenfolge gesucht: `$KUBECONFIG` der Login-Shell
 (erste Datei), `~/.kube/config`, dann `/etc/kubernetes/admin.conf`. Die Datei unter
-`/etc/kubernetes` liest Terminus per sudo mit der Anmeldung der SSH-Verbindung:
-Ist ein Passwort gespeichert, beantwortet Terminus die sudo-Abfrage damit, sonst
+`/etc/kubernetes` liest Shellherd per sudo mit der Anmeldung der SSH-Verbindung:
+Ist ein Passwort gespeichert, beantwortet Shellherd die sudo-Abfrage damit, sonst
 nutzt es `sudo -n` (dafür braucht der Benutzer NOPASSWD). Kubeconfigs mit `exec`- oder
-`auth-provider`-Abschnitten lehnt Terminus ab, weil deren Plugins auf diesem Rechner
+`auth-provider`-Abschnitten lehnt Shellherd ab, weil deren Plugins auf diesem Rechner
 statt auf dem Server laufen würden.
 
 Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
@@ -152,20 +201,23 @@ Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird.
 Der Cluster-Tab zeigt Nodes, Workloads, Pods und Events live. `Enter` führt per
 Drill-down etwa von einem Deployment über seine Pods zu den Containern, `Esc` geht
 eine Ebene zurück. Unten öffnet sich ein Bereich für Logs (`l`), Shell (`s`), Events
-(`e`), YAML (`y`) und Describe (`d`). `:` führt Befehle aus wie `:ns all` oder `:deploy`,
-und `?` zeigt die Hilfe mit allen Hotkeys und Befehlen.
+(`e`), YAML (`y`) und Describe (`d`). `?` zeigt die Hilfe mit allen Tasten und Filterformen.
 
-`/` sucht im Reiter: mehrere Begriffe müssen alle passen, `"ein satz"` sucht eine Phrase,
-`!term` schließt aus, `key=value` und `key!=value` filtern nach Labels, `feld:wert` nach einem
-Feld (`node:worker2`, `!status:running`) und `restarts>3` bzw. `count>=5` vergleichen Zahlen.
-Unter der Suche zeigt eine Chip-Leiste Status-Filter mit Zähler (Pods etwa „Läuft“, „Wartet“,
+Jede Spalte der Tabelle hat unter dem Kopf ein Filterfeld: Text (enthält), Auswahl für
+Namespace, Status, Typ, Node und Rollen, Zahlen (`>3`, `<=5`, `3`) und Alter (`<10m`,
+`>1h`, `<2d`). Alle Filter gelten zusammen; ungültige Eingaben sind rot markiert und filtern
+nicht. `/` springt in den Namensfilter (Events: Meldung), `F` setzt alle Filter des Reiters
+zurück. Darüber zeigt eine Chip-Leiste Status-Filter mit Zähler (Pods etwa „Läuft“, „Wartet“,
 „Fehler“, „Nicht bereit“, „Mit Neustarts“; Jobs „Läuft“, „Erfolgreich“, „Fehlgeschlagen“;
 Events „Warning“, „Normal“, „Letzte 5 min“). Chips einer Gruppe verbinden sich mit ODER,
-Gruppen untereinander mit UND. `w` zeigt nur Auffälliges (bei Events nur Warnungen),
-`F` setzt Suche und Chips des Reiters zurück, `:filter <suche>` und `:status failed,waiting`
-(oder `:status alle`) setzen sie per Befehl, und im Kontextmenü gibt es „Nur … anzeigen“.
-Suche und Chips merkt sich jeder Reiter. Events sind nach „Zuletzt“ absteigend sortiert;
-Jobs zeigen ihren Status, Pods auch „Evicted“ und „Unknown“, Nodes einen Hinweis bei Druck.
+Gruppen untereinander mit UND; `w` zeigt nur Auffälliges (bei Events nur Warnungen).
+Textfilter aus dem Kontextmenü (z. B. `app=api`) erscheinen als Chip „Filter: …“ und lassen
+sich mit × entfernen. „Gruppieren nach“ (z. B. Namespace, Node, Status, Owner) fasst Zeilen
+zu Gruppen zusammen, die sich per Klick auf- und zuklappen lassen. Filter und Gruppierung
+merkt sich jeder Reiter, auch im Workspace. Namespaces ohne Pods erreicht man über „alle“
+und den Namespace-Filter; ohne konfigurierten Namespace startet der Cluster-Tab mit allen
+Namespaces. Events sind nach „Zuletzt“ absteigend sortiert; Jobs zeigen ihren Status, Pods
+auch „Evicted“ und „Unknown“, Nodes einen Hinweis bei Druck.
 
 Rechtsklick oder `Shift+F10` öffnet im Cluster-Tab ein Kontextmenü, auch auf Node-Kacheln,
 Problemen und dem unteren Bereich. Es kopiert Namen, Namespace, `kubectl`-Befehle sowie
@@ -185,7 +237,9 @@ Beim ersten Kontakt den angezeigten SHA-256-Fingerprint mit einer
 vertrauenswürdigen Quelle vergleichen. Nur ausdrücklich bestätigte Schlüssel
 werden in `known-hosts.json` im Electron-Benutzerdatenverzeichnis gespeichert.
 Diese Datei enthält Hosts, Ports und öffentliche Fingerprints, keine Zugangsdaten.
-Sie ist eine eigene Terminus-Vertrauensdatei; OpenSSHs `known_hosts` wird noch
+Sie liegt unter `%APPDATA%\Shellherd\known-hosts.json`; beim ersten Start übernimmt
+Shellherd sie einmalig aus `%APPDATA%\Terminus`. Sie ist eine eigene
+Shellherd-Vertrauensdatei; OpenSSHs `known_hosts` wird noch
 nicht importiert. Abweichende Schlüssel und beschädigte Vertrauensdateien brechen
 die Verbindung ab. Ein Schlüsselwechsel muss mit dem Server-Administrator geklärt
 werden; eine Oberfläche zur gezielten Verwaltung vertrauter Hosts folgt später.

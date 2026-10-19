@@ -4,7 +4,7 @@ import { parseChangelog } from '../../shared/version';
 /** Release notes bundled from CHANGELOG.md, newest first. */
 export const releases = parseChangelog(changelog);
 
-const SEEN_KEY = 'terminus.seenVersion';
+const SEEN_KEY = 'shellherd.seenVersion';
 
 /** Last version whose notes were dismissed on this computer; storage may be unavailable. */
 export function seenVersion(): string | null {

@@ -1,6 +1,6 @@
 import type { ConnectionProtocol, VaultNode, Workflow, WorkspaceLayout, WorkspaceView } from './vault/types';
 import type { SshStatus } from './ssh';
-import type { TerminalTarget } from './containers';
+import type { ContainerRuntime, TerminalTarget } from './containers';
 import type { KubeTerminalTarget } from './kubernetes';
 
 export type WindowRole = 'main' | 'secondary';
@@ -8,12 +8,14 @@ export type WindowRole = 'main' | 'secondary';
 /** Tab metadata shared between windows; never credentials. */
 export interface TabConnection {
   id: string; name: string; protocol: ConnectionProtocol; address: string;
-  /** File browser opened for an SSH connection. */
-  view?: 'files';
+  /** File browser ('files') or container view ('containers') of the connection `id`. */
+  view?: 'files' | 'containers';
   /** Container or Proxmox guest on the host `id`. */
   target?: TerminalTarget;
   /** Logs or shell of a pod in the cluster `id`. */
   kube?: KubeTerminalTarget;
+  /** Fixed runtime of a container view; absent = first runtime found, with the switcher in the header. */
+  runtime?: ContainerRuntime;
 }
 
 export interface TransferSession { kind: 'terminal' | 'rdp' | 'sftp'; sessionId: string }

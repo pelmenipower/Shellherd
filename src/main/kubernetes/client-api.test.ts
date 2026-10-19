@@ -145,9 +145,46 @@ describe('openLogs', () => {
     await flush();
     fake.end();
     await flush();
-    expect(io.data).toHaveBeenCalledWith(Buffer.from('line 1\n'));
+    expect(io.data).toHaveBeenCalledWith(Buffer.from('line 1\r\n'));
     expect(io.end).toHaveBeenCalledTimes(1);
     expect(io.end).toHaveBeenCalledWith(0, undefined);
+  });
+
+  it('formats JSON lines compactly by default and flushes a partial last line at the end', async () => {
+    const fake = fakeLogRequest();
+    const io = fakeIo();
+    openLogs(testConfig(), logsTarget, io, fake.sendRequest);
+    fake.push('{"level":"info","msg":"one"}\n{"level":"info","msg":"two"}');
+    await flush();
+    expect(io.data).toHaveBeenCalledTimes(1);
+    expect(io.data).toHaveBeenCalledWith(Buffer.from('INFO  one\r\n'));
+    fake.end();
+    await flush();
+    expect(io.data).toHaveBeenLastCalledWith(Buffer.from('INFO  two'));
+    expect(io.end).toHaveBeenCalledWith(0, undefined);
+  });
+
+  it('shows the held partial line before a mid-stream body error', async () => {
+    const fake = fakeLogRequest();
+    const io = fakeIo();
+    openLogs(testConfig(), logsTarget, io, fake.sendRequest);
+    fake.push('{"level":"info","msg":"held"}');
+    await flush();
+    expect(io.data).not.toHaveBeenCalled();
+    fake.fail(new Error('socket hang up'));
+    await flush();
+    expect(io.data).toHaveBeenCalledWith(Buffer.from('INFO  held'));
+    expect(io.end).toHaveBeenCalledTimes(1);
+    expect(io.end.mock.calls[0][0]).toBeNull();
+  });
+
+  it('only fixes line ends in raw mode and for previous logs', async () => {
+    const fake = fakeLogRequest();
+    const io = fakeIo();
+    openLogs(testConfig(), { ...previousTarget, format: 'raw' }, io, fake.sendRequest);
+    fake.push('{"level":"info","msg":"one"}\n');
+    await flush();
+    expect(io.data).toHaveBeenCalledWith(Buffer.from('{"level":"info","msg":"one"}\r\n'));
   });
 
   it('treats an abort after close as a clean end without throwing', async () => {
@@ -175,8 +212,8 @@ describe('openLogs', () => {
     try {
       const io = fakeIo();
       const stream = openLogs(testConfig(`http://127.0.0.1:${port}`), logsTarget, io);
-      await new Promise(resolve => setTimeout(resolve, 100));
-      expect(io.data).toHaveBeenCalled();
+      // Wait for the first chunk instead of a fixed delay: under a busy suite it can take longer than 100 ms.
+      await vi.waitFor(() => expect(io.data).toHaveBeenCalled(), { timeout: 5_000 });
       stream.close();
       stream.close();
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -330,7 +367,7 @@ describe('createKubeApi remove and createJobFrom', () => {
       await api.remove({ kind: 'jobs', namespace: 'shop', name: 'j' }, { propagationPolicy: 'Background' });
       expect(fakeClient.delete).toHaveBeenCalledWith(expect.objectContaining({ kind: 'Job' }), undefined, undefined, undefined, undefined, 'Background');
       await api.createJobFrom({ kind: 'cronjobs', namespace: 'shop', name: 'backup' }, 'backup-manual-1');
-      expect(fakeClient.create).toHaveBeenCalledWith(expect.objectContaining({ kind: 'Job' }), undefined, undefined, 'terminus');
+      expect(fakeClient.create).toHaveBeenCalledWith(expect.objectContaining({ kind: 'Job' }), undefined, undefined, 'shellherd');
     } finally {
       spy.mockRestore();
     }

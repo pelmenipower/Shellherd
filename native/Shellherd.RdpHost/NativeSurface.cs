@@ -2,9 +2,9 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace Terminus.RdpHost
+namespace Shellherd.RdpHost
 {
-    /// <summary>How the RDP surface is placed relative to the Terminus window.</summary>
+    /// <summary>How the RDP surface is placed relative to the Shellherd window.</summary>
     public enum SurfaceMode
     {
         /// <summary>Own top-level window (P2 harness).</summary>
@@ -43,7 +43,7 @@ namespace Terminus.RdpHost
                 var parameters = base.CreateParams;
                 if (owner != IntPtr.Zero)
                 {
-                    // For a top-level window, the parent handle is its owner: it stays above and minimizes with Terminus.
+                    // For a top-level window, the parent handle is its owner: it stays above and minimizes with Shellherd.
                     parameters.Parent = owner;
                     parameters.Style = WS_POPUP | WS_CLIPCHILDREN;
                     parameters.ExStyle |= WS_EX_TOOLWINDOW;

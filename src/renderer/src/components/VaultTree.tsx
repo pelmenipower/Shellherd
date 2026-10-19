@@ -30,16 +30,18 @@ interface VaultTreeProps {
   onConnectAll?: (folderId: string) => void;
   /** Starts the Kubernetes cluster setup from an SSH connection that can reach the API server. */
   onSetupCluster?: (sshId: string) => void;
+  /** Opens the container view of an SSH connection or of this computer (LOCAL_CONTAINER_HOST). */
+  onOpenContainerView?: (hostId: string) => void;
   /** Flips the connection's disabled flag; disabled connections are greyed out and never opened. */
   onToggleDisabled?: (id: string) => void;
   onNewFolder?: (parentId: string) => void;
   /** Drag and drop: moves a connection or folder. */
   onMove?: (nodeId: string, target: NodeDropTarget) => void;
-  /** Containers below SSH connections; omitted hides them. */
+  /** Runtime entries and Proxmox guests below SSH connections; omitted hides them. */
   containers?: ContainerTreeProps;
 }
 
-const NODE_MIME = 'application/x-terminus-node';
+const NODE_MIME = 'application/x-shellherd-node';
 type DropHint = { id: string | null; kind: 'before' | 'after' | 'into' };
 
 function findTreeNode(nodes: VaultNode[], id: string): VaultNode | undefined {
@@ -54,7 +56,7 @@ function Icon({ kind }: { kind: 'folder' | 'terminal' | 'connect' | 'edit' | 'ch
   const paths = { folder: 'M3 7V5h7l2 2h9v13H3V7Z', terminal: 'm4 6 6 6-6 6m9 0h7', connect: 'm9 5 10 7-10 7V5Z', edit: 'm14 5 5 5M4 20l5-1L21 7l-5-5L4 14v6Z', chevron: 'm9 5 7 7-7 7', rename: 'M4 6h16M12 6v14M8 20h8' };
   return <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={paths[kind]} /></svg>;
 }
-export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder, onOpenFiles, onConnectAll, onToggleDisabled, onMove, containers, onSetupCluster }: VaultTreeProps) {
+export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder, onOpenFiles, onConnectAll, onToggleDisabled, onMove, containers, onSetupCluster, onOpenContainerView }: VaultTreeProps) {
   const [menu, setMenu] = useState<{ x: number; y: number; node: VaultNode | null } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const [query, setQuery] = useState('');
@@ -138,7 +140,8 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
   ];
   const menuEntries = (node: VaultNode | null): ContextMenuEntry[] => {
     if (!node) return [...createEntries('', 'Neue Verbindung'), ...(containers ? [{ kind: 'separator' as const },
-      { kind: 'item' as const, label: 'Lokale Container suchen', onSelect: () => containers.onExpand(LOCAL_CONTAINER_HOST) }] : [])];
+      { kind: 'item' as const, label: 'Lokale Laufzeiten suchen', onSelect: () => containers.onExpand(LOCAL_CONTAINER_HOST) },
+      { kind: 'item' as const, label: 'Lokale Container-Ansicht öffnen', disabled: !onOpenContainerView, onSelect: () => onOpenContainerView?.(LOCAL_CONTAINER_HOST) }] : [])];
     const edit: ContextMenuEntry[] = [
       { kind: 'item', label: 'Bearbeiten', disabled: !onEdit, onSelect: () => onEdit?.(node.id) },
       { kind: 'item', label: 'Umbenennen', hint: 'F2', disabled: !onRename, onSelect: () => beginRename(node) },
@@ -154,7 +157,8 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
         return { kind: 'item' as const, label: 'Zugangs-Host per SSH öffnen', hint: access ? access.name : 'Kein aktiver Zugangs-Host.', disabled: !access || !onConnect, onSelect: () => { if (access) onConnect?.(access.id); } };
       })()] : []),
       ...(node.protocol === 'ssh' && onSetupCluster ? [{ kind: 'item' as const, label: 'Als Kubernetes-Cluster einrichten…', disabled: off, onSelect: () => onSetupCluster(node.id) }] : []),
-      ...(node.protocol === 'ssh' && containers ? [{ kind: 'item' as const, label: 'Container anzeigen', disabled: off, onSelect: () => { if (!expandedHosts.has(node.id)) toggleHost(node.id); else containers.onExpand(node.id); } }] : []), ...edit,
+      ...(node.protocol === 'ssh' && containers ? [{ kind: 'item' as const, label: 'Laufzeiten anzeigen', disabled: off, onSelect: () => { if (!expandedHosts.has(node.id)) toggleHost(node.id); else containers.onExpand(node.id); } },
+        { kind: 'item' as const, label: 'Container-Ansicht öffnen', disabled: off || !onOpenContainerView, onSelect: () => onOpenContainerView?.(node.id) }] : []), ...edit,
       { kind: 'item', label: off ? 'Aktivieren' : 'Deaktivieren', hint: off ? undefined : 'ausgrauen, nicht mehr öffnen', disabled: !onToggleDisabled, onSelect: () => onToggleDisabled?.(node.id) },
       { kind: 'separator' }, ...createEntries(parentFolderId(nodes, node.id) ?? '', 'Neue Verbindung daneben')];
   };
@@ -166,7 +170,7 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
         aria-label={`${node.name} ${collapsed.has(node.id) ? 'aufklappen' : 'zuklappen'}`} aria-expanded={!collapsed.has(node.id)} disabled={disabled}
         onClick={() => toggle(node.id)}><Icon kind="chevron" /></button>
         : isHost(node) ? <button className={`tree-toggle${expandedHosts.has(node.id) ? ' is-expanded' : ''}`} type="button"
-          aria-label={`Container von ${node.name} ${expandedHosts.has(node.id) ? 'zuklappen' : 'anzeigen'}`} aria-expanded={expandedHosts.has(node.id)} disabled={disabled}
+          aria-label={`Laufzeiten von ${node.name} ${expandedHosts.has(node.id) ? 'zuklappen' : 'anzeigen'}`} aria-expanded={expandedHosts.has(node.id)} disabled={disabled}
           onClick={() => toggleHost(node.id)}><Icon kind="chevron" /></button> : <span className="tree-toggle-spacer" />}
       {renaming === node.id ? <form className="tree-rename" onSubmit={event => { event.preventDefault(); void submitRename(); }}>
         <input aria-label={`${node.type === 'folder' ? 'Ordner' : 'Verbindung'} umbenennen`} autoFocus value={name} disabled={disabled || saving} aria-invalid={Boolean(error)}
@@ -206,8 +210,8 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
       </>}
     </div>
     {node.type === 'folder' && !searching && !collapsed.has(node.id) && node.children.length > 0 && <ul>{node.children.map(child => renderNode(child, depth + 1))}</ul>}
-    {isHost(node) && expandedHosts.has(node.id) && containers && <ContainerChildren hostId={node.id} discovery={containers.state[node.id]} depth={depth + 1}
-      disabled={disabled} onOpen={containers.onOpen} onAction={containers.onAction} onRefresh={() => containers.onExpand(node.id)} />}
+    {isHost(node) && expandedHosts.has(node.id) && containers && <ContainerChildren hostId={node.id} discovery={containers.state[node.id]} depth={depth + 1} hostName={node.name}
+      disabled={disabled} onOpen={containers.onOpen} onOpenView={containers.onOpenView} onAction={containers.onAction} onRefresh={() => containers.onExpand(node.id)} />}
   </li>;
   const results = searching ? searchVaultNodes(nodes, query) : [];
   return <nav className={`vault-tree${dropHint?.id === null ? ' is-drop-root' : ''}`} aria-label="Verbindungen und Ordner"

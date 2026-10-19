@@ -448,7 +448,7 @@ describe('A8 events', () => {
   it('disables the jumps for a foreign kind with the reason (C5)', () => {
     const entries = rowMenu(event({ kind: 'ReplicaSet', name: 'api-5d8f' }));
     for (const id of ['involved', 'involved-events', 'involved-describe']) {
-      expect(find(entries, id)).toMatchObject({ disabled: true, hint: 'Objekte vom Typ ReplicaSet zeigt Terminus nicht an.' });
+      expect(find(entries, id)).toMatchObject({ disabled: true, hint: 'Objekte vom Typ ReplicaSet zeigt Shellherd nicht an.' });
     }
     expect(find(entries, 'copy-object').run).toMatchObject({ text: 'ReplicaSet/api-5d8f' });
   });
@@ -596,9 +596,11 @@ describe('H header and I background', () => {
   });
   it('lists the background menu', () => {
     const entries = menu({ type: 'background' });
-    expect(labels(entries)).toEqual(['Suche leeren', 'Status-Filter leeren', 'Alle Namespaces', 'Sortierung aufheben', '---', 'Hilfe…']);
+    expect(labels(entries)).toEqual(['Alle Filter zurücksetzen', 'Textfilter entfernen', 'Status-Filter leeren', 'Gruppierung aufheben', 'Alle Namespaces', 'Sortierung aufheben', '---', 'Hilfe…']);
     expect(has(entries, 'filter-clear')).toBe(false);
-    expect(find(entries, 'search-clear')).toMatchObject({ disabled: true, hint: 'Keine Suche gesetzt.', run: { actions: [{ type: 'search', text: '' }] } });
+    expect(find(entries, 'search-clear')).toMatchObject({ disabled: true, hint: 'Kein Textfilter gesetzt.', run: { actions: [{ type: 'search', text: '' }] } });
+    expect(find(entries, 'filter-reset')).toMatchObject({ disabled: true, hint: 'Kein Filter gesetzt.', run: { actions: [{ type: 'clearFilter' }] } });
+    expect(find(entries, 'group-clear')).toMatchObject({ disabled: true, hint: 'Keine Gruppierung gesetzt.', run: { actions: [{ type: 'setGroupBy', groupBy: null }] } });
     expect(find(entries, 'chips-clear')).toMatchObject({ disabled: true, hint: 'Kein Status-Filter gesetzt.', run: { actions: [{ type: 'setChips', ids: [] }] } });
     expect(find(entries, 'sort-clear')).toMatchObject({ disabled: true, hint: 'Standard: Reihenfolge des Eintreffens' });
     expect(find(entries, 'help')).toMatchObject({ run: { type: 'help' }, hint: '?' });
@@ -612,6 +614,15 @@ describe('H header and I background', () => {
     expect(find(chipsOnly, 'search-clear').disabled).toBe(true);
     expect(find(chipsOnly, 'chips-clear')).toMatchObject({ run: { actions: [{ type: 'setChips', ids: [] }] } });
     expect(find(chipsOnly, 'chips-clear').disabled).toBeUndefined();
+  });
+  it('enables filter-reset for column filters only and group-clear for a grouping (C28)', () => {
+    const cols = menu({ type: 'background' }, context({ state: state({ filters: { pods: { text: '', chips: [], columns: { status: 'Running' } } } }) }));
+    expect(find(cols, 'filter-reset').disabled).toBeUndefined();
+    expect(find(cols, 'filter-reset').hint).toContain('F');
+    expect(find(cols, 'search-clear').disabled).toBe(true);
+    const grouped = menu({ type: 'background' }, context({ state: state({ groups: { pods: { by: 'namespace', collapsed: [] } } }) }));
+    expect(find(grouped, 'group-clear').disabled).toBeUndefined();
+    expect(find(grouped, 'filter-reset').disabled).toBe(true);
   });
   it('uses the events default sort for "Sortierung aufheben" (C21)', () => {
     const events = (sort: KubeViewState['sort']) => state({ query: { kind: 'events', namespace: 'shop' }, sort });
@@ -712,7 +723,7 @@ describe('K dock content', () => {
   });
   it('disables the jump for a foreign object kind', () => {
     const ev = row('events', 'e', { cells: { message: 'm' }, involved: { kind: 'Lease', name: 'l' } });
-    expect(find(menu({ type: 'dockEvent', row: ev }), 'involved')).toMatchObject({ disabled: true, hint: 'Objekte vom Typ Lease zeigt Terminus nicht an.' });
+    expect(find(menu({ type: 'dockEvent', row: ev }), 'involved')).toMatchObject({ disabled: true, hint: 'Objekte vom Typ Lease zeigt Shellherd nicht an.' });
   });
 });
 

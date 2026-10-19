@@ -4,7 +4,7 @@ import type { LiveLayout } from './terminal-layout';
 import type { TerminalTab } from './terminal-tabs';
 import type { ConnectionNode, WorkspaceLayout } from '../../shared/vault/types';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
-import { containerConnection } from './terminal-tabs';
+import { containerConnection, containerViewConnection } from './terminal-tabs';
 import type { KubeViewSnapshot } from '../../shared/kubernetes';
 
 const node: ConnectionNode = { id: 'server', type: 'connection', protocol: 'ssh', name: 'Server', host: 'example.test', port: 22,
@@ -185,5 +185,52 @@ describe('workspaces with cluster tabs', () => {
     expect(restored.tabs[0].connection).toMatchObject({ id: 'k1', name: 'k8s', protocol: 'kubernetes' });
     expect(restored.tabs[0].connection.kube).toBeUndefined();
     expect(restored.tabs[0].kubeView).toEqual(view);
+  });
+});
+
+describe('workspaces with container views', () => {
+  const host = { id: 'h1', type: 'connection', protocol: 'ssh', name: 'server01', host: 'server01', port: 22, username: 'admin', authentication: { method: 'agent' }, tags: [] } as const;
+  const rdp = { id: 'r1', type: 'connection', protocol: 'rdp', name: 'win', host: 'win', port: 3389, username: 'a', tags: [] } as const;
+  const shell = { item: { kind: 'container' as const, runtime: 'docker' as const, ref: 'web-1', name: 'web-1' }, mode: 'shell' as const };
+  const tab = (id: string, connection: TerminalTab['connection']): TerminalTab => ({ id, connection, ordinal: 1, status: 'connected' });
+  it('saves container views by index, drops the local one and restores them', () => {
+    const tabs = [tab('a', { id: 'h1', name: 'server01', protocol: 'ssh', address: 'admin@server01' }),
+      tab('b', containerViewConnection('h1', 'server01', 'admin@server01')),
+      tab('c', containerViewConnection(LOCAL_CONTAINER_HOST, 'Dieser Computer', 'lokal')),
+      tab('d', containerConnection('h1', 'server01', 'admin@server01', shell))];
+    const saved = savedLayout({ type: 'pane', id: 'p', tabIds: ['a', 'b', 'c', 'd'], activeTabId: 'b' }, tabs);
+    expect(saved).toEqual({ type: 'pane', connectionIds: ['h1', 'h1', 'h1'], activeConnectionId: 'h1', containerViews: [1],
+      containerTabs: [{ index: 2, target: shell.item, mode: 'shell' }] });
+    let n = 0;
+    const restored = restoreLayout(saved, id => id === 'h1' ? host as never : undefined, () => `u${++n}`);
+    expect(restored.tabs.map(t => t.connection.view)).toEqual([undefined, 'containers', undefined]);
+    expect(restored.tabs[1].connection.name).toBe('server01 · Container');
+    expect(restored.tabs[2].connection.target).toEqual(shell);
+  });
+  it('saves a fixed runtime as object and round-trips it', () => {
+    const tabs = [tab('a', containerViewConnection('h1', 'server01', 'admin@server01', 'docker')), tab('b', containerViewConnection('h1', 'server01', 'admin@server01'))];
+    const saved = savedLayout({ type: 'pane', id: 'p', tabIds: ['a', 'b'], activeTabId: 'a' }, tabs);
+    expect(saved).toMatchObject({ containerViews: [{ index: 0, runtime: 'docker' }, 1] });
+    const restored = restoreLayout(saved, () => host as never, () => 'u');
+    expect(restored.tabs[0].connection.runtime).toBe('docker');
+    expect(restored.tabs[0].connection.name).toBe('server01 · Docker');
+    expect('runtime' in restored.tabs[1].connection).toBe(false);
+  });
+  it('restores object entries with and without runtime', () => {
+    const podman = restoreLayout({ type: 'pane', connectionIds: ['h1'], containerViews: [{ index: 0, runtime: 'podman' }] }, () => host as never, () => 'u');
+    expect(podman.tabs[0].connection.name).toBe('server01 · Podman');
+    expect(podman.tabs[0].connection.runtime).toBe('podman');
+    const bare = restoreLayout({ type: 'pane', connectionIds: ['h1'], containerViews: [0] }, () => host as never, () => 'u');
+    expect(bare.tabs[0].connection.runtime).toBeUndefined();
+    const obj = restoreLayout({ type: 'pane', connectionIds: ['h1'], containerViews: [{ index: 0 }] }, () => host as never, () => 'u');
+    expect(obj.tabs[0].connection.name).toBe('server01 · Container');
+  });
+  it('falls back to a normal tab for a non-SSH connection and lets containerTabs win over containerViews', () => {
+    const fallback = restoreLayout({ type: 'pane', connectionIds: ['r1'], containerViews: [0] }, id => id === 'r1' ? rdp as never : undefined, () => 'u');
+    expect(fallback.tabs[0].connection.view).toBeUndefined();
+    const both = restoreLayout({ type: 'pane', connectionIds: ['h1'], containerViews: [0], containerTabs: [{ index: 0, target: shell.item, mode: 'shell' }] },
+      () => host as never, () => 'u');
+    expect(both.tabs[0].connection.target).toEqual(shell);
+    expect(both.tabs[0].connection.view).toBeUndefined();
   });
 });

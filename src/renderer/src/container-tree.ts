@@ -1,9 +1,12 @@
-import type { ContainerAction, DiscoveredItem, DiscoveryResult, TerminalTargetMode } from '../../shared/containers';
+import type { ContainerAction, ContainerRuntime, DiscoveredItem, DiscoveryResult, TerminalTargetMode } from '../../shared/containers';
 
 /** What VaultTree and LocalContainers need from the app. */
 export interface ContainerTreeProps {
   state: ContainerTreeState;
   onExpand: (hostId: string) => void;
+  /** Focuses an open view of this host and runtime or opens one; `newTab` always opens another. */
+  onOpenView?: (hostId: string, runtime: ContainerRuntime, newTab?: boolean) => void;
+  /** Proxmox guests only: shell or serial console. */
   onOpen: (hostId: string, item: DiscoveredItem, mode: TerminalTargetMode) => void;
   onAction: (hostId: string, item: DiscoveredItem, action: ContainerAction, confirm?: string) => void;
 }
@@ -45,13 +48,14 @@ export function containerTreeReducer(state: ContainerTreeState, action: Containe
 
 export interface ItemGroup { key: string; label: string; items: DiscoveredItem[]; problem?: string }
 
+/** Docker and Podman entries, filtered by what the host answered, in fixed order. */
+export function runtimeEntries(result: DiscoveryResult): ContainerRuntime[] {
+  return (['docker', 'podman'] as const).filter(runtime => result.runtimes.includes(runtime));
+}
+
+/** Only the Proxmox groups; Docker and Podman are entries, not groups. */
 export function groupItems(result: DiscoveryResult): ItemGroup[] {
   const groups: ItemGroup[] = [];
-  for (const runtime of ['docker', 'podman'] as const) {
-    if (!result.runtimes.includes(runtime)) continue;
-    groups.push({ key: runtime, label: runtime === 'docker' ? 'Docker' : 'Podman',
-      items: result.items.filter(item => item.kind === 'container' && item.runtime === runtime), problem: result.problems[runtime] });
-  }
   if (result.runtimes.includes('proxmox')) {
     const lxc = result.items.filter(item => item.kind === 'lxc'), vms = result.items.filter(item => item.kind === 'vm');
     const problem = result.problems.proxmox;
@@ -66,11 +70,6 @@ export type ItemCommand = { label: string; run: 'shell' | 'logs' | ContainerActi
 
 export function itemCommands(item: DiscoveredItem): ItemCommand[] {
   const running = item.state === 'running';
-  if (item.kind === 'container') {
-    if (running) return [{ label: 'Shell öffnen', run: 'shell' }, { label: 'Logs folgen', run: 'logs' }, { label: 'Neu starten', run: 'restart' }, { label: 'Stoppen', run: 'stop' }];
-    if (item.state === 'paused') return [{ label: 'Logs folgen', run: 'logs' }, { label: 'Stoppen', run: 'stop' }];
-    return [{ label: 'Starten', run: 'start' }, { label: 'Logs folgen', run: 'logs' }];
-  }
   if (!running) return [{ label: 'Starten', run: 'start' }];
   return [
     { label: item.kind === 'lxc' ? 'Shell öffnen' : 'Serielle Konsole', run: 'shell' },
@@ -80,7 +79,7 @@ export function itemCommands(item: DiscoveredItem): ItemCommand[] {
 }
 
 export function hasUsableLocalRuntime(result: DiscoveryResult): boolean {
-  return result.runtimes.some(runtime => !result.problems[runtime]);
+  return runtimeEntries(result).length > 0;
 }
 
 export function ipcMessage(error: unknown, fallback: string): string {

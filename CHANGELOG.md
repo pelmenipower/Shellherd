@@ -1,8 +1,34 @@
 # Changelog
 
-Alle nennenswerten Änderungen an Terminus. Die Versionsnummer folgt [Semantic Versioning](https://semver.org/lang/de/):
+Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus). Die Versionsnummer folgt [Semantic Versioning](https://semver.org/lang/de/):
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
+
+## [0.10.0] – 2026-10-19
+
+- Terminus heißt jetzt Shellherd: neues Programmsymbol in Fenster, Taskleiste, Kopfzeile und Startkarte, neuer Name in allen Texten. Vault-Dateien (`.term`, ältere `.terminus`) und ihr Format bleiben unverändert.
+- Einstellungen ziehen beim ersten Start automatisch um: bekannte SSH-Hostschlüssel und die zuletzt geöffnete Vault-Datei werden aus dem alten Terminus-Ordner übernommen; der alte Ordner bleibt bestehen.
+- Dateiverknüpfung: „Mit Shellherd öffnen“ ersetzt beim nächsten Verknüpfen den alten Eintrag; `.term` zeigt im Explorer das Shellherd-Symbol.
+- Der RDP-Helfer heißt `Shellherd.RdpHost.exe`; die Entwickler-Schalter heißen `SHELLHERD_RDP_DEBUG`, `SHELLHERD_RDP_MODE` und `SHELLHERD_RDP_SMARTSIZE`.
+- Lokale Oberflächen-Vorlieben (gewählter KI-Anbieter, Assistent offen, gesehene Release-Notes) starten nach dem Umzug einmal neu.
+
+## [0.9.0] – 2026-10-18
+
+- Container-Ansicht für Docker und Podman, pro SSH-Verbindung und für „Dieser Computer“: Rechtsklick → „Container-Ansicht öffnen“ (lokal „Lokale Container-Ansicht öffnen“). Reiter Container, Images, Volumes und Netzwerke mit Spaltenfiltern, Chips, Gruppierung, Sortierung, Kontextmenüs und Tastenkürzeln; Filter und Gruppierung gelten je Reiter. Die Liste aktualisiert sich alle 10 Sekunden, solange der Tab sichtbar ist, und mit `F5`.
+- Dock mit Logs, Shell und Inspect; Inspect maskiert Env-Werte mit sensiblen Namen. Starten läuft ohne Nachfrage, Stoppen, Neu starten und Entfernen fragen vorher nach, beim Entfernen muss man den Namen eintippen.
+- Container-Ansichten von SSH-Hosts werden in Workspaces gespeichert.
+- Seitenleiste: Unter SSH-Verbindungen und „Dieser Computer“ erscheinen statt Container-Listen die Einträge „Docker-Ansicht“ und „Podman-Ansicht“ (nur für installierte Laufzeiten). Ein Klick öffnet die Ansicht oder fokussiert den offenen Tab; „Docker-Ansicht öffnen“ im Kontextmenü öffnet einen weiteren. Die Tabs sind fest auf ihre Laufzeit gesetzt und werden mit ihr im Workspace gespeichert. Proxmox-Gäste bleiben unverändert.
+- Container-Ansicht: Mit `sudo` im Passwortmodus meldet sich jeder Poll nur noch einmal an, die vier Listen laufen in einem Befehl. Ein fester Docker- oder Podman-Tab zeigt bei fehlender Laufzeit einen Fehler, statt im Hintergrund die andere Laufzeit abzufragen. Inspect maskiert in nicht parsbarer Ausgabe auch Geheimnisse hinter anderen Einträgen derselben Zeile.
+- Einheitliches Erscheinungsbild: Farben, Schatten und Ebenen kommen aus einem gemeinsamen Designsystem. Dialoge, der Verbindungs-Picker sowie das Workspace- und das Layout-Menü blenden kurz ein, Buttons geben beim Klicken leicht nach. Sind die Windows-Animationseffekte ausgeschaltet, bleibt nur das Einblenden. Die Hilfe in Cluster- und Container-Ansicht liegt jetzt über der Kopfzeile.
+- Fehlermeldungen erscheinen als Hinweis unten rechts und verschieben das Terminal nicht mehr. Leisten, Knöpfe, Schriftgrößen und Abstände folgen einer festen Skala; Chip-Leiste und Panelköpfe sind kompakter.
+
+## [0.8.0] – 2026-10-18
+
+- Kubernetes-Tabelle mit Spaltenfiltern: Text (enthält), Auswahl für Namespace, Status, Typ, Node und Rollen, Zahlen (`>3`, `<=5`, `3`) und Alter (`<10m`, `>1h`, `<2d`). `/` springt in den Namensfilter (Events: Meldung), `F` setzt alle Filter des Reiters zurück.
+- „Gruppieren nach“ (z. B. Namespace, Node, Status, Owner) mit auf- und zuklappbaren Gruppen; Filter und Gruppierung bleiben je Reiter und im Workspace erhalten.
+- Die Befehlszeile oben rechts (`/`-Suche und `:`-Befehle wie `:ns`, `:filter`, `:status`) entfällt. Namespaces ohne Pods erreicht man über „alle“ und den Namespace-Filter. Textfilter aus dem Kontextmenü (z. B. `app=api`) erscheinen als Chip „Filter: …“.
+- Zuletzt geöffnete Vault-Datei wird beim Start vorausgewählt.
+- Cluster-Tab startet ohne konfigurierten Namespace mit allen Namespaces.
 
 ## [0.7.0] – 2026-10-18
 

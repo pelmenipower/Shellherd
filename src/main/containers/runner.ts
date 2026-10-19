@@ -17,7 +17,8 @@ export type VerifyHost = (host: string, port: number, key: Buffer, isActive: () 
 export interface SudoPrompt { marker: string; ready: string; password: string; onReady?: () => void }
 
 export interface RemoteHost {
-  run(command: string, timeoutMs: number, sudo?: SudoPrompt): Promise<RunResult>;
+  /** outputLimit: characters kept per stream (stdout, stderr each); default OUTPUT_LIMIT. */
+  run(command: string, timeoutMs: number, sudo?: SudoPrompt, outputLimit?: number): Promise<RunResult>;
   /** A TCP channel to host:port as seen from the SSH server. */
   forward(host: string, port: number): Promise<Duplex>;
   close(): void;
@@ -55,7 +56,8 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
         });
       });
     },
-    run(command, timeoutMs, sudo) {
+    run(command, timeoutMs, sudo, outputLimit) {
+      const limit = outputLimit ?? OUTPUT_LIMIT;
       return new Promise((resolve, reject) => {
         client.exec(command, (error, stream) => {
           if (error) { reject(error); return; }
@@ -65,8 +67,8 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
           let authenticated = false;
           let prompts = sudo ? new SudoWatcher({ prompt: sudo.marker }) : undefined;
           let ready = sudo ? new SudoWatcher({ ready: sudo.ready }) : undefined;
-          const addStdout = (chunk: Buffer): void => { if (stdout.length < OUTPUT_LIMIT) stdout += chunk.toString('utf8'); };
-          const addStderr = (chunk: Buffer): void => { if (stderr.length < OUTPUT_LIMIT) stderr += chunk.toString('utf8'); };
+          const addStdout = (chunk: Buffer): void => { if (stdout.length < limit) stdout += chunk.toString('utf8'); };
+          const addStderr = (chunk: Buffer): void => { if (stderr.length < limit) stderr += chunk.toString('utf8'); };
           const disarm = (): void => {
             if (prompts) addStderr(prompts.flush());
             if (ready) addStdout(ready.flush());

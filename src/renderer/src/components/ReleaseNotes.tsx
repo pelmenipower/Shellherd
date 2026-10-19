@@ -32,7 +32,7 @@ export function ReleaseNotesDialog({ version, onClose }: { version: string; onCl
   useEffect(() => { dialogRef.current?.showModal(); }, []);
   return (
     <dialog ref={dialogRef} className="confirm-dialog release-notes-dialog" aria-labelledby={`${id}-title`} onCancel={event => { event.preventDefault(); onClose(); }}>
-      <h2 id={`${id}-title`}>Terminus {version}</h2>
+      <h2 id={`${id}-title`}>Shellherd {version}</h2>
       <div className="release-notes-list">
         {releases.map(release => <section key={release.version}>
           <h3>Version {release.version} <small>{formatDate(release.date)}</small></h3>

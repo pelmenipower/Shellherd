@@ -7,8 +7,8 @@ import type { BrowserWindow, Rectangle } from 'electron';
 import type { RdpAction, RdpEvent, RdpOpenRequest, RdpStatus, RdpSurfaceMode, ViewportRect } from '../../shared/rdp';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 
-/** Set TERMINUS_RDP_DEBUG=1 to log helper traffic; passwords are masked. */
-const debug = process.env.TERMINUS_RDP_DEBUG === '1';
+/** Set SHELLHERD_RDP_DEBUG=1 to log helper traffic; passwords are masked. */
+const debug = process.env.SHELLHERD_RDP_DEBUG === '1';
 const timestamp = (): string => new Date().toISOString().slice(11, 23);
 
 export interface RdpTarget{ host: string; port: number; username?: string; domain?: string; password?: string; clipboard: boolean }
@@ -75,7 +75,7 @@ export class RdpSessionManager {
     // The password only travels through the private stdin pipe; without one the control asks for credentials.
     this.send({ type: 'open', sessionId: session.id, server: target.host, port: target.port, username: account.username,
       domain: target.domain?.trim() || account.domain, ...(target.password ? { password: target.password } : {}),
-      clipboard: target.clipboard, smartResize: process.env.TERMINUS_RDP_SMARTSIZE !== '0',
+      clipboard: target.clipboard, smartResize: process.env.SHELLHERD_RDP_SMARTSIZE !== '0',
       dynamicResolution: !this.staticResolution.has(request.connectionId), mode: this.dependencies.mode, parent: handle, visible: request.visible, ...toScreenRect(window, request.bounds) });
     return { sessionId: session.id };
   }

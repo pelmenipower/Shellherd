@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KUBE_NAME, manualJobName } from './kubernetes';
+import { GROUP_BY_IDS, KUBE_NAME, manualJobName, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH } from './kubernetes';
 import { KubeActionRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
 
 describe('kubernetes schemas', () => {
@@ -29,6 +29,19 @@ describe('kubernetes schemas', () => {
     expect(KubeTerminalTargetSchema.safeParse({ namespace: 'shop', pod: 'api-1', container: 'api', mode: 'shell' }).success).toBe(true);
     expect(KubeTerminalTargetSchema.safeParse({ namespace: 'shop', pod: 'api-1', container: 'api;rm', mode: 'shell' }).success).toBe(false);
   });
+  it('validates the optional log format of terminal targets', () => {
+    const target = { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'logs' };
+    expect(KubeTerminalTargetSchema.safeParse({ ...target, format: 'compact' }).success).toBe(true);
+    expect(KubeTerminalTargetSchema.safeParse({ ...target, format: 'raw' }).success).toBe(true);
+    expect(KubeTerminalTargetSchema.safeParse(target).success).toBe(true);
+    expect(KubeTerminalTargetSchema.safeParse({ ...target, format: 'pretty' }).success).toBe(false);
+  });
+  it('accepts an optional logFormat in the snapshot', () => {
+    const base = { query: { kind: 'pods', namespace: null }, crumbs: [], dock: 'logs' };
+    expect(KubeViewSnapshotSchema.safeParse({ ...base, logFormat: 'raw' }).success).toBe(true);
+    expect(KubeViewSnapshotSchema.safeParse({ ...base, logFormat: 'compact' }).success).toBe(true);
+    expect(KubeViewSnapshotSchema.safeParse({ ...base, logFormat: 'x' }).success).toBe(false);
+  });
   it('keeps old snapshots without filters valid and accepts a filter of one kind', () => {
     const base = { query: { kind: 'pods', namespace: null }, crumbs: [], dock: 'logs' };
     expect(KubeViewSnapshotSchema.safeParse(base).success).toBe(true);
@@ -46,6 +59,29 @@ describe('kubernetes schemas', () => {
     expect(parse({ pods: { chips: ['a'.repeat(41)] } })).toBe(false);
     expect(parse({ secrets: { text: 'x' } })).toBe(false);
     expect(parse({ pods: { text: 'x', extra: 1 } })).toBe(false);
+  });
+  it('accepts 0.7.0 snapshots and ones with columns, groupBy and collapsed', () => {
+    const base = { query: { kind: 'pods', namespace: null }, crumbs: [], dock: 'logs' };
+    const parse = (filters: unknown): boolean => KubeViewSnapshotSchema.safeParse({ ...base, filters }).success;
+    expect(parse({ pods: { text: 'api', chips: ['failed'] } })).toBe(true);
+    expect(parse({ pods: { columns: { name: 'api', restarts: '>3' }, groupBy: 'node', collapsed: ['worker1'] } })).toBe(true);
+    expect(parse({ pods: { groupBy: 'namespace', collapsed: [''] } })).toBe(true);
+    for (const groupBy of GROUP_BY_IDS) expect(parse({ pods: { groupBy } })).toBe(true);
+  });
+  it('rejects column filters, groupBy and collapsed over the bounds', () => {
+    const base = { query: { kind: 'pods', namespace: null }, crumbs: [], dock: 'logs' };
+    const parse = (filters: unknown): boolean => KubeViewSnapshotSchema.safeParse({ ...base, filters }).success;
+    const keys = (n: number): Record<string, string> => Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${String.fromCharCode(97 + i)}`, 'x']));
+    expect(parse({ pods: { columns: keys(MAX_COLUMN_FILTERS) } })).toBe(true);
+    expect(parse({ pods: { columns: keys(MAX_COLUMN_FILTERS + 1) } })).toBe(false);
+    expect(parse({ pods: { columns: { name: 'a'.repeat(MAX_COLUMN_FILTER_LENGTH) } } })).toBe(true);
+    expect(parse({ pods: { columns: { name: 'a'.repeat(MAX_COLUMN_FILTER_LENGTH + 1) } } })).toBe(false);
+    expect(parse({ pods: { columns: { 'image:app': 'x' } } })).toBe(false);
+    expect(parse({ pods: { groupBy: 'foo' } })).toBe(false);
+    expect(parse({ pods: { collapsed: Array.from({ length: MAX_COLLAPSED }, (_, i) => `g${i}`) } })).toBe(true);
+    expect(parse({ pods: { collapsed: Array.from({ length: MAX_COLLAPSED + 1 }, (_, i) => `g${i}`) } })).toBe(false);
+    expect(parse({ pods: { collapsed: ['a'.repeat(MAX_GROUP_KEY_LENGTH)] } })).toBe(true);
+    expect(parse({ pods: { collapsed: ['a'.repeat(MAX_GROUP_KEY_LENGTH + 1)] } })).toBe(false);
   });
 });
 

@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { actionArgv, ContainerInputError, listArgv, PROBE_COMMAND, remoteCommand, shellJoin, SHELL_CHOICE, sudoSetting, terminalArgv } from './commands';
+import { actionArgv, ContainerInputError, inspectArgv, inventoryActionArgv, inventoryArgv, listArgv, localProbeArgv, PROBE_COMMAND, remoteCommand, remoteScript, shellJoin, SHELL_CHOICE, sudoSetting, terminalArgv } from './commands';
+import { INVENTORY_KINDS } from '../../shared/containers';
+import type { ContainerRuntime, InventoryAction, InventoryKind } from '../../shared/containers';
 import type { SshConnectionNode } from '../../shared/vault/types';
 
 function hasSh(): boolean {
@@ -81,12 +83,36 @@ describe('remoteCommand', () => {
   });
 });
 
+describe('remoteScript', () => {
+  const marker = '[terminus-sudo-0123456789abcdef]';
+  const ready = '[terminus-ready-0123456789abcdef]';
+  it('wraps the body in sh with the extended PATH; the body sets sudo -n itself', () => {
+    const expected = `sh -c 'PATH="$PATH:/usr/sbin:/sbin"; true'`;
+    expect(remoteScript('true', { kind: 'none' })).toBe(expected);
+    expect(remoteScript('true', { kind: 'noninteractive' })).toBe(expected);
+  });
+  it('validates once, signals readiness, then runs the body in braces', () => {
+    expect(remoteScript('true', { kind: 'prompt', marker, ready, stdin: true })).toBe(
+      `sh -c 'PATH="$PATH:/usr/sbin:/sbin"; sudo -S -p '\\''${marker}'\\'' -v && printf %s '\\''${ready}'\\'' && { true; }; exit $?'`);
+  });
+  it('refuses invalid markers', () => {
+    expect(() => remoteScript('true', { kind: 'prompt', marker: '%u', ready, stdin: true })).toThrow('Invalid sudo marker');
+    expect(() => remoteScript('true', { kind: 'prompt', marker: '', ready, stdin: true })).toThrow();
+    expect(() => remoteScript('true', { kind: 'prompt', marker, ready: "x'y", stdin: true })).toThrow();
+  });
+});
+
 describe('listArgv', () => {
-  it('lists every runtime', () => {
-    expect(listArgv('docker')).toEqual(['docker', 'ps', '-a', '--no-trunc', '--format', '{{json .}}']);
-    expect(listArgv('podman')).toEqual(['podman', 'ps', '-a', '--format', 'json']);
+  it('lists Proxmox guests', () => {
     expect(listArgv('lxc')).toEqual(['pct', 'list']);
     expect(listArgv('vm')).toEqual(['qm', 'list']);
+  });
+});
+
+describe('localProbeArgv', () => {
+  it('only asks for the version, never the daemon', () => {
+    expect(localProbeArgv('docker')).toEqual(['docker', '--version']);
+    expect(localProbeArgv('podman')).toEqual(['podman', '--version']);
   });
 });
 
@@ -132,5 +158,73 @@ describe('sudoSetting', () => {
   it.each(['a\nb', 'a\rb'])('refuses a password with a line break (%j)', password => {
     expect(() => sudoSetting({ ...base, containers: { sudo: true }, authentication: { method: 'password', password } }))
       .toThrow(new ContainerInputError('Das Passwort enthält einen Zeilenumbruch und kann nicht für sudo verwendet werden.'));
+  });
+});
+
+describe('inventory commands', () => {
+  const runtimes: ContainerRuntime[] = ['docker', 'podman'];
+  const actions: InventoryAction[] = ['start', 'stop', 'restart', 'remove'];
+  const lists: Record<ContainerRuntime, Record<InventoryKind, string[]>> = {
+    docker: {
+      containers: ['docker', 'ps', '-a', '--no-trunc', '--format', '{{json .}}'],
+      images: ['docker', 'images', '--no-trunc', '--format', '{{json .}}'],
+      volumes: ['docker', 'volume', 'ls', '--format', '{{json .}}'],
+      networks: ['docker', 'network', 'ls', '--no-trunc', '--format', '{{json .}}'],
+    },
+    podman: {
+      containers: ['podman', 'ps', '-a', '--format', 'json'],
+      images: ['podman', 'images', '--format', 'json'],
+      volumes: ['podman', 'volume', 'ls', '--format', 'json'],
+      networks: ['podman', 'network', 'ls', '--format', 'json'],
+    },
+  };
+  const refFor = (kind: InventoryKind) => (kind === 'images' ? 'nginx:latest' : 'web-1');
+  const forbidden = ['-f', '--force', '-v', '--volumes', 'prune'];
+
+  it('lists every runtime and kind exactly', () => {
+    for (const rt of runtimes) for (const kind of INVENTORY_KINDS) expect(inventoryArgv(rt, kind)).toEqual(lists[rt][kind]);
+  });
+  it('inspects each kind', () => {
+    for (const rt of runtimes) {
+      expect(inspectArgv({ kind: 'containers', runtime: rt, ref: 'web-1' })).toEqual([rt, 'container', 'inspect', 'web-1']);
+      expect(inspectArgv({ kind: 'images', runtime: rt, ref: 'nginx:latest' })).toEqual([rt, 'image', 'inspect', 'nginx:latest']);
+      expect(inspectArgv({ kind: 'volumes', runtime: rt, ref: 'data' })).toEqual([rt, 'volume', 'inspect', 'data']);
+      expect(inspectArgv({ kind: 'networks', runtime: rt, ref: 'bridge' })).toEqual([rt, 'network', 'inspect', 'bridge']);
+    }
+  });
+  it('builds actions for all combinations and never adds force flags', () => {
+    const expected = (rt: string, kind: InventoryKind, action: InventoryAction, ref: string): string[] | null => {
+      if (kind === 'networks') return null;
+      if (action === 'remove') return kind === 'images' ? [rt, 'rmi', ref] : kind === 'volumes' ? [rt, 'volume', 'rm', ref] : [rt, 'rm', ref];
+      return kind === 'containers' ? [rt, action, ref] : null;
+    };
+    for (const rt of runtimes) for (const kind of INVENTORY_KINDS) for (const action of actions) {
+      const ref = refFor(kind);
+      const want = expected(rt, kind, action, ref);
+      if (want) {
+        const got = inventoryActionArgv({ kind, runtime: rt, ref }, action);
+        expect(got).toEqual(want);
+        for (const token of forbidden) expect(got).not.toContain(token);
+      } else {
+        expect(() => inventoryActionArgv({ kind, runtime: rt, ref }, action)).toThrow('Diese Aktion ist hier nicht möglich.');
+      }
+    }
+    for (const rt of runtimes) for (const kind of INVENTORY_KINDS) for (const token of forbidden) expect(inventoryArgv(rt, kind)).not.toContain(token);
+  });
+  it('rejects invalid refs and runtimes', () => {
+    for (const ref of ['; rm', '$()', '<none>:<none>', 'a b', '-x', '']) {
+      expect(() => inspectArgv({ kind: 'containers', runtime: 'docker', ref })).toThrow('Ungültige Container-Angabe.');
+      expect(() => inventoryActionArgv({ kind: 'containers', runtime: 'docker', ref }, 'remove')).toThrow('Ungültige Container-Angabe.');
+      expect(() => inventoryActionArgv({ kind: 'images', runtime: 'docker', ref }, 'remove')).toThrow('Ungültige Container-Angabe.');
+    }
+    expect(() => inspectArgv({ kind: 'containers', runtime: 'lxc' as never, ref: 'a' })).toThrow('Ungültige Container-Angabe.');
+    expect(() => inventoryActionArgv({ kind: 'containers', runtime: 'lxc' as never, ref: 'a' }, 'start')).toThrow('Ungültige Container-Angabe.');
+    expect(() => inventoryArgv('lxc' as never, 'containers')).toThrow('Ungültige Container-Angabe.');
+  });
+  it('checks the action before the runtime and ref', () => {
+    expect(() => inventoryActionArgv({ kind: 'networks', runtime: 'x' as never, ref: ';' }, 'remove')).toThrow('Diese Aktion ist hier nicht möglich.');
+  });
+  it('quotes the JSON format in the remote command', () => {
+    expect(remoteCommand(inventoryArgv('docker', 'containers'), { kind: 'none' })).toContain("--format '{{json .}}'");
   });
 });

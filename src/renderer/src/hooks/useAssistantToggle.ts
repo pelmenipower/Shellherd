@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useCtrlShiftShortcut } from './useShortcut';
 
-const KEY = 'terminus.assistantOpen';
+const KEY = 'shellherd.assistantOpen';
 
 /** Assistant visibility per window; Ctrl+Shift+K toggles it even while a terminal has focus. */
 export function useAssistantToggle(): { open: boolean; setOpen: (open: boolean) => void; toggle: () => void } {

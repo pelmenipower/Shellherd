@@ -24,16 +24,17 @@ import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuEntry } from './components/ContextMenu';
 import { FolderEditor } from './components/FolderEditor';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { Toast } from './components/Toast';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
-import { containerConnection, isRunning, tabLabel, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, containerViewConnection, isRunning, planContainerView, tabLabel, toTerminalConnection } from './terminal-tabs';
 import type { TerminalConnection, TerminalTab } from './terminal-tabs';
 import { newClusterFromSsh } from './cluster-form';
 import type { KubeProbeResult, KubeViewSnapshot } from '../../shared/kubernetes';
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
 import { connectionAddress, connectionsIn, disabledNotice, NEW_CONNECTION_KINDS, skippedNotice } from '../../shared/vault/connections';
-import { LOCAL_CONTAINER_HOST, toTarget } from '../../shared/containers';
-import type { ContainerAction, DiscoveredItem, TerminalTargetMode } from '../../shared/containers';
+import { LOCAL_CONTAINER_HOST, LOCAL_HOST_NAME, toTarget } from '../../shared/containers';
+import type { ContainerAction, ContainerRuntime, DiscoveredItem, TerminalTargetMode } from '../../shared/containers';
 import type { ContainerTreeProps } from './container-tree';
 import { useContainerDiscovery } from './hooks/useContainerDiscovery';
 import { LocalContainers } from './components/LocalContainers';
@@ -56,6 +57,7 @@ import type { Workflow } from '../../shared/vault/types';
 import { ConnectionForm } from './components/ConnectionForm';
 import { parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
+import mark from '../../../resources/mark-64.png';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
 
@@ -178,7 +180,7 @@ export default function App() {
     : undefined;
   const canCreateFolder = selectedNodeId === null || selectedNode?.type === 'folder';
 
-  // Vault files opened from Explorer: at start and while Terminus runs.
+  // Vault files opened from Explorer: at start and while Shellherd runs.
   const screenRef = useRef(screen);
   screenRef.current = screen;
   // Explorer and drag and drop: an open vault is locked first, after a confirmation.
@@ -661,9 +663,25 @@ export default function App() {
     if (host?.type === 'connection' && host.disabled) { setError(disabledNotice(host)); return; }
     navigateEditor(() => {
       if (terminals.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
-      const name = host?.type === 'connection' ? host.name : 'Dieser Computer';
+      const name = host?.type === 'connection' ? host.name : LOCAL_HOST_NAME;
       const address = host?.type === 'connection' ? connectionAddress(host) : 'lokal';
       terminals.open(containerConnection(hostId, name, address, { item: toTarget(item), mode }));
+      setEditorOpen(false); setEditorDirty(false); setError(null);
+    });
+  }
+
+  function openContainerView(hostId: string, runtime?: ContainerRuntime, reuse = false): void {
+    const host = hostId === LOCAL_CONTAINER_HOST ? undefined : vault && findNode(vault.nodes, hostId);
+    if (hostId !== LOCAL_CONTAINER_HOST && !(host?.type === 'connection' && host.protocol === 'ssh')) return;
+    if (host?.type === 'connection' && host.disabled) { setError(disabledNotice(host)); return; }
+    navigateEditor(() => {
+      const name = host?.type === 'connection' ? host.name : LOCAL_HOST_NAME;
+      const address = host?.type === 'connection' ? connectionAddress(host) : 'lokal';
+      const connection = containerViewConnection(hostId, name, address, runtime);
+      const plan = planContainerView(terminals.tabs, terminals.activeTabId, connection, reuse);
+      if (plan.kind === 'focus') { terminals.select(plan.tabId); setEditorOpen(false); setEditorDirty(false); setError(null); return; }
+      if (plan.kind === 'limit') { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
+      terminals.open(connection);
       setEditorOpen(false); setEditorDirty(false); setError(null);
     });
   }
@@ -671,6 +689,7 @@ export default function App() {
   const containerTree: ContainerTreeProps = {
     state: containerDiscovery.state,
     onExpand: id => void containerDiscovery.load(id),
+    onOpenView: (id, runtime, newTab) => openContainerView(id, runtime, !newTab),
     onOpen: openContainer,
     onAction: (id: string, item: DiscoveredItem, action: ContainerAction, confirm?: string) => { if (!confirm || window.confirm(confirm)) void containerDiscovery.act(id, item, action); },
   };
@@ -736,7 +755,7 @@ export default function App() {
           aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed(value => !value)}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
         </button>
-        <div className="header-vault" title={vaultPath ?? undefined}><span className="brand-word">Terminus</span><strong>{vault.name}</strong></div>
+        <div className="header-vault" title={vaultPath ?? undefined}><img className="brand-icon" src={mark} alt="" /><span className="brand-word">Shellherd</span><strong>{vault.name}</strong></div>
         <WorkspaceControls workspaces={vault.workspaces} busy={busy} hasTabs={terminals.tabs.length > 0}
           activeId={activeWorkspaceId} dirty={workspaceDirty} onSave={saveWorkspace}
           onOpen={id => navigateEditor(() => openWorkspace(id))} onRename={renameWorkspace} onDelete={deleteWorkspace}
@@ -789,10 +808,10 @@ export default function App() {
             <div className="sidebar-form-actions"><button type="button" onClick={() => setShowFolderForm(false)} disabled={busy}>Abbrechen</button>
               <button type="submit" disabled={busy || !canCreateFolder || !folderName.trim()}>Anlegen</button></div>
           </form>}
-          <LocalContainers containers={containerTree} disabled={busy} />
+          <LocalContainers containers={containerTree} disabled={busy} onOpenView={id => openContainerView(id)} />
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy} containers={containerTree}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); setError(null); })}
-            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} />
+            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} onOpenContainerView={id => openContainerView(id)} />
           {!vault.nodes.length && <div className="empty-state"><p>Füge deinen ersten Server hinzu. Über „Neu“ oder Rechtsklick wählst du die Verbindungsart.</p><button type="button" className="secondary-button" onClick={() => newConnection()}>Neue SSH-Verbindung</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}${!terminals.tabs.length ? ' no-terminals' : ''}`}>
@@ -835,7 +854,7 @@ export default function App() {
         onClose={() => setWorkflowEditor(null)} onSave={workflows => persistVault({ ...vault, workflows })} />}
       {showAiSettings && <AiSettingsDialog settings={vault.ai} busy={busy} onClose={() => setShowAiSettings(false)}
         onSave={settings => persistVault({ ...vault, ai: settings })} />}
-      {error && <div className="app-error" role="alert"><span>{error}</span><button type="button" aria-label="Fehlermeldung schließen" onClick={() => setError(null)}>Schließen</button></div>}
+      <Toast message={error} onClose={() => setError(null)} />
       <footer className="app-status"><span role="status">{busy ? 'Speichert …' : error ? 'Aktion fehlgeschlagen' : savedNotice || 'Vault geöffnet'}</span>
         <span>{runningCount} {runningCount === 1 ? 'aktive Session' : 'aktive Sessions'}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>
         <button type="button" className="version-button" title="Neuerungen anzeigen" onClick={() => setShowReleaseNotes(true)}>v{version}</button></footer>
@@ -848,8 +867,8 @@ export default function App() {
       {fileDropHint}
       <section className="welcome-card">
         <div className="brand large-brand">
-          <span className="brand-mark"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m4 6 6 6-6 6m9 0h7" /></svg></span>
-          <span>Terminus</span>
+          <img className="brand-mark" src={mark} alt="" />
+          <span>Shellherd</span>
         </div>
 
         {screen === 'home' && (
@@ -1036,7 +1055,7 @@ export default function App() {
           </form>
         )}
 
-        <footer>Terminus {version}</footer>
+        <footer>Shellherd {version}</footer>
       </section>
     </main>
   );

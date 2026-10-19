@@ -2,7 +2,9 @@ import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRe
 import type { AiProvider, ConnectionNode, Vault, WorkspaceLayout } from './vault/types';
 import type { AiAskRequest, AiCatalog, AiEvent } from './ai';
 import type { ConnectionTestResult } from './connection-test';
-import type { ContainerAction, ContainerHostId, ContainerTarget, DiscoveryResult } from './containers';
+import type {
+  ContainerAction, ContainerHostId, ContainerInventory, ContainerRuntime, ContainerTarget, DiscoveryResult, InventoryAction, InventoryRef,
+} from './containers';
 import type { ConnectionCatalog, ExternalDragHover, IncomingTab, IncomingView, TabTransferRequest, ViewTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
 import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditRequest } from './sftp';
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
@@ -82,6 +84,8 @@ export const IPC_CHANNELS = {
   connectionTest: 'connection:test',
   containersList: 'containers:list',
   containersAction: 'containers:action',
+  containersInventory: 'containers:inventory',
+  containersInspect: 'containers:inspect',
   aiCatalog: 'ai:catalog',
   aiCatalogChanged: 'ai:catalog-changed',
   aiAsk: 'ai:ask',
@@ -218,15 +222,20 @@ export interface DesktopApi {
   openWorkspaceWindows: (windows: WorkspaceWindowState[]) => Promise<void>;
   onWorkspaceRestore: (listener: (saved: NonNullable<WindowLayoutReport>) => void) => () => void;
   closeSecondaryWindows: () => Promise<void>;
-  /** Vault file Terminus was started with from Explorer; returned once. */
+  /** Vault file Shellherd was started with from Explorer; returned once. */
   vaultLaunchFile: () => Promise<string | null>;
   /** Path of the vault opened last, if the file still exists; preselected on the open screen. */
   lastVaultFile: () => Promise<string | null>;
   /** Dry run of a possibly unsaved connection. */
   connectionTest: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
-  /** Lists containers and Proxmox guests of an SSH connection or of this computer; always fresh. */
+  /** Probes an SSH connection or this computer for Docker and Podman and lists Proxmox guests; always fresh. */
   containersList: (request: { hostId: ContainerHostId }) => Promise<DiscoveryResult>;
-  containersAction: (request: { hostId: ContainerHostId; target: ContainerTarget; action: ContainerAction }) => Promise<void>;
+  containersInventory: (request: { hostId: ContainerHostId; runtime?: ContainerRuntime }) => Promise<ContainerInventory>;
+  /** Masked, 2-space indented JSON of `<rt> <kind> inspect <ref>`. */
+  containersInspect: (request: { hostId: ContainerHostId; ref: InventoryRef }) => Promise<string>;
+  containersAction: (request:
+    | { hostId: ContainerHostId; target: ContainerTarget; action: ContainerAction }
+    | { hostId: ContainerHostId; target: InventoryRef; action: InventoryAction }) => Promise<void>;
   aiCatalog: () => Promise<AiCatalog>;
   onAiCatalog: (listener: (catalog: AiCatalog) => void) => () => void;
   /** Starts a streamed answer; text arrives as `ai:event` deltas. */
@@ -235,7 +244,7 @@ export interface DesktopApi {
   onAiEvent: (listener: (event: AiEvent) => void) => () => void;
   /** Settings form only: one short round trip, returns the model's reply. */
   aiTest: (provider: AiProvider) => Promise<string>;
-  /** A vault file opened from Explorer while Terminus was running. */
+  /** A vault file opened from Explorer while Shellherd was running. */
   onVaultOpenFile: (listener: (filePath: string) => void) => () => void;
   fileTypeStatus: () => Promise<boolean>;
   fileTypeRegister: () => Promise<void>;

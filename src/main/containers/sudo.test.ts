@@ -5,6 +5,13 @@ const PROMPT = '[terminus-sudo-0123456789abcdef]';
 const READY = '[terminus-ready-0123456789abcdef]';
 const bytes = (text: string): Buffer => Buffer.from(text, 'utf8');
 
+describe('createSudoMarker list', () => {
+  it('creates a fresh list marker per call', () => {
+    expect(createSudoMarker('list')).toMatch(/^\[terminus-list-[0-9a-f]{16}\]$/);
+    expect(new Set(Array.from({ length: 50 }, () => createSudoMarker('list'))).size).toBe(50);
+  });
+});
+
 function feedAll(watcher: SudoWatcher, chunks: string[]): { text: string; prompts: number[]; ready: boolean[] } {
   const parts: Buffer[] = [];
   const prompts: number[] = [];

@@ -1,5 +1,5 @@
 import type { ConnectionIconName } from './appearance';
-import type { ContainerTarget, TerminalTargetMode } from '../containers';
+import type { ContainerRuntime, ContainerTarget, TerminalTargetMode } from '../containers';
 import type { KubeViewSnapshot } from '../kubernetes';
 
 export type Authentication =
@@ -198,12 +198,17 @@ export interface WorkspaceContainerTab { index: number; target: ContainerTarget;
 /** A cluster tab; `index` is its position in `connectionIds` (the cluster connection). */
 export interface WorkspaceKubeTab { index: number; view: KubeViewSnapshot }
 
+/** Container view at `index` in `connectionIds`; a bare number means no fixed runtime. */
+export interface WorkspaceContainerView { index: number; runtime?: ContainerRuntime }
+
 export interface WorkspacePane {
   type: 'pane';
   connectionIds: string[];
   activeConnectionId?: string;
   /** Positions in `connectionIds` of SSH connections opened as file browser instead of terminal. */
   fileBrowsers?: number[];
+  /** Positions in `connectionIds` of SSH connections opened as container view; objects carry a fixed runtime. */
+  containerViews?: (number | WorkspaceContainerView)[];
   containerTabs?: WorkspaceContainerTab[];
   kubeTabs?: WorkspaceKubeTab[];
 }

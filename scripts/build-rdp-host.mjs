@@ -11,8 +11,8 @@ if (process.platform !== 'win32') {
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const source = join(root, 'native', 'Terminus.RdpHost');
-// --out <dir> builds elsewhere, e.g. while a running Terminus locks out/rdp-host.
+const source = join(root, 'native', 'Shellherd.RdpHost');
+// --out <dir> builds elsewhere, e.g. while a running Shellherd locks out/rdp-host.
 const outFlag = process.argv.indexOf('--out');
 const outputDir = outFlag > 0 && process.argv[outFlag + 1] ? resolve(process.argv[outFlag + 1]) : join(root, 'out', 'rdp-host');
 const framework = join(process.env.SystemRoot ?? 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319');
@@ -32,7 +32,7 @@ execFileSync(csc, [
   '/nologo', '/noconfig', '/target:winexe', '/platform:x64', '/optimize+', '/warnaserror+',
   `/win32manifest:${join(source, 'app.manifest')}`,
   ...references.map(reference => `/reference:${join(framework, reference)}`),
-  `/out:${join(outputDir, 'Terminus.RdpHost.exe')}`,
+  `/out:${join(outputDir, 'Shellherd.RdpHost.exe')}`,
   ...sources,
 ], { stdio: 'inherit' });
-console.log(`RDP-Helfer gebaut: ${join(outputDir, 'Terminus.RdpHost.exe')}`);
+console.log(`RDP-Helfer gebaut: ${join(outputDir, 'Shellherd.RdpHost.exe')}`);
