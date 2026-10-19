@@ -1,6 +1,8 @@
 /* Cluster tab: header, node strip, problem banner, resource table, detail dock and dialogs. */
 
 .kube-view { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--ui-bg); color: var(--ui-text); }
+/* On the split stage the view is placed like a terminal panel: below its pane's tab bar, inside its region. */
+.split-terminal-stage > .kube-view { position: absolute; box-sizing: border-box; overflow: hidden; }
 .kube-muted { color: var(--ui-muted); }
 .kube-placeholder { margin: 0; padding: 12px; color: var(--ui-muted); }
 .kube-tone-ok { color: #86efac; }
