@@ -8,6 +8,13 @@ Electron-44-App (TypeScript, React 19, xterm, ssh2, `@kubernetes/client-node`). 
 
 Ausnahme sind kleine, klar umrissene Fehlerbehebungen (eine Ursache, wenige Zeilen). Sie gehen direkt nach `superpowers:systematic-debugging`, test-first, ohne Pipeline.
 
+## Design (verbindlich)
+
+- Jede Oberfläche folgt `docs/design-system.md`. Farben, Abstände, Radien, Schrift, Ebenen, Schatten und Bewegung kommen ausschließlich als `var(--…)` aus `src/renderer/src/tokens.css`. Keine harten Werte in Komponenten-CSS oder Inline-Styles (Inline nur für berechnete Geometrie).
+- Fehlt ein Wert, kommt er zuerst als Token in `tokens.css` (mit Rolle), nie als Einzelwert in eine Komponente.
+- Bewegung nur mit Eintrag im Motion-Gate der Doku: nur `transform`/`opacity`, Kurven und Dauern aus den Tokens, `prefers-reduced-motion` in derselben Datei, nie auf per Tastatur ausgelöste oder 100-mal-am-Tag-Aktionen.
+- `src/renderer/src/design-tokens.test.ts` setzt das durch und läuft mit `npx vitest run`.
+
 ## Prüfen
 
 - `npm run typecheck` und `npx vitest run` müssen vor jedem Commit grün sein.
