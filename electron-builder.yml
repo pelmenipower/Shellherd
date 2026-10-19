@@ -1,0 +1,43 @@
+appId: io.github.pelmenipower.shellherd
+productName: Shellherd
+copyright: Copyright © 2026 Alexander Schmidt
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - out/**/*
+  - '!out/rdp-host/**'
+  - package.json
+
+# Read at runtime via process.resourcesPath (see src/main/brand.ts and src/main/rdp/ipc.ts).
+extraResources:
+  - from: resources/icon.ico
+    to: icon.ico
+  - from: resources/icon.png
+    to: icon.png
+  - from: out/rdp-host
+    to: rdp-host
+
+# node-pty ships N-API prebuilds that load in Electron as-is; a rebuild would need a C++ toolchain.
+npmRebuild: false
+
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch: x64
+    - target: portable
+      arch: x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+portable:
+  artifactName: ${productName}-Portable-${version}.${ext}
+
+publish: null

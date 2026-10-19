@@ -1,0 +1,50 @@
+# Builds the Windows installer and portable exe for a version tag and publishes a GitHub release.
+# Trigger: git tag v0.11.0 && git push origin v0.11.0
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tag must match package.json
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME passt nicht zu package.json ($version)."
+            exit 1
+          fi
+
+      - run: npx vitest run
+
+      # check:version, typecheck, electron-vite build, RDP helper, then electron-builder
+      - run: npm run dist
+
+      - run: node scripts/release-notes.mjs "$GITHUB_REF_NAME" > release-notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/Shellherd-Setup-*.exe dist/Shellherd-Portable-*.exe \
+            --title "Shellherd ${GITHUB_REF_NAME#v}" \
+            --notes-file release-notes.md

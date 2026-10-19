@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, webContents } from 'electron';
+import { app, BrowserWindow, ipcMain, webContents } from 'electron';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/ipc';
@@ -30,7 +30,10 @@ export function rdpSurfaceMode(): RdpSurfaceMode {
 
 export function registerRdpIpcHandlers(): RdpSessionManager {
   const manager = new RdpSessionManager({
-    executable: join(__dirname, '../rdp-host/Shellherd.RdpHost.exe'),
+    // Packaged builds ship the helper as an extra resource: an exe inside app.asar cannot be spawned.
+    executable: app.isPackaged
+      ? join(process.resourcesPath, 'rdp-host', 'Shellherd.RdpHost.exe')
+      : join(__dirname, '../rdp-host/Shellherd.RdpHost.exe'),
     // Owned surfaces (variant B) are the default: child windows (A) are hidden by Chromium's
     // DirectComposition and share the input queue with Shellherd. A stays available for experiments.
     mode: rdpSurfaceMode(),

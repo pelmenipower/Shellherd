@@ -4,6 +4,8 @@
   "version": "0.10.0",
   "private": true,
   "description": "Shellherd – a local, encrypted connection manager for SSH, RDP, containers and Kubernetes.",
+  "author": "Alexander Schmidt",
+  "license": "MIT",
   "homepage": "https://github.com/pelmenipower/Shellherd",
   "repository": {
     "type": "git",
@@ -22,6 +24,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "build:rdp-host": "node scripts/build-rdp-host.mjs",
+    "dist": "npm run build && electron-builder --win --publish never",
+    "release-notes": "node scripts/release-notes.mjs",
     "rdp:try": "node scripts/rdp-try.mjs",
     "icons": "electron scripts/icons/make-icons.mjs"
   },
@@ -47,9 +51,17 @@
     "@types/ssh2": "^1.15.6",
     "@vitejs/plugin-react": "^5.0.3",
     "electron": "^44.4.2",
+    "electron-builder": "26.17.0",
     "electron-vite": "^4.0.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
     "vitest": "5.0.1"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "node-pty@1.1.0": true,
+    "ssh2@1.17.0": true,
+    "electron-winstaller@5.4.0": false
   }
 }

@@ -6,6 +6,7 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 
 ## [0.10.0] – 2026-10-19
 
+- Erste öffentliche Version auf GitHub: Installer (`Shellherd-Setup-0.10.0.exe`) und portable Version (`Shellherd-Portable-0.10.0.exe`) für Windows x64, Lizenz MIT.
 - Terminus heißt jetzt Shellherd: neues Programmsymbol in Fenster, Taskleiste, Kopfzeile und Startkarte, neuer Name in allen Texten. Vault-Dateien (`.term`, ältere `.terminus`) und ihr Format bleiben unverändert.
 - Einstellungen ziehen beim ersten Start automatisch um: bekannte SSH-Hostschlüssel und die zuletzt geöffnete Vault-Datei werden aus dem alten Terminus-Ordner übernommen; der alte Ordner bleibt bestehen.
 - Dateiverknüpfung: „Mit Shellherd öffnen“ ersetzt beim nächsten Verknüpfen den alten Eintrag; `.term` zeigt im Explorer das Shellherd-Symbol.
