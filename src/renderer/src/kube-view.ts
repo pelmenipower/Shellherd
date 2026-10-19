@@ -1,3 +1,4 @@
+import { errorText } from './error-text';
 import { compileSearch, EMPTY_FILTER, MAX_SEARCH_LENGTH, type KubeFilter } from '../../shared/kube-filter';
 import { compileChips, knownChips } from '../../shared/kube-status';
 import { columnFilterKind, columnsFor, compileColumnFilters, groupKey, groupRows, GROUP_OPTIONS, type KubeGrouping, type TableItem } from './kube-columns';
@@ -295,7 +296,7 @@ function applyEvent(state: KubeViewState, event: KubeEvent): KubeViewState {
     case 'overview': return { ...state, nodes: event.nodes, problems: event.problems, namespaces: event.namespaces };
     case 'usage': return { ...state, usage: event.pods };
     case 'rows': return applyRows(state, event);
-    case 'trouble': return queryKey(event.query) === queryKey(state.query) ? { ...state, trouble: event.message ?? null } : state;
+    case 'trouble': return queryKey(event.query) === queryKey(state.query) ? { ...state, trouble: event.error ? errorText(event.error) : null } : state;
   }
 }
 

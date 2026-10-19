@@ -1,6 +1,8 @@
 import { KubeConfig } from '@kubernetes/client-node';
+import { AppError } from '../../shared/errors';
 
-export class KubeInputError extends Error {}
+/** The kubeconfig or its settings are unusable; the user can fix it. */
+export class KubeInputError extends AppError {}
 
 export interface ParsedKubeconfig {
   contextName: string;
@@ -15,11 +17,11 @@ export interface ParsedKubeconfig {
 
 function load(text: string): KubeConfig {
   const config = new KubeConfig();
-  try { config.loadFromString(text); } catch { throw new KubeInputError('Die kubeconfig konnte nicht gelesen werden.'); }
+  try { config.loadFromString(text); } catch { throw new KubeInputError('kubernetes.kubeconfigInvalid'); }
   // client-node accepts invalid YAML silently and yields an empty config; treat "nothing parsed" as unreadable.
   if (!config.getContexts().length) {
-    if (!config.getClusters().length && !config.getUsers().length) throw new KubeInputError('Die kubeconfig konnte nicht gelesen werden.');
-    throw new KubeInputError('Die kubeconfig enthält keinen Context.');
+    if (!config.getClusters().length && !config.getUsers().length) throw new KubeInputError('kubernetes.kubeconfigInvalid');
+    throw new KubeInputError('kubernetes.kubeconfigNoContext');
   }
   return config;
 }
@@ -35,17 +37,17 @@ export function parseKubeconfig(text: string, contextName?: string): ParsedKubec
   const config = load(text);
   const name = contextName ?? config.getCurrentContext();
   const context = config.getContexts().find(item => item.name === name);
-  if (!context) throw new KubeInputError(`Context „${name}“ gibt es in der kubeconfig nicht (vorhanden: ${config.getContexts().map(item => item.name).join(', ')}).`);
+  if (!context) throw new KubeInputError('kubernetes.contextMissing', { name, available: config.getContexts().map(item => item.name).join(', ') });
   const cluster = config.getCluster(context.cluster);
   const user = config.getUser(context.user);
-  if (!cluster || !user) throw new KubeInputError('Der Context verweist auf einen fehlenden Cluster oder Benutzer.');
-  if (user.exec || user.authProvider) throw new KubeInputError('Diese kubeconfig nutzt ein Login-Plugin. Das wird noch nicht unterstützt.');
+  if (!cluster || !user) throw new KubeInputError('kubernetes.contextIncomplete');
+  if (user.exec || user.authProvider) throw new KubeInputError('kubernetes.loginPluginUnsupported');
   if ((cluster.caFile && !cluster.caData) || (user.certFile && !user.certData) || (user.keyFile && !user.keyData)) {
-    throw new KubeInputError('Die kubeconfig verweist auf Zertifikatsdateien. Nutze eine kubeconfig mit eingebetteten Zertifikaten (z. B. /etc/kubernetes/admin.conf).');
+    throw new KubeInputError('kubernetes.certFilesUnsupported');
   }
   let url: URL;
-  try { url = new URL(cluster.server); } catch { throw new KubeInputError('Die Server-Adresse in der kubeconfig ist ungültig.'); }
-  if (url.protocol !== 'https:') throw new KubeInputError('Der API-Server muss per HTTPS erreichbar sein.');
+  try { url = new URL(cluster.server); } catch { throw new KubeInputError('kubernetes.serverUrlInvalid'); }
+  if (url.protocol !== 'https:') throw new KubeInputError('kubernetes.httpsRequired');
   const host = url.hostname.replace(/^\[|\]$/g, '');
   const server = { host, port: url.port ? Number(url.port) : 443 };
   return {

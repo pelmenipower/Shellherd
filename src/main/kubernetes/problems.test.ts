@@ -41,7 +41,7 @@ describe('detectProblems', () => {
       id: 'crashloop:pods/shop/api-1',
       kind: 'crashloop',
       ref: { kind: 'pods', namespace: 'shop', name: 'api-1' },
-      message: 'api-1 crasht (CrashLoopBackOff, 14 Neustarts)',
+      error: { code: 'kubernetes.problemCrashloop', params: { name: 'api-1', restarts: 14 } },
     }]);
   });
 
@@ -51,7 +51,7 @@ describe('detectProblems', () => {
       id: 'oomkilled:pods/shop/api-1',
       kind: 'oomkilled',
       ref: { kind: 'pods', namespace: 'shop', name: 'api-1' },
-      message: 'api-1 wurde wegen Speichermangel beendet (OOMKilled)',
+      error: { code: 'kubernetes.problemOom', params: { name: 'api-1' } },
     }]);
 
     expect(detectProblems([pod('api-1', { containers: [oomTerminated(61)] })], [], NOW)).toEqual([]);
@@ -64,7 +64,7 @@ describe('detectProblems', () => {
         id: 'image:pods/shop/api-1',
         kind: 'image',
         ref: { kind: 'pods', namespace: 'shop', name: 'api-1' },
-        message: `api-1: Image kann nicht geladen werden (${reason})`,
+        error: { code: 'kubernetes.problemImage', params: { name: 'api-1', reason } },
       }]);
     }
   });
@@ -77,7 +77,7 @@ describe('detectProblems', () => {
       id: 'pending:pods/shop/api-1',
       kind: 'pending',
       ref: { kind: 'pods', namespace: 'shop', name: 'api-1' },
-      message: 'api-1 wartet seit 5 min (Pending)',
+      error: { code: 'kubernetes.problemPending', params: { name: 'api-1', minutes: 5 } },
     }]);
   });
 
@@ -87,7 +87,7 @@ describe('detectProblems', () => {
       id: 'node:nodes//k8s-worker2',
       kind: 'node',
       ref: { kind: 'nodes', name: 'k8s-worker2' },
-      message: 'k8s-worker2 ist nicht bereit',
+      error: { code: 'kubernetes.problemNodeNotReady', params: { name: 'k8s-worker2' } },
     }]);
 
     const pressure = detectProblems([], [node('k8s-worker2', { pressure: ['MemoryPressure'] })], NOW);
@@ -95,7 +95,7 @@ describe('detectProblems', () => {
       id: 'node:nodes//k8s-worker2',
       kind: 'node',
       ref: { kind: 'nodes', name: 'k8s-worker2' },
-      message: 'k8s-worker2: MemoryPressure',
+      error: { code: 'kubernetes.problemNodePressure', params: { name: 'k8s-worker2', pressure: 'MemoryPressure' } },
     }]);
 
     expect(detectProblems([], [node('k8s-worker2')], NOW)).toEqual([]);

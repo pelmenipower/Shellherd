@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { KubeConfig, KubernetesObjectApi, Watch } from '@kubernetes/client-node';
 import { describe, expect, it, vi } from 'vitest';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
+import type { CodedError } from '../../shared/errors';
 import { KubeApiError } from './api';
 import { createKubeApi, isAltnameError, manualJobBody, openLogs, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
 import type { LogRequest } from './client-api';
@@ -49,7 +50,7 @@ function abortError(): Error {
 }
 
 function fakeIo() {
-  return { data: vi.fn<(chunk: Buffer) => void>(), end: vi.fn<(code: number | null, message?: string) => void>() };
+  return { data: vi.fn<(chunk: Buffer) => void>(), end: vi.fn<(code: number | null, error?: CodedError) => void>() };
 }
 
 describe('resourcePath', () => {
@@ -71,15 +72,18 @@ describe('selectorQuery', () => {
 });
 
 describe('toApiError', () => {
-  it('translates HTTP errors into German messages', () => {
-    expect(toApiError({ code: 403, body: { message: 'pods "x" is forbidden: User "u" cannot delete resource "pods" in API group "" in the namespace "shop"' } }).message)
-      .toBe('Keine Berechtigung: pods/delete in shop');
-    expect(toApiError({ code: 401 }).message).toBe('Nicht angemeldet. Die Zugangsdaten der kubeconfig wurden abgelehnt.');
-    expect(toApiError({ code: 404 }).message).toBe('Die Ressource gibt es nicht (mehr).');
+  it('maps HTTP errors to catalog codes', () => {
+    expect(toApiError({ code: 403, body: { message: 'pods "x" is forbidden: User "u" cannot delete resource "pods" in API group "" in the namespace "shop"' } }).coded)
+      .toEqual({ code: 'kubernetes.forbiddenResource', params: { resource: 'pods', verb: 'delete', namespace: 'shop' } });
+    expect(toApiError({ code: 403 }).coded).toEqual({ code: 'kubernetes.forbidden' });
+    expect(toApiError({ code: 401 }).coded).toEqual({ code: 'kubernetes.unauthorized' });
+    expect(toApiError({ code: 404 }).coded).toEqual({ code: 'kubernetes.notFound' });
     expect(toApiError({ statusCode: 410 }).code).toBe(410);
-    expect(toApiError(Object.assign(new Error('x'), { code: 'ERR_TLS_CERT_ALTNAME_INVALID', reason: "Host: 10.0.0.5. is not in the cert's altnames: DNS:kubernetes" })).message)
-      .toBe("TLS: Das Zertifikat des API-Servers passt nicht zum Namen (Host: 10.0.0.5. is not in the cert's altnames: DNS:kubernetes).");
-    expect(toApiError(new Error('socket hang up')).message).toBe('Die Verbindung zum API-Server ist abgebrochen.');
+    expect(toApiError({ statusCode: 410 }).coded).toEqual({ code: 'kubernetes.watchExpired' });
+    expect(toApiError(Object.assign(new Error('x'), { code: 'ERR_TLS_CERT_ALTNAME_INVALID', reason: "Host: 10.0.0.5. is not in the cert's altnames: DNS:kubernetes" })).coded)
+      .toEqual({ code: 'kubernetes.tlsAltname', detail: "Host: 10.0.0.5. is not in the cert's altnames: DNS:kubernetes" });
+    expect(toApiError(new Error('socket hang up')).coded).toEqual({ code: 'kubernetes.connectionReset' });
+    expect(toApiError({ code: 500 }).coded).toEqual({ code: 'kubernetes.apiError' });
   });
 
   it('maps an ApiException-shaped error without using its message', () => {
@@ -89,7 +93,8 @@ describe('toApiError', () => {
     });
     const error = toApiError(apiException);
     expect(error).toBeInstanceOf(KubeApiError);
-    expect(error.message).toBe('Keine Berechtigung: pods/delete in shop');
+    expect(error.coded.code).toBe('kubernetes.forbiddenResource');
+    expect(error.message).not.toMatch(/Body|Headers|secret/);
     expect(error.code).toBe(403);
   });
 
@@ -98,11 +103,11 @@ describe('toApiError', () => {
       cause: { code: 'ERR_TLS_CERT_ALTNAME_INVALID', reason: "Host: 10.0.0.5. is not in the cert's altnames: DNS:kubernetes" },
     });
     const error = toApiError(tls);
-    expect(error.message).toBe("TLS: Das Zertifikat des API-Servers passt nicht zum Namen (Host: 10.0.0.5. is not in the cert's altnames: DNS:kubernetes).");
+    expect(error.coded).toMatchObject({ code: 'kubernetes.tlsAltname', detail: "Host: 10.0.0.5. is not in the cert's altnames: DNS:kubernetes" });
     expect(isAltnameError(error)).toBe(true);
 
     const untrusted = toApiError(new TypeError('fetch failed', { cause: { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' } }));
-    expect(untrusted.message).toBe('TLS: Das Zertifikat des API-Servers ist nicht vertrauenswürdig.');
+    expect(untrusted.coded.code).toBe('kubernetes.tlsUntrusted');
     expect(isAltnameError(untrusted)).toBe(false);
   });
 
@@ -120,9 +125,9 @@ describe('toApiError', () => {
   });
 
   it('recognises only the altname mismatch as the altname error', () => {
-    expect(isAltnameError(new KubeApiError('TLS: Das Zertifikat des API-Servers passt nicht zum Namen (x).'))).toBe(true);
-    expect(isAltnameError(new KubeApiError('TLS: Das Zertifikat des API-Servers ist nicht vertrauenswürdig.'))).toBe(false);
-    expect(isAltnameError(new KubeApiError('Die Kubernetes-API hat einen Fehler gemeldet.'))).toBe(false);
+    expect(isAltnameError(new KubeApiError('x', undefined, { code: 'kubernetes.tlsAltname' }))).toBe(true);
+    expect(isAltnameError(new KubeApiError('x', undefined, { code: 'kubernetes.tlsUntrusted' }))).toBe(false);
+    expect(isAltnameError(new KubeApiError('x'))).toBe(false);
   });
 });
 
@@ -230,19 +235,19 @@ describe('openLogs', () => {
     openLogs(testConfig(), logsTarget, io, fake.sendRequest);
     fake.fail(new TypeError('terminated'));
     await flush();
-    expect(io.end).toHaveBeenCalledWith(null, 'Die Kubernetes-API hat einen Fehler gemeldet.');
+    expect(io.end).toHaveBeenCalledWith(null, { code: 'kubernetes.apiError' });
   });
 
   it('explains a 400 on previous logs and keeps the generic message otherwise', async () => {
     const previousIo = fakeIo();
     openLogs(testConfig(), previousTarget, previousIo, fakeLogRequest(400).sendRequest);
     await flush();
-    expect(previousIo.end).toHaveBeenCalledWith(null, 'Kein vorheriger Container vorhanden.');
+    expect(previousIo.end).toHaveBeenCalledWith(null, { code: 'kubernetes.noPreviousContainer' });
 
     const logsIo = fakeIo();
     openLogs(testConfig(), logsTarget, logsIo, fakeLogRequest(400).sendRequest);
     await flush();
-    expect(logsIo.end).toHaveBeenCalledWith(null, 'Die Kubernetes-API hat einen Fehler gemeldet.');
+    expect(logsIo.end).toHaveBeenCalledWith(null, { code: 'kubernetes.apiError' });
   });
 
   it('does not end the terminal after a close that raced the response', async () => {
@@ -353,6 +358,7 @@ describe('manualJobBody', () => {
     const body = manualJobBody(bare, 'j') as { metadata: Record<string, unknown> };
     expect('labels' in body.metadata).toBe(false);
     expect(() => manualJobBody({ ...cron, metadata: { name: 'backup', namespace: 'shop' } }, 'j')).toThrow(KubeApiError);
+    expect(() => manualJobBody({ metadata: cron.metadata, spec: {} }, 'j')).toThrowError(expect.objectContaining({ coded: { code: 'kubernetes.cronJobIncomplete' } }));
     expect(() => manualJobBody({ metadata: cron.metadata, spec: {} }, 'j')).toThrow(KubeApiError);
   });
 });

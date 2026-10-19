@@ -44,13 +44,13 @@ describe('parseKubeconfig', () => {
     expect(parseKubeconfig(config('https://h:6443'), 'other').contextName).toBe('other');
   });
   it('rejects unknown contexts, login plugins, plain http and broken yaml', () => {
-    expect(() => parseKubeconfig(config('https://h:6443'), 'missing')).toThrow('Context „missing“ gibt es in der kubeconfig nicht (vorhanden: admin@k8s, other).');
-    expect(() => parseKubeconfig(config('https://h:6443', 'exec:\n      command: kubelogin'))).toThrow('Diese kubeconfig nutzt ein Login-Plugin. Das wird noch nicht unterstützt.');
+    expect(() => parseKubeconfig(config('https://h:6443'), 'missing')).toThrowError(expect.objectContaining({ code: 'kubernetes.contextMissing', params: { name: 'missing', available: 'admin@k8s, other' } }));
+    expect(() => parseKubeconfig(config('https://h:6443', 'exec:\n      command: kubelogin'))).toThrowError(expect.objectContaining({ code: 'kubernetes.loginPluginUnsupported' }));
     expect(() => parseKubeconfig(config('http://h:8080'))).toThrow(KubeInputError);
-    expect(() => parseKubeconfig(': : :')).toThrow('Die kubeconfig konnte nicht gelesen werden.');
+    expect(() => parseKubeconfig(': : :')).toThrowError(expect.objectContaining({ code: 'kubernetes.kubeconfigInvalid' }));
   });
   it('rejects certificate files that only exist on cp1 and points to embedded certificates', () => {
-    const message = 'Die kubeconfig verweist auf Zertifikatsdateien. Nutze eine kubeconfig mit eingebetteten Zertifikaten (z. B. /etc/kubernetes/admin.conf).';
+    const message = expect.objectContaining({ code: 'kubernetes.certFilesUnsupported' });
     const withFiles = (cluster: string, user: string) => `
 apiVersion: v1
 kind: Config
@@ -68,9 +68,9 @@ users:
   user:
     ${user}
 `;
-    expect(() => parseKubeconfig(withFiles('certificate-authority: /etc/kubernetes/pki/ca.crt', 'client-certificate-data: Y2VydA==\n    client-key-data: a2V5'))).toThrow(message);
-    expect(() => parseKubeconfig(withFiles('certificate-authority-data: Y2E=', 'client-certificate: /etc/kubernetes/pki/admin.crt\n    client-key-data: a2V5'))).toThrow(message);
-    expect(() => parseKubeconfig(withFiles('certificate-authority-data: Y2E=', 'client-certificate-data: Y2VydA==\n    client-key: /etc/kubernetes/pki/admin.key'))).toThrow(message);
+    expect(() => parseKubeconfig(withFiles('certificate-authority: /etc/kubernetes/pki/ca.crt', 'client-certificate-data: Y2VydA==\n    client-key-data: a2V5'))).toThrowError(message);
+    expect(() => parseKubeconfig(withFiles('certificate-authority-data: Y2E=', 'client-certificate: /etc/kubernetes/pki/admin.crt\n    client-key-data: a2V5'))).toThrowError(message);
+    expect(() => parseKubeconfig(withFiles('certificate-authority-data: Y2E=', 'client-certificate-data: Y2VydA==\n    client-key: /etc/kubernetes/pki/admin.key'))).toThrowError(message);
   });
   it('never puts secrets into error messages', () => {
     try { parseKubeconfig(config('https://h:6443', 'token: SECRET-TOKEN'), 'missing'); } catch (error) { expect(String(error)).not.toContain('SECRET'); }

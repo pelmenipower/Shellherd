@@ -5,6 +5,7 @@ import {
 } from '../../shared/kubernetes';
 import { KUBE_COMMANDS, actionReason, podNotRunning, type CommandId } from './kube-commands';
 import * as kubectl from './kube-kubectl';
+import { errorText } from './error-text';
 import { primaryChip } from '../../shared/kube-status';
 import { defaultSort, filterOf, type KubeViewAction, type KubeViewState } from './kube-view';
 
@@ -454,7 +455,7 @@ function problemMenu(env: Env, problem: KubeProblem): MenuEntry[] {
     copyGroup(env, [
       ['name', 'Name', ref.name],
       ['namespaced-name', 'Namespace/Name', ref.namespace ? `${ref.namespace}/${ref.name}` : undefined],
-      ['message', 'Meldung', problem.message],
+      ['message', 'Meldung', errorText(problem.error)],
       ['logs', 'kubectl logs --previous', crashes ? kubectl.logs(namespace, ref.name, undefined, true) : undefined],
     ]),
     podProblem ? [kubeActionItem(env, 'delete', 'Pod löschen…', ref, 'delete')] : [],

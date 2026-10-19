@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { KIND_COLUMNS, READ_ONLY_MESSAGE, refKey, type DockMode, type KubeDetail, type KubeDetailMode, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
+import { errorText } from '../../error-text';
 import type { TerminalConnection } from '../../terminal-tabs';
 import { dockTerminalKey, formatAge } from '../../kube-view';
 import { TerminalPanel } from '../TerminalPanel';
@@ -76,7 +77,7 @@ export function DetailDock(props: DetailDockProps) {
     let cancelled = false;
     detail(selected, detailMode).then(
       data => { if (!cancelled) setResult({ id: resultId, data }); },
-      caught => { if (!cancelled) setResult({ id: resultId, error: caught instanceof Error ? caught.message : 'Die Ansicht konnte nicht geladen werden.' }); },
+      caught => { if (!cancelled) setResult({ id: resultId, error: errorText(caught, 'Die Ansicht konnte nicht geladen werden.') }); },
     );
     return () => { cancelled = true; };
     // resultId stands for `selected`: a new row object with the same key is the same request.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { codedFrom } from '../../../shared/errors';
 import { queryKey } from '../../../shared/kubernetes';
 import type { KubeActionRequest, KubeDetail, KubeDetailMode, KubeRef, KubeViewSnapshot } from '../../../shared/kubernetes';
 import { initialKubeView, kubeViewReducer, type KubeViewAction, type KubeViewState } from '../kube-view';
@@ -77,6 +78,5 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
 
 /** A status for failures that happen before or outside the main side's own status events. */
 function failedStatus(caught: unknown, clusterId: string) {
-  const message = caught instanceof Error ? caught.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Die Ansicht konnte nicht geöffnet werden.';
-  return { state: 'error' as const, name: clusterId, production: false, readOnly: false, message, metrics: false };
+  return { state: 'error' as const, name: clusterId, production: false, readOnly: false, error: codedFrom(caught, 'kubernetes.viewOpenFailed'), metrics: false };
 }

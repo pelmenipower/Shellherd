@@ -3,8 +3,8 @@ import type { KubeObject } from './api';
 
 const MASK = '•••';
 const LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration';
-const LABEL_WIDTH = 13;
-const CONTAINER_LABEL_WIDTH = 11;
+const LABEL_WIDTH = 21;
+const CONTAINER_LABEL_WIDTH = 17;
 const WORKLOAD_KINDS = new Set(['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job']);
 const EVENT_LIMIT = 10;
 
@@ -88,17 +88,17 @@ function containerLines(container: Rec, status: Rec | undefined): string[] {
     indent('Ports:', ports.length > 0 ? ports.join(', ') : '<none>'),
     indent('Requests:', formatMap(container.resources?.requests, ', ')),
     indent('Limits:', formatMap(container.resources?.limits, ', ')),
-    indent('Bereit:', status?.ready ? 'ja' : 'nein'),
-    indent('Neustarts:', str(status?.restartCount ?? 0)),
+    indent('Ready:', status?.ready ? 'True' : 'False'),
+    indent('Restart Count:', str(status?.restartCount ?? 0)),
   ];
   if (terminated) {
-    lines.push(`  Letzter Abbruch: ${str(terminated.reason)} (Exit ${str(terminated.exitCode)})`);
+    lines.push(`  Last State: Terminated (${str(terminated.reason)}, Exit Code: ${str(terminated.exitCode)})`);
   }
   const env = arr(container.env);
   if (env.length === 0) {
-    lines.push(indent('Umgebung:', '<none>'));
+    lines.push(indent('Environment:', '<none>'));
   } else {
-    lines.push('  Umgebung:');
+    lines.push('  Environment:');
     for (const entry of env) {
       lines.push(`    ${str(entry.name)}: ${envValue(entry)}`);
     }
@@ -127,8 +127,8 @@ export function describe(object: KubeObject, events: KubeObject[]): string {
   if (meta.namespace) {
     out.push(label('Namespace:', meta.namespace));
   }
-  out.push(label('Art:', kind));
-  out.push(label('Erstellt:', str(meta.creationTimestamp)));
+  out.push(label('Kind:', kind));
+  out.push(label('Creation Timestamp:', str(meta.creationTimestamp)));
   out.push(label('Labels:', formatMap(meta.labels, ', ')));
   const owners = arr(meta.ownerReferences).map((o) => `${str(o.kind)}/${str(o.name)}`);
   out.push(label('Owner:', owners.length > 0 ? owners.join(', ') : '<none>'));
@@ -142,7 +142,7 @@ export function describe(object: KubeObject, events: KubeObject[]): string {
     const ready = status?.readyReplicas ?? status?.numberReady ?? 0;
     out.push(label('Status:', `${str(ready)}/${str(desired)} ready`));
   } else if (kind === 'Secret') {
-    out.push(label('Typ:', str(object.type)));
+    out.push(label('Type:', str(object.type)));
   }
 
   if (kind === 'Pod') {
@@ -155,13 +155,13 @@ export function describe(object: KubeObject, events: KubeObject[]): string {
     const selector = rec(spec?.selector);
     out.push('', label('Selector:', formatMap(selector?.matchLabels, ', ')));
     out.push(label('Replicas:', str(spec?.replicas ?? '')));
-    out.push(label('Strategie:', str(spec?.strategy?.type ?? spec?.updateStrategy?.type ?? '')));
+    out.push(label('Strategy:', str(spec?.strategy?.type ?? spec?.updateStrategy?.type ?? '')));
     out.push('Images:');
     for (const container of arr(rec(spec?.template)?.spec?.containers)) {
       out.push(`  ${str(container.name)}: ${str(container.image)}`);
     }
   } else if (kind === 'Secret') {
-    out.push('', 'Schlüssel:');
+    out.push('', 'Keys:');
     for (const key of Object.keys(rec(object.data) ?? {})) {
       out.push(`  ${key}`);
     }

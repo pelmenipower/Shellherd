@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { MAX_REPLICAS, type KubeActionRequest, type KubeAction, type KubeRef } from '../../../../shared/kubernetes';
 import { confirmationFor } from '../../confirm-action';
+import { errorText } from '../../error-text';
 import { useNativeSurfaceBlock } from '../../native-surface';
 
 export interface PendingAction {
@@ -53,7 +54,7 @@ export function ConfirmAction({ pending, cluster, run, onClose }: ConfirmActionP
       await run({ ref: pending.ref, action: pending.action, ...(isScale ? { replicas } : {}) });
       onClose();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Die Aktion ist fehlgeschlagen.');
+      setError(errorText(caught, 'Die Aktion ist fehlgeschlagen.'));
       setBusy(false);
     }
   };

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { CodedError } from '../../shared/errors';
 import type { ClusterStatus, KubeEvent, KubeKind, KubeRow, NodeTile, UsageHistory } from '../../shared/kubernetes';
 import { KIND_INFO, refKey } from '../../shared/kubernetes';
 import { activeFilter, activeGrouping, columnsOf, compileFilter, navigableRows, tableItems, defaultSort, filterOf, isFiltered, searchedRows, dockContainer, dockSelection, dockTerminalKey, settleArm, formatAge, formatUsage, initialKubeView, kubeViewReducer, snapshotOf, sparkline, visibleRows } from './kube-view';
@@ -48,20 +49,21 @@ describe('rows events', () => {
 });
 
 describe('trouble', () => {
-  const trouble = (state: KubeViewState, message?: string, query = state.query): KubeViewState =>
-    kubeViewReducer(state, { type: 'event', event: { type: 'trouble', viewId: 'v1', query, ...(message ? { message } : {}) } });
+  const trouble = (state: KubeViewState, error?: CodedError, query = state.query): KubeViewState =>
+    kubeViewReducer(state, { type: 'event', event: { type: 'trouble', viewId: 'v1', query, ...(error ? { error } : {}) } });
+  const forbidden: CodedError = { code: 'kubernetes.forbiddenResource', params: { resource: 'ingresses', verb: 'list', namespace: 'shop' } };
 
-  it('keeps the message for the shown query, ignores other queries and clears it when trouble is over', () => {
+  it('keeps the error text for the shown query, ignores other queries and clears it when trouble is over', () => {
     let state = initialKubeView('shop');
-    state = trouble(state, 'Keine Berechtigung: ingresses/list');
-    expect(state.trouble).toBe('Keine Berechtigung: ingresses/list');
+    state = trouble(state, forbidden);
+    expect(state.trouble).toBe('Keine Berechtigung: ingresses/list in shop');
     expect(state.loading).toBe(true);
-    expect(trouble(state, 'x', { kind: 'services', namespace: 'shop' })).toBe(state);
+    expect(trouble(state, forbidden, { kind: 'services', namespace: 'shop' })).toBe(state);
     expect(trouble(state).trouble).toBeNull();
   });
 
   it('forgets the message when the view moves to another table', () => {
-    const state = kubeViewReducer(trouble(initialKubeView('shop'), 'kaputt'), { type: 'setKind', kind: 'services' });
+    const state = kubeViewReducer(trouble(initialKubeView('shop'), { code: 'kubernetes.apiError' }), { type: 'setKind', kind: 'services' });
     expect(state.trouble).toBeNull();
   });
 });
@@ -373,7 +375,7 @@ describe('cluster events', () => {
     let state = initialKubeView('shop');
     const events: KubeEvent[] = [
       { type: 'status', viewId: 'other-view', status },
-      { type: 'overview', viewId: 'other-view', nodes: [nodeTile], problems: [{ id: 'p1', kind: 'crashloop', ref: { kind: 'pods', namespace: 'shop', name: 'api-1' }, message: 'CrashLoopBackOff' }], namespaces: ['shop', 'billing'] },
+      { type: 'overview', viewId: 'other-view', nodes: [nodeTile], problems: [{ id: 'p1', kind: 'crashloop', ref: { kind: 'pods', namespace: 'shop', name: 'api-1' }, error: { code: 'kubernetes.problemCrashloop', params: { name: 'api-1', restarts: 3 } } }], namespaces: ['shop', 'billing'] },
       { type: 'usage', viewId: 'other-view', pods: usage },
     ];
     for (const event of events) state = kubeViewReducer(state, { type: 'event', event });

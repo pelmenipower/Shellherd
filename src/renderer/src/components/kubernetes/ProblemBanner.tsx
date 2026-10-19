@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { KIND_INFO, type KubeProblem, type KubeRef } from '../../../../shared/kubernetes';
+import { errorText } from '../../error-text';
 import { menuHandlers, type MenuOpener } from '../../kube-menu-trigger';
 
 type OnMenu = MenuOpener;
@@ -19,7 +20,7 @@ export function ProblemBanner({ problems, onJump, onMenu }: ProblemBannerProps) 
     return (
       <div className="kube-banner" role="status">
         <span className="kube-tone-bad">1 Problem:</span>{' '}
-        <button type="button" className="kube-link" onClick={() => onJump(first.ref)} {...menuHandlers(onMenu, { type: 'problem', problem: first })}>{first.message}</button>
+        <button type="button" className="kube-link" onClick={() => onJump(first.ref)} {...menuHandlers(onMenu, { type: 'problem', problem: first })}>{errorText(first.error)}</button>
       </div>
     );
   }
@@ -33,7 +34,7 @@ export function ProblemBanner({ problems, onJump, onMenu }: ProblemBannerProps) 
           {problems.map(problem => (
             <li key={problem.id}>
               <button type="button" className="kube-link" onClick={() => onJump(problem.ref)} {...menuHandlers(onMenu, { type: 'problem', problem })}>
-                <span className="kube-muted">{KIND_INFO[problem.ref.kind].kind} {problem.ref.name}</span> {problem.message}
+                <span className="kube-muted">{KIND_INFO[problem.ref.kind].kind} {problem.ref.name}</span> {errorText(problem.error)}
               </button>
             </li>
           ))}

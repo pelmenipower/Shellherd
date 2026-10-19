@@ -1,4 +1,5 @@
 /** Kubernetes cluster tab; see docs/superpowers/specs/2026-10-16-kubernetes-integration-design.md. */
+import type { CodedError } from './errors';
 
 /** DNS-1123 subdomain: namespaces, pods, workloads, containers and nodes. */
 export const KUBE_NAME = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/;
@@ -108,7 +109,7 @@ export interface Usage { cpuMilli: number; memoryBytes: number }
 export type UsageHistory = Record<string, Usage[]>;
 
 export type ProblemKind = 'crashloop' | 'oomkilled' | 'image' | 'pending' | 'node';
-export interface KubeProblem { id: string; kind: ProblemKind; ref: KubeRef; message: string }
+export interface KubeProblem { id: string; kind: ProblemKind; ref: KubeRef; error: CodedError }
 
 export type ClusterState = 'connecting' | 'ready' | 'reconnecting' | 'error';
 export interface ClusterStatus {
@@ -118,7 +119,7 @@ export interface ClusterStatus {
   readOnly: boolean;
   /** Name of the SSH connection carrying the tunnel. */
   host?: string;
-  message?: string;
+  error?: CodedError;
   /** metrics.k8s.io answered. */
   metrics: boolean;
   /** Namespace a fresh view opens in: vault setting, else the kubeconfig context, else `default`. Absent until known. */
@@ -134,8 +135,8 @@ export type KubeEvent =
   | { type: 'rows'; viewId: string; query: KubeQuery; reset: boolean; upserts: KubeRow[]; deletes: string[] }
   | { type: 'overview'; viewId: string; nodes: NodeTile[]; problems: KubeProblem[]; namespaces: string[] }
   | { type: 'usage'; viewId: string; pods: UsageHistory }
-  /** Why a table cannot load or stay live; `message` absent = trouble is over. */
-  | { type: 'trouble'; viewId: string; query: KubeQuery; message?: string };
+  /** Why a table cannot load or stay live; `error` absent = trouble is over. */
+  | { type: 'trouble'; viewId: string; query: KubeQuery; error?: CodedError };
 
 export type KubeDetailMode = 'yaml' | 'describe' | 'events';
 export type KubeDetail = { mode: 'yaml' | 'describe'; text: string } | { mode: 'events'; rows: KubeRow[] };

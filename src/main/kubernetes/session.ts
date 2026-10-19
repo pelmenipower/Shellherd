@@ -1,17 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import type { KubeConfig } from '@kubernetes/client-node';
+import { AppError } from '../../shared/errors';
+import type { CodedError, ErrorCode } from '../../shared/errors';
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
 import type { ClusterState, ClusterStatus, KubeAction, KubeDetail, KubeDetailMode, KubeEvent, KubeOpenResult, KubeQuery, KubeRef, KubeRow, KubeTerminalTarget, UsageHistory } from '../../shared/kubernetes';
-import { READ_ONLY_MESSAGE, queryKey } from '../../shared/kubernetes';
+import { queryKey } from '../../shared/kubernetes';
 import type { TerminalSize } from '../../shared/ssh';
-import { HostAccessError } from '../containers/runner';
 import { KubeApiError } from './api';
 import { isAltnameError } from './client-api';
 import type { KubeApi, KubeStream, TerminalIo } from './api';
 import { runAction } from './actions';
 import type { ClusterAccess } from './access';
 import { describe, toYaml } from './describe';
-import { KubeInputError, parseKubeconfig } from './kubeconfig';
+import { parseKubeconfig } from './kubeconfig';
 import type { ParsedKubeconfig } from './kubeconfig';
 import { Overview } from './overview';
 import type { OverviewState } from './overview';
@@ -23,12 +24,13 @@ import type { RowBatch } from './watch';
 export const HEALTH_MS = 5000;
 const DEFAULT_IDLE_MS = 60_000;
 const DEFAULT_BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
-const NOT_AVAILABLE = 'Die Cluster-Ansicht ist nicht verfügbar.';
-const NOT_CONNECTED = 'Der Cluster ist gerade nicht verbunden.';
-const RECONNECTING = 'Die Verbindung zum Cluster wird gerade wiederhergestellt.';
-const CONNECT_FAILED = 'Die Verbindung zum Cluster ist fehlgeschlagen.';
-const DISABLED = 'Diese Verbindung ist deaktiviert.';
-const ENDED = 'Die Cluster-Sitzung wurde beendet.';
+const NOT_AVAILABLE = 'kubernetes.viewUnavailable' as const satisfies ErrorCode;
+const NOT_CONNECTED = 'kubernetes.notConnected' as const satisfies ErrorCode;
+const RECONNECTING = 'kubernetes.reconnecting' as const satisfies ErrorCode;
+const CONNECT_FAILED = 'kubernetes.connectFailed' as const satisfies ErrorCode;
+const DISABLED = 'kubernetes.disabled' as const satisfies ErrorCode;
+const ENDED = 'kubernetes.sessionEnded' as const satisfies ErrorCode;
+const READ_ONLY = 'kubernetes.readOnly' as const satisfies ErrorCode;
 /** How long a terminal waits for a reconnect, like the SSH start timer. */
 const READY_WAIT_MS = 30_000;
 
@@ -60,7 +62,7 @@ interface Entry {
   query: KubeQuery;
   views: Set<string>;
   loaded: boolean;
-  trouble?: string;
+  trouble?: CodedError;
   watcher: ResourceWatcher;
 }
 
@@ -71,10 +73,10 @@ interface SessionOptions {
   backoffMs: number[];
 }
 
-/** Messages that are safe to show: our own errors, and plain errors without system or library detail. */
-export function userMessage(error: unknown): string | undefined {
-  if (error instanceof KubeInputError || error instanceof HostAccessError || error instanceof KubeApiError) return error.message;
-  if (error instanceof Error && !('code' in error) && !('level' in error)) return error.message;
+/** Errors that are safe to show: our own coded errors (AppError) and mapped API errors. Anything else is not. */
+export function userError(error: unknown): CodedError | undefined {
+  if (error instanceof AppError) return error.toCoded();
+  if (error instanceof KubeApiError) return error.coded;
   return undefined;
 }
 
@@ -96,7 +98,7 @@ function decorate(query: KubeQuery, row: KubeRow, counts: Record<string, number>
  */
 class Session {
   state: ClusterState = 'connecting';
-  message?: string;
+  error?: CodedError;
   metrics = false;
   private hostName?: string;
   private cluster?: KubernetesConnectionNode;
@@ -107,7 +109,7 @@ class Session {
   private overview?: Overview;
   private readonly entries = new Map<string, Entry>();
   private readonly views = new Map<string, View>();
-  private waiters: { resolve: (api: KubeApi) => void; reject: (error: Error) => void }[] = [];
+  private waiters: { resolve: (api: KubeApi) => void; reject: (error: AppError) => void }[] = [];
   private terminals = 0;
   private podKey?: string;
   private attempt = 0;
@@ -170,26 +172,26 @@ class Session {
   }
 
   requireApi(): KubeApi {
-    if (this.state !== 'ready' || !this.api) throw new Error(this.state === 'reconnecting' ? RECONNECTING : NOT_CONNECTED);
+    if (this.state !== 'ready' || !this.api) throw new AppError(this.state === 'reconnecting' ? RECONNECTING : NOT_CONNECTED);
     return this.api;
   }
 
   /** Resolves with the API once the session is ready; rejects if it fails or ends first. */
   waitReady(): Promise<KubeApi> {
     if (this.state === 'ready' && this.api) return Promise.resolve(this.api);
-    if (this.state === 'error') return Promise.reject(new Error(this.message ?? CONNECT_FAILED));
+    if (this.state === 'error') return Promise.reject(AppError.from(this.error ?? { code: CONNECT_FAILED }));
     return new Promise((resolve, reject) => {
       let timer: Timer | undefined;
       const clear = (): void => { if (timer) this.options.cancel(timer.handle); };
       const waiter = {
         resolve: (api: KubeApi) => { clear(); resolve(api); },
-        reject: (error: Error) => { clear(); reject(error); },
+        reject: (error: AppError) => { clear(); reject(error); },
       };
       // A reconnect gets a limit like the first connect; a session that never comes back must not hold the caller.
       if (this.state === 'reconnecting') {
         timer = this.later(() => {
           this.waiters = this.waiters.filter(candidate => candidate !== waiter);
-          reject(new Error(RECONNECTING));
+          reject(new AppError(RECONNECTING));
         }, READY_WAIT_MS);
       }
       this.waiters.push(waiter);
@@ -211,7 +213,7 @@ class Session {
     this.retry = undefined;
     this.teardownLive();
     this.forget();
-    this.rejectWaiters(ENDED);
+    this.rejectWaiters({ code: ENDED });
     this.views.clear();
   }
 
@@ -222,24 +224,24 @@ class Session {
     } catch (error) {
       if (this.disposed) return;
       this.teardownLive();
-      this.message = userMessage(error) ?? CONNECT_FAILED;
-      this.setState('error', this.message);
+      this.error = userError(error) ?? { code: CONNECT_FAILED };
+      this.setState('error', this.error);
       this.forget();
-      this.rejectWaiters(this.message);
+      this.rejectWaiters(this.error);
     }
   }
 
-  private rejectWaiters(message: string): void {
+  private rejectWaiters(error: CodedError): void {
     const waiters = this.waiters;
     this.waiters = [];
-    for (const waiter of waiters) waiter.reject(new Error(message));
+    for (const waiter of waiters) waiter.reject(AppError.from(error));
   }
 
   private async establish(): Promise<void> {
     const cluster = this.deps.getCluster(this.clusterId);
     this.cluster = cluster;
     const access = await this.deps.openAccess(cluster);
-    if (this.disposed) { access.host.close(); throw new Error(ENDED); }
+    if (this.disposed) { access.host.close(); throw new AppError(ENDED); }
     this.access = access;
     this.hostName = access.connection.name;
     const parsed = parseKubeconfig(access.kubeconfig, cluster.context);
@@ -247,10 +249,10 @@ class Session {
     this.contextNamespace = parsed.namespace;
     this.emitStatus();
     const tunnel = await this.deps.openTunnel(access, parsed.server);
-    if (this.disposed) { tunnel.close(); throw new Error(ENDED); }
+    if (this.disposed) { tunnel.close(); throw new AppError(ENDED); }
     this.tunnel = tunnel;
     const api = await this.probe(parsed, tunnel.port);
-    if (this.disposed) throw new Error(ENDED);
+    if (this.disposed) throw new AppError(ENDED);
     this.api = api;
     this.overview = new Overview(api,
       state => this.onOverview(state),
@@ -258,7 +260,7 @@ class Session {
       available => this.onMetrics(available),
       { schedule: this.options.schedule, cancel: this.options.cancel });
     await this.overview.start();
-    if (this.disposed) throw new Error(ENDED);
+    if (this.disposed) throw new AppError(ENDED);
     await this.startWatchers();
   }
 
@@ -278,7 +280,7 @@ class Session {
 
   private setReady(): void {
     this.attempt = 0;
-    this.message = undefined;
+    this.error = undefined;
     this.setState('ready');
     this.scheduleHealth();
     const waiters = this.waiters;
@@ -329,7 +331,7 @@ class Session {
       if (this.disposed) return;
       this.teardownLive();
       this.attempt++;
-      this.setState('reconnecting', userMessage(error) ?? CONNECT_FAILED);
+      this.setState('reconnecting', userError(error) ?? { code: CONNECT_FAILED });
       this.scheduleRetry();
     }
   }
@@ -380,10 +382,10 @@ class Session {
       loaded: false,
       watcher: new ResourceWatcher(api, query,
         batch => this.onBatch(entry, batch),
-        message => {
-          entry.trouble = message;
-          for (const viewId of entry.views) this.deliverTrouble(viewId, entry.query, message);
-          if (message !== undefined) this.checkHealth();
+        error => {
+          entry.trouble = error;
+          for (const viewId of entry.views) this.deliverTrouble(viewId, entry.query, error);
+          if (error !== undefined) this.checkHealth();
         },
         { schedule: this.options.schedule, cancel: this.options.cancel }),
     };
@@ -418,10 +420,10 @@ class Session {
     this.deps.emit(view.ownerId, { type: 'rows', viewId, query, reset: batch.reset, upserts, deletes: batch.deletes });
   }
 
-  private deliverTrouble(viewId: string, query: KubeQuery, message: string | undefined): void {
+  private deliverTrouble(viewId: string, query: KubeQuery, error: CodedError | undefined): void {
     const view = this.views.get(viewId);
     if (!view) return;
-    this.deps.emit(view.ownerId, { type: 'trouble', viewId, query, ...(message ? { message } : {}) });
+    this.deps.emit(view.ownerId, { type: 'trouble', viewId, query, ...(error ? { error } : {}) });
   }
 
   private onOverview(state: OverviewState): void {
@@ -448,9 +450,9 @@ class Session {
     this.emitStatus();
   }
 
-  private setState(state: ClusterState, message?: string): void {
+  private setState(state: ClusterState, error?: CodedError): void {
     this.state = state;
-    this.message = message;
+    this.error = error;
     this.emitStatus();
   }
 
@@ -467,7 +469,7 @@ class Session {
       production: cluster?.production ?? false,
       readOnly: cluster?.readOnly ?? true,
       ...(this.hostName ? { host: this.hostName } : {}),
-      ...(this.message ? { message: this.message } : {}),
+      ...(this.error ? { error: this.error } : {}),
       metrics: this.metrics,
       // Vault setting first, then the kubeconfig context (known once the config was read).
       ...(cluster?.namespace || this.contextNamespace ? { namespace: cluster?.namespace || this.contextNamespace } : {}),
@@ -518,7 +520,7 @@ export class KubeSessions {
 
   /** Opens a view on the cluster's session; the session connects in the background if it is not running. */
   open(ownerId: number, clusterId: string): KubeOpenResult {
-    if (this.deps.getCluster(clusterId).disabled) throw new Error(DISABLED);
+    if (this.deps.getCluster(clusterId).disabled) throw new AppError(DISABLED);
     const { session, fresh } = this.sessionFor(clusterId);
     const view: View = { viewId: randomUUID(), ownerId, session };
     this.views.set(view.viewId, view);
@@ -552,14 +554,14 @@ export class KubeSessions {
     const view = this.viewOf(ownerId, viewId);
     // Read at each call, so a change to read-only in the vault applies at once.
     const cluster = this.deps.getCluster(view.session.clusterId);
-    if (cluster.readOnly) throw new Error(READ_ONLY_MESSAGE);
+    if (cluster.readOnly) throw new AppError(READ_ONLY);
     await runAction(view.session.requireApi(), request, { readOnly: false });
   }
 
   close(ownerId: number, viewId: string): void {
     const view = this.views.get(viewId);
     if (!view) return;
-    if (view.ownerId !== ownerId) throw new Error(NOT_AVAILABLE);
+    if (view.ownerId !== ownerId) throw new AppError(NOT_AVAILABLE);
     this.views.delete(viewId);
     view.session.detach(view);
   }
@@ -585,8 +587,8 @@ export class KubeSessions {
   /** Pod logs and shells run on the cluster's session; the terminal keeps the session alive until it ends. */
   async openTerminal(clusterId: string, target: KubeTerminalTarget, size: TerminalSize, io: TerminalIo): Promise<KubeStream> {
     const cluster = this.deps.getCluster(clusterId);
-    if (cluster.disabled) throw new Error(DISABLED);
-    if (target.mode === 'shell' && cluster.readOnly) throw new Error(READ_ONLY_MESSAGE);
+    if (cluster.disabled) throw new AppError(DISABLED);
+    if (target.mode === 'shell' && cluster.readOnly) throw new AppError(READ_ONLY);
     const { session, fresh } = this.sessionFor(clusterId);
     session.holdTerminal();
     if (fresh) session.begin();
@@ -600,8 +602,8 @@ export class KubeSessions {
       const api = await session.waitReady();
       const stream = await api.openTerminal(target, { cols: size.cols, rows: size.rows }, {
         data: io.data,
-        end: (code, message) => {
-          try { io.end(code, message); } finally { release(); }
+        end: (code, error) => {
+          try { io.end(code, error); } finally { release(); }
         },
       });
       return {
@@ -621,7 +623,7 @@ export class KubeSessions {
 
   private viewOf(ownerId: number, viewId: string): View {
     const view = this.views.get(viewId);
-    if (!view || view.ownerId !== ownerId) throw new Error(NOT_AVAILABLE);
+    if (!view || view.ownerId !== ownerId) throw new AppError(NOT_AVAILABLE);
     return view;
   }
 }

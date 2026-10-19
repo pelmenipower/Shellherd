@@ -3,6 +3,7 @@ import { KIND_INFO, KUBE_KINDS, refKey, type KubeAction, type KubeRef, type Kube
 import type { SshStatus } from '../../../../shared/ssh';
 import { kubeTabName, type TerminalConnection } from '../../terminal-tabs';
 import { useClusterSession } from '../../hooks/useClusterSession';
+import { errorText } from '../../error-text';
 import { actionReason, bindingOf, commandForKey, type KubeCommand } from '../../kube-commands';
 import { menuFor, type MenuTarget } from '../../kube-menus';
 import { runMenuAction, type MenuRunner } from '../../kube-menu-run';
@@ -298,7 +299,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   else if (!status || status.state === 'connecting') statusText = 'verbinde …';
   else if (status.state === 'ready') statusText = status.host ? `bereit über ${status.host}` : 'bereit';
   else if (status.state === 'reconnecting') statusText = 'getrennt – verbinde neu …';
-  else statusText = status.message ?? 'Verbindung fehlgeschlagen.';
+  else statusText = status.error ? errorText(status.error) : 'Verbindung fehlgeschlagen.';
 
   return (
     <section ref={rootRef} className={`kube-view${focused ? ' focused-pane' : ''}`} style={style} hidden={!visible}

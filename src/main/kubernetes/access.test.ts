@@ -40,8 +40,7 @@ describe('readKubeconfig auto', () => {
 
   it('explains the options when sudo -n needs a password', async () => {
     const host = fakeHost({ [AUTO_SCRIPT]: ok('src:sudo\n'), 'sudo -n cat': { code: 1, stdout: '', stderr: 'sudo: a password is required' } });
-    await expect(readKubeconfig(host, ssh('cp1'), { source: 'auto' }, new SudoRejections())).rejects.toThrow(
-      '/etc/kubernetes/admin.conf braucht sudo, und sudo verlangt ein Passwort. Speichere das Passwort an der SSH-Verbindung, richte NOPASSWD ein oder lege die kubeconfig unter ~/.kube/config ab.');
+    await expect(readKubeconfig(host, ssh('cp1'), { source: 'auto' }, new SudoRejections())).rejects.toMatchObject({ code: 'kubernetes.adminConfNeedsPassword' });
   });
 
   it('answers the sudo prompt with the stored password of the SSH connection', async () => {
@@ -63,8 +62,17 @@ describe('readKubeconfig auto', () => {
 
   it('names the checked locations when no kubeconfig exists', async () => {
     const host = fakeHost({ [AUTO_SCRIPT]: ok('src:none\n') });
-    await expect(readKubeconfig(host, ssh('cp1'), { source: 'auto' }, new SudoRejections())).rejects.toThrow(
-      'Keine kubeconfig auf k8s-cp1 gefunden (geprüft: $KUBECONFIG, ~/.kube/config, /etc/kubernetes/admin.conf).');
+    await expect(readKubeconfig(host, ssh('cp1'), { source: 'auto' }, new SudoRejections())).rejects.toMatchObject({ code: 'kubernetes.kubeconfigNotFound', params: { host: 'k8s-cp1' } });
+  });
+});
+
+describe('readKubeconfig failures', () => {
+  const read = (result: RunResult) => readKubeconfig(fakeHost({ [AUTO_SCRIPT]: result }), ssh('cp1'), { source: 'auto' }, new SudoRejections());
+
+  it('maps a failed probe to a code, with the last stderr line only as a detail', async () => {
+    await expect(read({ code: null, stdout: '', stderr: '', timedOut: true })).rejects.toMatchObject({ code: 'kubernetes.hostTimeout' });
+    await expect(read({ code: 1, stdout: '', stderr: 'first\n boom \n' })).rejects.toMatchObject({ code: 'kubernetes.hostCommandFailed', detail: 'boom' });
+    await expect(read({ code: 2, stdout: '', stderr: '' })).rejects.toMatchObject({ code: 'kubernetes.hostCommandExit', params: { exit: 2 } });
   });
 });
 
@@ -87,8 +95,7 @@ describe('readKubeconfig path', () => {
 
   it('names the path and host when the file cannot be read', async () => {
     const host = fakeHost({ 'cat --': { code: 1, stdout: '', stderr: 'No such file' } });
-    await expect(readKubeconfig(host, ssh('cp1'), { source: 'path', path: '/etc/x' }, new SudoRejections())).rejects.toThrow(
-      'Die kubeconfig „/etc/x“ auf k8s-cp1 konnte nicht gelesen werden.');
+    await expect(readKubeconfig(host, ssh('cp1'), { source: 'path', path: '/etc/x' }, new SudoRejections())).rejects.toMatchObject({ code: 'kubernetes.kubeconfigPathUnreadable', params: { path: '/etc/x', host: 'k8s-cp1' } });
   });
 });
 
@@ -112,13 +119,16 @@ describe('openAccess', () => {
       const error = Object.assign(new Error('timeout'), { level: 'client-timeout' });
       throw error;
     });
-    await expect(openAccess(cluster(['cp1', 'cp2']), deps)).rejects.toThrow(
-      'Keiner der Zugangs-Hosts erreichbar (k8s-cp1: Zeitüberschreitung beim Verbindungsaufbau., k8s-cp2: Zeitüberschreitung beim Verbindungsaufbau.).');
+    await expect(openAccess(cluster(['cp1', 'cp2']), deps)).rejects.toMatchObject({
+      code: 'kubernetes.accessHostsUnreachable',
+      params: { hosts: 'k8s-cp1, k8s-cp2' },
+      detail: 'k8s-cp1: ssh.timeout, k8s-cp2: ssh.timeout',
+    });
   });
 
   it('skips deleted, disabled and non-SSH access hosts', async () => {
     const deps = dependencies({ gone: undefined, off: ssh('off', { disabled: true }), other: { ...ssh('other'), protocol: 'sftp' } as unknown as SshConnectionNode }, async () => fakeHost({}));
-    await expect(openAccess(cluster(['gone', 'off', 'other']), deps)).rejects.toThrow('Der Cluster hat keine gültige SSH-Verbindung als Zugang.');
+    await expect(openAccess(cluster(['gone', 'off', 'other']), deps)).rejects.toMatchObject({ code: 'kubernetes.noAccessHost' });
     expect(deps.openRemote).not.toHaveBeenCalled();
   });
 
@@ -135,7 +145,7 @@ describe('openAccess', () => {
     const cp1 = fakeHost({ [AUTO_SCRIPT]: ok('src:sudo\n'), 'sudo -n cat': { code: 1, stdout: '', stderr: 'sudo: a password is required' } });
     const cp2 = fakeHost({ [AUTO_SCRIPT]: ok(`src:/x\n${CONFIG_YAML}`) });
     const deps = dependencies({ cp1: ssh('cp1'), cp2: ssh('cp2') }, async connection => connection.id === 'cp1' ? cp1 : cp2);
-    await expect(openAccess(cluster(['cp1', 'cp2']), deps)).rejects.toThrow('sudo verlangt ein Passwort');
+    await expect(openAccess(cluster(['cp1', 'cp2']), deps)).rejects.toMatchObject({ code: 'kubernetes.adminConfNeedsPassword' });
     expect(cp1.close).toHaveBeenCalledTimes(1);
     expect(cp2.run).not.toHaveBeenCalled();
   });
