@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body { margin:0; background:#0e141e; color:#ebe7e2; font:13px/1.45 Inter, system-ui, sans-serif; }
+a { color:#e8935a; } a:hover { color:#f0a673; }
+button { font:inherit; }
+@media (prefers-reduced-motion: reduce) { button:active { transform:none !important; } }
+</style>
+</helmet>
+<div style="max-width:1280px;margin:0 auto;padding:40px clamp(16px,4vw,48px) 80px;display:grid;gap:56px">
+
+<header style="display:grid;gap:12px;max-width:80ch">
+  <div style="display:flex;align-items:center;gap:10px;color:#aeb3bc;font-size:12px">
+    <img src="resources/mark-64.png" alt="" style="width:24px;height:24px">
+    <span>Shellherd · Branch claude/feature/shellherd-import</span>
+  </div>
+  <h1 style="margin:0;font-size:22px;font-weight:600;letter-spacing:-.03em;line-height:1.2">UX-Audit: Performance-Gefühl, Fehlermeldungen, Konsistenz</h1>
+  <p style="margin:0;color:#aeb3bc;font-size:14px;line-height:1.6;text-wrap:pretty">Grundlage sind Renderer-Code, <code style="font-family:Consolas,monospace;color:#e6e2dc">tokens.css</code>, <code style="font-family:Consolas,monospace;color:#e6e2dc">docs/design-system.md</code> und <code style="font-family:Consolas,monospace;color:#e6e2dc">UI_UX_PLAN.md</code>. Die Flächen- und Platzprobleme aus dem Oktober-Plan sind gelöst. Offen sind vor allem Zustände: was die App zeigt, während sie wartet, wenn etwas scheitert und wie sie darüber spricht. Unten stehen die Befunde nach Priorität, danach vier überarbeitete Ansichten als klickbarer Prototyp in Richtung <a href="#1b">1b</a> Berner Kupfer. „Vorher“-Ansichten zeigen die heutigen Farben. Bewegung folgt dem bestehenden Motion-Gate; neue Einträge stehen in <a href="#s5">Abschnitt 5</a>.</p>
+</header>
+<section id="farben" style="display:grid;gap:20px">
+  <div style="display:grid;gap:4px;max-width:80ch">
+    <h2 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-.02em">Farbrichtungen</h2>
+    <p style="margin:0;color:#a7b7cb;text-wrap:pretty">Das Zeichen ist ein Berner Sennenhund: Navy-Grund, Schiefergrau, Weiß, Kupfer. Die Oberfläche nutzt davon heute nur das Navy. Drei Richtungen, alle mit denselben Ampelfarben und ohne Änderung an Maßen oder Komponenten, nur Werte in <code style="font-family:Consolas,monospace;color:#dce9f8">tokens.css</code>.</p>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:32px">
+<div id="1a" style="flex:1 1 360px;min-width:0;display:grid;gap:12px;align-content:start">
+  <div style="display:flex;align-items:center;gap:8px"><span style="font:600 11px/1 Inter,sans-serif;padding:4px 7px;border-radius:999px;background:#e2eaf4;color:#090e17">1a</span><strong style="font-size:14px;font-weight:600">Navy + Cyan</strong><span style="color:#a7b7cb;font-size:12px">Heute</span></div>
+  <div style="border:1px solid #29374b;border-radius:8px;overflow:hidden;background:#090e17;color:#e2eaf4;font-size:12px">
+    <div style="height:36px;display:flex;align-items:center;gap:8px;padding:0 10px;background:#111925;border-bottom:1px solid #29374b">
+      <img src="resources/mark-64.png" alt="" style="width:20px;height:20px"><span style="font-weight:500">ops.term</span>
+      <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;border:1px solid #29374b;border-radius:5px;color:#e2eaf4">Produktion <span style="color:#67e8f9;font-size:11px">geändert</span></span>
+      <span style="margin-left:auto;height:24px;display:grid;place-items:center;padding:0 10px;border-radius:5px;background:#67e8f9;color:#072733;font-weight:500">Speichern</span>
+    </div>
+    <div style="display:grid;grid-template-columns:132px 1fr;height:230px">
+      <div style="background:#111925;border-right:1px solid #29374b;padding:8px 6px;display:grid;gap:2px;align-content:start">
+        <div style="height:26px;display:flex;align-items:center;padding:0 8px;border:1px solid #29374b;border-radius:5px;background:#00000033;color:#a7b7cb">Suchen …</div>
+        <div style="height:24px;display:flex;align-items:center;padding:0 6px;color:#a7b7cb">▾ Produktion</div>
+        <div style="height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px;border-radius:4px;background:#183245;box-shadow:inset 0 0 0 1px #67e8f9">web-01</div>
+        <div style="height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px;border-radius:4px;box-shadow:inset 3px 0 0 #fb7185">db-main</div>
+        <div style="height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px">k8s-cp1</div>
+        <div style="height:24px;display:flex;align-items:center;padding:0 6px;color:#a7b7cb">▸ Staging</div>
+      </div>
+      <div style="display:flex;flex-direction:column;min-width:0;background:#070b14">
+        <div style="height:30px;display:flex;align-items:center;gap:4px;padding:0 4px;background:#182334;border-bottom:1px solid #29374b">
+          <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;border:1px solid #496078;border-bottom:2px solid #67e8f9;border-radius:4px;background:#070b14"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80"></span>web-01</span>
+          <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;color:#a7b7cb"><span style="width:6px;height:6px;border-radius:50%;background:#fcd34d"></span>k8s-cp1</span>
+          <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;color:#a7b7cb"><span style="width:6px;height:6px;border-radius:50%;background:#fb7185"></span>db-main</span>
+        </div>
+        <div style="flex:1;position:relative;padding:8px;font:12px/1.55 Consolas,'Cascadia Mono',monospace;color:#dce9f8;white-space:pre-wrap">deploy@web-01:~$ kubectl get pods
+api-7d9f8-x2kq   1/1  Running
+worker-5c6b-91qa 0/1  CrashLoop
+deploy@web-01:~$ <span style="background:#67e8f9;color:#072733"> </span>
+          <div style="position:absolute;right:8px;bottom:8px;left:8px;display:flex;gap:8px;align-items:center;padding:8px 10px;border:1px solid #713442;border-radius:8px;background:#341c25;color:#fecdd3;font-family:Inter,sans-serif"><span style="width:8px;height:8px;border-radius:50%;background:#fb7185"></span><span style="flex:1">Anmeldung abgelehnt</span><span style="color:#fecdd3;text-decoration:underline">Bearbeiten</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:10px"><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#111925;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Panel<br>#111925</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#182334;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Erhöht<br>#182334</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#e2eaf4;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Text<br>#e2eaf4</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#67e8f9;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Akzent<br>#67e8f9</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#4ade80;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">OK<br>#4ade80</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#fcd34d;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Warn<br>#fcd34d</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#fb7185;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Gefahr<br>#fb7185</span></div></div>
+  <p style="margin:0;color:#a7b7cb;line-height:1.5;text-wrap:pretty">Bestehende Tokens. Cyan als einziges Signal, kühles Navy. Keine Migration, aber kein Bezug zum Zeichen: Das Kupfer im Hund ist laut Designsystem „Bildinhalt, kein Signal“.</p>
+  <div style="display:grid;gap:4px;font-size:12px;line-height:1.5">
+    <span><span style="color:#a7b7cb">Kontrast auf Panel/Bühne:</span> Text 14,6 · gedämpft 8,6 · Akzent 13,6</span>
+    <span><span style="color:#4ade80">+</span> Null Aufwand, getestet, hoher Kontrast.</span>
+    <span><span style="color:#fb7185">−</span> Marke und Oberfläche sprechen zwei Sprachen. Cyan wirkt generisch (viele Dev-Tools).</span>
+  </div>
+</div>
+<div id="1b" style="flex:1 1 360px;min-width:0;display:grid;gap:12px;align-content:start">
+  <div style="display:flex;align-items:center;gap:8px"><span style="font:600 11px/1 Inter,sans-serif;padding:4px 7px;border-radius:999px;background:#e2eaf4;color:#090e17">1b</span><strong style="font-size:14px;font-weight:600">Berner Kupfer</strong><span style="font-size:11px;font-weight:600;padding:2px 7px;border-radius:999px;background:#e8935a;color:#2a1406">Gewählt</span></div>
+  <div style="border:1px solid #2e3a4c;border-radius:8px;overflow:hidden;background:#0e141e;color:#ebe7e2;font-size:12px">
+    <div style="height:36px;display:flex;align-items:center;gap:8px;padding:0 10px;background:#151d2a;border-bottom:1px solid #2e3a4c">
+      <img src="resources/mark-64.png" alt="" style="width:20px;height:20px"><span style="font-weight:500">ops.term</span>
+      <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;border:1px solid #2e3a4c;border-radius:5px;color:#ebe7e2">Produktion <span style="color:#e8935a;font-size:11px">geändert</span></span>
+      <span style="margin-left:auto;height:24px;display:grid;place-items:center;padding:0 10px;border-radius:5px;background:#e8935a;color:#2a1406;font-weight:500">Speichern</span>
+    </div>
+    <div style="display:grid;grid-template-columns:132px 1fr;height:230px">
+      <div style="background:#151d2a;border-right:1px solid #2e3a4c;padding:8px 6px;display:grid;gap:2px;align-content:start">
+        <div style="height:26px;display:flex;align-items:center;padding:0 8px;border:1px solid #2e3a4c;border-radius:5px;background:#00000033;color:#aeb3bc">Suchen …</div>
+        <div style="height:24px;display:flex;align-items:center;padding:0 6px;color:#aeb3bc">▾ Produktion</div>
+        <div style="height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px;border-radius:4px;background:#2e2620;box-shadow:inset 0 0 0 1px #e8935a">web-01</div>
+        <div style="height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px;border-radius:4px;box-shadow:inset 3px 0 0 #fb7185">db-main</div>
+        <div style="height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px">k8s-cp1</div>
+        <div style="height:24px;display:flex;align-items:center;padding:0 6px;color:#aeb3bc">▸ Staging</div>
+      </div>
+      <div style="display:flex;flex-direction:column;min-width:0;background:#0b1018">
+        <div style="height:30px;display:flex;align-items:center;gap:4px;padding:0 4px;background:#1c2635;border-bottom:1px solid #2e3a4c">
+          <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;border:1px solid #4d5b70;border-bottom:2px solid #e8935a;border-radius:4px;background:#0b1018"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80"></span>web-01</span>
+          <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;color:#aeb3bc"><span style="width:6px;height:6px;border-radius:50%;background:#facc15"></span>k8s-cp1</span>
+          <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;color:#aeb3bc"><span style="width:6px;height:6px;border-radius:50%;background:#fb7185"></span>db-main</span>
+        </div>
+        <div style="flex:1;position:relative;padding:8px;font:12px/1.55 Consolas,'Cascadia Mono',monospace;color:#e6e2dc;white-space:pre-wrap">deploy@web-01:~$ kubectl get pods
+api-7d9f8-x2kq   1/1  Running
+worker-5c6b-91qa 0/1  CrashLoop
+deploy@web-01:~$ <span style="background:#e8935a;color:#2a1406"> </span>
+          <div style="position:absolute;right:8px;bottom:8px;left:8px;display:flex;gap:8px;align-items:center;padding:8px 10px;border:1px solid #713442;border-radius:8px;background:#341c25;color:#fecdd3;font-family:Inter,sans-serif"><span style="width:8px;height:8px;border-radius:50%;background:#fb7185"></span><span style="flex:1">Anmeldung abgelehnt</span><span style="color:#fecdd3;text-decoration:underline">Bearbeiten</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:10px"><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#151d2a;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Panel<br>#151d2a</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#1c2635;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Erhöht<br>#1c2635</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#ebe7e2;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Text<br>#ebe7e2</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#e8935a;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Akzent<br>#e8935a</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#4ade80;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">OK<br>#4ade80</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#facc15;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Warn<br>#facc15</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#fb7185;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Gefahr<br>#fb7185</span></div></div>
+  <p style="margin:0;color:#a7b7cb;line-height:1.5;text-wrap:pretty">Flächen aus dem Navy des Icons, Akzent aus dem Kupfer der Wangen, Text warmweiß wie die Brust. Warnung wird reines Gelb, damit sie sich vom Kupfer trennt.</p>
+  <div style="display:grid;gap:4px;font-size:12px;line-height:1.5">
+    <span><span style="color:#a7b7cb">Kontrast auf Panel/Bühne:</span> Text 13,7 · gedämpft 8,0 · Akzent 7,9</span>
+    <span><span style="color:#4ade80">+</span> Wiedererkennbar, warm, passt zum Hund. Cursor und Fokus tragen die Marke.</span>
+    <span><span style="color:#fb7185">−</span> Kupfer liegt nah an Warnung und Gefahr. Braucht klare Regel: Kupfer nie als Zustand, Gelb nie als Akzent.</span>
+  </div>
+</div>
+<div id="1c" style="flex:1 1 360px;min-width:0;display:grid;gap:12px;align-content:start">
+  <div style="display:flex;align-items:center;gap:8px"><span style="font:600 11px/1 Inter,sans-serif;padding:4px 7px;border-radius:999px;background:#e2eaf4;color:#090e17">1c</span><strong style="font-size:14px;font-weight:600">Graphit + Weiß</strong><span style="color:#a7b7cb;font-size:12px">Ruhig</span></div>
+  <div style="border:1px solid #2d3138;border-radius:8px;overflow:hidden;background:#0e1013;color:#ececea;font-size:12px">
+    <div style="height:36px;display:flex;align-items:center;gap:8px;padding:0 10px;background:#16181c;border-bottom:1px solid #2d3138">
+      <img src="resources/mark-64.png" alt="" style="width:20px;height:20px"><span style="font-weight:500">ops.term</span>
+      <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;border:1px solid #2d3138;border-radius:5px;color:#ececea">Produktion <span style="color:#f2f1ed;font-size:11px">geändert</span></span>
+      <span style="margin-left:auto;height:24px;display:grid;place-items:center;padding:0 10px;border-radius:5px;background:#f2f1ed;color:#121417;font-weight:500">Speichern</span>
+    </div>
+    <div style="display:grid;grid-template-columns:132px 1fr;height:230px">
+      <div style="background:#16181c;border-right:1px solid #2d3138;padding:8px 6px;display:grid;gap:2px;align-content:start">
+        <div style="height:26px;display:flex;align-items:center;padding:0 8px;border:1px solid #2d3138;border-radius:5px;background:#00000033;color:#a4a8ae">Suchen …</div>
+        <div style="height:24px;display:flex;align-items:center;padding:0 6px;color:#a4a8ae">▾ Produktion</div>
+        <div style="height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px;border-radius:4px;background:#262a30;box-shadow:inset 0 0 0 1px #f2f1ed">web-01</div>
+        <div style="height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px;border-radius:4px;box-shadow:inset 3px 0 0 #fb7185">db-main</div>
+        <div style="height:24px;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px">k8s-cp1</div>
+        <div style="height:24px;display:flex;align-items:center;padding:0 6px;color:#a4a8ae">▸ Staging</div>
+      </div>
+      <div style="display:flex;flex-direction:column;min-width:0;background:#0b0c0e">
+        <div style="height:30px;display:flex;align-items:center;gap:4px;padding:0 4px;background:#1d2025;border-bottom:1px solid #2d3138">
+          <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;border:1px solid #4a5059;border-bottom:2px solid #f2f1ed;border-radius:4px;background:#0b0c0e"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80"></span>web-01</span>
+          <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;color:#a4a8ae"><span style="width:6px;height:6px;border-radius:50%;background:#fcd34d"></span>k8s-cp1</span>
+          <span style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;color:#a4a8ae"><span style="width:6px;height:6px;border-radius:50%;background:#fb7185"></span>db-main</span>
+        </div>
+        <div style="flex:1;position:relative;padding:8px;font:12px/1.55 Consolas,'Cascadia Mono',monospace;color:#e4e4e1;white-space:pre-wrap">deploy@web-01:~$ kubectl get pods
+api-7d9f8-x2kq   1/1  Running
+worker-5c6b-91qa 0/1  CrashLoop
+deploy@web-01:~$ <span style="background:#f2f1ed;color:#121417"> </span>
+          <div style="position:absolute;right:8px;bottom:8px;left:8px;display:flex;gap:8px;align-items:center;padding:8px 10px;border:1px solid #713442;border-radius:8px;background:#341c25;color:#fecdd3;font-family:Inter,sans-serif"><span style="width:8px;height:8px;border-radius:50%;background:#fb7185"></span><span style="flex:1">Anmeldung abgelehnt</span><span style="color:#fecdd3;text-decoration:underline">Bearbeiten</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:10px"><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#16181c;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Panel<br>#16181c</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#1d2025;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Erhöht<br>#1d2025</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#ececea;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Text<br>#ececea</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#f2f1ed;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Akzent<br>#f2f1ed</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#4ade80;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">OK<br>#4ade80</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#fcd34d;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Warn<br>#fcd34d</span></div><div style="display:grid;gap:4px;justify-items:start"><span style="width:32px;height:32px;border-radius:5px;background:#fb7185;border:1px solid rgba(255,255,255,.12)"></span><span style="font:11px/1.2 Consolas,monospace;color:#a7b7cb">Gefahr<br>#fb7185</span></div></div>
+  <p style="margin:0;color:#a7b7cb;line-height:1.5;text-wrap:pretty">Neutrales Graphit statt Navy, Weiß als Signal (wie die Brust). Farbe kommt nur noch aus Zuständen und Verbindungsfarben. Kupfer bleibt dem Zeichen vorbehalten.</p>
+  <div style="display:grid;gap:4px;font-size:12px;line-height:1.5">
+    <span><span style="color:#a7b7cb">Kontrast auf Panel/Bühne:</span> Text 15,0 · gedämpft 7,4 · Akzent 17,3</span>
+    <span><span style="color:#4ade80">+</span> Ampelfarben und Nutzerfarben stechen am stärksten hervor. Ideal für dichte Cluster-Tabellen.</span>
+    <span><span style="color:#fb7185">−</span> Fokus und Auswahl nur durch Helligkeit; aktive Tabs brauchen deutlichere Form (Unterstrich, Fläche).</span>
+  </div>
+</div></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px">
+    <div style="display:grid;gap:8px;align-content:start;padding:16px;border:1px solid #496078;border-radius:8px;background:rgba(103,232,249,.06)">
+      <strong style="font-size:14px;font-weight:600">Empfehlung: <a href="#1b">1b</a> Berner Kupfer</strong>
+      <p style="margin:0;color:#a7b7cb;line-height:1.55;text-wrap:pretty">Es ist die einzige Richtung, in der Zeichen und Oberfläche zusammengehören, und sie bleibt bei 7,9:1 Akzentkontrast gut lesbar. Voraussetzung sind zwei Regeln im Designsystem: Kupfer ist nie ein Zustand, und Warnung ist reines Gelb (#facc15) statt Bernstein. Der rote Produktions-Rand und Gefahr bleiben Rosé-Rot. Wer maximale Ruhe für Cluster-Arbeit will, nimmt <a href="#1c">1c</a>.</p>
+    </div>
+    <div style="display:grid;gap:8px;align-content:start;padding:16px;border:1px solid #29374b;border-radius:8px;background:#111925">
+      <strong style="font-size:14px;font-weight:600">Welches Designsystem?</strong>
+      <p style="margin:0;color:#a7b7cb;line-height:1.55;text-wrap:pretty">Kein fremdes Komponentensystem. Euer <code style="font-family:Consolas,monospace;color:#dce9f8">tokens.css</code> mit Lint-Test ist dichter und strenger als Material, Fluent oder Carbon, und alle drei würden Maße, Motion-Gate und Electron-Eigenheiten brechen.</p>
+      <p style="margin:0;color:#a7b7cb;line-height:1.55;text-wrap:pretty">Sinnvoll ist eine Ebene darunter: eine Primitive-Palette in 12 Stufen nach dem Muster von <span style="color:#e2eaf4">Radix Colors</span> (Stufe 1–2 Grund, 3–5 Flächen, 6–8 Linien, 9–10 Akzent, 11–12 Text). Die bestehenden <code style="font-family:Consolas,monospace;color:#dce9f8">--color-*</code>-Namen bleiben und zeigen nur auf Stufen. Dann ist ein Wechsel zwischen 1a, 1b und 1c ein Austausch von zwei Skalen.</p>
+      <p style="margin:0;color:#a7b7cb;line-height:1.55;text-wrap:pretty">Die Verbindungs-Icons (16 px, Strich 1,5, runde Enden) entsprechen im Stil <span style="color:#e2eaf4">Lucide</span>. Wenn mehr Symbole nötig werden, passt Lucide ohne Stilbruch.</p>
+    </div>
+  </div>
+</section>
+
+
+<section id="audit" style="display:grid;gap:20px">
+  <h2 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-.02em">Befunde</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:24px">
+
+    <div style="display:grid;gap:8px;align-content:start">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#aeb3bc;padding-bottom:6px;border-bottom:1px solid #2e3a4c">Fehlermeldungen</div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#fecdd3;background:#341c25;border:1px solid #713442;border-radius:999px;padding:0 6px">P1</span><strong style="font-weight:600">Ein roter Kanal für alles</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">App.tsx hält einen einzigen <code style="font-family:Consolas,monospace">error</code>-String. Validierung, Limits, Hinweise wie „Ordner enthält keine Verbindungen“ und echte Fehler erscheinen gleich: roter Toast mit <code style="font-family:Consolas,monospace">role="alert"</code>.</p>
+        <p style="margin:0;text-wrap:pretty">→ Drei Stufen: Fehler, Hinweis, Erfolg. Nur Fehler sind <code style="font-family:Consolas,monospace">alert</code>. <a href="#s2">Prototyp 2</a></p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#fecdd3;background:#341c25;border:1px solid #713442;border-radius:999px;padding:0 6px">P1</span><strong style="font-weight:600">Meldungen verschwinden beiläufig</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">Eine neue Meldung ersetzt die alte. Auswahl im Baum, Editor-Wechsel und Verbinden rufen <code style="font-family:Consolas,monospace">setError(null)</code> (App.tsx 600, 656, 813) und schließen den Toast, bevor er gelesen wurde.</p>
+        <p style="margin:0;text-wrap:pretty">→ Stapel mit höchstens drei Einträgen. Fehler bleiben bis zum Schließen, Hinweise laufen sichtbar ab.</p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#fecdd3;background:#341c25;border:1px solid #713442;border-radius:999px;padding:0 6px">P1</span><strong style="font-weight:600">Terminal-Fehler ohne nächsten Schritt</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">TerminalPanel zeigt die Rohmeldung als Box über einer schwarzen Fläche. Es gibt kein „Erneut verbinden“ und keinen Weg zu den Einstellungen. Nach „closed“ bleibt nur ein grauer Punkt im Tab.</p>
+        <p style="margin:0;text-wrap:pretty">→ Fehlerkarte im Bereich: Ursache, Empfehlung, Aktionen, Rohtext unter „Details“. <a href="#s1">Prototyp 1</a></p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#ebe7e2;background:#1c2635;border:1px solid #4d5b70;border-radius:999px;padding:0 6px">P2</span><strong style="font-weight:600">Englische Rohtexte aus Main</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty"><code style="font-family:Consolas,monospace">caught.message</code> wird nur per Regex vom IPC-Präfix befreit (TerminalPanel). Nutzer sehen „All configured authentication methods failed“.</p>
+        <p style="margin:0;text-wrap:pretty">→ Fehlercodes im Main auf deutsche Texte abbilden (Auth, Timeout, Host-Key, ECONNREFUSED).</p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#ebe7e2;background:#1c2635;border:1px solid #4d5b70;border-radius:999px;padding:0 6px">P2</span><strong style="font-weight:600">„Fehlgeschlagen“ ohne Ursache</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">„Speichern fehlgeschlagen. Bitte erneut versuchen.“ steht sechsmal in WorkspaceControls und VaultTree. Ob die Datei gesperrt, schreibgeschützt oder der Vault zu ist, erfährt man nicht.</p>
+        <p style="margin:0;text-wrap:pretty">→ Muster: Was ist passiert · warum · was jetzt.</p>
+      </div>
+    </div>
+
+    <div style="display:grid;gap:8px;align-content:start">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#aeb3bc;padding-bottom:6px;border-bottom:1px solid #2e3a4c">Performance-Gefühl</div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#fecdd3;background:#341c25;border:1px solid #713442;border-radius:999px;padding:0 6px">P1</span><strong style="font-weight:600">Verbindungsaufbau ist unsichtbar</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">Während „connecting“ bleibt der Bereich schwarz. Der Status steht nur im versteckten Screenreader-Span und als gelber 6-px-Punkt im Tab. Ein langsamer Handshake fühlt sich wie ein Hänger an.</p>
+        <p style="margin:0;text-wrap:pretty">→ Schrittanzeige im Bereich mit Zeitzähler und Hinweis bei langsamen Schritten. <a href="#s1">Prototyp 1</a></p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#fecdd3;background:#341c25;border:1px solid #713442;border-radius:999px;padding:0 6px">P1</span><strong style="font-weight:600">Reconnect graut den Cluster aus</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty"><code style="font-family:Consolas,monospace">.kube-stale</code> setzt <code style="font-family:Consolas,monospace">grayscale(1)</code> und Opazität .55 auf den ganzen Inhalt (kubernetes-ui.css:35). Das wirkt wie ein Absturz, obwohl Shellherd gerade über den nächsten Host verbindet.</p>
+        <p style="margin:0;text-wrap:pretty">→ Daten lesbar lassen, Leiste mit Host und Datenalter, nur Aktionen sperren. <a href="#s3">Prototyp 3</a></p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#ebe7e2;background:#1c2635;border:1px solid #4d5b70;border-radius:999px;padding:0 6px">P2</span><strong style="font-weight:600">Busy-Labels verschieben das Layout</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">„Verbindung speichern“ wird zu „Speichert ...“, der Button springt in der Breite. Danach fehlt jede Bestätigung.</p>
+        <p style="margin:0;text-wrap:pretty">→ Feste Breite, kurzes „Gespeichert“ mit grünem Punkt. <a href="#s4">Prototyp 4</a></p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#ebe7e2;background:#1c2635;border:1px solid #4d5b70;border-radius:999px;padding:0 6px">P2</span><strong style="font-weight:600">Das Motion-Gate schließt Warteanzeigen aus</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">design-system.md: „Spinner, Skelette – nicht einführen“. Das passt zur Ruhe der App, lässt aber Wartezeiten über 1 s ohne Rückmeldung.</p>
+        <p style="margin:0;text-wrap:pretty">→ Gate um einen Eintrag ergänzen: Warteanzeige erst nach 400 ms, nur Opazität, bei reduced motion statisch.</p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#aeb3bc;border:1px solid #2e3a4c;border-radius:999px;padding:0 6px">P3</span><strong style="font-weight:600">Container-Aktionen ohne Zielzustand</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">Beim Starten wird die Zeile nur blasser und bekommt „ …“ (containers-ui.css:8). Was gerade passiert, steht nirgends.</p>
+        <p style="margin:0;text-wrap:pretty">→ Status-Zelle zeigt sofort „startet“ und kehrt beim nächsten Poll zum echten Wert zurück.</p>
+      </div>
+    </div>
+
+    <div style="display:grid;gap:8px;align-content:start">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#aeb3bc;padding-bottom:6px;border-bottom:1px solid #2e3a4c">Konsistenz</div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#ebe7e2;background:#1c2635;border:1px solid #4d5b70;border-radius:999px;padding:0 6px">P2</span><strong style="font-weight:600">Fünf Arten, Fehler zu zeigen</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">Toast, <code style="font-family:Consolas,monospace">.error-message</code>-Box, <code style="font-family:Consolas,monospace">.tree-error</code> und <code style="font-family:Consolas,monospace">.workspace-menu-error</code> als roter Text in zwei Größen, dazu Feldfehler.</p>
+        <p style="margin:0;text-wrap:pretty">→ Drei Muster: Feld, Bereich, global. <a href="#s4">Prototyp 4</a></p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#ebe7e2;background:#1c2635;border:1px solid #4d5b70;border-radius:999px;padding:0 6px">P2</span><strong style="font-weight:600">Statuswörter doppelt gepflegt</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">TerminalTabs sagt „Beendet“ und „Fehler“, TerminalPanel „Verbindung beendet“ und „Verbindung fehlgeschlagen“, RdpPanel und FilesPanel haben eigene Listen.</p>
+        <p style="margin:0;text-wrap:pretty">→ Ein Wörterbuch für alle Protokolle, kurz für Tabs, lang für Bereiche.</p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#ebe7e2;background:#1c2635;border:1px solid #4d5b70;border-radius:999px;padding:0 6px">P2</span><strong style="font-weight:600">Auslassung und Anrede gemischt</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">„Bitte warten ...“ (ConfirmDialog) neben „Bitte warten …“ (PermissionsDialog). „Bitte gib einen Ordnernamen ein.“ neben „Bitte einen Namen eingeben.“</p>
+        <p style="margin:0;text-wrap:pretty">→ Immer „…“, immer Du-Imperativ. Ein Lint-Test für „...“ in TSX-Strings.</p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0;border-bottom:1px solid #2e3a4c">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#aeb3bc;border:1px solid #2e3a4c;border-radius:999px;padding:0 6px">P3</span><strong style="font-weight:600">Limit-Text sechsmal kopiert</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">„Maximal 16 Sessions. Schließe zuerst einen Tab.“ in App.tsx 610, 654, 665, 683, 714 und SecondaryWindow 82.</p>
+        <p style="margin:0;text-wrap:pretty">→ Eine Funktion neben <code style="font-family:Consolas,monospace">disabledNotice</code>.</p>
+      </div>
+      <div style="display:grid;gap:4px;padding:10px 0">
+        <div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:11px;font-weight:600;color:#aeb3bc;border:1px solid #2e3a4c;border-radius:999px;padding:0 6px">P3</span><strong style="font-weight:600">Kleine Abweichungen vom System</strong></div>
+        <p style="margin:0;color:#aeb3bc;text-wrap:pretty">Statuspunkte 6 px im Tab, 8 px im Baum. ProblemBanner nutzt „▴▾“ als Zeichen, der Baum SVG-Chevrons. Die Welcome-Liste hovert mit Cyan-Rand statt <code style="font-family:Consolas,monospace">--color-border-strong</code>.</p>
+        <p style="margin:0;text-wrap:pretty">→ Ein Punktmaß, SVG-Chevron, Hover-Regel aus dem System.</p>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;gap:8px;padding:16px;border:1px solid #4d5b70;border-radius:5px;background:rgba(232,147,90,.06);max-width:90ch">
+    <strong style="font-weight:600;font-size:14px">Empfohlene Reihenfolge</strong>
+    <ol style="margin:0;padding-left:20px;display:grid;gap:4px;color:#aeb3bc;line-height:1.5">
+      <li><span style="color:#ebe7e2">Meldungskanal</span> mit Stufen, Stapel und Aktionen. Ersetzt den globalen String in App.tsx und SecondaryWindow.</li>
+      <li><span style="color:#ebe7e2">Verbindungszustand im Bereich</span> für SSH, RDP und SFTP, inklusive Fehlerabbildung im Main.</li>
+      <li><span style="color:#ebe7e2">Textregeln und Statuswörterbuch</span>, abgesichert durch einen Test wie <code style="font-family:Consolas,monospace">design-tokens.test.ts</code>.</li>
+      <li><span style="color:#ebe7e2">Cluster-Reconnect</span> und Busy-Buttons.</li>
+    </ol>
+  </div>
+</section>
+
+<section id="s1" style="display:grid;gap:16px">
+  <div style="display:grid;gap:4px;max-width:80ch">
+    <h2 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-.02em">1 · Verbindungsaufbau und Terminal-Fehler</h2>
+    <p style="margin:0;color:#aeb3bc;text-wrap:pretty">Klick auf „Verbinden“. Das Ergebnis lässt sich in den Tweaks umstellen (Anmeldung abgelehnt, Zeitüberschreitung, Server-Schlüssel geändert, Erfolg).</p>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <button onClick="{{ startConnect }}" style="height:32px;padding:0 12px;border:1px solid #e8935a;border-radius:5px;background:#e8935a;color:#2a1406;font-weight:500;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)" style-hover="background:#f0a673;border-color:#f0a673">Verbinden</button>
+    <button onClick="{{ disconnect }}" style="height:32px;padding:0 12px;border:1px solid #2e3a4c;border-radius:5px;background:#1c2635;color:#ebe7e2;font-weight:500;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)" style-hover="background:#253043;border-color:#4d5b70">Server trennt Verbindung</button>
+    <span style="align-self:center;color:#aeb3bc;font-size:12px">Zustand: {{ phaseLabel }}</span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:24px">
+    <sc-if value="{{ showBefore }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1 1 300px;min-width:0;display:grid;gap:8px;align-content:start">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#a7b7cb">Vorher</div>
+        <div style="border:1px solid #29374b;border-radius:8px;overflow:hidden;background:#070b14">
+          <div style="height:32px;display:flex;align-items:center;gap:4px;padding:0 4px;background:#182334;border-bottom:1px solid #29374b">
+            <div style="height:28px;display:flex;align-items:center;gap:6px;padding:0 8px;border:1px solid #496078;border-bottom-color:#67e8f9;border-radius:4px;background:#070b14;font-size:12px"><span style="width:6px;height:6px;border-radius:50%;background:{{ tabDot }}"></span>web-01</div>
+          </div>
+          <div style="height:300px;padding:4px;display:flex;flex-direction:column">
+            <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
+              <p style="margin:0 0 4px;padding:8px;font-size:12px;color:#fecdd3;background:#341c25;border:1px solid #713442;border-radius:5px;line-height:1.5">{{ err.raw }}</p>
+            </sc-if>
+            <sc-if value="{{ isConnected }}" hint-placeholder-val="{{ true }}">
+              <div style="font-family:Consolas,'Cascadia Mono',monospace;font-size:13px;line-height:1.5;color:#dce9f8;padding:4px;white-space:pre-wrap">deploy@web-01:~$ ▍</div>
+            </sc-if>
+            <sc-if value="{{ isClosed }}" hint-placeholder-val="{{ false }}">
+              <div style="font-family:Consolas,'Cascadia Mono',monospace;font-size:13px;line-height:1.5;color:#dce9f8;padding:4px;white-space:pre-wrap">deploy@web-01:~$ </div>
+            </sc-if>
+          </div>
+        </div>
+        <p style="margin:0;color:#a7b7cb;font-size:12px;text-wrap:pretty">Beim Aufbau bleibt die Fläche leer, nur der Punkt im Tab ist gelb. Fehler erscheinen als englischer Rohtext ohne Aktion. Nach dem Trennen ändert sich nur die Punktfarbe.</p>
+      </div>
+    </sc-if>
+
+    <div style="flex:2 1 520px;min-width:0;display:grid;gap:8px;align-content:start">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#e8935a">Nachher</div>
+      <div style="border:1px solid #2e3a4c;border-radius:8px;overflow:hidden;background:#0b1018">
+        <div style="height:32px;display:flex;align-items:center;gap:4px;padding:0 4px;background:#1c2635;border-bottom:1px solid #2e3a4c">
+          <div title="{{ tabTitle }}" style="height:28px;display:flex;align-items:center;gap:6px;padding:0 4px 0 8px;border:1px solid #4d5b70;border-bottom-color:#e8935a;border-radius:4px;background:#0b1018;font-size:12px"><span style="width:6px;height:6px;border-radius:50%;background:{{ tabDot }}"></span>web-01<span style="width:24px;height:24px;display:grid;place-items:center;color:#aeb3bc">×</span></div>
+          <div style="width:28px;height:28px;display:grid;place-items:center;color:#aeb3bc;font-size:16px">+</div>
+        </div>
+        <div style="height:300px;position:relative;padding:4px">
+
+          <sc-if value="{{ isConnecting }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;inset:0;display:grid;place-items:center;padding:16px">
+              <div style="width:min(380px,100%);display:grid;gap:14px">
+                <div style="display:grid;gap:2px">
+                  <strong style="font-size:14px;font-weight:600">Verbinde mit web-01 …</strong>
+                  <span style="color:#aeb3bc;font-size:12px;font-family:Consolas,monospace">deploy@10.0.4.21:22</span>
+                </div>
+                <div style="display:grid;gap:8px">
+                  <sc-for list="{{ steps }}" as="s" hint-placeholder-count="4">
+                    <div style="display:grid;grid-template-columns:16px 1fr auto;gap:10px;align-items:center">
+                      <span style="width:14px;height:14px;border-radius:50%;box-sizing:border-box;border:1.5px solid {{ s.ring }};background:{{ s.fill }};transition:background-color 150ms ease,border-color 150ms ease;display:grid;place-items:center;font-size:9px;color:#2a1406;font-weight:700">{{ s.mark }}</span>
+                      <span style="color:{{ s.color }};font-size:13px">{{ s.label }} <span style="color:#aeb3bc;font-size:12px">{{ s.note }}</span></span>
+                      <span style="color:#aeb3bc;font-size:12px;font-variant-numeric:tabular-nums">{{ s.time }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid #2e3a4c">
+                  <span style="color:{{ slowColor }};font-size:12px">{{ slowText }}</span>
+                  <button onClick="{{ cancel }}" style="height:28px;padding:0 10px;border:1px solid #2e3a4c;border-radius:5px;background:#1c2635;color:#ebe7e2;font-size:12px;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)" style-hover="background:#253043;border-color:#4d5b70">Abbrechen <span style="color:#aeb3bc">Esc</span></button>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isConnected }}" hint-placeholder-val="{{ true }}">
+            <div style="font-family:Consolas,'Cascadia Mono',monospace;font-size:13px;line-height:1.5;color:#e6e2dc;padding:4px;white-space:pre-wrap">Last login: Mon Oct 19 09:12:44 2026 from 10.0.0.8
+deploy@web-01:~$ systemctl status nginx --no-pager | head -3
+● nginx.service - A high performance web server
+     Active: active (running) since Fri 2026-10-16 08:02:11 CEST
+deploy@web-01:~$ ▍</div>
+          </sc-if>
+
+          <sc-if value="{{ isClosed }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;inset:4px;display:flex;flex-direction:column">
+              <div style="flex:1;font-family:Consolas,'Cascadia Mono',monospace;font-size:13px;line-height:1.5;color:#aeb3bc;padding:4px;white-space:pre-wrap">Last login: Mon Oct 19 09:12:44 2026 from 10.0.0.8
+deploy@web-01:~$ sudo reboot
+Connection to 10.0.4.21 closed by remote host.</div>
+              <div ref="{{ closedRef }}" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 10px;background:#151d2a;border:1px solid #2e3a4c;border-radius:5px">
+                <span style="width:8px;height:8px;border-radius:50%;background:#aeb3bc"></span>
+                <span style="flex:1;min-width:180px">Verbindung getrennt <span style="color:#aeb3bc">· vor {{ closedAgo }} · der Server hat sie beendet</span></span>
+                <button onClick="{{ startConnect }}" style="height:28px;padding:0 10px;border:1px solid #e8935a;border-radius:5px;background:#e8935a;color:#2a1406;font-size:12px;font-weight:500;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)">Neu verbinden <span style="opacity:.7">Enter</span></button>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;inset:0;display:grid;place-items:center;padding:16px">
+              <div ref="{{ errRef }}" style="width:min(420px,100%);display:grid;gap:12px;padding:16px;background:#151d2a;border:1px solid #713442;border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.45)">
+                <div style="display:flex;gap:10px;align-items:center"><span style="width:8px;height:8px;border-radius:50%;background:#fb7185;flex:0 0 8px"></span><strong style="font-size:14px;font-weight:600">{{ err.title }}</strong></div>
+                <p style="margin:0;color:#ebe7e2;line-height:1.5;text-wrap:pretty">{{ err.body }}</p>
+                <p style="margin:0;color:#aeb3bc;line-height:1.5;text-wrap:pretty">{{ err.next }}</p>
+                <div style="display:flex;flex-wrap:wrap;gap:8px">
+                  <button onClick="{{ err.primaryFn }}" style="height:32px;padding:0 12px;border:1px solid #e8935a;border-radius:5px;background:#e8935a;color:#2a1406;font-weight:500;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)">{{ err.primary }}</button>
+                  <button onClick="{{ err.secondaryFn }}" style="height:32px;padding:0 12px;border:1px solid #2e3a4c;border-radius:5px;background:#1c2635;color:#ebe7e2;font-weight:500;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)" style-hover="background:#253043;border-color:#4d5b70">{{ err.secondary }}</button>
+                  <button onClick="{{ toggleDetails }}" style="height:32px;padding:0 8px;border:0;background:transparent;color:#aeb3bc;cursor:pointer;margin-left:auto;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)" style-hover="color:#ebe7e2">{{ detailsLabel }}</button>
+                </div>
+                <sc-if value="{{ details }}" hint-placeholder-val="{{ false }}">
+                  <pre style="margin:0;padding:8px;background:#0b1018;border:1px solid #2e3a4c;border-radius:4px;font:12px/1.5 Consolas,monospace;color:#e6e2dc;white-space:pre-wrap">{{ err.raw }}</pre>
+                </sc-if>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+      <p style="margin:0;color:#aeb3bc;font-size:12px;text-wrap:pretty">Die Schritte kommen aus den vorhandenen ssh2-Ereignissen (Socket, Host-Key-Prüfung, Auth, Shell). Ab 1,5 s pro Schritt erscheint ein Hinweis. Das Terminal bleibt montiert; die Karte liegt darüber und verschwindet bei „Verbunden“ ohne Animation.</p>
+    </div>
+  </div>
+</section>
+
+<section id="s2" style="display:grid;gap:16px">
+  <div style="display:grid;gap:4px;max-width:80ch">
+    <h2 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-.02em">2 · Meldungen mit Stufen</h2>
+    <p style="margin:0;color:#aeb3bc;text-wrap:pretty">Löse mehrere Meldungen aus. Fehler bleiben stehen und bieten eine Aktion, Hinweise und Erfolge laufen ab. Die Zeitleiste zeigt, wann.</p>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <button onClick="{{ toastError }}" style="height:32px;padding:0 12px;border:1px solid #713442;border-radius:5px;background:#341c25;color:#fecdd3;font-weight:500;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)" style-hover="background:#512333">Speichern scheitert</button>
+    <button onClick="{{ toastInfo }}" style="height:32px;padding:0 12px;border:1px solid #2e3a4c;border-radius:5px;background:#1c2635;color:#ebe7e2;font-weight:500;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)" style-hover="background:#253043;border-color:#4d5b70">Ordner ohne Verbindungen</button>
+    <button onClick="{{ toastOk }}" style="height:32px;padding:0 12px;border:1px solid #2e3a4c;border-radius:5px;background:#1c2635;color:#ebe7e2;font-weight:500;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)" style-hover="background:#253043;border-color:#4d5b70">Workspace gespeichert</button>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:24px">
+    <sc-if value="{{ showBefore }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1 1 300px;min-width:0;display:grid;gap:8px;align-content:start">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#a7b7cb">Vorher</div>
+        <div style="position:relative;height:300px;border:1px solid #29374b;border-radius:8px;background:#070b14;overflow:hidden">
+          <div style="position:absolute;left:0;right:0;bottom:0;height:24px;background:#111925;border-top:1px solid #29374b"></div>
+          <div style="position:absolute;right:12px;left:12px;bottom:36px;display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid #713442;border-radius:8px;background:#341c25;color:#fecdd3;box-shadow:0 10px 28px rgba(0,0,0,.45)">
+            <span style="flex:1;line-height:1.5">Der Ordner „Staging“ enthält keine Verbindungen.</span>
+            <span style="height:28px;display:grid;place-items:center;padding:0 10px;font-size:12px;border:1px solid #29374b;border-radius:5px;background:#182334;color:#e2eaf4">Schließen</span>
+          </div>
+        </div>
+        <p style="margin:0;color:#a7b7cb;font-size:12px;text-wrap:pretty">Ein harmloser Hinweis sieht aus wie ein Fehler. Die nächste Meldung ersetzt ihn, ein Klick in den Baum löscht ihn.</p>
+      </div>
+    </sc-if>
+    <div style="flex:2 1 520px;min-width:0;display:grid;gap:8px;align-content:start">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#e8935a">Nachher</div>
+      <div style="position:relative;height:300px;border:1px solid #2e3a4c;border-radius:8px;background:#0b1018;overflow:hidden">
+        <sc-if value="{{ noToasts }}" hint-placeholder-val="{{ true }}">
+          <p style="position:absolute;inset:0;display:grid;place-items:center;margin:0;color:#aeb3bc;font-size:12px">Keine Meldungen</p>
+        </sc-if>
+        <div style="position:absolute;left:0;right:0;bottom:0;height:24px;display:flex;align-items:center;padding:0 12px;gap:16px;background:#151d2a;border-top:1px solid #2e3a4c;color:#aeb3bc;font-size:12px"><span>3 Sessions</span><span>Vault entsperrt</span></div>
+        {{ toastStack }}
+      </div>
+      <p style="margin:0;color:#aeb3bc;font-size:12px;text-wrap:pretty">Fehler: Gefahr-Fläche, <code style="font-family:Consolas,monospace">role="alert"</code>, bleibt. Hinweis: Panel-Fläche mit weißem Punkt (Kupfer ist nie ein Zustand), <code style="font-family:Consolas,monospace">role="status"</code>, 5 s. Erfolg: grüner Punkt, 3 s. Hover pausiert den Ablauf. Höchstens drei, die älteste fällt weg. Auswahl im Baum schließt nichts mehr.</p>
+    </div>
+  </div>
+</section>
+
+<section id="s3" style="display:grid;gap:16px">
+  <div style="display:grid;gap:4px;max-width:80ch">
+    <h2 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-.02em">3 · Cluster-Reconnect</h2>
+    <p style="margin:0;color:#aeb3bc;text-wrap:pretty">Simuliere den Ausfall des Zugangs-Hosts. Shellherd wechselt nach einigen Sekunden auf k8s-cp2.</p>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <button onClick="{{ dropCluster }}" style="height:32px;padding:0 12px;border:1px solid #2e3a4c;border-radius:5px;background:#1c2635;color:#ebe7e2;font-weight:500;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)" style-hover="background:#253043;border-color:#4d5b70">k8s-cp1 fällt aus</button>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:24px">
+    <sc-if value="{{ showBefore }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1 1 300px;min-width:0;display:grid;gap:8px;align-content:start">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#a7b7cb">Vorher</div>
+        <div style="border:1px solid #29374b;border-radius:8px;overflow:hidden;background:#090e17">
+          <div style="height:32px;display:flex;align-items:center;gap:8px;padding:0 10px;background:#111925;border-bottom:1px solid #29374b;font-size:12px"><strong style="font-weight:500">prod-cluster</strong><span style="color:#a7b7cb">verbindet neu …</span></div>
+          <div style="filter:grayscale(1);opacity:.55;padding:8px;display:grid;gap:2px;font-size:12px">
+            <div style="display:grid;grid-template-columns:1fr 70px 40px;gap:8px;height:24px;align-items:center;color:#a7b7cb"><span>Name</span><span>Status</span><span>Alter</span></div>
+            <div style="display:grid;grid-template-columns:1fr 70px 40px;gap:8px;height:24px;align-items:center"><span>api-7d9f8-x2kq</span><span style="color:#4ade80">Läuft</span><span>3d</span></div>
+            <div style="display:grid;grid-template-columns:1fr 70px 40px;gap:8px;height:24px;align-items:center"><span>api-7d9f8-m4tz</span><span style="color:#4ade80">Läuft</span><span>3d</span></div>
+            <div style="display:grid;grid-template-columns:1fr 70px 40px;gap:8px;height:24px;align-items:center"><span>worker-5c6b-91qa</span><span style="color:#fb7185">Fehler</span><span>12m</span></div>
+            <div style="display:grid;grid-template-columns:1fr 70px 40px;gap:8px;height:24px;align-items:center"><span>redis-0</span><span style="color:#4ade80">Läuft</span><span>9d</span></div>
+          </div>
+        </div>
+        <p style="margin:0;color:#a7b7cb;font-size:12px;text-wrap:pretty">Alles wird grau und blass, auch der rote Fehler-Pod. Welcher Host versucht wird und wie alt die Daten sind, steht nicht da.</p>
+      </div>
+    </sc-if>
+    <div style="flex:2 1 520px;min-width:0;display:grid;gap:8px;align-content:start">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#e8935a">Nachher</div>
+      <div style="border:1px solid #2e3a4c;border-radius:8px;overflow:hidden;background:#0e141e">
+        <div style="height:32px;display:flex;align-items:center;gap:8px;padding:0 10px;background:#151d2a;border-bottom:1px solid #2e3a4c;font-size:12px">
+          <span style="width:8px;height:8px;border-radius:50%;background:{{ kubeDot }}"></span>
+          <strong style="font-weight:500">prod-cluster</strong><span style="color:#aeb3bc">über {{ kubeHost }}</span>
+          <span style="margin-left:auto;display:flex;gap:4px">
+            <button disabled="{{ kubeLocked }}" title="{{ kubeLockTitle }}" style="height:24px;padding:0 8px;border:1px solid #2e3a4c;border-radius:4px;background:#1c2635;color:#ebe7e2;font-size:12px;opacity:{{ kubeBtnOpacity }}">Neu starten</button>
+            <button style="height:24px;padding:0 8px;border:1px solid #2e3a4c;border-radius:4px;background:#1c2635;color:#ebe7e2;font-size:12px">Logs</button>
+          </span>
+        </div>
+        <div role="status" style="display:flex;flex-wrap:wrap;align-items:center;min-height:29px;box-sizing:border-box;gap:4px 12px;padding:6px 10px;border-bottom:1px solid {{ kubeBarBorder }};background:{{ kubeBarBg }};font-size:12px;transition:background-color 200ms ease,border-color 200ms ease">
+            <span style="color:#ebe7e2">{{ kubeBarText }}</span>
+            <span style="margin-left:auto;color:#aeb3bc;font-variant-numeric:tabular-nums">{{ kubeBarSub }}</span>
+          </div>
+        <div style="padding:8px;display:grid;gap:2px;font-size:12px">
+          <div style="display:grid;grid-template-columns:1fr 90px 40px;gap:8px;height:24px;align-items:center;color:#aeb3bc"><span>Name</span><span>Status</span><span>Alter</span></div>
+          <div style="display:grid;grid-template-columns:1fr 90px 40px;gap:8px;height:24px;align-items:center"><span>api-7d9f8-x2kq</span><span style="color:#4ade80">Läuft</span><span>3d</span></div>
+          <div style="display:grid;grid-template-columns:1fr 90px 40px;gap:8px;height:24px;align-items:center;background:#2e2620;border-radius:4px;box-shadow:inset 0 0 0 1px #e8935a"><span style="padding-left:4px">api-7d9f8-m4tz</span><span style="color:#4ade80">Läuft</span><span>3d</span></div>
+          <div style="display:grid;grid-template-columns:1fr 90px 40px;gap:8px;height:24px;align-items:center"><span>worker-5c6b-91qa</span><span style="color:#fb7185">Fehler</span><span>12m</span></div>
+          <div style="display:grid;grid-template-columns:1fr 90px 40px;gap:8px;height:24px;align-items:center"><span>redis-0</span><span style="color:#4ade80">Läuft</span><span>9d</span></div>
+        </div>
+      </div>
+      <p style="margin:0;color:#aeb3bc;font-size:12px;text-wrap:pretty">Daten, Auswahl und Fokus bleiben unverändert. Gesperrt werden nur verändernde Aktionen, mit Begründung im Tooltip. Logs und YAML bleiben lesbar. Nach der Wiederverbindung bestätigt die Leiste kurz den neuen Host.</p>
+    </div>
+  </div>
+</section>
+
+<section id="s4" style="display:grid;gap:16px">
+  <div style="display:grid;gap:4px;max-width:80ch">
+    <h2 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-.02em">4 · Konsistenz: Muster und Textregeln</h2>
+    <p style="margin:0;color:#aeb3bc;text-wrap:pretty">Ein Fehler hat einen von drei Orten. Die Regel richtet sich danach, wo die Ursache liegt.</p>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px">
+    <div style="display:grid;gap:10px;align-content:start;padding:16px;border:1px solid #2e3a4c;border-radius:8px;background:#151d2a">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#aeb3bc">Feld</div>
+      <label style="display:grid;gap:6px;font-size:12px;font-weight:500;color:#aeb3bc">Host
+        <input value="" placeholder="z. B. 10.0.4.21" aria-invalid="true" style="height:36px;padding:8px;border:1px solid #fb7185;border-radius:5px;background:#0f1520;color:#ebe7e2;font:inherit;font-size:13px">
+        <span style="color:#fda4af;font-weight:400">Gib einen Host oder eine IP-Adresse ein.</span>
+      </label>
+      <p style="margin:0;color:#aeb3bc;font-size:12px;text-wrap:pretty">Eingabe ist ungültig. Fokus springt zum ersten Fehler, Text sagt, was zu tun ist.</p>
+    </div>
+    <div style="display:grid;gap:10px;align-content:start;padding:16px;border:1px solid #2e3a4c;border-radius:8px;background:#151d2a">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#aeb3bc">Bereich</div>
+      <div style="display:grid;gap:8px;padding:10px 12px;border:1px solid #713442;border-radius:5px;background:#341c25;color:#fecdd3">
+        <strong style="font-weight:600">Logs nicht geladen</strong>
+        <span style="line-height:1.45">Der Pod redis-0 ist nicht mehr vorhanden.</span>
+        <span><span style="display:inline-grid;place-items:center;height:28px;padding:0 10px;border:1px solid #713442;border-radius:5px;background:#512333;font-size:12px">Erneut versuchen</span></span>
+      </div>
+      <p style="margin:0;color:#aeb3bc;font-size:12px;text-wrap:pretty">Eine Aktion in diesem Bereich scheiterte: Terminal, Dock, Menü, Dateiliste. Ersetzt <code style="font-family:Consolas,monospace">.tree-error</code> und <code style="font-family:Consolas,monospace">.workspace-menu-error</code>.</p>
+    </div>
+    <div style="display:grid;gap:10px;align-content:start;padding:16px;border:1px solid #2e3a4c;border-radius:8px;background:#151d2a">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#aeb3bc">Global</div>
+      <div style="display:grid;grid-template-columns:8px 1fr;gap:10px;padding:10px 12px;border:1px solid #713442;border-radius:8px;background:#341c25;color:#fecdd3">
+        <span style="width:8px;height:8px;border-radius:50%;background:#fb7185;margin-top:6px"></span>
+        <div style="display:grid;gap:2px"><strong style="font-weight:600">Fenster nicht wiederhergestellt</strong><span style="color:#fda4af">2 von 3 Fenstern sind offen.</span></div>
+      </div>
+      <p style="margin:0;color:#aeb3bc;font-size:12px;text-wrap:pretty">Hintergrundereignis ohne sichtbaren Ort. Nur hier entsteht ein Toast.</p>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:start">
+    <div style="flex:1 1 300px;min-width:0;display:grid;gap:10px;padding:16px;border:1px solid #2e3a4c;border-radius:8px;background:#151d2a">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#aeb3bc">Busy-Button</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:10px 16px;align-items:center">
+        <sc-if value="{{ showBefore }}" hint-placeholder-val="{{ true }}">
+          <span style="color:#a7b7cb;font-size:12px">Vorher</span>
+          <span><button onClick="{{ save }}" style="height:32px;padding:4px 10px;border:1px solid #67e8f9;border-radius:5px;background:#67e8f9;color:#072733;font-weight:500;cursor:pointer;opacity:{{ beforeOpacity }};transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)">{{ beforeLabel }}</button></span>
+        </sc-if>
+        <span style="color:#e8935a;font-size:12px">Nachher</span>
+        <span><button onClick="{{ save }}" style="width:150px;height:32px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid #e8935a;border-radius:5px;background:#e8935a;color:#2a1406;font-weight:500;cursor:pointer;transition:transform 120ms cubic-bezier(0.23, 1, 0.32, 1)" style-active="transform:scale(.97)"><sc-if value="{{ saveDot }}" hint-placeholder-val="{{ false }}"><span ref="{{ dotRef }}" style="width:6px;height:6px;border-radius:50%;background:{{ saveDotColor }}"></span></sc-if><span ref="{{ labelRef }}">{{ afterLabel }}</span></button></span>
+      </div>
+      <p style="margin:0;color:#aeb3bc;font-size:12px;text-wrap:pretty">Klick auf einen der Buttons. Die Breite bleibt fest, nach dem Speichern steht 1,2 s lang „Gespeichert“.</p>
+    </div>
+
+    <div style="flex:2 1 520px;min-width:0;display:grid;gap:10px;padding:16px;border:1px solid #2e3a4c;border-radius:8px;background:#151d2a;overflow-x:auto">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#aeb3bc">Statuswörterbuch für SSH, RDP und SFTP</div>
+      <div style="display:grid;grid-template-columns:auto auto 1fr;gap:0;min-width:420px;font-size:12px">
+        <span style="padding:6px 12px 6px 0;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Punkt</span><span style="padding:6px 12px;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Tab (kurz)</span><span style="padding:6px 0 6px 12px;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Bereich (lang)</span>
+        <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#facc15"></span></span><span style="padding:8px 12px;border-bottom:1px solid #2e3a4c">Verbindet …</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c">Verbinde mit web-01 … und Schritte</span>
+        <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80"></span></span><span style="padding:8px 12px;border-bottom:1px solid #2e3a4c">Verbunden</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;color:#aeb3bc">keine Anzeige</span>
+        <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#aeb3bc"></span></span><span style="padding:8px 12px;border-bottom:1px solid #2e3a4c">Getrennt</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c">Verbindung getrennt · Neu verbinden</span>
+        <span style="padding:8px 12px 8px 0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#fb7185"></span></span><span style="padding:8px 12px">Fehler</span><span style="padding:8px 0 8px 12px">konkreter Titel, Empfehlung, Aktion</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;gap:10px;padding:16px;border:1px solid #2e3a4c;border-radius:8px;background:#151d2a;overflow-x:auto">
+    <div style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#aeb3bc">Textregeln</div>
+    <div style="display:grid;grid-template-columns:140px 1fr 1fr;min-width:560px;font-size:12px">
+      <span style="padding:6px 12px 6px 0;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Regel</span><span style="padding:6px 12px;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Heute im Code</span><span style="padding:6px 0 6px 12px;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Neu</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c">Auslassung</span><span style="padding:8px 12px;border-bottom:1px solid #2e3a4c;color:#fda4af">Bitte warten ... · Speichert ... · Verbindet ...</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c">Speichert … (immer U+2026)</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c">Anrede</span><span style="padding:8px 12px;border-bottom:1px solid #2e3a4c;color:#fda4af">Bitte einen Namen eingeben.</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c">Gib einen Namen ein.</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c">Ursache</span><span style="padding:8px 12px;border-bottom:1px solid #2e3a4c;color:#fda4af">Speichern fehlgeschlagen. Bitte erneut versuchen.</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c">Workspace nicht gespeichert. Die Vault-Datei ist schreibgeschützt. + Button „Erneut versuchen“</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c">Wiederholen</span><span style="padding:8px 12px;border-bottom:1px solid #2e3a4c;color:#fda4af">Bitte erneut versuchen. / Bitte versuche es erneut.</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c">kein Satz, sondern Button „Erneut versuchen“</span>
+      <span style="padding:8px 12px 8px 0">Sprache</span><span style="padding:8px 12px;color:#fda4af">All configured authentication methods failed</span><span style="padding:8px 0 8px 12px">Anmeldung abgelehnt. Rohtext nur unter „Details“.</span>
+    </div>
+  </div>
+</section>
+
+
+<section id="s5" style="display:grid;gap:16px">
+  <div style="display:grid;gap:4px;max-width:80ch">
+    <h2 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-.02em">5 · Bewegung</h2>
+    <p style="margin:0;color:#aeb3bc;text-wrap:pretty">Jede Bewegung im Prototyp hat einen Grund und steht hier. Maßstab ist das bestehende Motion-Gate: Was per Tastatur oder sehr oft passiert, bewegt sich nicht. Animiert werden nur transform und opacity, mit den vorhandenen Kurven und Dauern aus tokens.css. Diese Zeilen kommen als Einträge in docs/design-system.md.</p>
+  </div>
+  <div style="padding:16px;border:1px solid #2e3a4c;border-radius:8px;background:#151d2a;overflow-x:auto">
+    <div style="display:grid;grid-template-columns:150px 150px 150px minmax(240px,1fr) 150px;min-width:860px;font-size:12px;line-height:1.5">
+      <span style="padding:6px 12px 6px 0;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Element</span><span style="padding:6px 12px 6px 12px;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Häufigkeit</span><span style="padding:6px 12px 6px 12px;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Entscheidung</span><span style="padding:6px 12px 6px 12px;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Zutaten</span><span style="padding:6px 0 6px 12px;color:#aeb3bc;border-bottom:1px solid #2e3a4c">Reduced motion</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">Toast ein/aus</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">gelegentlich, nur Ereignisse</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#e8935a">animieren · Herkunft</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">WAAPI, opacity + translateY(100%), 220 ms ein, 150 ms aus auf demselben Weg, --ease-out</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">nur opacity</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">Toast-Ablaufbalken</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">laufend</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#e8935a">behalten · Zustand</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">transform: scaleX(1→0), linear, Dauer = Anzeigezeit. Hover und verstecktes Fenster pausieren</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">unverändert (kein Ortswechsel)</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">Vierter Toast</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">selten</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#e8935a">animieren</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">Ältester verlässt den Stapel über den normalen Ausgang statt zu verschwinden</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">nur opacity</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">Fehlerkarte im Bereich</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">gelegentlich, Ereignis</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#e8935a">animieren · harter Wechsel</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">opacity + scale(.97→1), 200 ms, --ease-out, Origin Mitte (wie Dialog)</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">nur opacity</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">Getrennt-Leiste</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">gelegentlich, Ereignis</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#e8935a">animieren · Herkunft</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">opacity + translateY(100%→0), 220 ms, --ease-out</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">nur opacity</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">Verbindungskarte</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">per Enter auslösbar</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#aeb3bc">nicht</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">erscheint sofort; Tastatur-Aktionen bewegen sich nie</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">–</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">Schritt-Punkte</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">4× pro Verbindung</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#e8935a">minimal · Zustand</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">background-color, border-color 150 ms ease</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">unverändert</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">Cluster-Leiste</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">Ereignis</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#e8935a">nur Farbe · Zustand</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">Platz ist immer reserviert, keine Höhenänderung. Farbe 200 ms ease</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">unverändert</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">Button-Druck</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">zig/Tag</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#e8935a">animieren · Feedback</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">scale(.97), 120 ms, --ease-out (bestehende Regel)</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">kein Druck</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">„Gespeichert“-Label</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">gelegentlich</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#e8935a">animieren · Zustand</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">blur(2px)→0 + opacity .4→1, 200 ms; Punkt mit tm-pulse während „Speichert …“</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">nur opacity, Puls steht</span>
+      <span style="padding:8px 12px 8px 0;border-bottom:1px solid #2e3a4c;color:#ebe7e2;font-weight:500">Hover-Farben</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">zig/Tag</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;color:#aeb3bc">nicht</span><span style="padding:8px 12px 8px 12px;border-bottom:1px solid #2e3a4c;">sofort, wie im System</span><span style="padding:8px 0 8px 12px;border-bottom:1px solid #2e3a4c;">–</span>
+    </div>
+  </div>
+  <p style="margin:0;color:#aeb3bc;font-size:12px;text-wrap:pretty">Feel-Check vor dem Merge: im DevTools-Animations-Panel bei fünffacher Dauer. Toasts kommen und gehen unten, die Fehlerkarte wächst aus der Mitte, das Label überblendet ohne Doppelbild. Mit emuliertem reduced motion blenden alle nur ein.</p>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showBefore&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Vergleich&quot;},&quot;outcome&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Anmeldung abgelehnt&quot;,&quot;Zeitüberschreitung&quot;,&quot;Server-Schlüssel geändert&quot;,&quot;Erfolg&quot;],&quot;default&quot;:&quot;Anmeldung abgelehnt&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Prototyp 1&quot;}}">
+const STEPS = [
+  { label: 'Server erreichen', note: '10.0.4.21:22' },
+  { label: 'Server-Schlüssel prüfen', note: 'bekannt' },
+  { label: 'Anmelden', note: 'Schlüssel id_ed25519' },
+  { label: 'Shell öffnen', note: '' },
+];
+const OUTCOMES = {
+  'Anmeldung abgelehnt': { fail: 2, durs: [500, 400, 900, 300] },
+  'Zeitüberschreitung': { fail: 0, durs: [4000] },
+  'Server-Schlüssel geändert': { fail: 1, durs: [500, 700] },
+  'Erfolg': { fail: -1, durs: [500, 400, 700, 300] },
+};
+const fmt = ms => (ms / 1000).toFixed(1).replace('.', ',') + ' s';
+const EASE_OUT = 'cubic-bezier(0.23, 1, 0.32, 1)';
+const EASE_IN_OUT = 'cubic-bezier(0.77, 0, 0.175, 1)';
+const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const TONES = {
+  error: { bg: '#341c25', border: '#713442', text: '#fecdd3', sub: '#fda4af', dot: '#fb7185', role: 'alert' },
+  info: { bg: '#1c2635', border: '#4d5b70', text: '#ebe7e2', sub: '#aeb3bc', dot: '#ebe7e2', role: 'status' },
+  ok: { bg: '#1c2635', border: '#4d5b70', text: '#ebe7e2', sub: '#aeb3bc', dot: '#4ade80', role: 'status' },
+};
+const pressable = {
+  onPointerDown: e => { if (!reduced()) e.currentTarget.style.transform = 'scale(.97)'; },
+  onPointerUp: e => { e.currentTarget.style.transform = ''; },
+  onPointerLeave: e => { e.currentTarget.style.transform = ''; },
+};
+function ToastItem({ t, paused, onClose, onAction, onGone }) {
+  const h = React.createElement;
+  const el = React.useRef(null); const bar = React.useRef(null); const timer = React.useRef(null);
+  React.useLayoutEffect(() => {
+    // Enter from below (same path as exit); transform only, so it stays on the compositor.
+    el.current.animate(reduced() ? [{ opacity: 0 }, { opacity: 1 }]
+      : [{ opacity: 0, transform: 'translateY(100%)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 220, easing: EASE_OUT });
+    if (t.ttl && bar.current) {
+      timer.current = bar.current.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: t.ttl, easing: 'linear', fill: 'forwards' });
+      timer.current.onfinish = () => onClose(t.id);
+    }
+  }, []);
+  React.useEffect(() => { const a = timer.current; if (!a || t.leaving) return; paused ? a.pause() : a.play(); }, [paused]);
+  React.useEffect(() => {
+    if (!t.leaving) return;
+    timer.current?.pause();
+    const a = el.current.animate(reduced() ? [{ opacity: 1 }, { opacity: 0 }]
+      : [{ opacity: 1, transform: 'translateY(0)' }, { opacity: 0, transform: 'translateY(100%)' }], { duration: 150, easing: EASE_OUT, fill: 'forwards' });
+    a.onfinish = () => onGone(t.id);
+  }, [t.leaving]);
+  const c = TONES[t.tone];
+  const btn = { transition: `transform 120ms ${EASE_OUT}`, cursor: 'pointer', fontFamily: 'inherit' };
+  return h('div', { ref: el, role: c.role, style: { position: 'relative', display: 'grid', gridTemplateColumns: '8px 1fr auto', gap: 10, alignItems: 'start', padding: '10px 12px', border: `1px solid ${c.border}`, borderRadius: 8, background: c.bg, color: c.text, boxShadow: '0 10px 28px rgba(0,0,0,.45)', overflow: 'hidden', pointerEvents: t.leaving ? 'none' : 'auto' } },
+    h('span', { style: { width: 8, height: 8, borderRadius: '50%', background: c.dot, marginTop: 6 } }),
+    h('div', { style: { display: 'grid', gap: 2, minWidth: 0 } },
+      h('strong', { style: { fontWeight: 600 } }, t.title),
+      t.body ? h('span', { style: { color: c.sub, lineHeight: 1.45, textWrap: 'pretty' } }, t.body) : null),
+    h('div', { style: { display: 'flex', gap: 4, alignItems: 'center' } },
+      t.action ? h('button', { ...pressable, onClick: () => onAction(t), style: { ...btn, height: 28, padding: '0 10px', border: '1px solid #713442', borderRadius: 5, background: '#512333', color: '#fecdd3', fontSize: 12 } }, t.action) : null,
+      h('button', { 'aria-label': 'Meldung schließen', onClick: () => onClose(t.id), style: { ...btn, width: 28, height: 28, border: 0, borderRadius: 4, background: 'transparent', color: c.sub, fontSize: 14 } }, '×')),
+    t.ttl ? h('span', { ref: bar, style: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 2, background: c.dot, opacity: .5, transformOrigin: 'left' } }) : null);
+}
+function ToastStack({ toasts, onClose, onAction, onGone }) {
+  const h = React.createElement;
+  const [hover, setHover] = React.useState(false);
+  const [hidden, setHidden] = React.useState(document.hidden);
+  React.useEffect(() => { const f = () => setHidden(document.hidden); document.addEventListener('visibilitychange', f); return () => document.removeEventListener('visibilitychange', f); }, []);
+  return h('div', { onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false),
+    style: { position: 'absolute', right: 12, bottom: 36, width: 'min(400px, calc(100% - 24px))', display: 'grid', gap: 8 } },
+    toasts.map(t => h(ToastItem, { key: t.id, t, paused: hover || hidden, onClose, onAction, onGone })));
+}
+
+class Component extends DCLogic {
+  state = { phase: 'connected', t0: 0, now: Date.now(), details: false, toasts: [], kube: 'ok', k0: 0, k1: 0, endedAt: 0, outcome: null, save: 'idle' };
+  seq = 0;
+  errRef = React.createRef(); closedRef = React.createRef(); labelRef = React.createRef(); dotRef = React.createRef();
+  componentDidMount() { this.tick = setInterval(() => this.onTick(), 100); }
+  componentDidUpdate() {
+    const s = this.state; const r = reduced();
+    const prev = this._prev ?? { phase: s.phase, save: s.save };
+    this._prev = { phase: s.phase, save: s.save };
+    // Event-driven surfaces only; the connecting card can come from Enter, so it stays instant.
+    if (s.phase !== prev.phase && s.phase === 'error' && this.errRef.current)
+      this.errRef.current.animate(r ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 0, transform: 'scale(.97)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 200, easing: EASE_OUT });
+    if (s.phase !== prev.phase && s.phase === 'closed' && this.closedRef.current)
+      this.closedRef.current.animate(r ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 0, transform: 'translateY(100%)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 220, easing: EASE_OUT });
+    if (s.save !== prev.save) {
+      this.labelRef.current?.animate(r ? [{ opacity: .4 }, { opacity: 1 }] : [{ filter: 'blur(2px)', opacity: .4 }, { filter: 'blur(0)', opacity: 1 }], { duration: 200, easing: EASE_OUT });
+      if (s.save === 'busy' && this.dotRef.current && !r)
+        this.dotPulse = this.dotRef.current.animate([{ opacity: 1 }, { opacity: .35 }, { opacity: 1 }], { duration: 1000, easing: EASE_IN_OUT, iterations: Infinity });
+      if (s.save !== 'busy') this.dotPulse?.cancel();
+    }
+  }
+  componentWillUnmount() { clearInterval(this.tick); clearTimeout(this.saveTimer); }
+  outcome() { return OUTCOMES[this.state.outcome] ? this.state.outcome : (this.props.outcome ?? 'Anmeldung abgelehnt'); }
+  onTick() {
+    const now = Date.now(); const s = this.state; const p = { now };
+    if (s.phase === 'connecting') {
+      const o = OUTCOMES[s.outcome] ?? OUTCOMES['Anmeldung abgelehnt'];
+      const el = now - s.t0; const total = o.durs.reduce((a, b) => a + b, 0);
+      if (el >= total) { p.phase = o.fail < 0 ? 'connected' : 'error'; p.endedAt = now; p.details = false; }
+    }
+    if (s.kube === 'reconnecting' && now - s.k0 > 5000) { p.kube = 'recovered'; p.k1 = now; }
+    if (s.kube === 'recovered' && now - s.k1 > 3000) p.kube = 'ok';
+    this.setState(p);
+  }
+  pushToast(t) {
+    this.setState(s => {
+      const next = [...s.toasts, { ...t, id: ++this.seq, leaving: false }];
+      // At most three visible: the oldest leaves on its normal exit path instead of vanishing.
+      const visible = next.filter(x => !x.leaving);
+      if (visible.length > 3) { const old = visible[0].id; return { toasts: next.map(x => x.id === old ? { ...x, leaving: true } : x) }; }
+      return { toasts: next };
+    });
+  }
+  closeToast = id => this.setState(s => ({ toasts: s.toasts.map(t => t.id === id ? { ...t, leaving: true } : t) }));
+  removeToast = id => this.setState(s => ({ toasts: s.toasts.filter(t => t.id !== id) }));
+  connect = () => this.setState({ phase: 'connecting', t0: Date.now(), outcome: this.props.outcome ?? 'Anmeldung abgelehnt', details: false });
+  renderVals() {
+    const s = this.state; const now = s.now;
+    const showBefore = this.props.showBefore ?? true;
+    const o = OUTCOMES[s.outcome] ?? OUTCOMES['Anmeldung abgelehnt'];
+    const el = now - s.t0;
+    // step timeline
+    let acc = 0; let cur = o.durs.length; const starts = [];
+    o.durs.forEach((d, i) => { starts.push(acc); if (cur === o.durs.length && el < acc + d) cur = i; acc += d; });
+    const steps = STEPS.map((st, i) => {
+      const done = i < cur; const active = i === cur;
+      const time = done ? fmt(o.durs[i]) : active ? fmt(el - starts[i]) : '';
+      return { label: st.label, note: st.note, time,
+        ring: done || active ? '#e8935a' : '#4d5b70', fill: done ? '#e8935a' : 'transparent', mark: done ? '✓' : '',
+        color: done || active ? '#ebe7e2' : '#aeb3bc' };
+    });
+    const curEl = cur < o.durs.length ? el - starts[cur] : 0;
+    const slow = curEl > 1500;
+    const name = s.outcome;
+    const ERR = {
+      'Anmeldung abgelehnt': { title: 'Anmeldung abgelehnt', body: 'Der Server hat den Benutzer „deploy“ mit dem gespeicherten Schlüssel nicht angenommen.', next: 'Prüfe Benutzer und Schlüsseldatei in den Verbindungseinstellungen.', raw: 'All configured authentication methods failed', primary: 'Verbindung bearbeiten', secondary: 'Erneut verbinden' },
+      'Zeitüberschreitung': { title: 'Server antwortet nicht', body: '10.0.4.21:22 hat innerhalb von 4 s nicht geantwortet.', next: 'Prüfe VPN, Firewall und Port. Möglicherweise ist der Rechner aus.', raw: 'Timed out while waiting for handshake', primary: 'Erneut verbinden', secondary: 'Verbindung bearbeiten' },
+      'Server-Schlüssel geändert': { title: 'Server-Schlüssel hat sich geändert', body: 'Der Fingerprint stimmt nicht mit dem bestätigten überein. Shellherd hat die Verbindung abgebrochen.', next: 'Kläre den Schlüsselwechsel mit dem Administrator, bevor du fortfährst.', raw: 'Host key mismatch\nerwartet SHA256:9f2c…e41a\nerhalten SHA256:b07d…19c3', primary: 'Fingerprint kopieren', secondary: 'Erneut verbinden' },
+    }[name] ?? { title: '', body: '', next: '', raw: '', primary: '', secondary: '' };
+    const edit = () => this.pushToast({ tone: 'info', title: 'Eigenschaften geöffnet', body: 'Im Prototyp nicht ausgeführt.', ttl: 3000 });
+    const pick = label => label === 'Erneut verbinden' ? this.connect : edit;
+    const err = { ...ERR, primaryFn: pick(ERR.primary), secondaryFn: pick(ERR.secondary) };
+    const phaseLabel = { connecting: 'Verbindet …', connected: 'Verbunden', closed: 'Getrennt', error: 'Fehler' }[s.phase];
+    const tabDot = { connecting: '#facc15', connected: '#4ade80', closed: '#aeb3bc', error: '#fb7185' }[s.phase];
+
+    const toastStack = React.createElement(ToastStack, { toasts: s.toasts, onClose: this.closeToast, onGone: this.removeToast,
+      onAction: t => { this.closeToast(t.id); this.pushToast({ tone: 'ok', title: 'Workspace „Produktion“ gespeichert', body: 'Beim zweiten Versuch', ttl: 3000 }); } });
+    const sinceLoad = Math.floor((now / 1000) % 10);
+
+    const kube = s.kube;
+    const kubeAgo = Math.floor((now - s.k0) / 1000) + 2;
+    return {
+      showBefore,
+      phaseLabel, tabDot, tabTitle: 'web-01 · ' + phaseLabel,
+      isConnecting: s.phase === 'connecting', isConnected: s.phase === 'connected', isClosed: s.phase === 'closed', isError: s.phase === 'error',
+      steps, slowText: slow ? (cur === 0 ? 'Der Server antwortet langsam …' : 'Dauert länger als üblich …') : 'Gesamt ' + fmt(el),
+      slowColor: slow ? '#facc15' : '#aeb3bc',
+      closedAgo: Math.max(1, Math.floor((now - s.endedAt) / 1000)) + ' s',
+      err, details: s.details, detailsLabel: s.details ? 'Details ausblenden' : 'Details',
+      toggleDetails: () => this.setState(x => ({ details: !x.details })),
+      startConnect: this.connect,
+      cancel: () => this.setState({ phase: 'closed', endedAt: Date.now() }),
+      disconnect: () => this.setState({ phase: 'closed', endedAt: Date.now() }),
+
+      toastStack, noToasts: s.toasts.length === 0,
+      errRef: this.errRef, closedRef: this.closedRef, labelRef: this.labelRef, dotRef: this.dotRef,
+      toastError: () => this.pushToast({ tone: 'error', title: 'Workspace nicht gespeichert', body: 'Die Vault-Datei D:\\vaults\\ops.term ist schreibgeschützt.', action: 'Erneut versuchen', ttl: 0 }),
+      toastInfo: () => this.pushToast({ tone: 'info', title: 'Nichts zu verbinden', body: 'Der Ordner „Staging“ enthält keine Verbindungen.', ttl: 5000 }),
+      toastOk: () => this.pushToast({ tone: 'ok', title: 'Workspace „Produktion“ gespeichert', body: '4 Bereiche, 6 Tabs', ttl: 3000 }),
+
+      dropCluster: () => this.setState({ kube: 'reconnecting', k0: Date.now() }),
+      kubeDot: kube === 'reconnecting' ? '#facc15' : '#4ade80',
+      kubeHost: kube === 'ok' && s.k1 === 0 ? 'k8s-cp1' : kube === 'reconnecting' ? 'k8s-cp1' : 'k8s-cp2',
+      kubeLocked: kube === 'reconnecting', kubeBtnOpacity: kube === 'reconnecting' ? 0.45 : 1,
+      kubeLockTitle: kube === 'reconnecting' ? 'Gesperrt, bis der Cluster wieder erreichbar ist' : 'Neu starten',
+      kubeBarBorder: kube === 'reconnecting' ? '#6b5a12' : '#2e3a4c',
+      kubeBarBg: kube === 'reconnecting' ? '#2a2614' : kube === 'recovered' ? '#16261f' : '#151d2a',
+      kubeBarText: kube === 'reconnecting' ? (now - s.k0 < 2000 ? 'k8s-cp1 antwortet nicht. Verbinde über k8s-cp2 …' : 'Verbinde über k8s-cp2 … (Versuch 1 von 2)') : kube === 'recovered' ? 'Wieder verbunden über k8s-cp2' : 'Live',
+      kubeBarSub: kube === 'reconnecting' ? 'Stand vor ' + kubeAgo + ' s' : sinceLoad < 5 ? 'gerade geladen' : 'geladen vor ' + sinceLoad + ' s',
+
+      save: () => {
+        if (this.state.save === 'busy') return;
+        this.setState({ save: 'busy' });
+        clearTimeout(this.saveTimer);
+        this.saveTimer = setTimeout(() => { this.setState({ save: 'done' }); this.saveTimer = setTimeout(() => this.setState({ save: 'idle' }), 1200); }, 1400);
+      },
+      beforeLabel: s.save === 'busy' ? 'Speichert ...' : 'Verbindung speichern',
+      beforeOpacity: s.save === 'busy' ? 0.45 : 1,
+      afterLabel: s.save === 'busy' ? 'Speichert …' : s.save === 'done' ? 'Gespeichert' : 'Speichern',
+      saveDot: s.save !== 'idle', saveDotColor: s.save === 'done' ? '#14532d' : '#2a1406',
+    };
+  }
+}
+</script>
+</body>
+</html>
+
