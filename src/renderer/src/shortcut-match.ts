@@ -10,7 +10,7 @@ export type SettingsShortcutAction = 'open' | 'close' | 'ignore';
 
 /**
  * Ctrl+, toggles only between "nothing open" and "settings open".
- * openDialogClasses: className of every `dialog[open]` in the document.
+ * openDialogClasses: className of every open modal (`dialog[open]` and `[role="dialog"][aria-modal="true"]` overlays) in the document.
  */
 export function settingsShortcutAction(settingsOpen: boolean, busy: boolean, openDialogClasses: readonly string[]): SettingsShortcutAction {
   if (!settingsOpen) return openDialogClasses.length === 0 ? 'open' : 'ignore';

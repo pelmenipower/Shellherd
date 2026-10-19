@@ -204,7 +204,7 @@ export default function App() {
     if (target) requestAnimationFrame(() => { if (target.isConnected) target.focus(); });
   }
   useCtrlShortcut('Comma', () => {
-    const open = [...document.querySelectorAll('dialog[open]')].map(item => item.className);
+    const open = [...document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')].map(item => item.className);
     const action = settingsShortcutAction(appDialog?.kind === 'settings', busy, open);
     if (action === 'open') openSettings(true); else if (action === 'close') closeDialogs();
   });
