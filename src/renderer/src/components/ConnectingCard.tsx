@@ -3,6 +3,7 @@ import type { KeyboardEvent } from 'react';
 import type { SshStep } from '../../../shared/ssh';
 import { cardFooter, formatSeconds, stepViews } from '../connect-timeline';
 import type { StepMark } from '../connect-timeline';
+import { focusIfAllowed } from '../focus-guard';
 import './connection-ui.css';
 
 export interface ConnectingCardProps {
@@ -13,26 +14,31 @@ export interface ConnectingCardProps {
   startedAt: number;
   /** Pane focused and visible and not embedded: the cancel button takes focus, Esc cancels. */
   active: boolean;
+  /** The tab is visible: the elapsed-time tick runs only then. */
+  ticking?: boolean;
   onCancel: () => void;
 }
 
 /** Step timeline shown while connecting; it appears without a transition because it often follows Enter. */
-export function ConnectingCard({ name, address, steps, marks, startedAt, active, onCancel }: ConnectingCardProps) {
+export function ConnectingCard({ name, address, steps, marks, startedAt, active, ticking = true, onCancel }: ConnectingCardProps) {
   const [now, setNow] = useState(() => Date.now());
   const cancel = useRef<HTMLButtonElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    if (!ticking) return;
+    setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(timer);
-  }, []);
-  useEffect(() => { if (active) cancel.current?.focus(); }, [active]);
+  }, [ticking]);
+  useEffect(() => { if (active) focusIfAllowed(root.current, cancel.current); }, [active]);
   const views = stepViews(steps, marks, startedAt, now);
   const footer = cardFooter(views, startedAt, now);
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onCancel(); }
-    else if (event.key === 'Enter') event.stopPropagation();
+    else if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); }
   };
   return (
-    <div className="connect-overlay" onKeyDown={onKeyDown}>
+    <div ref={root} className="connect-overlay" onKeyDown={onKeyDown}>
       <div className="connect-card">
         <div className="connect-head">
           <strong className="connect-title">Verbinde mit {name} …</strong>

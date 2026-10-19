@@ -136,12 +136,12 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
           : blocked && status === 'connected' ? 'Remotedesktop ausgeblendet, solange ein Menü geöffnet ist.'
           : statusWord(status, 'long', { name: connection.name })}</p>}
       </div>
-      {visible && status === 'error' && (
+      {status === 'error' && (
         <ConnectionErrorCard connectionId={connection.id} code="unknown" name={connection.name} address={connection.address}
           remote message={message ?? undefined} active={cardActive} onRetry={reconnect} />
       )}
-      {visible && status === 'closed' && (
-        <DisconnectedBar reason="session" endedAt={endedAt} active={cardActive} onReconnect={reconnect} />
+      {status === 'closed' && (
+        <DisconnectedBar reason="session" endedAt={endedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />
       )}
     </section>
   );

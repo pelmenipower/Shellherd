@@ -5,6 +5,7 @@ import type { ConnectionAction, ConnectionErrorCode } from '../../../shared/conn
 import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
 import { canEditConnections, requestEdit } from '../edit-request';
 import { notify } from '../notice-store';
+import { focusIfAllowed } from '../focus-guard';
 import './connection-ui.css';
 
 export interface ConnectionErrorCardProps {
@@ -22,12 +23,13 @@ export interface ConnectionErrorCardProps {
 export function ConnectionErrorCard({ connectionId, code, address, remote, message, detail, active, onRetry }: ConnectionErrorCardProps) {
   const [open, setOpen] = useState(false);
   const primary = useRef<HTMLButtonElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const text = connectionError(code, { address, message, remote });
   const available = (action: ConnectionAction): boolean =>
     action === 'edit' ? canEditConnections() && connectionId !== LOCAL_CONTAINER_HOST
       : action === 'copy' ? Boolean(detail) : true;
   const actions = [text.primary, text.secondary].filter((action): action is ConnectionAction => action !== undefined && available(action));
-  useEffect(() => { if (active) primary.current?.focus(); }, [active]);
+  useEffect(() => { if (active) focusIfAllowed(root.current, primary.current); }, [active]);
   const run = (action: ConnectionAction): void => {
     if (action === 'retry') onRetry();
     else if (action === 'edit') requestEdit(connectionId);
@@ -40,7 +42,7 @@ export function ConnectionErrorCard({ connectionId, code, address, remote, messa
     if (event.key === 'Escape' || event.key === 'Enter') event.stopPropagation();
   };
   return (
-    <div className="connect-overlay" onKeyDown={onKeyDown}>
+    <div ref={root} className="connect-overlay" onKeyDown={onKeyDown}>
       <div className="connect-error" role="alert">
         <div className="connect-error-head">
           <span className="connect-error-dot" aria-hidden="true" />

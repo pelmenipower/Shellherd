@@ -136,6 +136,8 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       } else if (event.type === 'step') {
         setMarks(previous => [...previous, { step: event.step, at: Date.now() }]);
       } else if (event.type === 'status') {
+        // After cancelling, only the end of the session counts; a late 'connected' must not hide the bar.
+        if (cancelledRef.current && event.status !== 'closed' && event.status !== 'error') return;
         connected = event.status === 'connected';
         setStatus(event.status);
         onStatusChange(tabId, event.status);
@@ -266,16 +268,16 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     <section className={`terminal-panel${focused ? ' focused-pane' : ''}`} style={style} onPointerDown={onFocus} onFocusCapture={onFocus} id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
       <span className="terminal-live-status" role="status">{statusWord(status, 'long', { name: connection.name })}</span>
       <div ref={container} className="terminal-container" />
-      {visible && status === 'connecting' && showCard && (
+      {status === 'connecting' && showCard && (
         <ConnectingCard name={connection.name} address={connection.address} steps={steps} marks={marks} startedAt={startedAt}
-          active={cardActive} onCancel={cancel} />
+          active={cardActive} ticking={visible} onCancel={cancel} />
       )}
-      {visible && status === 'error' && (
+      {status === 'error' && (
         <ConnectionErrorCard connectionId={connection.id} code={failure?.code ?? 'unknown'} name={connection.name} address={connection.address}
           remote={remote} message={failure?.message} detail={failure?.detail} active={cardActive} onRetry={reconnect} />
       )}
-      {visible && status === 'closed' && (
-        <DisconnectedBar reason={closed?.reason ?? 'session'} endedAt={closed?.endedAt ?? startedAt} active={cardActive} onReconnect={reconnect} />
+      {status === 'closed' && (
+        <DisconnectedBar reason={closed?.reason ?? 'session'} endedAt={closed?.endedAt ?? startedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />
       )}
     </section>
   );

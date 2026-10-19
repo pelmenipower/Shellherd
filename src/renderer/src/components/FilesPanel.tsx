@@ -221,13 +221,14 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
       id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
       <span className="terminal-live-status" role="status">{statusWord(status, 'long', { protocol: 'SFTP' })}</span>
       {actionError && <p className="file-error file-action-error" role="alert">{actionError}<button type="button" aria-label="Meldung schließen" onClick={() => setActionError(null)}>×</button></p>}
-      <div className="files-commander">{pane('local')}{pane('remote')}</div>
-      {visible && status === 'error' && (
+      <div className="files-commander">{pane('local')}{pane('remote')}
+      {status === 'error' && (
         <ConnectionErrorCard connectionId={connection.id} code={failure.code ?? 'unknown'} name={connection.name} address={connection.address}
           remote={remote} message={message ?? undefined} detail={failure.detail} active={cardActive} onRetry={reconnect} />
       )}
-      {visible && status === 'closed' && (
-        <DisconnectedBar reason={failure.code === 'closed-by-server' ? 'server' : 'session'} endedAt={endedAt} active={cardActive} onReconnect={reconnect} />
+      </div>
+      {status === 'closed' && (
+        <DisconnectedBar reason={failure.code === 'closed-by-server' ? 'server' : 'session'} endedAt={endedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />
       )}
       {edits.length > 0 && sessionId && <EditList edits={edits}
         onOpen={editId => void window.desktopApi.sftpEditOpen({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}
