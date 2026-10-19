@@ -54,6 +54,6 @@ describe('assistant chat', () => {
     expect(afterOutput()).toBe('Briefly interpret the output. Only if my goal is still open: next command.');
     expect(questionMessage('Why?', '')).toContain('(empty)');
     expect(compactMessage('x'.repeat(5000)).endsWith('(truncated)')).toBe(true);
-    expect(isFinished('Done. All set.')).toBe(true);
+    expect(isFinished('Done. All set.')).toBe(false);
   });
 });

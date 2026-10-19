@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import {
   ensureVaultFileExtension,
   loadVault,
+  readEncryptedVaultFile,
   saveVault,
 } from './storage';
 import { exampleVault } from '../../shared/vault/example';
@@ -31,6 +32,14 @@ afterEach(async () => {
 });
 
 describe('vault storage', () => {
+  it('reports a structurally wrong vault file as damaged', async () => {
+    const directory = await createTemporaryDirectory();
+    const filePath = join(directory, 'wrong.term');
+    await writeFile(filePath, JSON.stringify({ unexpected: true }), 'utf8');
+
+    await expect(readEncryptedVaultFile(filePath)).rejects.toThrow(expect.objectContaining({ code: 'core.vaultFileCorrupt' }));
+  });
+
   it('adds the .term extension and keeps .terminus files of earlier versions', () => {
     expect(ensureVaultFileExtension('my-vault')).toBe(
       'my-vault.term',

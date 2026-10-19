@@ -122,8 +122,15 @@ describe('openAccess', () => {
     await expect(openAccess(cluster(['cp1', 'cp2']), deps)).rejects.toMatchObject({
       code: 'kubernetes.accessHostsUnreachable',
       params: { hosts: 'k8s-cp1, k8s-cp2' },
-      detail: 'k8s-cp1: ssh.timeout, k8s-cp2: ssh.timeout',
+      causes: [{ label: 'k8s-cp1', error: { code: 'ssh.timeout' } }, { label: 'k8s-cp2', error: { code: 'ssh.timeout' } }],
     });
+  });
+
+  it('rethrows the reason of a single failed host directly', async () => {
+    const deps = dependencies({ cp1: ssh('cp1') }, async () => { throw Object.assign(new Error('timeout'), { level: 'client-timeout' }); });
+    const error = await openAccess(cluster(['cp1']), deps).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: 'ssh.timeout' });
+    expect((error as { causes?: unknown }).causes).toBeUndefined();
   });
 
   it('skips deleted, disabled and non-SSH access hosts', async () => {

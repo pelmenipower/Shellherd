@@ -52,6 +52,29 @@ describe('errors', () => {
     expect(new AppError('core.unknown').toCoded()).toEqual({ code: 'core.unknown' });
   });
 
+  it('roundtrips causes and AppError keeps them', () => {
+    const causes = [{ label: 'h1', error: { code: 'ssh.timeout' as const, detail: 'x' } }, { label: 'h2', error: { code: 'core.unknown' as const, params: { n: 1 } } }];
+    const text = encodeError('kubernetes.accessHostsUnreachable', { hosts: 'h1, h2' }, undefined, causes);
+    expect(decodeError(text)).toEqual({ code: 'kubernetes.accessHostsUnreachable', params: { hosts: 'h1, h2' }, causes });
+    const error = new AppError('kubernetes.accessHostsUnreachable', undefined, undefined, causes);
+    expect(error.toCoded().causes).toEqual(causes);
+    expect(decodeError(error.message)?.causes).toEqual(causes);
+    expect(AppError.from(error.toCoded()).message).toBe(error.message);
+  });
+
+  it('drops invalid causes and nested causes on decode', () => {
+    const payload = { causes: [
+      { label: 'ok', error: { code: 'ssh.timeout', causes: [{ label: 'deep', error: { code: 'core.unknown' } }] } },
+      { label: 1, error: { code: 'ssh.timeout' } },
+      { label: 'nocode', error: {} },
+      { label: 'badcode', error: { code: 'nope' } },
+      'junk', null,
+    ] };
+    expect(decodeError(`§core.unknown ${JSON.stringify(payload)}`)).toEqual({ code: 'core.unknown', causes: [{ label: 'ok', error: { code: 'ssh.timeout' } }] });
+    expect(decodeError('§core.unknown {"causes":"x"}')).toEqual({ code: 'core.unknown' });
+    expect(decodeError('§core.unknown {"causes":[{"label":"a"}]}')).toEqual({ code: 'core.unknown' });
+  });
+
   it('isCodedError distinguishes coded objects', () => {
     expect(isCodedError({ code: 'core.unknown' })).toBe(true);
     expect(isCodedError(new Error('x'))).toBe(false);

@@ -8,7 +8,7 @@ import type { Connection, ServerChannel, PseudoTtyOptions } from 'ssh2';
 import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import type { SshEvent, TerminalSize } from '../../shared/ssh';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
-import type { KubeStream, TerminalIo } from '../kubernetes/api';
+import { KubeApiError, type KubeStream, type TerminalIo } from '../kubernetes/api';
 import { agentSocket, publicError, SshSessionManager, targetExitError } from './session';
 import { AppError } from '../../shared/errors';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
@@ -544,6 +544,26 @@ describe('Kubernetes pod terminals', () => {
   it('requires the cluster tab for a cluster without a pod target', () => {
     expect(() => kube.prepare(1, { connectionId: 'k1', cols: 80, rows: 24 })).toThrow(expect.objectContaining({ code: 'ssh.clusterInTab' }));
     expect(opened).toHaveLength(0);
+  });
+
+  it('passes the coded reason of a failed pod terminal and uses the generic code otherwise', async () => {
+    let failure: unknown = new KubeApiError('Unauthorized: english text', 401, { code: 'kubernetes.unauthorized' });
+    let last: SshEvent | undefined;
+    const failing = new SshSessionManager({ getConnection: id => structuredClone(vault[id]), verifyHost: async () => true, spawnShell: noShell,
+      emit: (_owner, event) => { if (event.type === 'status') last = event; }, openKubeTerminal: async () => { throw failure; } });
+    const attempt = async () => {
+      const id = failing.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: { ...target, mode: 'logs' } }).sessionId;
+      await failing.connect(1, id).catch(() => {});
+      return (last as { error?: unknown } | undefined)?.error;
+    };
+    const coded = await attempt();
+    expect(coded).toMatchObject({ code: 'kubernetes.unauthorized' });
+    expect((coded as { detail?: string }).detail).toBeUndefined();
+    failure = new Error('boom');
+    const generic = await attempt();
+    expect(generic).toMatchObject({ code: 'ssh.podTerminalFailed' });
+    expect((generic as { detail?: string }).detail).toBeUndefined();
+    failing.closeAll();
   });
 
   it('opens pod logs through the cluster and passes output with sequences', async () => {

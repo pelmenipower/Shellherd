@@ -187,7 +187,13 @@ export async function unlockVault(
 ): Promise<UnlockedVault> {
   assertPassword(password);
 
-  const file = EncryptedVaultFileSchema.parse(input);
+  const parsedFile = EncryptedVaultFileSchema.safeParse(input);
+
+  if (!parsedFile.success) {
+    throw new AppError('core.vaultFileCorrupt');
+  }
+
+  const file = parsedFile.data;
   const salt = Buffer.from(file.kdf.salt, 'base64');
 
   assertLength(salt, SALT_LENGTH, 'core.vaultFileCorrupt');

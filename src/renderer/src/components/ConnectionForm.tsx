@@ -210,7 +210,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
         {test && !test.running && <div className={`connection-test ${test.result?.ok ? 'is-ok' : 'is-failed'}`} role="status">
           <strong>{test.error ?? (test.result?.ok ? t('connection:form.run.succeeded') : t('connection:form.run.failed'))}</strong>
           {test.result && <ol>{test.result.steps.map(step => <li key={step.step} className={step.ok ? 'is-ok' : 'is-failed'}>
-            <span aria-hidden="true">{step.ok ? '✓' : '✕'}</span><span>{t(STEP_LABEL_KEYS[step.step], step.params)}{step.note && <small>{errorText(step.note)}</small>}{step.detail && <small>{step.detail}</small>}</span>
+            <span aria-hidden="true">{step.ok ? '✓' : '✕'}</span><span>{t(STEP_LABEL_KEYS[step.step], step.params)}{step.note && <small>{errorText(step.note)}</small>}{step.detail && <small>{step.step === 'login' && step.ok ? t('connection:test.asUser', { user: step.detail }) : step.detail}</small>}</span>
           </li>)}</ol>}
         </div>}
         <div className="form-actions editor-action-bar">

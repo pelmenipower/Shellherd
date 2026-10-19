@@ -186,7 +186,7 @@ describe('ResourceWatcher', () => {
     clock.advance(1);
     await settle();
     expect(api.listCalls).toBe(3);
-    expect(trouble).toEqual([{ code: 'kubernetes.liveUpdateFailed', detail: 'The Kubernetes API reported an error' }]);
+    expect(trouble).toEqual([{ code: 'kubernetes.liveUpdateFailed' }]);
 
     clock.advance(4999);
     await settle();
@@ -196,7 +196,7 @@ describe('ResourceWatcher', () => {
 
     expect(api.listCalls).toBe(4);
     expect(batches[batches.length - 1].upserts.map(row => row.uid)).toEqual(['u1']);
-    expect(trouble).toEqual([{ code: 'kubernetes.liveUpdateFailed', detail: 'The Kubernetes API reported an error' }, undefined]);
+    expect(trouble).toEqual([{ code: 'kubernetes.liveUpdateFailed' }, undefined]);
   });
 
   it('resumes a cleanly closed watch after 1 s from the last resourceVersion without listing', async () => {

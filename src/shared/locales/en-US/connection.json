@@ -1,5 +1,6 @@
 {
   "test": {
+    "asUser": "as {{user}}",
     "steps": {
       "clusterTest": "Connection test",
       "startFolder": "Start folder exists",

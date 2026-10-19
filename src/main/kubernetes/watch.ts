@@ -215,8 +215,8 @@ export class ResourceWatcher {
     const auth = api.code === 401 || api.code === 403;
     if (auth || this.failures >= TROUBLE_AFTER) {
       this.troubled = true;
-      // The API's English message is a safe technical detail; auth failures carry their own readable code.
-      const trouble: CodedError = auth ? api.coded : { code: 'kubernetes.liveUpdateFailed', detail: api.message };
+      // A specific mapped code is shown as is; the generic API error becomes the live-update message (no English detail).
+      const trouble: CodedError = auth || api.coded.code !== 'kubernetes.apiError' ? api.coded : { code: 'kubernetes.liveUpdateFailed' };
       const key = JSON.stringify(trouble);
       if (key !== this.troubleKey) {
         this.troubleKey = key;

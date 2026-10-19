@@ -25,6 +25,12 @@ describe('vault encryption', () => {
     expect(decrypted).toEqual(exampleVault);
   });
 
+  it('reports a structurally wrong file as damaged', async () => {
+    await expect(decryptVault({ unexpected: true }, 'passwort')).rejects.toThrow(
+      expect.objectContaining({ code: 'core.vaultFileCorrupt' }),
+    );
+  });
+
   it('rejects an incorrect password', async () => {
     const encrypted = await encryptVault(
       exampleVault,

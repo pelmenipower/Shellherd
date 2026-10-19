@@ -305,7 +305,7 @@ suite('KubeSessions', () => {
     await settle();
     const services = eventsOf(world, 'trouble', view).filter(event => event.query.kind === 'services');
     expect(services).toHaveLength(1);
-    expect(services[0].error).toEqual({ code: 'kubernetes.liveUpdateFailed', detail: 'The Kubernetes API reported an error' });
+    expect(services[0].error).toEqual({ code: 'kubernetes.liveUpdateFailed' });
     expect(JSON.stringify(services)).not.toContain('boom');
   });
 

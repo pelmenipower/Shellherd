@@ -107,7 +107,9 @@ export async function readEncryptedVaultFile(
     throw new AppError('core.vaultFileNotJson');
   }
 
-  return EncryptedVaultFileSchema.parse(parsed);
+  const file = EncryptedVaultFileSchema.safeParse(parsed);
+  if (!file.success) throw new AppError('core.vaultFileCorrupt');
+  return file.data;
 }
 
 export async function saveVault(

@@ -24,6 +24,16 @@ describe('errorText', () => {
     expect(errorText('§core.invalidRequest')).toBe('Die Anfrage ist ungültig.');
   });
 
+  it('lists translated causes instead of the detail', () => {
+    const error = new AppError('kubernetes.accessHostsUnreachable', { hosts: 'a, b' }, 'ignored', [
+      { label: 'a', error: { code: 'ssh.timeout' } }, { label: 'b', error: { code: 'core.vaultLocked' } }]);
+    const text = errorText(error);
+    expect(text).toContain('Keiner der Zugangs-Hosts erreichbar (a, b).');
+    expect(text).toContain(`a: ${i18n.t('errors:ssh.timeout')}, b: Es ist kein Vault entsperrt.`);
+    expect(text).not.toContain('ignored');
+    expect(errorText(new Error(error.message))).toBe(text);
+  });
+
   it('appends the detail', () => {
     expect(errorText(new AppError('core.invalidRequest', undefined, 'Port 0')))
       .toBe('Die Anfrage ist ungültig. Details: Port 0');

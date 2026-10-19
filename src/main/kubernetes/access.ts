@@ -107,7 +107,8 @@ export async function openAccess(cluster: KubernetesConnectionNode, dependencies
     }
   }
   if (!tried) throw new AppError('kubernetes.noAccessHost');
-  // The per-host reasons are codes; they are listed as a detail because params cannot carry a translated list.
-  throw new AppError('kubernetes.accessHostsUnreachable', { hosts: failures.map(failure => failure.name).join(', ') },
-    failures.map(failure => `${failure.name}: ${failure.error.code}`).join(', '));
+  // One host: its own reason says it all. Several: a translated reason per host.
+  if (failures.length === 1) throw AppError.from(failures[0].error);
+  throw new AppError('kubernetes.accessHostsUnreachable', { hosts: failures.map(failure => failure.name).join(', ') }, undefined,
+    failures.map(failure => ({ label: failure.name, error: failure.error })));
 }

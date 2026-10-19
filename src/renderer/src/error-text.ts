@@ -3,9 +3,13 @@ import { i18n, t } from './i18n';
 
 const IPC_PREFIX = /^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/;
 
-function codedText({ code, params, detail }: CodedError): string {
+function codedText({ code, params, detail, causes }: CodedError): string {
   const key = `errors:${code}`;
   const text = i18n.exists(key) ? t(key as 'errors:core.unknown', params) : t('errors:core.unknown');
+  // Translated reasons replace the plain detail.
+  if (causes && causes.length > 0) {
+    return t('common:errorWithDetail', { message: text, detail: causes.map(c => `${c.label}: ${errorText(c.error)}`).join(', ') });
+  }
   return detail ? t('common:errorWithDetail', { message: text, detail }) : text;
 }
 

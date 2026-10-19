@@ -26,7 +26,7 @@ export function parseAnswer(text: string): AnswerSegment[] {
 }
 
 /** The answer says the goal is reached. */
-export const isFinished = (answer: string): boolean => /^\s*(?:Fertig|Done)\b/i.test(answer);
+export const isFinished = (answer: string): boolean => /^\s*Fertig\b/i.test(answer);
 
 /**
  * The exact text typed into the terminal: one line, no control characters, so it can never be

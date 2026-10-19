@@ -10,6 +10,7 @@ import { LastVaultFile } from './last-vault';
 import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { mainT } from '../i18n';
+import { toVaultAppError } from './ipc-error';
 import { VaultSessionManager } from './session';
 import { saveVault } from './storage';
 
@@ -45,7 +46,14 @@ export interface VaultIpcOptions {
 
 export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultChange = () => {}, guard = () => {} }: VaultIpcOptions = {}): void {
   const handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: never[]) => unknown): void => {
-    ipcMain.handle(channel, (event, ...args) => { guard(event); return listener(event, ...(args as never[])); });
+    ipcMain.handle(channel, async (event, ...args) => {
+      try {
+        guard(event);
+        return await listener(event, ...(args as never[]));
+      } catch (error) {
+        throw toVaultAppError(error);
+      }
+    });
   };
   const lastVault = new LastVaultFile(join(app.getPath('userData'), 'last-vault.json'));
   handle(IPC_CHANNELS.lastVaultFile, () => lastVault.get());

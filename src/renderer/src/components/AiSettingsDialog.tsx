@@ -120,7 +120,7 @@ export function AiSettingsDialog({ settings, busy, onSave, onClose }: AiSettings
             const provider = validDraft();
             if (!provider) return;
             setTesting(true); setMessage(null);
-            void window.desktopApi.aiTest(provider).then(answer => setMessage({ ok: true, text: answer ? t('assistant:test.ok', { answer }) : t('assistant:test.emptyAnswer') }))
+            void window.desktopApi.aiTest(provider).then(answer => setMessage({ ok: true, text: t('assistant:test.ok', { answer: answer || t('assistant:test.emptyAnswer') }) }))
               .catch(error => setMessage({ ok: false, text: cleanError(error) })).finally(() => setTesting(false));
           }}>{testing ? t('assistant:settings.testing') : t('assistant:settings.testButton')}</button>
           <button type="submit" className="primary-button" disabled={busy || testing}>{t('assistant:settings.save')}</button>
