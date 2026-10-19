@@ -1,0 +1,243 @@
+# Terminus-Designsystem
+
+Alle Farben, Maße, Ebenen, Schatten und Bewegungswerte stehen in `src/renderer/src/tokens.css`. Jede andere Stylesheet-Datei nutzt nur `var(--…)`. Die Pipeline-Unterlagen sind `docs/superpowers/specs/2026-10-19-design-system-design.md`, die Validierung `…-validation.md` und der Plan unter `docs/superpowers/plans/`.
+
+## Roter Faden
+
+**Terminus ist ein dichtes, dunkles Ops-Werkzeug. Es bewegt sich fast nichts, was leuchtet, ist Cyan, und was gefärbt ist, ist ein Zustand.**
+
+1. **Drei Flächenstufen, eine Linie.** Bühne `#070b14` (Terminal, Code, Manifest), App-Grund `#090e17` (Hintergrund, View-Leiste), Panel `#111925` (Leisten, Seitenleiste, Dialoge, Menüs), erhöht `#182334` (Controls, Zeilen-Hover), Hover `#233045`. Eine Linienfarbe `#29374b`, eine stärkere `#496078` für Hover-Ränder und aktive Tabs.
+2. **Cyan ist das einzige Signal.** `#67e8f9` steht für Fokus, aktive Tabs, Links, Auswahl-Rand, Fortschritt und Primärbutton. Ausgewählt (dauerhaft, Zeilen) ist **ein** opakes Blau `#183245`. Aktiv oder gehovert in Menüs, Tabs und Chips ist **eine** Tönung `rgb(103 232 249 / 14%)`. Ein einzelnes Drop-Ziel bekommt 22 %, eine ganze Ablagefläche 6 %. Mehr Stufen gibt es nicht.
+3. **Ampel nur für Zustände.** Ein Grün `#4ade80`, ein Gelb `#fcd34d`, ein Rot `#fb7185` für Punkte und Icons. Gefahr-Text ist `#fda4af`, die Gefahr-Fläche `#341c25`, der Gefahr-Rand `#713442`. Nie dekorativ.
+4. **Zwei Textstufen.** Text `#e2eaf4`, gedämpft `#a7b7cb`, dazu Code-Text `#dce9f8`. Dunklere Grautöne gibt es nicht.
+5. **Vier Control-Höhen.** 24 in Tabellen und Chip-Leisten, 28 in Leisten und Menüs, 32 Standard, 36 für Formulareingaben und Suche. Leisten sind 32 hoch (Pane, Datei, Dock, View, Transfer), der App-Kopf 44, die Statusleiste 24.
+6. **Drei Radien.** 4 innen (Tabs, Zeilen, Menüeinträge, Icon-Knöpfe in Leisten), 5 Standard (Buttons, Eingaben, Chips, Popover, Menüs), 8 für Dialoge und Karten. Pillen nutzen `999px`.
+7. **Motion ist Ausnahme.** Druck (120 ms), Dialog (200 ms), Popover (160 ms), Hinweis (180 ms), Puls (1 s). Alles, was per Tastatur erreichbar ist, alle Listen, Tabs, Chips und die Terminalausgabe reagieren sofort. Hover-Farbwechsel haben keine Transition.
+
+## Tokens
+
+Geometrie bleibt in Stufe 1 literal im CSS. Die Abstands-, Typ-, Control- und Leistenwerte sind vorbereitet und werden in Stufe 2 eingesetzt.
+
+### Farben (`--color-*`)
+
+| Name | Rolle | Wert | Beispiel |
+|---|---|---|---|
+| `--color-bg-stage` | Terminal, Code, Manifest | `#070b14` | `.terminal-panel` |
+| `--color-bg-app` | Fensterhintergrund, View-Leiste | `#090e17` | `body` |
+| `--color-bg-panel` | Leisten, Seitenleiste, Dialoge, Menüs | `#111925` | `.confirm-dialog` |
+| `--color-bg-raised` | Controls, Zeilen-Hover | `#182334` | `button` |
+| `--color-bg-hover` | Button-, Tab-Hover, „an“-Chips | `#233045` | `button:hover` |
+| `--color-bg-input` | Eingabefelder | `#0b111c` | `input` |
+| `--color-bg-selected` | dauerhafte Auswahl, `aria-pressed` | `#183245` | `.root-row[aria-pressed='true']` |
+| `--color-bg-active` | aktiver View-Tab, Menüfokus, Badges | `rgb(103 232 249 / 14%)` | `[role='menuitem']:hover` |
+| `--color-bg-drop` | einzelnes Drop-Ziel | `rgb(103 232 249 / 22%)` | `.dock-preview` |
+| `--color-bg-tint` | weiche Hervorhebung, ganze Ablagefläche | `rgb(103 232 249 / 6%)` | Release-Box |
+| `--color-overlay` | neutraler Hover auf dichten Zeilen | `rgb(255 255 255 / 8%)` | Dateizeile |
+| `--color-backdrop` | Hintergrund hinter Dialogen | `rgb(2 6 15 / 72%)` | `.confirm-dialog::backdrop` |
+| `--color-border` | Standardlinie | `#29374b` | Leistenränder |
+| `--color-border-strong` | Hover-Rand, aktiver Tab | `#496078` | `button:hover` |
+| `--color-text` | Text | `#e2eaf4` | Fließtext |
+| `--color-text-muted` | gedämpfter Text | `#a7b7cb` | Beschriftungen |
+| `--color-text-code` | Code-Text | `#dce9f8` | Manifest |
+| `--color-accent` | Signalfarbe | `#67e8f9` | Fokusring |
+| `--color-accent-hover` | Akzent beim Hover | `#a5f3fc` | Links |
+| `--color-on-accent` | Text auf Akzentfläche | `#072733` | `.primary-button` |
+| `--color-selection-bg` | Textauswahl | `#164e63` | `::selection` |
+| `--color-selection-text` | Text der Auswahl | `#ecfeff` | `::selection` |
+| `--color-ok` | Zustand gut | `#4ade80` | Status-Punkt |
+| `--color-warn` | Zustand Warnung | `#fcd34d` | Status-Punkt |
+| `--color-warn-border` | Rand einer Warnung | `#6b5520` | Banner |
+| `--color-danger` | Gefahr (Text) | `#fda4af` | Fehlertext |
+| `--color-danger-strong` | Gefahr (Punkte, Icons) | `#fb7185` | Status-Punkt |
+| `--color-danger-text` | Text auf Gefahr-Fläche | `#fecdd3` | Gefahr-Button |
+| `--color-danger-bg` | Gefahr-Fläche | `#341c25` | Gefahr-Button |
+| `--color-danger-bg-hover` | Gefahr-Fläche beim Hover | `#512333` | Gefahr-Button |
+| `--color-danger-border` | Gefahr-Rand | `#713442` | Gefahr-Button |
+
+### Abstände (`--space-*`)
+
+| Name | Wert |
+|---|---|
+| `--space-2xs` | `2px` |
+| `--space-xs` | `4px` |
+| `--space-sm` | `6px` |
+| `--space-md` | `8px` |
+| `--space-lg` | `12px` |
+| `--space-xl` | `16px` |
+| `--space-2xl` | `20px` |
+| `--space-3xl` | `24px` |
+| `--space-4xl` | `32px` |
+
+### Radien (`--radius-*`)
+
+| Name | Rolle | Wert | Beispiel |
+|---|---|---|---|
+| `--radius-sm` | innen | `4px` | Tabs, Zeilen, Menüeinträge |
+| `--radius-md` | Standard | `5px` | Buttons, Eingaben, Chips, Popover |
+| `--radius-lg` | groß | `8px` | Dialoge, Karten |
+| `--radius-pill` | Pille | `999px` | Badges |
+
+### Schrift (`--font-*`, `--fs-*`)
+
+| Name | Wert |
+|---|---|
+| `--font-ui` | `'Inter Variable', system-ui, sans-serif` |
+| `--font-mono` | `ui-monospace, 'Cascadia Mono', Consolas, monospace` |
+| `--fs-xs` | `11px` |
+| `--fs-sm` | `12px` |
+| `--fs-md` | `13px` |
+| `--fs-lg` | `14px` |
+| `--fs-xl` | `18px` |
+| `--fs-2xl` | `22px` |
+
+### Controls und Leisten (`--control-*`, `--bar-*`)
+
+| Name | Wert |
+|---|---|
+| `--control-xs` | `24px` |
+| `--control-sm` | `28px` |
+| `--control-md` | `32px` |
+| `--control-lg` | `36px` |
+| `--bar-sm` | `24px` |
+| `--bar-md` | `32px` |
+| `--bar-lg` | `44px` |
+
+### Ebenen (`--layer-*`)
+
+Die Reihenfolge `header < popover < menu < modal < toast` ist verbindlich.
+
+| Name | Wert | Rolle |
+|---|---|---|
+| `--layer-sticky` | `1` | klebende Tabellenköpfe |
+| `--layer-handle` | `10` | Griffe |
+| `--layer-chrome` | `25` | schmale Seitenleiste und Ähnliches |
+| `--layer-drag` | `45` | Drag-Vorschau und Marker |
+| `--layer-header` | `60` | App-Kopf |
+| `--layer-popover` | `70` | Picker und Popover |
+| `--layer-menu` | `80` | Menüs |
+| `--layer-modal` | `90` | Dialoge und Hilfe |
+| `--layer-toast` | `100` | Hinweise |
+
+Beispiel: `z-index: var(--layer-modal)` oder `z-index: calc(var(--layer-chrome) + 5)`.
+
+### Schatten und Fokus (`--shadow-*`, `--focus-*`)
+
+| Name | Wert | Beispiel |
+|---|---|---|
+| `--shadow-overlay` | `0 10px 28px rgb(0 0 0 / 45%)` | Menüs, Popover |
+| `--focus-outline` | `2px solid var(--color-accent)` | `outline: var(--focus-outline)` |
+| `--focus-offset` | `2px` | `outline-offset: var(--focus-offset)` |
+| `--focus-inset` | `inset 0 0 0 1px var(--color-accent)` | Listenfokus, Cursorzeile |
+
+### Bewegung (`--ease-*`, `--dur-*`)
+
+| Name | Rolle | Wert | Beispiel |
+|---|---|---|---|
+| `--ease-out` | Standard fürs Einblenden | `cubic-bezier(0.23, 1, 0.32, 1)` | Dialog, Popover |
+| `--ease-in-out` | Bewegung im Bild | `cubic-bezier(0.77, 0, 0.175, 1)` | `tm-pulse` |
+| `--ease-drawer` | Schubladen | `cubic-bezier(0.32, 0.72, 0, 1)` | reserviert |
+| `--dur-press` | Druck-Feedback | `120ms` | `button:active` |
+| `--dur-fade` | kurzes Einblenden, Fortschritt | `150ms` | `progress` |
+| `--dur-popover` | Popover und Menüs | `160ms` | Picker, Layout-Menü |
+| `--dur-hint` | Hinweise | `180ms` | `.file-drop-hint` |
+| `--dur-modal` | Dialoge | `200ms` | `.confirm-dialog` |
+| `--dur-pulse` | Puls (einzige Dauer über 300 ms) | `1000ms` | `tm-pulse` |
+
+### Aliase
+
+Die alten Namen (`--ui-*`, `--surface*`, `--border`, `--text`, `--text-muted`, `--accent`, `--ui-radius`, `--ui-control-height`, `--ui-input-height`) bleiben in `tokens.css` definiert und entfallen in 1.0. In CSS außerhalb von `tokens.css` sind sie verboten (R12).
+
+## Zustände
+
+| Zustand | Regel in Stufe 1 |
+|---|---|
+| Hover Button (alle, auch Tabs, Chips und Picker-Option) | `--color-bg-hover` plus `--color-border-strong`, ohne Transition |
+| Hover Menüeintrag `[role=menuitem]` | `--color-bg-active` |
+| Hover Zeile | Baum und Kube-Tabelle `--color-bg-raised`, Dateizeile `--color-overlay` |
+| Aktiv/an | View-Tab `--color-bg-active`. Kube-Art, Chip und Dock-Tab `--color-bg-hover` + `--color-border-strong` + Akzenttext. Terminal-Tab `--color-bg-stage` + `--color-border-strong` + Akzent-Unterkante |
+| Ausgewählt (dauerhaft) | `--color-bg-selected`, Cursor `box-shadow: var(--focus-inset)` |
+| Gedrückt (`aria-pressed`) | Icon-Wahl: Rand `--color-accent` + `--color-bg-selected`. `.assistant-toggle` bekommt zusätzlich `background: var(--color-bg-selected)`. `.root-row` hat nur `--color-bg-selected`. Der Dock-Format-Umschalter behält `--color-accent` + `--color-on-accent` |
+| Drop-Ziel | einzelnes Ziel (Zeile, Tab, Pane-Vorschau, Ordner) `--color-bg-drop`, ganze Fläche (Dateiliste) `--color-bg-tint` + Akzent-Inset |
+| Disabled | `.45` global, Menüeintrag und deaktivierte Baumzeile `.5` |
+| Fokus | `outline: var(--focus-outline); outline-offset: var(--focus-offset)`, Listen `var(--focus-inset)`, Split-Griff und View-Drop `outline-offset: -2px` |
+| Druck | `scale(.97)` über 120 ms, siehe Motion-Gate |
+
+## Motion-Gate
+
+Werkzeug ist immer CSS (Transition, `@starting-style` oder Keyframes), nie eine Bibliothek. Electron 44 kennt `@starting-style` und `:not()` mit Selektorliste. Jede Regel mit `transform` steht hinter `@media (prefers-reduced-motion: no-preference)` und liefert bei `reduce` nur Opazität. Hover-Transformationen gibt es nicht.
+
+Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit und Tastaturbedienung: Was oft oder per Tastatur ausgelöst wird, bewegt sich nicht.
+
+| Kandidat | Häufigkeit | Entscheidung | Zweck | Eigenschaften, Kurve, Dauer, Origin | Reduced motion |
+|---|---|---|---|---|---|
+| Button `:active` (alle außer Ausnahmeliste) | zig/Tag | animieren, minimal | Feedback | `transform: scale(.97)`, `--ease-out`, `--dur-press` | kein Druck |
+| Flache Druckelemente (siehe Ausnahmeliste unten) | 100+/Tag, teils Tastatur | nicht | Breite Flächen skalieren sichtbar, Listen- und Tabnavigation | eine `:not()`-Liste in `styles.css` | – |
+| Bestätigungs-, KI-, Konflikt-, Release-Notes-Dialog (`.confirm-dialog`) | gelegentlich | animieren | harten Wechsel vermeiden | `opacity 0→1`, `scale(.97)→1`, `--ease-out`, `--dur-modal`, `::backdrop` nur `opacity`, Origin `center`, kein Exit | nur `opacity` |
+| Workflow-Palette (`.workflow-palette`) | Strg+Umschalt+Leertaste, 100+/Tag | nicht | Tastatur, Command-Palette | hat nicht die Klasse `.confirm-dialog` | – |
+| Hilfe-Overlay Kube/Container (`.kube-modal`) | Taste `?` | nicht | Tastatur | liegt auf `--layer-modal`, über dem App-Kopf | – |
+| Kontextmenü (`.context-menu`) | zig/Tag, Shift+F10 und Menütaste | nicht | Tastatur-erreichbar, hoher Takt | Schatten `--shadow-overlay` | – |
+| Verbindungs-Picker (`.connection-picker`) | gelegentlich, nur Klick | animieren, nur Enter | Herkunft zeigen | `@starting-style` mit `opacity` und `scale(.97)`, `--ease-out`, `--dur-popover`. Der Origin ist der Auslöser: Mitte des „+“-Knopfes auf der zugewandten Kante, nach unten `top`, nach oben `bottom`. Kein Exit, kein `overlay`, kein `display`-Übergang (K3, K4). Das native RDP-Fenster würde den Fade-out abschneiden | nur `opacity` |
+| Workspace-Menü (`.workspace-menu-content`) | gelegentlich, Klick | animieren | harten Wechsel vermeiden | Keyframes `workspace-menu-in` (`opacity`, `translateY(-4px)`), `--ease-out`, `--dur-popover`. Der Inhalt bleibt im `<details>` gemountet, deshalb startet ein Keyframe bei jedem `[open]` verlässlich, `@starting-style` nicht (B1). Kein Exit | Keyframe `workspace-menu-fade`, nur `opacity` |
+| Layout-Menü (`.pane-layout-menu`) | gelegentlich, Button | animieren | wie oben | `@starting-style` mit `opacity` und `scale(.97)`, `--ease-out`, `--dur-popover`, Origin `top right` | nur `opacity` |
+| Datei-Drop-Hinweis (`.file-drop-hint`) | selten | animieren | harten Wechsel vermeiden | `@starting-style` mit `opacity` und `translate(-50%, -8px)`, `--ease-out`, `--dur-hint` | nur `opacity` |
+| Fehlermeldung unten (`.app-error`) | gelegentlich | nicht | Element liegt im Fluss, ein Fade überbrückt nichts | Stufe 2: eigener Toast | – |
+| Statustext unten | häufig | nicht | Textwechsel, keine Bewegung | – | – |
+| Tabs: Wechsel, Hinzufügen, Schließen | 100+/Tag, Tastatur | nicht | Tastatur, Layout-Eigenschaften | – | – |
+| Tab-Drag: `.dock-preview`, `.tab-drop-marker`, `.is-dragging-tab` | Geste | nicht | folgt dem Zeiger | – | – |
+| Dock auf/zu (`.kube-dock`) | Strg+J | nicht | Tastatur, Höhe ist Layout, xterm fittet neu | – | – |
+| Seitenleiste auf/zu | mehrmals/Tag | nicht | Breite ist Layout, jedes Zwischenbild löst xterm-Resize aus | – | – |
+| Baum auf/zu, Zeilenaktionen bei Hover | zig/Tag, Tastatur | nicht | Listennavigation | – | – |
+| Zeilenauswahl, Cursor (Baum, Datei, Kube) | 100+/Tag | nicht | Tastatur | – | – |
+| Chips, Filter, Gruppieren | zig/Tag, Tasten `w`, `F` | nicht | Tastatur | – | – |
+| Hover-Farbwechsel (alle) | zig/Tag | nicht | sofortiger Wechsel passt zu einem Terminal-Werkzeug | keine `transition` auf `background` oder `color` | – |
+| „Beschäftigt“-Punkt, Tipp-Indikator | laufend | behalten, vereinheitlicht | Zustandsanzeige | `tm-pulse`, `--dur-pulse`, `--ease-in-out`, `infinite` | `animation: none` |
+| Fortschrittsbalken (`progress`) | laufend | behalten | konstante Bewegung | `width`, `linear`, `--dur-fade`, geduldete Layout-Eigenschaft | `transition: none` |
+| `.kube-stale` | selten | nicht (jetzt) | `filter` über eine große Tabelle ist zu teuer | Stufe 2: nur `opacity` | – |
+| `.ctr-busy` | gelegentlich | nicht | Zustand, kein Übergang nötig | – | – |
+| Tooltips | – | nicht | nur natives `title=` | – | – |
+| Welcome-Liste, Release-Box | bei jedem leeren Workspace | nicht | kein Delight-Budget | – | – |
+| Spinner, Skelette | – | nicht einführen | nichts vorhanden | – | – |
+| Terminalausgabe, xterm-Cursor | – | nie | Terminal | xterm-Theme unangetastet | – |
+
+### Ausnahmeliste für das Druck-Feedback
+
+Das Druck-Feedback steht als eine einzige Regel am Ende von `styles.css`. Sie nimmt diese flachen Elemente per `:not()` aus: `:disabled`, `[role='tab']` (Terminal-Tab, View-Tab, Kube-Art, Dock-Tab), `[role='menuitem']`, `.tree-toggle`, `.tree-node-button`, `.root-row`, `.welcome-list button`, `.kube-crumb`, `.kube-link`, `.kube-filter-chip`, `.kube-node`, `.kube-dock-format button`, `.link-button`, `.version-button`, `.connection-picker-option`, `.workspace-definition-actions button`, `.workspace-current-actions button`, `.pane-layout-menu button`, `.file-row-head button` und `.file-path nav button`. Es gibt keine Override-Regel und damit keinen Spezifitätswettlauf, denn `styles.css` steht im Bundle zuletzt. Neue flache Druckelemente kommen in diese Liste.
+
+## Regeln für neues CSS
+
+- Jede Fläche hat ihre Datei mit eigenem Präfix (`.kube-`, `.ctr-`, `.file-`, `.assistant-`, `.workflow-`, `.tree-`/`.vault-`, `.pane-`/`.view-`).
+- Es gilt nur `var(--…)` aus `tokens.css`. Keine Hex-, `rgb()`-, `hsl()`-Literale, kein `var(--x, #fallback)`, keine literalen `ms`, kein `cubic-bezier`, keine `z-index`-Zahlen und keine eigenen Custom Properties.
+- Die Aliase (`--ui-*`, `--surface*` und weitere) sind in neuem CSS verboten.
+- Neue Motion braucht einen Eintrag in der Gate-Tabelle und `prefers-reduced-motion` in derselben Datei. Bewegung mit `transform` steht hinter `@media (prefers-reduced-motion: no-preference)`, `:hover`-Bewegung hinter `@media (hover: hover)`.
+- Kein `transition: all`, keine Keyword-Easings außer `linear`.
+- Inline-`style` gibt es nur für berechnete Geometrie (Einrückung, Breite, Position), nie für Farbe.
+- Die Bühnenflächen `.terminal-panel`, `.terminal-container`, `.split-terminal-stage`, `.rdp-surface` und `.kube-dock-terminal` bekommen weder `transform` noch `transition`, `animation`, `filter` oder `will-change`.
+- Erlaubte Farbausnahmen außerhalb von CSS:
+  - `ConnectionIcon.tsx:17`: die vom Nutzer gewählte Verbindungsfarbe (Daten).
+  - `ConnectionForm.tsx:136`: der Startwert `#a7b7cb` für `input[type=color]`, der Hex braucht und `--color-text-muted` entspricht.
+  - `TerminalPanel.tsx:51`: das xterm-Theme. Es nutzt die Literale von `--color-bg-stage`, `--color-text-code`, `--color-accent` und `--color-selection-bg`. Wer eines ändert, ändert beide Stellen.
+- Benannte Farben (`red`, `white` und so weiter) prüft der Lint nicht, sie sind trotzdem verboten.
+
+## Prüfung
+
+Der Test `src/renderer/src/design-tokens.test.ts` liest alle CSS-Dateien unter `src/renderer/src` und meldet Verstöße als `<Datei> <Regel> <Selektor> { <Eigenschaft>: <Wert> }`.
+
+- **R0:** Der Test findet mindestens die elf bekannten Stylesheets.
+- **R1:** Außerhalb von `tokens.css` steht in keinem Wert ein Hex- oder Farbfunktionsliteral und kein `var(--x, Fallback)`.
+- **R2:** `transition` und `transition-property` enthalten kein `all`.
+- **R3:** Bewegungswerte nutzen keine Keyword-Easings, und außerhalb von `tokens.css` steht weder `cubic-bezier(` noch `steps(`.
+- **R4:** Außerhalb von `tokens.css` steht in Bewegungswerten keine literale Dauer, und in `tokens.css` ist jedes `--dur-*` höchstens 300 ms, außer `--dur-pulse`.
+- **R5:** Kein Wert enthält `scale(0)`.
+- **R6:** `z-index` ist nie eine bloße Zahl, sondern `var(--layer-*)`, `calc(var(--layer-*) + n)` oder `auto`.
+- **R7:** Eine Datei mit Bewegung enthält `prefers-reduced-motion`.
+- **R7b:** `transform`-Bewegung in `@starting-style`, bei `:active` oder in einem Transition-Wert liegt hinter `prefers-reduced-motion: no-preference`.
+- **R8:** `:hover`-Regeln mit Bewegung liegen in `@media (hover: hover)`.
+- **R9:** `tokens.css` deklariert die drei Kurven wörtlich, alle Aliase, alle `--color-*`-Namen und `@keyframes tm-pulse`, und die Ebenen sind nach `header < popover < menu < modal < toast` geordnet.
+- **R10:** `styles.css` beginnt mit `@import './tokens.css';`, und keine andere Datei enthält `@import`.
+- **R11:** Außerhalb von `tokens.css` deklariert keine Regel eine Custom Property.
+- **R12:** Außerhalb von `tokens.css` nutzt kein Wert einen Alias.
+- **R13:** Bühnenflächen deklarieren kein `transform`, `transition*`, `animation*`, `filter` und `will-change`.
+
+Der Selbsttest `flags every rule` lintet eine Fixture mit je einem Verstoß, eine Negativ-Fixture muss 0 Treffer liefern.
+
+**Feel-Check** vor dem Merge, im DevTools-Animations-Panel bei fünffacher Dauer: Der Dialog skaliert aus der Mitte, der Picker wächst aus dem „+“-Knopf, das Layout-Menü wächst von oben rechts, das Workspace-Menü gleitet bei jedem Öffnen 4 px herab und der Drop-Hinweis kommt von oben. `.icon-button` (32 px) und `.primary-button` geben sichtbar, aber nicht wackelig nach. Mit emuliertem `prefers-reduced-motion: reduce` blenden alle nur ein, Buttons drücken nicht, und der Puls steht.

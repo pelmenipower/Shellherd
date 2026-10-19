@@ -5,9 +5,6 @@ import { describe, expect, it } from 'vitest';
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const FILES = readdirSync(ROOT, { recursive: true }).map(String).map(file => file.split(/[\\/]/).join('/'))
   .filter(file => file.endsWith('.css')).sort();
-// Wave 1 only; T8 removes MIGRATED and ALL so that every file is checked.
-const MIGRATED = ['tokens.css', 'styles.css'];
-const ALL = process.env.DESIGN_LINT_ALL === '1';
 
 interface Block { selector: string; ancestors: string[]; declarations: Array<{ property: string; value: string }> }
 
@@ -172,7 +169,7 @@ describe('design tokens lint', () => {
   });
 
   for (const file of FILES) {
-    it.skipIf(!ALL && !MIGRATED.includes(file))(file, () => {
+    it(file, () => {
       expect(lint(file, readFileSync(`${ROOT}${file}`, 'utf8'))).toEqual([]);
     });
   }
