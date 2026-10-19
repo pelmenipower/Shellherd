@@ -85,7 +85,6 @@ label { font-size: var(--fs-sm); font-weight: 500; color: var(--color-text-muted
 .app-status { flex: 0 0 var(--bar-sm); min-width: 0; display: flex; align-items: center; gap: var(--space-16); padding: 0 var(--space-12); border-top: 1px solid var(--color-border); background: var(--color-bg-panel); color: var(--color-text-muted); font-size: var(--fs-sm); }
 .app-status > span { white-space: nowrap; }
 .app-status .status-path { flex: 1; overflow: hidden; text-overflow: ellipsis; text-align: right; }
-.app-error { display: flex; justify-content: space-between; align-items: center; flex: 0 0 auto; padding: var(--space-6) var(--space-12); gap: var(--space-12); color: var(--color-danger-text); background: var(--color-danger-bg); border-top: 1px solid var(--color-danger-border); }
 @media (max-width: 1100px) {
   .brand-word { display: none; }
   .header-vault { max-width: 22%; }
