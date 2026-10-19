@@ -367,7 +367,7 @@ describe('createKubeApi remove and createJobFrom', () => {
       await api.remove({ kind: 'jobs', namespace: 'shop', name: 'j' }, { propagationPolicy: 'Background' });
       expect(fakeClient.delete).toHaveBeenCalledWith(expect.objectContaining({ kind: 'Job' }), undefined, undefined, undefined, undefined, 'Background');
       await api.createJobFrom({ kind: 'cronjobs', namespace: 'shop', name: 'backup' }, 'backup-manual-1');
-      expect(fakeClient.create).toHaveBeenCalledWith(expect.objectContaining({ kind: 'Job' }), undefined, undefined, 'terminus');
+      expect(fakeClient.create).toHaveBeenCalledWith(expect.objectContaining({ kind: 'Job' }), undefined, undefined, 'shellherd');
     } finally {
       spy.mockRestore();
     }

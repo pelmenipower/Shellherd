@@ -56,6 +56,6 @@ export function parseVaultDocument(input: unknown): ParsedVault {
     return { vault, migratedFrom: 1 };
   }
   throw new Error(typeof version === 'number' && version > CURRENT_VAULT_VERSION
-    ? `Dieser Vault wurde mit einer neueren Terminus-Version gespeichert (Format ${version}). Bitte aktualisiere Terminus.`
+    ? `Dieser Vault wurde mit einer neueren Shellherd-Version gespeichert (Format ${version}). Bitte aktualisiere Shellherd.`
     : 'Das Vault-Format wird nicht unterstützt.');
 }

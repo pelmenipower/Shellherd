@@ -52,7 +52,7 @@ export class RemoteEdits {
     if (entry.type === 'directory') throw new FileError('Ordner können nicht bearbeitet werden.');
     if (entry.size > MAX_EDIT_SIZE) throw new FileError('Dateien über 50 MB werden nicht zum Bearbeiten geöffnet. Lade sie stattdessen herunter.');
     const name = posix.basename(remotePath);
-    const dir = await mkdtemp(join(tmpdir(), 'terminus-edit-'));
+    const dir = await mkdtemp(join(tmpdir(), 'shellherd-edit-'));
     const localPath = join(dir, name);
     try {
       await pipeline(this.fs.read(remotePath), createWriteStream(localPath));

@@ -34,7 +34,7 @@ describe('parseVaultDocument', () => {
   });
 
   it('rejects newer and unknown versions instead of guessing', () => {
-    expect(() => parseVaultDocument({ ...exampleVault, version: 3 })).toThrow(/neueren Terminus-Version/);
+    expect(() => parseVaultDocument({ ...exampleVault, version: 3 })).toThrow(/neueren Shellherd-Version/);
     expect(() => parseVaultDocument({ ...exampleVault, version: 'x' })).toThrow(/nicht unterstützt/);
     expect(() => parseVaultDocument(null)).toThrow(/nicht unterstützt/);
   });
