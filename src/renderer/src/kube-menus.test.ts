@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACTION_KINDS, KIND_COLUMNS, NOT_CONNECTED_MESSAGE, READ_ONLY_MESSAGE, refKey, type ClusterStatus, type KubeKind, type KubeProblem, type KubeRow, type NodeTile, type ProblemKind } from '../../shared/kubernetes';
+import { ACTION_KINDS, KIND_COLUMNS, NOT_CONNECTED_MESSAGE, READ_ONLY_MESSAGE, RECONNECTING_MESSAGE, refKey, type ClusterStatus, type KubeKind, type KubeProblem, type KubeRow, type NodeTile, type ProblemKind } from '../../shared/kubernetes';
 import { actionReason } from './kube-commands';
 import { menuFor, type MenuContext, type MenuEntry, type MenuTarget } from './kube-menus';
 import { initialKubeView, type KubeViewState } from './kube-view';
@@ -179,7 +179,7 @@ describe('A1 pods', () => {
     const entries = rowMenu(pod(), withStatus(RECONNECTING));
     for (const id of ['drill', 'node-pods', 'owner', 'filter-app=api', 'copy-name', 'copy-logs']) expect(find(entries, id).disabled).toBeUndefined();
     for (const id of ['logs', 'previous', 'shell', 'events', 'yaml', 'describe', 'popout-logs', 'popout-shell', 'delete']) {
-      expect(find(entries, id)).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
+      expect(find(entries, id)).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
     }
   });
   it('treats a missing status as read-only like the hotkeys and the help (M-1)', () => {
@@ -278,8 +278,13 @@ describe('A2 workloads', () => {
   });
   it('gates actions on read-only and connection', () => {
     expect(find(rowMenu(deployment(), withStatus(READ_ONLY)), 'restart')).toMatchObject({ disabled: true, hint: READ_ONLY_MESSAGE });
-    expect(find(rowMenu(deployment(), withStatus(RECONNECTING)), 'scale')).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
+    expect(find(rowMenu(deployment(), withStatus(RECONNECTING)), 'scale')).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
     expect(find(rowMenu(deployment(), withStatus(RECONNECTING)), 'drill').disabled).toBeUndefined();
+  });
+  it('words every connection lock as reconnecting while reconnecting, not only mutations (K24)', () => {
+    const entries = rowMenu(singlePod(), withStatus(RECONNECTING));
+    for (const id of ['logs', 'shell']) expect(find(entries, id)).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
+    expect(find(rowMenu(singlePod(), withStatus({ ...RECONNECTING, state: 'connecting' })), 'logs')).toMatchObject({ hint: NOT_CONNECTED_MESSAGE });
   });
   it('adds the namespace entry only in all-namespaces', () => {
     expect(has(rowMenu(deployment()), 'namespace')).toBe(false);
@@ -344,7 +349,7 @@ describe('A4 cronjobs', () => {
     expect(find(entries, 'suspend').hint).toBeUndefined();
   });
   it('disables mutations under read-only and when not connected', () => {
-    for (const [status, text] of [[READ_ONLY, READ_ONLY_MESSAGE], [RECONNECTING, NOT_CONNECTED_MESSAGE]] as const) {
+    for (const [status, text] of [[READ_ONLY, READ_ONLY_MESSAGE], [RECONNECTING, RECONNECTING_MESSAGE]] as const) {
       const entries = rowMenu(cron(), withStatus(status));
       for (const id of ['suspend', 'trigger']) expect(find(entries, id)).toMatchObject({ disabled: true, hint: text });
     }
@@ -455,7 +460,7 @@ describe('A8 events', () => {
   it('keeps the jump active when not connected but disables the dock entries', () => {
     const entries = rowMenu(podEvent(), withStatus(RECONNECTING));
     expect(find(entries, 'involved').disabled).toBeUndefined();
-    expect(find(entries, 'involved-events')).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
+    expect(find(entries, 'involved-events')).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
   });
   it('falls back to the object cell when `involved` is missing', () => {
     const entries = rowMenu(event(undefined));
@@ -500,7 +505,7 @@ describe('B container rows', () => {
   });
   it('disables terminal entries when not connected', () => {
     const entries = menu({ type: 'container', pod: pod(), name: 'api' }, withStatus(RECONNECTING));
-    expect(find(entries, 'logs')).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
+    expect(find(entries, 'logs')).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
     expect(find(entries, 'copy-name').disabled).toBeUndefined();
   });
 });
@@ -538,7 +543,7 @@ describe('C node tiles', () => {
     expect(has(menu({ type: 'node', tile: tile({ ip: undefined }) }), 'copy-ip')).toBe(false);
     expect(find(menu({ type: 'node', tile: tile() }, withStatus(READ_ONLY)), 'cordon')).toMatchObject({ disabled: true, hint: READ_ONLY_MESSAGE });
     const down = menu({ type: 'node', tile: tile() }, withStatus(RECONNECTING));
-    expect(find(down, 'describe')).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
+    expect(find(down, 'describe')).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
     expect(find(down, 'node').disabled).toBeUndefined();
     expect(find(down, 'node-pods').disabled).toBeUndefined();
   });
@@ -573,7 +578,7 @@ describe('D problems', () => {
   it('gates read-only and connection', () => {
     expect(find(entriesFor('image', withStatus(READ_ONLY)), 'delete')).toMatchObject({ disabled: true, hint: READ_ONLY_MESSAGE });
     const down = entriesFor('crashloop', withStatus(RECONNECTING));
-    expect(find(down, 'previous')).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
+    expect(find(down, 'previous')).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
     expect(find(down, 'show').disabled).toBeUndefined();
     expect(find(entriesFor('crashloop', withStatus(null)), 'delete').disabled).toBe(true);
   });
@@ -691,7 +696,7 @@ describe('J dock bar', () => {
   });
   it('disables view, reload and popout when not connected, or popout without support', () => {
     const down = menu(dockTarget(), withStatus(RECONNECTING));
-    for (const id of ['mode-logs', 'mode-events', 'previous', 'container-proxy', 'reload', 'popout']) expect(find(down, id)).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
+    for (const id of ['mode-logs', 'mode-events', 'previous', 'container-proxy', 'reload', 'popout']) expect(find(down, id)).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
     expect(find(down, 'toggle').disabled).toBeUndefined();
     expect(find(menu(dockTarget(), context({ canPopout: false })), 'popout')).toMatchObject({ disabled: true, hint: 'Hier lässt sich kein Tab öffnen.' });
   });
@@ -748,7 +753,7 @@ describe('invariants', () => {
       for (const entry of items(menuFor(target, ctx))) {
         if (entry.run.type !== 'kubeAction') continue;
         checked++;
-        const reason = actionReason(entry.run.action, { ref: entry.run.ref, readOnly: ctx.status?.readOnly ?? true, connected: ctx.status?.state === 'ready' });
+        const reason = actionReason(entry.run.action, { ref: entry.run.ref, readOnly: ctx.status?.readOnly ?? true, connected: ctx.status?.state === 'ready', reconnecting: ctx.status?.state === 'reconnecting' });
         if (reason) expect(entry).toMatchObject({ disabled: true, hint: reason });
         else expect(entry.disabled).toBeUndefined();
         if (!reason) expect(ACTION_KINDS[entry.run.action]).toContain(entry.run.ref.kind);
