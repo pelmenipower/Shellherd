@@ -3,7 +3,7 @@ import { PROTOCOLS } from '../../shared/vault/connections';
 import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode, VaultNode } from '../../shared/vault/types';
 
 export const NO_ACCESS_MESSAGE = 'Wähle mindestens eine SSH-Verbindung als Zugang.';
-export const KUBECONFIG_EMPTY_MESSAGE = 'Bitte gib den Pfad zur Kubeconfig an.';
+export const KUBECONFIG_EMPTY_MESSAGE = 'Gib den Pfad zur Kubeconfig an.';
 export const KUBECONFIG_PATH_MESSAGE = 'Der Pfad muss mit / oder ~/ beginnen.';
 
 /** Host split into prefix, the last number and the rest: "k8s-cp2.example.local" → "k8s-cp", 2, ".example.local". */
@@ -63,7 +63,7 @@ export function validateCluster(node: KubernetesConnectionNode, nodes: VaultNode
     if (access.protocol !== 'ssh') return `Die Zugangs-Verbindung „${access.name}“ ist keine SSH-Verbindung.`;
     if (access.disabled) return `Die Zugangs-Verbindung „${access.name}“ ist deaktiviert.`;
   }
-  if (!node.name.trim()) return 'Bitte gib einen Namen an.';
+  if (!node.name.trim()) return 'Gib einen Namen an.';
   if (node.kubeconfig.source === 'path') return kubeconfigPathError(node.kubeconfig.path);
   return null;
 }

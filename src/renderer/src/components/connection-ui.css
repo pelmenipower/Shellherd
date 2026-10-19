@@ -1,0 +1,45 @@
+/* Connection states of a terminal area: connecting card, error card, disconnected bar. Gate: docs/design-system.md. */
+.connect-overlay { position: absolute; inset: 0; z-index: var(--layer-sticky); display: grid; place-items: center; padding: var(--space-16); }
+.connect-card { width: min(380px, 100%); display: grid; gap: var(--space-12); }
+.connect-head { display: grid; gap: var(--space-2); }
+.connect-title { font-size: var(--fs-lg); font-weight: 600; }
+.connect-address { color: var(--color-text-muted); font-size: var(--fs-sm); font-family: var(--font-mono); overflow-wrap: anywhere; }
+.connect-steps { display: grid; gap: var(--space-8); margin: 0; padding: 0; list-style: none; }
+.connect-step { display: grid; grid-template-columns: var(--space-16) 1fr auto; gap: var(--space-10); align-items: center; color: var(--color-text-muted); font-size: var(--fs-md); }
+.connect-step[data-state='active'], .connect-step[data-state='done'] { color: var(--color-text); }
+.connect-ring { box-sizing: border-box; display: grid; place-items: center; width: var(--space-16); height: var(--space-16); border: 2px solid var(--color-border-strong); border-radius: 50%; }
+.connect-step[data-state='active'] .connect-ring, .connect-step[data-state='done'] .connect-ring { border-color: var(--color-text); }
+.connect-step[data-state='done'] .connect-ring::after { content: ''; width: var(--space-6); height: var(--space-6); border-radius: 50%; background: var(--color-text); }
+.connect-time { color: var(--color-text-muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.connect-foot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-8); padding-top: var(--space-10); border-top: 1px solid var(--color-border); }
+.connect-hint { color: var(--color-text-muted); font-size: var(--fs-sm); }
+.connect-hint[data-slow='true'] { color: var(--color-warn); }
+.connect-card kbd, .connect-closed kbd { color: var(--color-text-muted); font-family: inherit; font-size: var(--fs-xs); }
+.connect-card .primary-button kbd, .connect-closed .primary-button kbd { color: inherit; opacity: .7; }
+.connect-cancel { min-height: var(--control-sm); padding: 0 var(--space-10); font-size: var(--fs-sm); }
+.connect-error { width: min(420px, 100%); display: grid; gap: var(--space-12); padding: var(--space-16); border: 1px solid var(--color-danger-border); border-radius: var(--radius-lg); background: var(--color-bg-panel); box-shadow: var(--shadow-overlay); }
+.connect-error-head { display: flex; align-items: center; gap: var(--space-10); }
+.connect-error-dot { flex: 0 0 var(--size-dot); width: var(--size-dot); height: var(--size-dot); border-radius: 50%; background: var(--color-danger-strong); }
+.connect-error-title { font-size: var(--fs-lg); font-weight: 600; }
+.connect-error p { margin: 0; line-height: 1.5; text-wrap: pretty; }
+.connect-error-next { color: var(--color-text-muted); }
+.connect-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.connect-details-toggle { display: inline-flex; align-items: center; gap: var(--space-4); margin-left: auto; padding: 0 var(--space-4); border-color: transparent; background: transparent; color: var(--color-text-muted); }
+.connect-details-toggle:hover:not(:disabled) { background: transparent; border-color: transparent; color: var(--color-text); }
+.connect-details { margin: 0; padding: var(--space-8); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-stage); color: var(--color-text-code); font: var(--fs-sm) / 1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }
+.connect-closed { flex: 0 0 auto; margin-top: var(--space-4); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); padding: var(--space-8) var(--space-10); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-panel); transition: opacity var(--dur-toast) var(--ease-out); }
+.connect-closed-dot { flex: 0 0 var(--size-dot); width: var(--size-dot); height: var(--size-dot); border-radius: 50%; background: var(--color-text-muted); }
+.connect-closed-text { flex: 1; min-width: 180px; }
+.connect-closed-age { color: var(--color-text-muted); }
+.connect-reconnect { min-height: var(--control-sm); padding: 0 var(--space-10); font-size: var(--fs-sm); }
+@starting-style { .connect-closed:not([data-instant]) { opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .connect-closed:not([data-instant]) { transition: opacity var(--dur-toast) var(--ease-out), transform var(--dur-toast) var(--ease-out); }
+  @starting-style { .connect-closed:not([data-instant]) { transform: translateY(100%); } }
+  .connect-error { transition: opacity var(--dur-modal) var(--ease-out), transform var(--dur-modal) var(--ease-out); }
+  @starting-style { .connect-error { opacity: 0; transform: scale(.97); } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connect-error { transition: opacity var(--dur-modal) var(--ease-out); }
+  @starting-style { .connect-error { opacity: 0; } }
+}

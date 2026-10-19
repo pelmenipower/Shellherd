@@ -15,7 +15,20 @@
 
 </div>
 
-<!-- Add a screenshot here once available, e.g. docs/images/screenshot.png -->
+<p align="center">
+  <img src="docs/images/screenshot-terminals.png" alt="Shellherd with two SSH sessions side by side and the connection tree on the left" width="100%">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/screenshot-connection-error.png" alt="Connection error card with cause, next step and actions"></td>
+    <td width="50%"><img src="docs/images/screenshot-notice.png" alt="Success notice after saving a workspace"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Clear connection errors with the next step</sub></td>
+    <td align="center"><sub>Notices that tell you what happened</sub></td>
+  </tr>
+</table>
 
 Shellherd keeps all your servers, desktops and clusters in one window. Connections and their credentials live in a single encrypted vault file (`.term`) that you can carry around, back up or keep in sync – no account and no cloud service required.
 
@@ -72,6 +85,22 @@ npm run dev
 | `npm run typecheck` | TypeScript checks for main and renderer |
 | `npm test` | Run the test suite (Vitest) |
 | `npm run dist` | Build installer and portable exe into `dist/` |
+| `npm run drive` | Start the app under Playwright for automated clicking and screenshots |
+| `npm run drive:sshd` | Local SSH test server with synthetic credentials for `drive` |
+
+### Driving the app (screenshots, UI checks)
+
+[`.claude/skills/run-app/`](.claude/skills/run-app/SKILL.md) runs the built app under Playwright with an isolated profile, a synthetic demo vault and a local SSH test server. Native dialogs are stubbed, and real vaults and `%APPDATA%\Shellherd` are never touched. A small HTTP driver accepts clicks, typing and screenshots:
+
+```powershell
+npx electron-vite build
+npm run drive:sshd                              # second terminal
+npm run drive                                   # third terminal
+node .claude/skills/run-app/demo-setup.mjs      # demo vault with web-01, db-main, legacy-app
+curl "http://127.0.0.1:9333/ss?name=start&crop=status"
+```
+
+The skill file lists every driver command and the known pitfalls. Claude Code loads it as the `run-app` skill; the README screenshots were taken this way.
 
 Built with Electron, TypeScript, React, xterm.js, ssh2 and the Kubernetes JavaScript client. UI rules are documented in [`docs/design-system.md`](docs/design-system.md).
 

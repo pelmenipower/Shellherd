@@ -6,6 +6,7 @@ import { screen } from 'electron';
 import type { BrowserWindow, Rectangle } from 'electron';
 import type { RdpAction, RdpEvent, RdpOpenRequest, RdpStatus, RdpSurfaceMode, ViewportRect } from '../../shared/rdp';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
+import { sessionLimitText } from '../../shared/vault/connections';
 
 /** Set SHELLHERD_RDP_DEBUG=1 to log helper traffic; passwords are masked. */
 const debug = process.env.SHELLHERD_RDP_DEBUG === '1';
@@ -65,7 +66,7 @@ export class RdpSessionManager {
   constructor(private readonly dependencies: RdpDependencies) {}
 
   open(ownerId: number, window: BrowserWindow, request: RdpOpenRequest): { sessionId: string } {
-    if (this.sessions.size >= MAX_SSH_SESSIONS) throw new Error(`Maximal ${MAX_SSH_SESSIONS} Sessions gleichzeitig. Schließe zuerst einen Tab.`);
+    if (this.sessions.size >= MAX_SSH_SESSIONS) throw new Error(sessionLimitText());
     const target = this.dependencies.getTarget(request.connectionId);
     const session: Session = { id: randomUUID(), connectionId: request.connectionId, ownerId, window, bounds: request.bounds, revision: 0, failed: false, status: 'connecting' };
     this.track(window);

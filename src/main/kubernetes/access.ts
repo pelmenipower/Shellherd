@@ -79,13 +79,15 @@ export async function readKubeconfig(host: RemoteHost, connection: SshConnection
  * Connection failures move on to the next host; configuration errors stop at once, because the
  * next host has the same setting.
  */
-export async function openAccess(cluster: KubernetesConnectionNode, dependencies: AccessDependencies): Promise<ClusterAccess> {
+export async function openAccess(cluster: KubernetesConnectionNode, dependencies: AccessDependencies,
+  onTry?: (name: string) => void): Promise<ClusterAccess> {
   const failures: string[] = [];
   let tried = 0;
   for (const id of cluster.accessHosts) {
     const connection = dependencies.getConnection(id);
     if (!connection || connection.protocol !== 'ssh' || connection.disabled || !connection.host.trim()) continue;
     tried++;
+    onTry?.(connection.name);
     let host: RemoteHost;
     try {
       host = await dependencies.openRemote(connection);

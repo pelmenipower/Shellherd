@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { compareVersions, notesSince, parseChangelog } from './version';
+import { compareVersions, inlineCode, notesSince, parseChangelog } from './version';
 
 const changelog = readFileSync(new URL('../../CHANGELOG.md', import.meta.url), 'utf8');
 const packageVersion = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version;
@@ -24,5 +24,24 @@ describe('versioning', () => {
     expect(notesSince(releases, '0.3.0', '0.1.0').map(release => release.version)).toEqual(['0.3.0', '0.2.0']);
     expect(notesSince(releases, '0.3.0', '0.3.0')).toEqual([]);
     expect(notesSince(releases, '0.2.0', null).map(release => release.version)).toEqual(['0.2.0']);
+  });
+});
+
+describe('inlineCode', () => {
+  it('splits backtick spans into code parts', () => {
+    expect(inlineCode('`Esc` bricht ab, `Enter` verbindet')).toEqual([
+      { code: true, text: 'Esc' }, { code: false, text: ' bricht ab, ' }, { code: true, text: 'Enter' }, { code: false, text: ' verbindet' },
+    ]);
+  });
+
+  it('keeps text without backticks and an unpaired backtick as plain text', () => {
+    expect(inlineCode('Kein Code')).toEqual([{ code: false, text: 'Kein Code' }]);
+    expect(inlineCode('a ` b')).toEqual([{ code: false, text: 'a ` b' }]);
+  });
+
+  it('leaves no backtick in any item of the changelog', () => {
+    for (const release of parseChangelog(changelog))
+      for (const item of release.items)
+        for (const part of inlineCode(item)) expect(part.text).not.toContain('`');
   });
 });

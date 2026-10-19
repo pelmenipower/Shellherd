@@ -1,5 +1,6 @@
 ﻿import { useEffect, useId, useRef, useState } from 'react';
 import type { FolderNode } from '../../../shared/vault/types';
+import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import './editor-ui.css';
 
@@ -18,6 +19,7 @@ export function FolderEditor({ folder, busy, onSave, onDelete, onDirtyChange, on
   const [saved, setSaved] = useState({ name: folder.name, comment: folder.comment ?? '' });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedCount, setSavedCount] = useState(0);
   const nameRef = useRef<HTMLInputElement>(null);
   const errorId = useId();
   const dirty = name.trim() !== saved.name || comment.trim() !== saved.comment;
@@ -25,10 +27,11 @@ export function FolderEditor({ folder, busy, onSave, onDelete, onDirtyChange, on
 
   async function save(): Promise<void> {
     if (busy) return;
-    if (!name.trim()) { setError('Bitte gib einen Ordnernamen ein.'); nameRef.current?.focus(); return; }
+    if (!name.trim()) { setError('Gib einen Ordnernamen ein.'); nameRef.current?.focus(); return; }
     if (!dirty) return;
     if (await onSave(name, comment)) {
       setSaved({ name: name.trim(), comment: comment.trim() });
+      setSavedCount(count => count + 1);
       onDirtyChange?.(false);
     }
   }
@@ -50,9 +53,7 @@ export function FolderEditor({ folder, busy, onSave, onDelete, onDirtyChange, on
           <button className="secondary-button" type="button" disabled={busy || !dirty} onClick={() => {
             setName(saved.name); setComment(saved.comment); setError(null);
           }}>Verwerfen</button>
-          <button className="primary-button" type="submit" disabled={busy || !dirty}>
-            {busy ? 'Speichert ...' : 'Änderungen speichern'}
-          </button>
+          <BusyButton className="primary-button" type="submit" busy={busy} disabled={!dirty} idleLabel="Änderungen speichern" busyLabel="Speichert …" doneKey={savedCount} />
         </div>
       </form>
       <details className="editor-details editor-management">

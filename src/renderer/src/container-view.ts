@@ -1,5 +1,5 @@
 // Pure reducer of the container view: inventory, per-kind filters/chips/sort/grouping, selection and dock.
-import type { ContainerDockMode, ContainerInventory, ContainerRuntime, InventoryKind, InventoryRow } from '../../shared/containers';
+import type { ContainerDockMode, ContainerInventory, ContainerRuntime, InventoryAction, InventoryKind, InventoryRow } from '../../shared/containers';
 import { LOCAL_CONTAINER_HOST, RUNTIME_LABEL } from '../../shared/containers';
 import { columnsFor, compileColumnFilters, groupOptionsFor, groupRows, type ContainerColumn, type GroupId, type TableItem } from './container-columns';
 import { compileChips, knownChips } from './container-status';
@@ -25,8 +25,8 @@ export interface ContainerViewState {
   /** Restarts log streams (reloadDock). */
   epoch: number;
   loading: boolean; error: string | null;
-  /** uids with an action in flight. */
-  busy: string[];
+  /** uid -> action in flight. */
+  busy: Readonly<Record<string, InventoryAction>>;
   now: number;
 }
 
@@ -51,9 +51,13 @@ export type ContainerViewAction =
   | { type: 'toggleDock' }
   | { type: 'arm' }
   | { type: 'reloadDock' }
-  | { type: 'busy'; uid: string; busy: boolean }
+  /** Without action = done; a no-op returns the same state. */
+  | { type: 'busy'; uid: string; action?: InventoryAction }
   | { type: 'tick'; now: number }
   | { type: 'showContainersWith'; key: 'project' | 'image' | 'networks'; value: string };
+
+/** Status text of a row while an action runs. */
+export const BUSY_LABEL: Readonly<Record<InventoryAction, string>> = { start: 'startet', stop: 'stoppt', restart: 'startet neu', remove: 'wird entfernt' };
 
 const MAX_FILTER_LENGTH = 200;
 const MAX_CHIPS = 8;
@@ -66,7 +70,7 @@ export function initialContainerViewState(now: number, pinned: ContainerRuntime 
   return {
     inventory: null, requestedRuntime: pinned, pinned, kind: 'containers',
     views: { containers: emptyView(), images: emptyView(), volumes: emptyView(), networks: emptyView() },
-    selected: null, dock: 'logs', dockOpen: true, armed: null, epoch: 0, loading: true, error: null, busy: [], now,
+    selected: null, dock: 'logs', dockOpen: true, armed: null, epoch: 0, loading: true, error: null, busy: {}, now,
   };
 }
 
@@ -137,9 +141,10 @@ function reduce(state: ContainerViewState, action: ContainerViewAction): Contain
     }
     case 'reloadDock': return { ...state, epoch: state.epoch + 1 };
     case 'busy': {
-      const has = state.busy.includes(action.uid);
-      if (action.busy === has) return state;
-      return { ...state, busy: action.busy ? [...state.busy, action.uid] : state.busy.filter(uid => uid !== action.uid) };
+      if (state.busy[action.uid] === action.action) return state;
+      if (action.action) return { ...state, busy: { ...state.busy, [action.uid]: action.action } };
+      const { [action.uid]: _done, ...rest } = state.busy;
+      return { ...state, busy: rest };
     }
     case 'tick': return action.now === state.now ? state : keepSelection(state, { ...state, now: action.now }, 'rows');
     case 'showContainersWith': {

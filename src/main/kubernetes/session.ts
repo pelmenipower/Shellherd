@@ -34,7 +34,7 @@ const READY_WAIT_MS = 30_000;
 
 export interface KubeSessionDependencies {
   getCluster: (id: string) => KubernetesConnectionNode;
-  openAccess: (cluster: KubernetesConnectionNode) => Promise<ClusterAccess>;
+  openAccess: (cluster: KubernetesConnectionNode, onTry?: (name: string) => void) => Promise<ClusterAccess>;
   openTunnel: (access: ClusterAccess, target: { host: string; port: number }) => Promise<Tunnel>;
   createApi: (config: KubeConfig) => KubeApi;
   emit: (ownerId: number, event: KubeEvent) => void;
@@ -111,6 +111,8 @@ class Session {
   private terminals = 0;
   private podKey?: string;
   private attempt = 0;
+  /** Name of the SSH connection the running attempt goes through. */
+  private trying?: string;
   private disposed = false;
   private health?: Timer;
   private retry?: Timer;
@@ -222,6 +224,7 @@ class Session {
     } catch (error) {
       if (this.disposed) return;
       this.teardownLive();
+      this.trying = undefined;
       this.message = userMessage(error) ?? CONNECT_FAILED;
       this.setState('error', this.message);
       this.forget();
@@ -238,7 +241,11 @@ class Session {
   private async establish(): Promise<void> {
     const cluster = this.deps.getCluster(this.clusterId);
     this.cluster = cluster;
-    const access = await this.deps.openAccess(cluster);
+    const access = await this.deps.openAccess(cluster, name => {
+      if (this.disposed) return;
+      this.trying = name;
+      this.emitStatus();
+    });
     if (this.disposed) { access.host.close(); throw new Error(ENDED); }
     this.access = access;
     this.hostName = access.connection.name;
@@ -278,6 +285,7 @@ class Session {
 
   private setReady(): void {
     this.attempt = 0;
+    this.trying = undefined;
     this.message = undefined;
     this.setState('ready');
     this.scheduleHealth();
@@ -307,6 +315,7 @@ class Session {
   private reconnect(): void {
     this.teardownLive();
     this.attempt = 0;
+    this.trying = undefined;
     this.setState('reconnecting');
     this.scheduleRetry();
   }
@@ -328,6 +337,7 @@ class Session {
     } catch (error) {
       if (this.disposed) return;
       this.teardownLive();
+      this.trying = undefined;
       this.attempt++;
       this.setState('reconnecting', userMessage(error) ?? CONNECT_FAILED);
       this.scheduleRetry();
@@ -468,6 +478,9 @@ class Session {
       readOnly: cluster?.readOnly ?? true,
       ...(this.hostName ? { host: this.hostName } : {}),
       ...(this.message ? { message: this.message } : {}),
+      // The counter is 1-based for the user and only meaningful while reconnecting.
+      ...(this.state === 'reconnecting' ? { attempt: this.attempt + 1 } : {}),
+      ...(this.trying ? { trying: this.trying } : {}),
       metrics: this.metrics,
       // Vault setting first, then the kubeconfig context (known once the config was read).
       ...(cluster?.namespace || this.contextNamespace ? { namespace: cluster?.namespace || this.contextNamespace } : {}),

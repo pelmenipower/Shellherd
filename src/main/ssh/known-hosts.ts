@@ -14,7 +14,10 @@ export function hostFingerprint(key: Buffer): string {
   return `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`;
 }
 
-export class HostKeyError extends Error {}
+export class HostKeyError extends Error {
+  constructor(message: string, readonly kind: 'changed' | 'store' = 'store',
+    readonly fingerprints?: { expected: string; received: string }) { super(message); }
+}
 
 export class KnownHosts {
   private queue: Promise<void> = Promise.resolve();
@@ -47,14 +50,16 @@ export class KnownHosts {
     const previous = stored.hosts[address];
     if (previous) {
       if (previous !== fingerprint) throw new HostKeyError(
-        'Der Server-Schlüssel hat sich geändert. Verbindung abgebrochen. Bitte kläre die Änderung mit dem Server-Administrator.');
+        'Der Server-Schlüssel hat sich geändert. Verbindung abgebrochen. Kläre die Änderung mit dem Server-Administrator.',
+        'changed', { expected: previous, received: fingerprint });
       return true;
     }
     if (!await this.confirm({ host, port, fingerprint }) || !isActive()) return false;
     // Re-read after the dialog so a concurrent change cannot be overwritten.
     stored = await this.read();
     if (stored.hosts[address] && stored.hosts[address] !== fingerprint) {
-      throw new HostKeyError('Der gespeicherte Server-Schlüssel wurde zwischenzeitlich geändert.');
+      throw new HostKeyError('Der gespeicherte Server-Schlüssel wurde zwischenzeitlich geändert.',
+        'changed', { expected: stored.hosts[address], received: fingerprint });
     }
     const temporary = `${this.filePath}.${randomUUID()}.tmp`;
     try {

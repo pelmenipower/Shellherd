@@ -3,39 +3,41 @@
   color-scheme: dark;
 
   /* Surfaces */
-  --color-bg-stage: #070b14;                  /* terminal, code, manifest */
-  --color-bg-app: #090e17;                    /* window background, view bar */
-  --color-bg-panel: #111925;                  /* bars, sidebar, dialogs, menus */
-  --color-bg-raised: #182334;                 /* controls, row hover */
-  --color-bg-hover: #233045;                  /* button hover, tab hover, "on" chips */
-  --color-bg-input: #0b111c;
-  --color-bg-selected: #183245;               /* persistent selection, aria-pressed */
-  --color-bg-active: rgb(103 232 249 / 14%);  /* active view tab, menu item focus, badges */
-  --color-bg-drop: rgb(103 232 249 / 22%);    /* single drop target (row, tab, pane) */
-  --color-bg-tint: rgb(103 232 249 / 6%);     /* soft highlight (release box, whole drop area) */
+  --color-bg-stage: #0b1018;                  /* terminal, code, manifest */
+  --color-bg-app: #0e141e;                    /* window background, view bar */
+  --color-bg-panel: #151d2a;                  /* bars, sidebar, dialogs, menus */
+  --color-bg-raised: #1c2635;                 /* controls, row hover */
+  --color-bg-hover: #253043;                  /* button hover, tab hover, "on" chips */
+  --color-bg-input: #0f1520;
+  --color-bg-selected: #2e2620;               /* persistent selection, aria-pressed */
+  --color-bg-active: rgb(232 147 90 / 14%);  /* active view tab, menu item focus, badges */
+  --color-bg-drop: rgb(232 147 90 / 22%);    /* single drop target (row, tab, pane) */
+  --color-bg-tint: rgb(232 147 90 / 6%);     /* soft highlight (release box, whole drop area) */
   --color-overlay: rgb(255 255 255 / 8%);     /* neutral hover on dense rows, tags, hairlines */
-  --color-backdrop: rgb(2 6 15 / 72%);
+  --color-backdrop: rgb(5 8 13 / 72%);
 
   /* Lines */
-  --color-border: #29374b;
-  --color-border-strong: #496078;
+  --color-border: #2e3a4c;
+  --color-border-strong: #4d5b70;
 
   /* Text */
-  --color-text: #e2eaf4;
-  --color-text-muted: #a7b7cb;
-  --color-text-code: #dce9f8;
+  --color-text: #ebe7e2;
+  --color-text-muted: #aeb3bc;
+  --color-text-code: #e6e2dc;
 
   /* Accent */
-  --color-accent: #67e8f9;
-  --color-accent-hover: #a5f3fc;
-  --color-on-accent: #072733;
-  --color-selection-bg: #164e63;
-  --color-selection-text: #ecfeff;
+  --color-accent: #e8935a;
+  --color-accent-hover: #f0a673;
+  --color-on-accent: #2a1406;
+  --color-selection-bg: #3f2e22;
+  --color-selection-text: #fbf5ef;
 
   /* States */
   --color-ok: #4ade80;
-  --color-warn: #fcd34d;
-  --color-warn-border: #6b5520;
+  --color-warn: #facc15;
+  --color-warn-border: #6b5a12;
+  --color-warn-bg: #2a2614;         /* warn surface (cluster bar while reconnecting) */
+  --color-ok-bg: #16261f;           /* ok surface (cluster bar "reconnected") */
   --color-danger: #fda4af;          /* text */
   --color-danger-strong: #fb7185;   /* dots, icons */
   --color-danger-text: #fecdd3;     /* text on danger surface */
@@ -46,6 +48,9 @@
   /* Spacing, named by value. The lint allows literal px only for 0, 1px, negatives, >= 48px and inside calc()/min()/max()/clamp(). */
   --space-2: 2px; --space-4: 4px; --space-6: 6px; --space-8: 8px; --space-10: 10px;
   --space-12: 12px; --space-16: 16px; --space-20: 20px; --space-24: 24px; --space-32: 32px;
+
+  /* Status dot: the one dot size */
+  --size-dot: 8px;
 
   /* Radii */
   --radius-sm: 4px; --radius-md: 5px; --radius-lg: 8px; --radius-pill: 999px;
@@ -75,6 +80,10 @@
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --dur-press: 120ms; --dur-fade: 150ms; --dur-popover: 160ms; --dur-hint: 180ms; --dur-modal: 200ms; --dur-toast: 220ms;
   --dur-pulse: 1000ms;
+
+  /* Notice display time (no motion; R4 checks only --dur-*) */
+  --notice-ttl-info: 5000ms;        /* info notice */
+  --notice-ttl-ok: 3000ms;          /* success notice */
 }
 
 @keyframes tm-pulse { 50% { opacity: .35; } }

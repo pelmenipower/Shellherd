@@ -58,4 +58,7 @@ describe('file browser', () => {
     expect(modeText(0o100644)).toBe('644');
     expect(modeText(0o4755)).toBe('4755');
   });
+  it('asks for a missing name as an imperative', () => {
+    expect(nameError('remote', ' ')).toBe('Gib einen Namen ein.');
+  });
 });

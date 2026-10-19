@@ -41,7 +41,7 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, sudoReject
       if (node?.protocol !== 'kubernetes') throw new Error('Der Cluster wurde nicht gefunden.');
       return node;
     },
-    openAccess: cluster => openAccess(cluster, { getConnection, openRemote, sudoRejections }),
+    openAccess: (cluster, onTry) => openAccess(cluster, { getConnection, openRemote, sudoRejections }, onTry),
     openTunnel: (access, target) => openTunnel((host, port) => access.host.forward(host, port), target),
     createApi: createKubeApi,
     emit: (ownerId, event) => {
@@ -74,7 +74,7 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, sudoReject
   handle(IPC_CHANNELS.kubeProbe, async (event, request): Promise<KubeProbeResult> => {
     requireSshSender(event);
     const connection = getConnection(parseRequest(KubeProbeRequestSchema, request).connectionId);
-    if (connection?.protocol !== 'ssh') throw new Error('Bitte wähle eine SSH-Verbindung.');
+    if (connection?.protocol !== 'ssh') throw new Error('Wähle eine SSH-Verbindung.');
     if (connection.disabled) throw new Error('Diese Verbindung ist deaktiviert.');
     const host = await openRemote(connection);
     try {

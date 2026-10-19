@@ -40,7 +40,7 @@ export function registerRdpIpcHandlers(): RdpSessionManager {
     getTarget: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
       if (connection?.protocol !== 'rdp') throw new Error('Die RDP-Verbindung wurde nicht gefunden.');
-      if (!connection.host.trim()) throw new Error('Bitte speichere einen Host, bevor du die Verbindung startest.');
+      if (!connection.host.trim()) throw new Error('Speichere einen Host, bevor du die Verbindung startest.');
       return { host: connection.host, port: connection.port, username: connection.username, domain: connection.rdp.domain,
         password: connection.password || undefined, clipboard: connection.rdp.clipboard };
     },

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionCatalog } from '../../shared/windows';
 import { SplitTerminalArea } from './components/SplitTerminalArea';
 import { ConfirmDialog } from './components/ConfirmDialog';
-import { Toast } from './components/Toast';
+import { ToastStack } from './components/Toast';
+import { notify } from './notice-store';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
 import { useTerminalLayout } from './hooks/useTerminalLayout';
 import { useTabTransfer } from './hooks/useTabTransfer';
@@ -15,17 +16,16 @@ import { useAssistantToggle } from './hooks/useAssistantToggle';
 import { useCtrlShiftShortcut } from './hooks/useShortcut';
 import { WorkflowPalette } from './components/WorkflowPalette';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
-import { disabledNotice, skippedNotice } from '../../shared/vault/connections';
+import { disabledNotice, sessionLimitNotice, skippedNotice } from '../../shared/vault/connections';
 
 /** Detached window: tabs and split layout only; vault, sidebar and editor stay in the main window. */
 export function SecondaryWindow() {
   const [catalog, setCatalog] = useState<ConnectionCatalog | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const [pendingClose, setPendingClose] = useState<string | null>(null);
   const terminals = useTerminalTabs();
   const terminalLayout = useTerminalLayout(terminals.tabs, terminals.activeTabId);
-  const transfer = useTabTransfer(terminals, terminalLayout, setError);
+  const transfer = useTabTransfer(terminals, terminalLayout);
   const viewControls = useViewControls(terminalLayout, terminals.select, transfer.transferView);
 
   // Effects and listeners read the latest state through refs.
@@ -36,7 +36,7 @@ export function SecondaryWindow() {
     let active = true;
     const unsubscribe = window.desktopApi.onConnectionCatalog(setCatalog);
     window.desktopApi.connectionCatalog().then(value => { if (active) setCatalog(value); })
-      .catch(() => setError('Die Verbindungsliste ist nicht verfügbar. Ist der Vault gesperrt?'));
+      .catch(() => notify.error('Verbindungsliste nicht verfügbar', { body: 'Ist der Vault gesperrt?' }));
     return () => { active = false; unsubscribe(); };
   }, []);
 
@@ -69,17 +69,17 @@ export function SecondaryWindow() {
       }, () => crypto.randomUUID());
       replaceViews(restored.state);
       restore(restored.tabs, restored.activeTabId);
-      if (restored.skipped) setError(skippedNotice(restored.skipped));
+      if (restored.skipped) notify.info('Verbindungen übersprungen', { body: skippedNotice(restored.skipped) });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Das Fenster konnte nicht wiederhergestellt werden.');
+      notify.error('Fenster nicht wiederhergestellt', { body: caught instanceof Error ? caught.message : 'Das Fenster konnte nicht wiederhergestellt werden.' });
     }
   }), []);
 
   const connect = useCallback((id: string, paneId: string, asFiles = false) => {
     const node = catalog && findNode(catalog.nodes, id);
     if (!node || node.type !== 'connection') return;
-    if (node.disabled) { setError(disabledNotice(node)); return; }
-    if (state.current.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
+    if (node.disabled) { notify.info('Verbindung deaktiviert', { body: disabledNotice(node) }); return; }
+    if (state.current.tabs.length >= MAX_SSH_SESSIONS) { const { title, body } = sessionLimitNotice(); notify.info(title, { body }); return; }
     terminalLayout.setFocused(paneId);
     terminals.open(toTerminalConnection(node, asFiles));
   }, [catalog, terminalLayout, terminals]);
@@ -110,6 +110,6 @@ export function SecondaryWindow() {
       description="Diese Verbindung wird beendet. Laufende Programme in der Sitzung können dadurch beendet werden."
       confirmLabel="Verbindung trennen" busy={false} onCancel={() => setPendingClose(null)}
       onConfirm={() => { setPendingClose(null); terminals.close(closingTab.id); }} />}
-    <Toast message={error} onClose={() => setError(null)} />
+    <ToastStack />
   </main>;
 }

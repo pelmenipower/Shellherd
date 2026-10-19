@@ -2,11 +2,16 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import type { SshStatus } from '../../../shared/ssh';
+import type { ConnectionErrorCode } from '../../../shared/connection-errors';
+import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
 import type { ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob } from '../../../shared/sftp';
 import type { FileSide } from '../file-browser';
 import { formatDate, formatSize, ipcErrorText, isFinished, jobPercent, joinPath } from '../file-browser';
 import { liveSessions } from '../session-registry';
 import { useNativeSurfaceBlock } from '../native-surface';
+import { statusWord } from '../status-words';
+import { ConnectionErrorCard } from './ConnectionErrorCard';
+import { DisconnectedBar } from './DisconnectedBar';
 import { ConfirmDialog } from './ConfirmDialog';
 import { PermissionsDialog } from './PermissionsDialog';
 import { FilePane } from './FilePane';
@@ -40,6 +45,8 @@ function readSnapshot(adopt?: AdoptedSession): FilesSnapshot {
 export function FilesPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus }: FilesPanelProps) {
   const [status, setStatus] = useState<SftpStatus>(initialStatus ?? 'connecting');
   const [message, setMessage] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ code?: ConnectionErrorCode; detail?: string }>({});
+  const [endedAt, setEndedAt] = useState(() => Date.now());
   const [attempt, setAttempt] = useState(0);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [listings, setListings] = useState<Record<FileSide, FileListing>>({ local: emptyListing, remote: emptyListing });
@@ -91,9 +98,10 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   useEffect(() => {
     let disposed = false;
     let id: string | null = null;
-    const report = (next: SftpStatus, text?: string): void => {
+    const report = (next: SftpStatus, text?: string, code?: ConnectionErrorCode, detail?: string): void => {
       if (disposed) return;
-      setStatus(next); setMessage(text ?? null); onStatusChange(tabId, next);
+      if (next === 'closed' || next === 'error') setEndedAt(Date.now());
+      setStatus(next); setMessage(text ?? null); setFailure({ code, detail }); onStatusChange(tabId, next);
     };
     const connected = (): void => {
       report('connected');
@@ -105,7 +113,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     };
     const unsubscribe = window.desktopApi.onSftpEvent(event => {
       if (event.sessionId !== id || disposed) return;
-      if (event.type === 'status') { if (event.status === 'connected') connected(); else report(event.status, event.message); }
+      if (event.type === 'status') { if (event.status === 'connected') connected(); else report(event.status, event.message, event.code, event.detail); }
       else if (event.type === 'conflict') setConflict(event.conflict);
       else if (event.type === 'edit') {
         const { edit, closed } = event;
@@ -180,8 +188,10 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   };
   const remoteReady = status === 'connected' && !!sessionId;
   const remoteNotice = status === 'connected' ? undefined
-    : status === 'connecting' ? { text: 'Verbindung zum Server wird aufgebaut …' }
-    : { text: message ?? 'Die Verbindung wurde beendet.', action: { label: 'Neu verbinden', run: () => { setJobs([]); setConflict(null); setAttempt(value => value + 1); } } };
+    : { text: statusWord(status, 'long', { name: connection.name }) };
+  const reconnect = (): void => { setJobs([]); setConflict(null); adoptRef.current = undefined; setAttempt(value => value + 1); };
+  const cardActive = focused && visible;
+  const remote = connection.id !== LOCAL_CONTAINER_HOST;
   const active = jobs.filter(job => !isFinished(job));
 
   const pane = (side: FileSide) => <FilePane tabId={tabId} side={side} title={side === 'local' ? 'Dieser Computer' : `${connection.name} (${connection.address})`}
@@ -209,9 +219,17 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   return (
     <section className={`terminal-panel files-panel${focused ? ' focused-pane' : ''}`} style={style} onPointerDown={onFocus}
       id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
-      <span className="terminal-live-status" role="status">{status === 'connected' ? 'SFTP verbunden' : status === 'connecting' ? 'SFTP verbindet ...' : message ?? 'SFTP getrennt'}</span>
+      <span className="terminal-live-status" role="status">{statusWord(status, 'long', { protocol: 'SFTP' })}</span>
       {actionError && <p className="file-error file-action-error" role="alert">{actionError}<button type="button" aria-label="Meldung schließen" onClick={() => setActionError(null)}>×</button></p>}
-      <div className="files-commander">{pane('local')}{pane('remote')}</div>
+      <div className="files-commander">{pane('local')}{pane('remote')}
+      {status === 'error' && (
+        <ConnectionErrorCard connectionId={connection.id} code={failure.code ?? 'unknown'} name={connection.name} address={connection.address}
+          remote={remote} message={message ?? undefined} detail={failure.detail} active={cardActive} onRetry={reconnect} />
+      )}
+      </div>
+      {status === 'closed' && (
+        <DisconnectedBar reason={failure.code === 'closed-by-server' ? 'server' : 'session'} endedAt={endedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />
+      )}
       {edits.length > 0 && sessionId && <EditList edits={edits}
         onOpen={editId => void window.desktopApi.sftpEditOpen({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}
         onUpload={editId => void window.desktopApi.sftpEditUpload({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}

@@ -4,19 +4,19 @@ Alle Farben, Maße, Ebenen, Schatten und Bewegungswerte stehen in `src/renderer/
 
 ## Roter Faden
 
-**Shellherd ist ein dichtes, dunkles Ops-Werkzeug. Es bewegt sich fast nichts, was leuchtet, ist Cyan, und was gefärbt ist, ist ein Zustand.**
+**Shellherd ist ein dichtes, dunkles Ops-Werkzeug. Es bewegt sich fast nichts, was leuchtet, ist Kupfer, und was gefärbt ist, ist ein Zustand.**
 
-1. **Drei Flächenstufen, eine Linie.** Bühne `#070b14` (Terminal, Code, Manifest), App-Grund `#090e17` (Hintergrund, View-Leiste), Panel `#111925` (Leisten, Seitenleiste, Dialoge, Menüs), erhöht `#182334` (Controls, Zeilen-Hover), Hover `#233045`. Eine Linienfarbe `#29374b`, eine stärkere `#496078` für Hover-Ränder und aktive Tabs.
-2. **Cyan ist das einzige Signal.** `#67e8f9` steht für Fokus, aktive Tabs, Links, Auswahl-Rand, Fortschritt und Primärbutton. Ausgewählt (dauerhaft, Zeilen) ist **ein** opakes Blau `#183245`. Aktiv in View-Tabs, Menüfokus und Badges ist **eine** Tönung `rgb(103 232 249 / 14%)`. Hover auf Buttons, Tabs und Chips ist `--color-bg-hover`. Ein einzelnes Drop-Ziel bekommt 22 %, eine ganze Ablagefläche 6 %. Mehr Stufen gibt es nicht.
-3. **Ampel nur für Zustände.** Ein Grün `#4ade80`, ein Gelb `#fcd34d`, ein Rot `#fb7185` für Punkte und Icons. Gefahr-Text ist `#fda4af`, die Gefahr-Fläche `#341c25`, der Gefahr-Rand `#713442`. Nie dekorativ.
-4. **Zwei Textstufen.** Text `#e2eaf4`, gedämpft `#a7b7cb`, dazu Code-Text `#dce9f8`. Dunklere Grautöne gibt es nicht.
+1. **Drei Flächenstufen, eine Linie.** Bühne `#0b1018` (Terminal, Code, Manifest), App-Grund `#0e141e` (Hintergrund, View-Leiste), Panel `#151d2a` (Leisten, Seitenleiste, Dialoge, Menüs), erhöht `#1c2635` (Controls, Zeilen-Hover), Hover `#253043`. Eine Linienfarbe `#2e3a4c`, eine stärkere `#4d5b70` für Hover-Ränder und aktive Tabs.
+2. **Kupfer ist das einzige Signal.** `#e8935a` steht für Fokus, aktive Tabs, Links, Auswahl-Rand, Fortschritt und Primärbutton. Ausgewählt (dauerhaft, Zeilen) ist **ein** opakes dunkles Kupfer `#2e2620`. Aktiv in View-Tabs, Menüfokus und Badges ist **eine** Tönung `rgb(232 147 90 / 14%)`. Hover auf Buttons, Tabs und Chips ist `--color-bg-hover`. Ein einzelnes Drop-Ziel bekommt 22 %, eine ganze Ablagefläche 6 %. Mehr Stufen gibt es nicht.
+3. **Ampel nur für Zustände.** Ein Grün `#4ade80`, ein Gelb `#facc15`, ein Rot `#fb7185` für Punkte und Icons. Gefahr-Text ist `#fda4af`, die Gefahr-Fläche `#341c25`, der Gefahr-Rand `#713442`. Nie dekorativ. **Kupfer ist nie ein Zustand, Gelb ist nie ein Akzent**: Kupfer bedeutet „hier bist du oder hier kannst du handeln“, Gelb bedeutet „Achtung, Zustand“. Ein Zustand steht nie auf einer Kupferfläche (Kontrast); deshalb behält der Punkt im „Gespeichert“-Label `currentColor`, und der Text trägt den Zustand. Zustandsflächen: Warnung `--color-warn-bg` `#2a2614`, Erfolg `--color-ok-bg` `#16261f`.
+4. **Zwei Textstufen.** Text `#ebe7e2`, gedämpft `#aeb3bc`, dazu Code-Text `#e6e2dc`. Dunklere Grautöne gibt es nicht.
 5. **Vier Control-Höhen.** 24 in Tabellen und Chip-Leisten, 28 in Leisten und Menüs, 32 Standard, 36 für Formulareingaben und Suche, 32 für die Inline-Eingaben im Datei-Prompt und im Rechte-Dialog. Die Umbenennen-Eingabe der View-Tabs und die Pfad-Eingabe im Dateibrowser sind 24 hoch. Leisten sind 32 hoch (Pane, View, Datei, Dock, Transfer, Editor- und Assistent-Kopf), der App-Kopf 44, die Statusleiste 24.
 6. **Drei Radien.** 4 innen (Tabs, Zeilen, Menüeinträge, Icon-Knöpfe in Leisten), 5 Standard (Buttons, Eingaben, Popover, Menüs), 8 für Dialoge und Karten. Pillen nutzen `999px` (Chips, Badges). Ausnahme: Das Layout-Menü hat 4.
-7. **Motion ist Ausnahme.** Druck (120 ms), Dialog (200 ms), Popover (160 ms), Hinweis (180 ms), Fehlerhinweis (220 ms ein, 150 ms aus), Puls (1 s), Abblenden bei verlorener Verbindung (200 ms). Alles, was per Tastatur erreichbar ist, alle Listen, Tabs, Chips und die Terminalausgabe reagieren sofort. Hover-Farbwechsel haben keine Transition.
+7. **Motion ist Ausnahme.** Druck (120 ms), Dialog (200 ms), Popover (160 ms), Hinweis (180 ms), Fehlerhinweis (220 ms ein, 150 ms aus), Puls (1 s), Meldungen und Fehlerkarte (180–220 ms), Getrennt-Leiste (220 ms). Die Verbindungskarte erscheint erst nach 400 ms und ohne Übergang; Cluster-Leiste und Schritt-Punkte wechseln ohne Übergang. Alles, was per Tastatur erreichbar ist, alle Listen, Tabs, Chips und die Terminalausgabe reagieren sofort. Hover-Farbwechsel haben keine Transition.
 
 ## Marke
 
-Das Shellherd-Zeichen (`resources/mark-64.png`) ist das einzige Rasterbild der Oberfläche: 24 px im App-Kopf (`.brand-icon`), 36 px auf der Startkarte (`.brand-mark`). Keine CSS-Radien, Filter oder Schatten darauf; die runden Ecken stecken im Asset. Das Orange im Zeichen ist Bildinhalt, kein Signal; Signalfarbe bleibt Cyan. Erzeugung: `npm run icons` aus `resources/brand/shellherd-master.png` (48–256 px, Kopf- und Startzeichen) und den vereinfachten Kleinvarianten `resources/brand/shellherd-small-32.png` (24, 32 px) und `resources/brand/shellherd-small-16.png` (16 px).
+Das Shellherd-Zeichen (`resources/mark-64.png`) ist das einzige Rasterbild der Oberfläche: 24 px im App-Kopf (`.brand-icon`), 36 px auf der Startkarte (`.brand-mark`). Keine CSS-Radien, Filter oder Schatten darauf; die runden Ecken stecken im Asset. Der Akzent `#e8935a` ist aus dem Kupfer der Wangen im Zeichen abgeleitet (Berner Kupfer); Zeichen und Oberfläche sprechen dieselbe Farbe. Das Zeichen selbst bleibt Bildinhalt. Erzeugung: `npm run icons` aus `resources/brand/shellherd-master.png` (48–256 px, Kopf- und Startzeichen) und den vereinfachten Kleinvarianten `resources/brand/shellherd-small-32.png` (24, 32 px) und `resources/brand/shellherd-small-16.png` (16 px).
 
 ## Tokens
 
@@ -26,31 +26,33 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 
 | Name | Rolle | Wert | Beispiel |
 |---|---|---|---|
-| `--color-bg-stage` | Terminal, Code, Manifest | `#070b14` | `.terminal-panel` |
-| `--color-bg-app` | Fensterhintergrund, View-Leiste | `#090e17` | `body` |
-| `--color-bg-panel` | Leisten, Seitenleiste, Dialoge, Menüs | `#111925` | `.confirm-dialog` |
-| `--color-bg-raised` | Controls, Zeilen-Hover | `#182334` | `button` |
-| `--color-bg-hover` | Button-, Tab-Hover, „an“-Chips | `#233045` | `button:hover` |
-| `--color-bg-input` | Eingabefelder | `#0b111c` | `input` |
-| `--color-bg-selected` | dauerhafte Auswahl, `aria-pressed` | `#183245` | `.root-row[aria-pressed='true']` |
-| `--color-bg-active` | aktiver View-Tab, Menüfokus, Badges | `rgb(103 232 249 / 14%)` | `[role='menuitem']:hover` |
-| `--color-bg-drop` | einzelnes Drop-Ziel | `rgb(103 232 249 / 22%)` | `.dock-preview` |
-| `--color-bg-tint` | weiche Hervorhebung, ganze Ablagefläche | `rgb(103 232 249 / 6%)` | Release-Box |
+| `--color-bg-stage` | Terminal, Code, Manifest | `#0b1018` | `.terminal-panel` |
+| `--color-bg-app` | Fensterhintergrund, View-Leiste | `#0e141e` | `body` |
+| `--color-bg-panel` | Leisten, Seitenleiste, Dialoge, Menüs | `#151d2a` | `.confirm-dialog` |
+| `--color-bg-raised` | Controls, Zeilen-Hover | `#1c2635` | `button` |
+| `--color-bg-hover` | Button-, Tab-Hover, „an“-Chips | `#253043` | `button:hover` |
+| `--color-bg-input` | Eingabefelder | `#0f1520` | `input` |
+| `--color-bg-selected` | dauerhafte Auswahl, `aria-pressed` | `#2e2620` | `.root-row[aria-pressed='true']` |
+| `--color-bg-active` | aktiver View-Tab, Menüfokus, Badges | `rgb(232 147 90 / 14%)` | `[role='menuitem']:hover` |
+| `--color-bg-drop` | einzelnes Drop-Ziel | `rgb(232 147 90 / 22%)` | `.dock-preview` |
+| `--color-bg-tint` | weiche Hervorhebung, ganze Ablagefläche | `rgb(232 147 90 / 6%)` | Release-Box |
 | `--color-overlay` | neutraler Hover auf dichten Zeilen | `rgb(255 255 255 / 8%)` | Dateizeile |
-| `--color-backdrop` | Hintergrund hinter Dialogen | `rgb(2 6 15 / 72%)` | `.confirm-dialog::backdrop` |
-| `--color-border` | Standardlinie | `#29374b` | Leistenränder |
-| `--color-border-strong` | Hover-Rand, aktiver Tab | `#496078` | `button:hover` |
-| `--color-text` | Text | `#e2eaf4` | Fließtext |
-| `--color-text-muted` | gedämpfter Text | `#a7b7cb` | Beschriftungen |
-| `--color-text-code` | Code-Text | `#dce9f8` | Manifest |
-| `--color-accent` | Signalfarbe | `#67e8f9` | Fokusring |
-| `--color-accent-hover` | Akzent beim Hover | `#a5f3fc` | Links |
-| `--color-on-accent` | Text auf Akzentfläche | `#072733` | `.primary-button` |
-| `--color-selection-bg` | Textauswahl | `#164e63` | `::selection` |
-| `--color-selection-text` | Text der Auswahl | `#ecfeff` | `::selection` |
+| `--color-backdrop` | Hintergrund hinter Dialogen | `rgb(5 8 13 / 72%)` | `.confirm-dialog::backdrop` |
+| `--color-border` | Standardlinie | `#2e3a4c` | Leistenränder |
+| `--color-border-strong` | Hover-Rand, aktiver Tab | `#4d5b70` | `button:hover` |
+| `--color-text` | Text | `#ebe7e2` | Fließtext |
+| `--color-text-muted` | gedämpfter Text | `#aeb3bc` | Beschriftungen |
+| `--color-text-code` | Code-Text | `#e6e2dc` | Manifest |
+| `--color-accent` | Signalfarbe | `#e8935a` | Fokusring |
+| `--color-accent-hover` | Akzent beim Hover | `#f0a673` | Links |
+| `--color-on-accent` | Text auf Akzentfläche | `#2a1406` | `.primary-button` |
+| `--color-selection-bg` | Textauswahl | `#3f2e22` | `::selection` |
+| `--color-selection-text` | Text der Auswahl | `#fbf5ef` | `::selection` |
 | `--color-ok` | Zustand gut | `#4ade80` | Status-Punkt |
-| `--color-warn` | Zustand Warnung | `#fcd34d` | Status-Punkt |
-| `--color-warn-border` | Rand einer Warnung | `#6b5520` | Banner |
+| `--color-warn` | Zustand Warnung | `#facc15` | Status-Punkt |
+| `--color-warn-border` | Rand einer Warnung | `#6b5a12` | Banner |
+| `--color-warn-bg` | Warn-Fläche (Cluster-Leiste beim Neuverbinden) | `#2a2614` | `.kube-connbar-warn` |
+| `--color-ok-bg` | Erfolgs-Fläche (Cluster-Leiste „Wieder verbunden“) | `#16261f` | `.kube-connbar-ok` |
 | `--color-danger` | Gefahr (Text) | `#fda4af` | Fehlertext |
 | `--color-danger-strong` | Gefahr (Punkte, Icons) | `#fb7185` | Status-Punkt |
 | `--color-danger-text` | Text auf Gefahr-Fläche | `#fecdd3` | Gefahr-Button |
@@ -72,6 +74,16 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 | `--space-20` | `20px` |
 | `--space-24` | `24px` |
 | `--space-32` | `32px` |
+
+### Statuspunkt und Meldungsdauer (`--size-dot`, `--notice-ttl-*`)
+
+| Name | Rolle | Wert | Beispiel |
+|---|---|---|---|
+| `--size-dot` | das eine Statuspunkt-Maß | `8px` | `.toast-dot`, `.connect-error-dot`, `.kube-dot`, Terminal-Tab-Punkt |
+| `--notice-ttl-info` | Anzeigedauer einer Info-Meldung (Ablaufbalken) | `5000ms` | `.toast[data-tone='info'] .toast-bar` |
+| `--notice-ttl-ok` | Anzeigedauer einer Erfolgs-Meldung | `3000ms` | `.toast[data-tone='ok'] .toast-bar` |
+
+Die Meldungsdauern heißen bewusst nicht `--dur-*`, denn R4 begrenzt jedes `--dur-*` auf 300 ms; sie sind keine Bewegung, sondern Anzeigezeit. Fehler bleiben stehen, bis man sie schließt.
 
 ### Radien (`--radius-*`)
 
@@ -156,7 +168,7 @@ Beispiel: `z-index: var(--layer-modal)` oder `z-index: calc(var(--layer-chrome) 
 | `--dur-popover` | Popover und Menüs | `160ms` | Picker, Layout-Menü |
 | `--dur-hint` | Hinweise | `180ms` | `.file-drop-hint` |
 | `--dur-modal` | Dialoge | `200ms` | `.confirm-dialog` |
-| `--dur-toast` | Fehlerhinweis (Eintritt; Austritt mit `--dur-fade`) | `220ms` | `.toast` |
+| `--dur-toast` | Meldung (Eintritt; Austritt mit `--dur-fade`), Getrennt-Leiste | `220ms` | `.toast` |
 | `--dur-pulse` | Puls (einzige Dauer über 300 ms) | `1000ms` | `tm-pulse` |
 
 ### Aliase
@@ -197,7 +209,15 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 | Workspace-Menü (`.workspace-menu-content`) | gelegentlich, Klick | animieren | harten Wechsel vermeiden | Keyframes `workspace-menu-in` (`opacity`, `translateY(-4px)`), `--ease-out`, `--dur-popover`. Der Inhalt bleibt im `<details>` gemountet, deshalb startet ein Keyframe bei jedem `[open]` verlässlich, `@starting-style` nicht (B1). Kein Exit | Keyframe `workspace-menu-fade`, nur `opacity` |
 | Layout-Menü (`.pane-layout-menu`) | gelegentlich, Button | animieren | wie oben | `@starting-style` mit `opacity` und `scale(.97)`, `--ease-out`, `--dur-popover`, Origin `top right` | nur `opacity` |
 | Datei-Drop-Hinweis (`.file-drop-hint`) | selten | animieren | harten Wechsel vermeiden | `@starting-style` mit `opacity` und `translate(-50%, -8px)`, `--ease-out`, `--dur-hint` | nur `opacity` |
-| Fehlerhinweis (`.toast`) | gelegentlich, nur durch Ereignisse, nie per Taste | animieren | harten Wechsel vermeiden, Herkunft zeigen (von unten) | Transitions `opacity 0→1`, `translateY(100%)→0`, `--ease-out`; Eintritt per `@starting-style` mit `--dur-toast` (220 ms), Austritt auf demselben Weg über `.is-closing` mit `--dur-fade` (150 ms); Origin unten | nur `opacity` |
+| Meldung ein/aus (`.toast`, alle drei Stufen) | gelegentlich, Ereignisse, nie per Taste | animieren, Herkunft von unten | `opacity`, `translateY(100%)→0`, `--ease-out`, Eintritt per `@starting-style` mit `--dur-toast` (220 ms), Austritt über `.is-closing` mit `--dur-fade` (150 ms) | nur `opacity` |
+| Ablaufbalken (`.toast-bar`) | laufend bei Hinweis und Erfolg | behalten, Zustand | Keyframe `toast-bar` (`translateX(-100%)`, `linear`, Dauer `--notice-ttl-info` bzw. `--notice-ttl-ok`; `scaleX(0)` wäre R5), `.toast` schneidet per `overflow: hidden` ab. Hover und `document.hidden` pausieren über `.toast-stack.is-held` (`animation-play-state`) | Keyframe `toast-bar-width` (`width`, geduldet wie `progress`), gleiche Dauer |
+| Vierte Meldung | selten | animieren | die älteste geht über `.is-closing` | nur `opacity` |
+| Fehlerkarte (`.connect-error`) | gelegentlich, Ereignis | animieren, harter Wechsel | `opacity 0→1`, `scale(.97)→1`, `--ease-out`, `--dur-modal`, Origin Mitte | nur `opacity` |
+| Getrennt-Leiste (`.connect-closed`) | gelegentlich, Ereignis | animieren bei Server-Trennung, sofort nach Abbrechen/Esc (`data-instant`) | `opacity`, `translateY(100%)→0`, `--ease-out`, `--dur-toast` | nur `opacity` |
+| Verbindungskarte (`.connect-card`) | Enter | Warteanzeige, **nicht animiert**: erscheint nach 400 ms (`WAIT_MS`, im TSX) | – | – |
+| Schritt-Punkte (`.connect-ring`) | 4× je Verbindung | nicht | Farbe springt; ein Farbübergang wurde abgelehnt | – |
+| Cluster-Leiste (`.kube-connbar`) | Ereignis | nicht | Platz reserviert (`min-height: var(--control-sm)`), kein Farbübergang | – |
+| „Gespeichert“-Label (`.busy-button`) | gelegentlich | animieren, Zustand | `.busy-face.is-fresh`: `opacity .4→1`, `--dur-fade`, `--ease-out`, nur nach dem ersten Zustandswechsel; Punkt `tm-pulse` während busy | Einblenden bleibt, der Puls steht |
 | Statustext unten | häufig | nicht | Textwechsel, keine Bewegung | – | – |
 | Tabs: Wechsel, Hinzufügen, Schließen | 100+/Tag, Tastatur | nicht | Tastatur, Layout-Eigenschaften | – | – |
 | Tab-Drag: `.dock-preview`, `.tab-drop-marker`, `.is-dragging-tab` | Geste | nicht | folgt dem Zeiger | – | – |
@@ -209,16 +229,27 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 | Hover-Farbwechsel (alle) | zig/Tag | nicht | sofortiger Wechsel passt zu einem Terminal-Werkzeug | keine `transition` auf `background` oder `color` | – |
 | „Beschäftigt“-Punkt, Tipp-Indikator | laufend | behalten, vereinheitlicht | Zustandsanzeige | `tm-pulse`, `--dur-pulse`, `--ease-in-out`, `infinite` | `animation: none` |
 | Fortschrittsbalken (`progress`) | laufend | behalten | konstante Bewegung | `width`, `linear`, `--dur-fade`, geduldete Layout-Eigenschaft | `transition: none` |
-| `.kube-stale` | selten | animieren, nur `opacity` | Zustandswechsel weich zeigen; `filter` springt ohne Übergang | Übergang nur `opacity`, 200 ms (`--dur-modal`), Reduced Motion ohne | – |
-| `.ctr-busy` | gelegentlich | nicht | Zustand, kein Übergang nötig | – | – |
+| `.ctr-busy` | gelegentlich | nicht | Zustand, kein Übergang nötig; die Status-Zelle nennt den Zielzustand („stoppt“) statt Blässe | – | – |
 | Tooltips | – | nicht | nur natives `title=` | – | – |
 | Welcome-Liste, Release-Box | bei jedem leeren Workspace | nicht | kein Delight-Budget | – | – |
-| Spinner, Skelette | – | nicht einführen | nichts vorhanden | – | – |
+| Spinner, Skelette | – | nicht einführen | Warteanzeigen sind Text und Punkt nach 400 ms | – | – |
 | Terminalausgabe, xterm-Cursor | – | nie | Terminal | xterm-Theme unangetastet | – |
 
 ### Ausnahmeliste für das Druck-Feedback
 
 Das Druck-Feedback steht als eine einzige Regel am Ende von `styles.css`. Sie nimmt diese flachen Elemente per `:not()` aus: `:disabled`, `[role='tab']` (Terminal-Tab, View-Tab, Kube-Art, Dock-Tab), `[role='menuitem']`, `.tree-toggle`, `.tree-node-button`, `.root-row`, `.welcome-list button`, `.kube-crumb`, `.kube-link`, `.kube-filter-chip`, `.kube-node`, `.kube-dock-format button`, `.link-button`, `.version-button`, `.connection-picker-option`, `.workspace-definition-actions button`, `.workspace-current-actions button`, `.pane-layout-menu button`, `.file-row-head button` und `.file-path nav button`. Es gibt keine Override-Regel und damit keinen Spezifitätswettlauf, denn `styles.css` steht im Bundle zuletzt. Neue flache Druckelemente kommen in diese Liste.
+
+## Meldungen
+
+Drei Muster, je nach Ort der Ursache.
+
+| Muster | Wann | Bausteine |
+|---|---|---|
+| **Feld** | Eine Eingabe ist falsch | `.field-error` unter dem Feld, `aria-invalid` am Feld, Fokus zum Feld. Text im Du-Imperativ ohne „Bitte“ („Gib einen Namen ein.“) |
+| **Bereich** | Ein Bereich (Seitenleiste, Menü, Terminal) kann etwas nicht | `.area-error` mit Gefahr-Fläche, Satz und Knopf; im Terminal die Fehlerkarte `.connect-error` mit Ursache, nächstem Schritt, Primär- und Sekundärknopf und aufklappbaren Details. `.tree-error` bleibt nur als Zeilenhinweis in den Container-Kindern |
+| **Global** | Ein Hintergrundereignis ohne Ort | Meldung (`.toast`) unten rechts in drei Stufen: Fehler (bleibt, bis man sie schließt), Info (`--notice-ttl-info`), Erfolg (`--notice-ttl-ok`). Höchstens drei sichtbar, Titel plus Ursache, optional ein Knopf |
+
+Jede Meldung beantwortet Was, Warum und Was jetzt. Der Verbindungszustand liegt im Bereich: Verbindungskarte mit Schritten (`.connect-card`, nach 400 ms), Fehlerkarte (`.connect-error`) und Getrennt-Leiste (`.connect-closed`) mit „Neu verbinden“. Der Cluster zeigt das Neuverbinden in der Leiste `.kube-connbar` statt durch Ausgrauen.
 
 ## Regeln für neues CSS
 
@@ -230,9 +261,13 @@ Das Druck-Feedback steht als eine einzige Regel am Ende von `styles.css`. Sie ni
 - Kein `transition: all`, keine Keyword-Easings außer `linear`.
 - Inline-`style` gibt es nur für berechnete Geometrie (Einrückung, Breite, Position), nie für Farbe.
 - Die Bühnenflächen `.terminal-panel`, `.terminal-container`, `.split-terminal-stage`, `.rdp-surface` und `.kube-dock-terminal` bekommen weder `transform` noch `transition`, `animation`, `filter` oder `will-change`.
+- Warteanzeigen erscheinen erst nach 400 ms; was schneller fertig ist, flackert nicht.
+- Kupfer ist nie ein Zustand, Gelb ist nie ein Akzent.
+- Ein Statuspunkt-Maß: `--size-dot`. Punkte sind Kreise aus `currentColor` oder einer Zustandsfarbe, nie ein Textglyph „●“.
+- Chevrons sind SVG (`<path d="m5 9 7 7 7-7"/>`, 12 px, `aria-hidden`); die Richtung kippt die Klasse `.chevron.is-up` (`rotate(180deg)`) ohne Transition. Sortier- und Gruppen-Glyphen in Tabellen bleiben Text.
 - Erlaubte Farbausnahmen außerhalb von CSS:
   - `ConnectionIcon.tsx:17`: die vom Nutzer gewählte Verbindungsfarbe (Daten).
-  - `ConnectionForm.tsx:136`: der Startwert `#a7b7cb` für `input[type=color]`, der Hex braucht und `--color-text-muted` entspricht.
+  - `ConnectionForm.tsx:136`: der Startwert `#aeb3bc` für `input[type=color]`, der Hex braucht und `--color-text-muted` entspricht.
   - `terminal-theme.ts`: die xterm-Farben kommen aus den Tokens; die Fallbacks sind die Tokenwerte und werden vom Test geprüft.
 - Benannte Farben (`red`, `white` und so weiter) prüft der Lint nicht, sie sind trotzdem verboten.
 

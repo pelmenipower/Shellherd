@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { MAX_REPLICAS, type KubeActionRequest, type KubeAction, type KubeRef } from '../../../../shared/kubernetes';
 import { confirmationFor } from '../../confirm-action';
 import { useNativeSurfaceBlock } from '../../native-surface';
+import { BusyButton } from '../BusyButton';
 
 export interface PendingAction {
   ref: KubeRef;
@@ -83,9 +84,7 @@ export function ConfirmAction({ pending, cluster, run, onClose }: ConfirmActionP
       {error && <p className="error-message" role="alert">{error}</p>}
       <div className="form-actions">
         <button className="secondary-button kube-confirm-cancel" type="button" disabled={busy} onClick={onClose}>Abbrechen</button>
-        <button className="danger-button" type="button" disabled={!canConfirm} onClick={() => void confirm()}>
-          {busy ? 'Bitte warten ...' : confirmation.confirmLabel}
-        </button>
+        <BusyButton className="danger-button" type="button" busy={busy} disabled={!canConfirm} idleLabel={confirmation.confirmLabel} onClick={() => void confirm()} />
       </div>
     </dialog>
   );

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { hostFingerprint, KnownHosts } from './known-hosts';
+import { hostFingerprint, HostKeyError, KnownHosts } from './known-hosts';
 
 const directories: string[] = [];
 async function fixture() {
@@ -73,6 +73,32 @@ describe('SSH known hosts', () => {
     expect(Object.keys(JSON.parse(await readFile(filePath, 'utf8')).hosts)).toHaveLength(2);
     await expect(hosts.verify('first.test', 22, Buffer.from('changed'), () => true)).rejects.toThrow('geändert');
     expect(await hosts.verify('second.test', 22, Buffer.from('second'), () => true)).toBe(true);
+  });
+  it('reports a changed key with both fingerprints outside the message', async () => {
+    const hosts = new KnownHosts(await fixture(), async () => true);
+    await hosts.verify('server.test', 22, Buffer.from('old'), () => true);
+    const error = await hosts.verify('server.test', 22, Buffer.from('changed'), () => true).catch(reason => reason);
+    expect(error).toBeInstanceOf(HostKeyError);
+    expect(error.kind).toBe('changed');
+    expect(error.message).toBe('Der Server-Schlüssel hat sich geändert. Verbindung abgebrochen. Kläre die Änderung mit dem Server-Administrator.');
+    expect(error.fingerprints).toEqual({ expected: hostFingerprint(Buffer.from('old')), received: hostFingerprint(Buffer.from('changed')) });
+    expect(error.message).not.toContain('SHA256');
+  });
+  it('marks read failures as store errors', async () => {
+    const filePath = await fixture();
+    await writeFile(filePath, '{}');
+    const error = await new KnownHosts(filePath, async () => true).verify('server.test', 22, Buffer.from('key'), () => true).catch(reason => reason);
+    expect(error).toMatchObject({ kind: 'store' });
+    expect(error.fingerprints).toBeUndefined();
+  });
+  it('marks a key changed during the prompt as changed', async () => {
+    const filePath = await fixture();
+    const hosts = new KnownHosts(filePath, async () => {
+      await writeFile(filePath, JSON.stringify({ version: 1, hosts: { [JSON.stringify(['server.test', 22])]: hostFingerprint(Buffer.from('other')) } }));
+      return true;
+    });
+    const error = await hosts.verify('server.test', 22, Buffer.from('key'), () => true).catch(reason => reason);
+    expect(error).toMatchObject({ kind: 'changed', fingerprints: { expected: hostFingerprint(Buffer.from('other')), received: hostFingerprint(Buffer.from('key')) } });
   });
 
 });

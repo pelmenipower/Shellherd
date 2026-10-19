@@ -1,8 +1,23 @@
-/* Error toast: fixed above the status bar, never takes focus, closed by its button only. Gate: docs/design-system.md. */
-.toast { position: fixed; right: var(--space-12); bottom: calc(var(--bar-sm) + var(--space-12)); z-index: var(--layer-toast); display: flex; align-items: center; gap: var(--space-12); width: min(520px, calc(100vw - 2 * var(--space-12))); padding: var(--space-10) var(--space-12); border: 1px solid var(--color-danger-border); border-radius: var(--radius-lg); background: var(--color-danger-bg); color: var(--color-danger-text); box-shadow: var(--shadow-overlay); transition: opacity var(--dur-toast) var(--ease-out); }
-.secondary-shell .toast { bottom: var(--space-12); }
-.toast > span { flex: 1; min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
-.toast-close { flex: 0 0 auto; min-height: var(--control-sm); padding: 0 var(--space-10); font-size: var(--fs-sm); }
+/* Notice stack: fixed above the status bar, never takes focus. Errors stay until closed; info/ok run a CSS timer bar. Gate: docs/design-system.md. */
+.toast-stack { position: fixed; right: var(--space-12); bottom: calc(var(--bar-sm) + var(--space-12)); z-index: var(--layer-toast); display: flex; flex-direction: column; gap: var(--space-8); width: min(400px, calc(100vw - 2 * var(--space-12))); }
+.secondary-shell .toast-stack { bottom: var(--space-12); }
+.toast { position: relative; overflow: hidden; display: flex; align-items: flex-start; gap: var(--space-12); padding: var(--space-10) var(--space-12); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-panel); color: var(--color-text); box-shadow: var(--shadow-overlay); transition: opacity var(--dur-toast) var(--ease-out); }
+.toast[data-tone='error'] { border-color: var(--color-danger-border); background: var(--color-danger-bg); color: var(--color-danger-text); }
+.toast-dot { flex: 0 0 var(--size-dot); width: var(--size-dot); height: var(--size-dot); margin-top: var(--space-6); border-radius: 50%; background: var(--color-text); }
+.toast[data-tone='error'] .toast-dot { background: var(--color-danger-strong); }
+.toast[data-tone='ok'] .toast-dot { background: var(--color-ok); }
+.toast-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); line-height: 1.5; overflow-wrap: anywhere; }
+.toast-title { font-weight: 600; }
+.toast-body { color: var(--color-text-muted); }
+.toast[data-tone='error'] .toast-body { color: inherit; }
+.toast-action, .toast-close { flex: 0 0 auto; align-self: center; min-height: var(--control-sm); padding: 0 var(--space-10); font-size: var(--fs-sm); }
+.toast-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--color-text); opacity: .5; }
+.toast[data-tone='ok'] .toast-bar { background: var(--color-ok); }
+.toast[data-tone='info'] .toast-bar { animation-duration: var(--notice-ttl-info); }
+.toast[data-tone='ok'] .toast-bar { animation-duration: var(--notice-ttl-ok); }
+.toast-stack.is-held .toast-bar { animation-play-state: paused; }
+@keyframes toast-bar { to { transform: translateX(-100%); } }
+@keyframes toast-bar-width { from { width: 100%; } to { width: 0; } }
 @starting-style { .toast { opacity: 0; } }
 .toast.is-closing { opacity: 0; }
 .toast.is-closing { transition-duration: var(--dur-fade); }
@@ -10,4 +25,8 @@
   .toast { transition: opacity var(--dur-toast) var(--ease-out), transform var(--dur-toast) var(--ease-out); }
   @starting-style { .toast { transform: translateY(100%); } }
   .toast.is-closing { transform: translateY(100%); }
+  .toast-bar { animation-name: toast-bar; animation-timing-function: linear; animation-fill-mode: forwards; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-bar { animation-name: toast-bar-width; animation-timing-function: linear; animation-fill-mode: forwards; }
 }

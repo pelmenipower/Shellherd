@@ -46,7 +46,7 @@ export function AiSettingsDialog({ settings, busy, onSave, onClose }: AiSettings
       ...(draft.baseUrl?.trim() ? { baseUrl: draft.baseUrl.trim() } : { baseUrl: undefined }),
       ...(draft.apiVersion?.trim() ? { apiVersion: draft.apiVersion.trim() } : { apiVersion: undefined }) };
     const result = AiProviderSchema.safeParse(cleaned);
-    if (!result.success) { setMessage({ ok: false, text: 'Bitte prüfe Name, Modell und URL (mit https:// oder http://).' }); return null; }
+    if (!result.success) { setMessage({ ok: false, text: 'Prüfe Name, Modell und URL (mit https:// oder http://).' }); return null; }
     if (cleaned.kind === 'azure' && !cleaned.baseUrl) { setMessage({ ok: false, text: 'Für Azure brauchst du den Endpoint der Ressource.' }); return null; }
     return result.data;
   };

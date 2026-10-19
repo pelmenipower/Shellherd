@@ -1,4 +1,4 @@
-import { ACTION_KINDS, NOT_CONNECTED_MESSAGE, READ_ONLY_MESSAGE, refKey, type KubeAction, type KubeKind, type KubeRef, type KubeRow } from '../../shared/kubernetes';
+import { ACTION_KINDS, NOT_CONNECTED_MESSAGE, READ_ONLY_MESSAGE, RECONNECTING_MESSAGE, refKey, type KubeAction, type KubeKind, type KubeRef, type KubeRow } from '../../shared/kubernetes';
 import { attentionChip } from '../../shared/kube-status';
 import { visibleRows, type KubeViewState } from './kube-view';
 
@@ -37,6 +37,8 @@ export interface ActionContext {
   ref: KubeRef | null;
   readOnly: boolean;
   connected: boolean;
+  /** Not connected because the cluster is reconnecting: the reason says so. */
+  reconnecting?: boolean;
   /** Kind of the current table, used when ref is null. */
   kind?: KubeKind;
 }
@@ -44,7 +46,7 @@ export interface ActionContext {
 /** Undefined when the action may run on ref; otherwise the German reason. Order: readOnly, connected, kind (ref.kind, else context.kind), ref. */
 export function actionReason(action: KubeAction, context: ActionContext): string | undefined {
   if (context.readOnly) return READ_ONLY_MESSAGE;
-  if (!context.connected) return NOT_CONNECTED_MESSAGE;
+  if (!context.connected) return context.reconnecting ? RECONNECTING_MESSAGE : NOT_CONNECTED_MESSAGE;
   const kind = context.ref?.kind ?? context.kind;
   if (kind && !ACTION_KINDS[action].includes(kind)) return WRONG_KIND[action];
   if (!context.ref) return 'Wähle zuerst eine Zeile.';
@@ -52,12 +54,13 @@ export function actionReason(action: KubeAction, context: ActionContext): string
 }
 
 const actionUnavailable = (action: KubeAction) => (context: CommandContext): string | undefined => actionReason(action, {
-  ref: selectedRow(context.state)?.ref ?? null, readOnly: context.readOnly, connected: context.state.status?.state === 'ready',
+  ref: selectedRow(context.state)?.ref ?? null, readOnly: context.readOnly, connected: context.state.status?.state === 'ready', reconnecting: context.state.status?.state === 'reconnecting',
   kind: context.state.containersOf ? 'pods' : context.state.query.kind,
 });
 
 const shellUnavailable = (context: CommandContext): string | undefined => {
   if (context.readOnly) return READ_ONLY_MESSAGE;
+  if (context.state.status?.state === 'reconnecting') return RECONNECTING_MESSAGE;
   if (context.state.status?.state !== 'ready') return NOT_CONNECTED_MESSAGE;
   return onlyForPods(context) ?? (podNotRunning(selectedRow(context.state)) ? 'Der Pod läuft nicht.' : undefined);
 };

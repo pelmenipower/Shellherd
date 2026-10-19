@@ -23,7 +23,7 @@
 .assistant-command-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); font-size: var(--fs-xs); color: var(--color-text-muted); }
 .assistant-command-actions span { flex: 1 1 140px; }
 .assistant-command-actions button { min-height: var(--control-xs); height: var(--control-xs); padding: 0 var(--space-8); font-size: var(--fs-sm); }
-.assistant-typing { color: var(--color-accent); font-size: var(--fs-xl); line-height: 1; animation: tm-pulse var(--dur-pulse) var(--ease-in-out) infinite; }
+.assistant-typing { color: var(--color-text-muted); font-size: var(--fs-xl); line-height: 1; animation: tm-pulse var(--dur-pulse) var(--ease-in-out) infinite; }
 @media (prefers-reduced-motion: reduce) { .assistant-typing { animation: none; } }
 .assistant-error { margin: 0; color: var(--color-danger); font-size: var(--fs-sm); }
 .assistant-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin: 0; padding: var(--space-8) var(--space-10); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); color: var(--color-text-muted); font-size: var(--fs-sm); }

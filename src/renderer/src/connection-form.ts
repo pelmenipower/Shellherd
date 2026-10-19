@@ -89,7 +89,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
 }
 
 function remoteTarget(fields: ConnectionFields): { host: string; port: number; username?: string } {
-  if (!fields.host.trim()) throw new ConnectionFieldError('host', 'Bitte gib einen Host ein.');
+  if (!fields.host.trim()) throw new ConnectionFieldError('host', 'Gib einen Host oder eine IP-Adresse ein.');
   if (!/^\d+$/.test(fields.port.trim())) throw new ConnectionFieldError('port', 'Der Port muss eine ganze Zahl zwischen 1 und 65535 sein.');
   const port = Number(fields.port.trim());
   if (port < 1 || port > 65535) throw new ConnectionFieldError('port', 'Der Port muss zwischen 1 und 65535 liegen.');
@@ -97,7 +97,7 @@ function remoteTarget(fields: ConnectionFields): { host: string; port: number; u
 }
 
 export function connectionFromFields(id: string, fields: ConnectionFields, protocol: ConnectionProtocol = 'ssh'): ConnectionNode {
-  if (!fields.name.trim()) throw new ConnectionFieldError('name', 'Bitte gib einen Verbindungsnamen ein.');
+  if (!fields.name.trim()) throw new ConnectionFieldError('name', 'Gib einen Verbindungsnamen ein.');
   const base = {
     id, type: 'connection', name: fields.name.trim(),
     ...(fields.comment.trim() ? { comment: fields.comment.trim() } : {}),
@@ -109,7 +109,7 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
   let node: object;
   if (protocol === 'ssh' || protocol === 'sftp') {
     const target = remoteTarget(fields);
-    if (fields.method === 'privateKey' && !fields.keyPath.trim()) throw new ConnectionFieldError('keyPath', 'Bitte gib den Pfad zum privaten Schlüssel ein.');
+    if (fields.method === 'privateKey' && !fields.keyPath.trim()) throw new ConnectionFieldError('keyPath', 'Gib den Pfad zum privaten Schlüssel ein.');
     const authentication: Authentication = fields.method === 'agent' ? { method: 'agent' }
       : fields.method === 'password' ? { method: 'password', password: fields.password }
       : { method: 'privateKey', keyPath: fields.keyPath.trim(), ...(fields.passphrase ? { passphrase: fields.passphrase } : {}) };
@@ -124,7 +124,7 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
       rdp: { ...(domain ? { domain } : {}), clipboard: fields.clipboard === 'on' } };
   } else if (protocol === 'aicli') {
     const command = fields.command.trim();
-    if (fields.tool === 'custom' && !command) throw new ConnectionFieldError('command', 'Bitte gib den Befehl an, z. B. aider --model sonnet.');
+    if (fields.tool === 'custom' && !command) throw new ConnectionFieldError('command', 'Gib den Befehl an, z. B. aider --model sonnet.');
     if (/[\r\n]/.test(command)) throw new ConnectionFieldError('command', 'Der Befehl muss eine Zeile sein.');
     node = { ...base, protocol, tool: fields.tool, ...(fields.tool === 'custom' ? { command } : {}),
       ...(fields.workingDirectory.trim() ? { workingDirectory: fields.workingDirectory.trim() } : {}) };
@@ -137,7 +137,7 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
       if (problem) throw new ConnectionFieldError('kubeconfigPath', problem);
     }
     const namespace = fields.namespace.trim();
-    if (namespace && !KUBE_NAME.test(namespace)) throw new ConnectionFieldError('namespace', 'Bitte gib einen gültigen Namespace ein, z. B. default.');
+    if (namespace && !KUBE_NAME.test(namespace)) throw new ConnectionFieldError('namespace', 'Gib einen gültigen Namespace ein, z. B. default.');
     const context = fields.context.trim();
     node = { ...base, protocol, accessHosts: [...fields.accessHosts],
       kubeconfig: fields.kubeconfigSource === 'path' ? { source: 'path', path: kubeconfigPath } : { source: 'auto' },
@@ -146,10 +146,10 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
   } else {
     node = { ...base, protocol, ...(fields.workingDirectory.trim() ? { workingDirectory: fields.workingDirectory.trim() } : {}) };
   }
-  if (fields.color && !/^#[\da-f]{6}$/i.test(fields.color)) throw new ConnectionFieldError('color', 'Bitte gib die Farbe als #RRGGBB an.');
-  if (!CONNECTION_ICONS.some(icon => icon === fields.icon)) throw new ConnectionFieldError('icon', 'Bitte wähle ein verfügbares Symbol.');
+  if (fields.color && !/^#[\da-f]{6}$/i.test(fields.color)) throw new ConnectionFieldError('color', 'Gib die Farbe als #RRGGBB an.');
+  if (!CONNECTION_ICONS.some(icon => icon === fields.icon)) throw new ConnectionFieldError('icon', 'Wähle ein verfügbares Symbol.');
   const result = ConnectionNodeSchema.safeParse(node);
-  if (!result.success) throw new Error('Bitte prüfe die Verbindungsdaten.');
+  if (!result.success) throw new Error('Prüfe die Verbindungsdaten.');
   return result.data;
 }
 

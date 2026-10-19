@@ -131,6 +131,19 @@ describe('openAccess', () => {
     expect(access.connection.id).toBe('cp2');
   });
 
+  it('reports each tried host in order through onTry and skips the ones it does not try', async () => {
+    const cp3 = fakeHost({ [AUTO_SCRIPT]: ok(`src:/x\n${CONFIG_YAML}`) });
+    const deps = dependencies({ gone: undefined, cp1: ssh('cp1'), off: ssh('off', { disabled: true }), cp3: ssh('cp3') },
+      async connection => { if (connection.id === 'cp1') throw new Error('Timed out'); return cp3; });
+    const tried: string[] = [];
+    await openAccess(cluster(['gone', 'cp1', 'off', 'cp3']), deps, name => {
+      // Called right before openRemote.
+      expect(deps.openRemote).toHaveBeenCalledTimes(tried.length);
+      tried.push(name);
+    });
+    expect(tried).toEqual(['k8s-cp1', 'k8s-cp3']);
+  });
+
   it('stops at a configuration error instead of trying the next host', async () => {
     const cp1 = fakeHost({ [AUTO_SCRIPT]: ok('src:sudo\n'), 'sudo -n cat': { code: 1, stdout: '', stderr: 'sudo: a password is required' } });
     const cp2 = fakeHost({ [AUTO_SCRIPT]: ok(`src:/x\n${CONFIG_YAML}`) });
