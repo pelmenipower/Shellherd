@@ -1,17 +1,17 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { notesSince } from '../../../shared/version';
 import type { ReleaseNotes as Notes } from '../../../shared/version';
-import { markVersionSeen, releases, seenVersion } from '../release-notes';
+import { markVersionSeen, releasesFor, seenVersion } from '../release-notes';
 import { useNativeSurfaceBlock } from '../native-surface';
-import { useT } from '../i18n';
+import { currentLocale, useT } from '../i18n';
+import { formatDateTime } from '../../../shared/format';
 
-const dateFormat = new Intl.DateTimeFormat('de-DE', { dateStyle: 'long' });
-const formatDate = (date: string): string => dateFormat.format(new Date(`${date}T12:00:00`));
+const formatDate = (date: string): string => formatDateTime(`${date}T12:00:00`, 'long');
 
 /** "What's new" after an update; dismissed once per version on this computer. */
 export function WhatsNew({ version, onShowAll }: { version: string; onShowAll: () => void }) {
   const { t } = useT();
-  const [notes, setNotes] = useState<Notes[]>(() => notesSince(releases, version, seenVersion()));
+  const [notes, setNotes] = useState<Notes[]>(() => notesSince(releasesFor(currentLocale()), version, seenVersion()));
   if (!notes.length) return null;
   const items = notes.flatMap(release => release.items);
   return (
@@ -37,7 +37,7 @@ export function ReleaseNotesDialog({ version, onClose }: { version: string; onCl
     <dialog ref={dialogRef} className="confirm-dialog release-notes-dialog" aria-labelledby={`${id}-title`} onCancel={event => { event.preventDefault(); onClose(); }}>
       <h2 id={`${id}-title`}>Shellherd {version}</h2>
       <div className="release-notes-list">
-        {releases.map(release => <section key={release.version}>
+        {releasesFor(currentLocale()).map(release => <section key={release.version}>
           <h3>{t('app:releaseNotes.version', { version: release.version })} <small>{formatDate(release.date)}</small></h3>
           <ul>{release.items.map(item => <li key={item}>{item}</li>)}</ul>
         </section>)}
