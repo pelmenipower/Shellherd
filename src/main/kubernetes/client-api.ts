@@ -125,6 +125,26 @@ function headerOf(ref: KubeRef) {
   };
 }
 
+/** Body of a Job started by hand from a CronJob. Only labels and annotations of the template metadata are taken over. */
+export function manualJobBody(cron: KubeObject, jobName: string): KubeObject {
+  const meta = cron.metadata;
+  const jobTemplate = asRecord(asRecord(cron.spec).jobTemplate);
+  if (!meta?.uid || !meta.name || !jobTemplate.spec) throw new KubeApiError('Der CronJob ist unvollständig.');
+  const template = asRecord(jobTemplate.metadata) as { labels?: Record<string, string>; annotations?: Record<string, string> };
+  return {
+    apiVersion: 'batch/v1',
+    kind: 'Job',
+    metadata: {
+      name: jobName,
+      namespace: meta.namespace,
+      ...(template.labels ? { labels: template.labels } : {}),
+      annotations: { ...template.annotations, 'cronjob.kubernetes.io/instantiate': 'manual' },
+      ownerReferences: [{ apiVersion: 'batch/v1', kind: 'CronJob', name: meta.name, uid: meta.uid, controller: true, blockOwnerDeletion: true }],
+    },
+    spec: jobTemplate.spec,
+  } as unknown as KubeObject;
+}
+
 /** Terminal output: rows and columns let client-node send the terminal size with an exec session. */
 function terminalOutput(io: TerminalIo, size: { cols: number; rows: number }): OutputStream {
   const output = new Writable({
@@ -346,8 +366,15 @@ export function createKubeApi(config: KubeConfig): KubeApi {
       });
     },
 
-    async remove(ref) {
-      await call(() => objects().delete(headerOf(ref) as KubernetesObject));
+    async remove(ref, options) {
+      await call(() => objects().delete(headerOf(ref) as KubernetesObject, undefined, undefined, undefined, undefined, options?.propagationPolicy));
+    },
+
+    async createJobFrom(cron, jobName) {
+      await call(async () => {
+        const cronObject = (await objects().read(headerOf(cron))) as KubeObject;
+        await objects().create(manualJobBody(cronObject, jobName) as KubernetesObject, undefined, undefined, 'terminus');
+      });
     },
 
     async nodeMetrics(): Promise<MetricsSample[] | null> {

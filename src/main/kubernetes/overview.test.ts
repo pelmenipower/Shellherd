@@ -60,6 +60,7 @@ class FakeApi implements KubeApi {
   eventsFor(): never { throw new Error('unused'); }
   mergePatch(): never { throw new Error('unused'); }
   remove(): never { throw new Error('unused'); }
+  createJobFrom(): never { throw new Error('unused'); }
   openTerminal(): never { throw new Error('unused'); }
 }
 

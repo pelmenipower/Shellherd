@@ -9,6 +9,7 @@ import { connectionAddress, NEW_CONNECTION_KINDS } from '../../../shared/vault/c
 import { ContextMenu } from './ContextMenu';
 import type { ContextMenuEntry } from './ContextMenu';
 import { parentFolderId } from '../connection-form';
+import { firstActiveAccessHost } from '../cluster-form';
 import type { ContainerTreeProps } from '../container-tree';
 import { ContainerChildren } from './ContainerChildren';
 import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
@@ -148,6 +149,10 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
     const off = Boolean(node.disabled);
     return [{ kind: 'item', label: 'Verbinden', hint: off ? 'deaktiviert' : 'Enter', disabled: !onConnect || off, onSelect: () => onConnect?.(node.id) },
       ...(node.protocol === 'ssh' && onOpenFiles ? [{ kind: 'item' as const, label: 'Dateien öffnen (SFTP)', disabled: off, onSelect: () => onOpenFiles(node.id) }] : []),
+      ...(node.protocol === 'kubernetes' ? [(() => {
+        const access = firstActiveAccessHost(nodes, node);
+        return { kind: 'item' as const, label: 'Zugangs-Host per SSH öffnen', hint: access ? access.name : 'Kein aktiver Zugangs-Host.', disabled: !access || !onConnect, onSelect: () => { if (access) onConnect?.(access.id); } };
+      })()] : []),
       ...(node.protocol === 'ssh' && onSetupCluster ? [{ kind: 'item' as const, label: 'Als Kubernetes-Cluster einrichten…', disabled: off, onSelect: () => onSetupCluster(node.id) }] : []),
       ...(node.protocol === 'ssh' && containers ? [{ kind: 'item' as const, label: 'Container anzeigen', disabled: off, onSelect: () => { if (!expandedHosts.has(node.id)) toggleHost(node.id); else containers.onExpand(node.id); } }] : []), ...edit,
       { kind: 'item', label: off ? 'Aktivieren' : 'Deaktivieren', hint: off ? undefined : 'ausgrauen, nicht mehr öffnen', disabled: !onToggleDisabled, onSelect: () => onToggleDisabled?.(node.id) },

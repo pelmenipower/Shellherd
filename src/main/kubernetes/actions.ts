@@ -1,10 +1,10 @@
-import { ACTION_KINDS, MAX_REPLICAS, READ_ONLY_MESSAGE } from '../../shared/kubernetes';
+import { ACTION_KINDS, KIND_INFO, MAX_REPLICAS, READ_ONLY_MESSAGE, manualJobName } from '../../shared/kubernetes';
 import type { KubeAction, KubeRef } from '../../shared/kubernetes';
 import type { KubeApi } from './api';
 
 const RESTART_ANNOTATION = 'kubectl.kubernetes.io/restartedAt';
 
-/** Runs a restart, scale or delete action after the read-only, kind, namespace and replica checks. */
+/** Runs a cluster action after the read-only, kind, namespace and replica checks. */
 export async function runAction(
   api: KubeApi,
   request: { ref: KubeRef; action: KubeAction; replicas?: number },
@@ -12,7 +12,9 @@ export async function runAction(
 ): Promise<void> {
   if (options.readOnly) throw new Error(READ_ONLY_MESSAGE);
   const { ref, action } = request;
-  if (!(ACTION_KINDS[action] as readonly string[]).includes(ref.kind) || !ref.namespace) {
+  // The namespace is required exactly for namespaced kinds and refused for cluster-scoped ones.
+  const scopeOk = KIND_INFO[ref.kind]?.namespaced ? !!ref.namespace : !ref.namespace;
+  if (!(ACTION_KINDS[action] as readonly string[] | undefined)?.includes(ref.kind) || !scopeOk) {
     throw new Error('Diese Aktion ist hier nicht möglich.');
   }
   switch (action) {
@@ -30,7 +32,24 @@ export async function runAction(
       return;
     }
     case 'delete':
-      await api.remove(ref);
+      if (ref.kind === 'jobs') await api.remove(ref, { propagationPolicy: 'Background' });
+      else await api.remove(ref);
       return;
+    case 'cordon':
+    case 'uncordon':
+      await api.mergePatch(ref, { spec: { unschedulable: action === 'cordon' } });
+      return;
+    case 'suspend':
+    case 'resume':
+      await api.mergePatch(ref, { spec: { suspend: action === 'suspend' } });
+      return;
+    case 'trigger':
+      await api.createJobFrom(ref, manualJobName(ref.name, Math.floor((options.now ?? (() => new Date()))().getTime() / 1000)));
+      return;
+    default: {
+      const unknown: never = action;
+      void unknown;
+      throw new Error('Diese Aktion ist hier nicht möglich.');
+    }
   }
 }

@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
 import { KIND_COLUMNS, KIND_INFO, KUBE_KINDS, refKey, type ColumnInfo, type KubeRow } from '../../../../shared/kubernetes';
 import { formatAge, formatUsage, sparkline, type KubeViewAction, type KubeViewState } from '../../kube-view';
+import { rowMenuTarget } from '../../kube-menu-run';
+import type { MenuTarget } from '../../kube-menus';
 
 const ROW_HEIGHT = 24;
 /** Above this many rows only the visible window is rendered. */
@@ -13,10 +15,11 @@ interface ResourceTableProps {
   rows: KubeRow[];
   dispatch: (action: KubeViewAction) => void;
   tableRef: RefObject<HTMLDivElement | null>;
+  onMenu?: (target: MenuTarget, x: number, y: number) => void;
 }
 
 /** Kind tabs and the k9s-style table. Keys are handled by the view; this component only renders and scrolls. */
-export function ResourceTable({ state, rows, dispatch, tableRef }: ResourceTableProps) {
+export function ResourceTable({ state, rows, dispatch, tableRef, onMenu }: ResourceTableProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ top: 0, height: 480 });
   const [now, setNow] = useState(() => Date.now());
@@ -62,9 +65,16 @@ export function ResourceTable({ state, rows, dispatch, tableRef }: ResourceTable
   const containers = state.containersOf?.containers ?? [];
   const pod = state.containersOf;
 
+  // Every context menu event is handled here: either a menu opens or the native one is suppressed.
+  const open = (event: ReactMouseEvent, target: MenuTarget) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onMenu?.(target, event.clientX, event.clientY);
+  };
+
   return (
     <div className="kube-table-area">
-      <div className="kube-kind-tabs" role="tablist" aria-label="Ressourcen">
+      <div className="kube-kind-tabs" role="tablist" aria-label="Ressourcen" onContextMenu={event => event.preventDefault()}>
         {KUBE_KINDS.map((candidate, index) => {
           const digit = index === 9 ? '0' : String(index + 1);
           const on = candidate === kind && !inContainers;
@@ -78,6 +88,11 @@ export function ResourceTable({ state, rows, dispatch, tableRef }: ResourceTable
       </div>
       <div ref={tableRef} className="kube-table-focus" tabIndex={-1}>
         <div ref={scrollRef} className="kube-table-scroll"
+          onContextMenu={event => {
+            // Key-triggered native events bubble from the focus element above this div and never reach it.
+            event.preventDefault();
+            open(event, { type: 'background' });
+          }}
           onScroll={event => setScroll({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
           <table className="kube-table">
             <thead>
@@ -86,6 +101,7 @@ export function ResourceTable({ state, rows, dispatch, tableRef }: ResourceTable
                   const sorted = !inContainers && state.sort?.key === column.key;
                   return (
                     <th key={column.key} scope="col" className={column.numeric ? 'kube-num' : undefined}
+                      onContextMenu={event => open(event, inContainers ? { type: 'background' } : { type: 'header', column })}
                       aria-sort={sorted ? (state.sort?.descending ? 'descending' : 'ascending') : undefined}
                       onClick={inContainers ? undefined : () => dispatch({ type: 'sort', key: column.key })}>
                       {column.label}{sorted ? (state.sort?.descending ? ' ▾' : ' ▴') : ''}
@@ -97,7 +113,12 @@ export function ResourceTable({ state, rows, dispatch, tableRef }: ResourceTable
             <tbody>
               {inContainers && containers.map(name => (
                 <tr key={name} className={state.container === name ? 'kube-row-selected' : undefined} aria-selected={state.container === name}
-                  onClick={() => dispatch({ type: 'selectContainer', name })}>
+                  onClick={() => dispatch({ type: 'selectContainer', name })}
+                  onContextMenu={event => {
+                    if (!pod) { open(event, { type: 'background' }); return; }
+                    dispatch({ type: 'selectContainer', name });
+                    open(event, { type: 'container', pod, name });
+                  }}>
                   <td>{name}</td>
                   <td>{pod ? containerImage(pod, name) : '–'}</td>
                 </tr>
@@ -111,6 +132,7 @@ export function ResourceTable({ state, rows, dispatch, tableRef }: ResourceTable
                 return (
                   <tr key={row.uid} className={`kube-row kube-tone-${row.tone}${selected ? ' kube-row-selected' : ''}`} aria-selected={selected}
                     onClick={() => dispatch({ type: 'select', key })}
+                    onContextMenu={event => { dispatch({ type: 'select', key }); open(event, rowMenuTarget(row)); }}
                     onDoubleClick={() => { dispatch({ type: 'select', key }); dispatch({ type: 'drill' }); }}>
                     {columns.map(column => (
                       <td key={column.key} className={column.numeric ? 'kube-num' : undefined}>{cellText(state, row, column, now)}</td>
