@@ -229,19 +229,16 @@ const GOOD_FIXTURE = `
 describe('design tokens lint', () => {
   it('R0 finds every stylesheet', () => {
     for (const file of ['tokens.css', 'styles.css', 'terminal-ui.css', 'files-ui.css', 'assistant-ui.css', 'workflows-ui.css',
-      'kubernetes-ui.css', 'kubernetes-dock.css', 'containers-ui.css', 'components/navigation-ui.css', 'components/editor-ui.css']) {
+      'kubernetes-ui.css', 'kubernetes-dock.css', 'containers-ui.css', 'components/navigation-ui.css', 'components/editor-ui.css', 'components/toast-ui.css']) {
       expect(FILES).toContain(file);
     }
   });
 
-  // Waves 1-2 only; T9 removes GEOMETRY_MIGRATED, LINT_ALL and the filter so that R14-R16 apply to every file.
-  const GEOMETRY_MIGRATED = ['tokens.css', 'styles.css'];
-  const LINT_ALL = process.env.DESIGN_LINT_ALL === '1';
   const SHARED_MOVING = new Set(FILES.flatMap(file => [...movingKeyframesOf(readFileSync(`${ROOT}${file}`, 'utf8'))]));
   for (const file of FILES) {
     it(file, () => {
       const found = lint(file, readFileSync(`${ROOT}${file}`, 'utf8'), SHARED_MOVING);
-      expect(LINT_ALL || GEOMETRY_MIGRATED.includes(file) ? found : found.filter(line => !/^\S+ R1[456] /.test(line))).toEqual([]);
+      expect(found).toEqual([]);
     });
   }
 

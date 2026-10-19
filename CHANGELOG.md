@@ -12,6 +12,7 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 - Seitenleiste: Unter SSH-Verbindungen und „Dieser Computer“ erscheinen statt Container-Listen die Einträge „Docker-Ansicht“ und „Podman-Ansicht“ (nur für installierte Laufzeiten). Ein Klick öffnet die Ansicht oder fokussiert den offenen Tab; „Docker-Ansicht öffnen“ im Kontextmenü öffnet einen weiteren. Die Tabs sind fest auf ihre Laufzeit gesetzt und werden mit ihr im Workspace gespeichert. Proxmox-Gäste bleiben unverändert.
 - Container-Ansicht: Mit `sudo` im Passwortmodus meldet sich jeder Poll nur noch einmal an, die vier Listen laufen in einem Befehl. Ein fester Docker- oder Podman-Tab zeigt bei fehlender Laufzeit einen Fehler, statt im Hintergrund die andere Laufzeit abzufragen. Inspect maskiert in nicht parsbarer Ausgabe auch Geheimnisse hinter anderen Einträgen derselben Zeile.
 - Einheitliches Erscheinungsbild: Farben, Schatten und Ebenen kommen aus einem gemeinsamen Designsystem. Dialoge, der Verbindungs-Picker sowie das Workspace- und das Layout-Menü blenden kurz ein, Buttons geben beim Klicken leicht nach. Sind die Windows-Animationseffekte ausgeschaltet, bleibt nur das Einblenden. Die Hilfe in Cluster- und Container-Ansicht liegt jetzt über der Kopfzeile.
+- Fehlermeldungen erscheinen als Hinweis unten rechts und verschieben das Terminal nicht mehr. Leisten, Knöpfe, Schriftgrößen und Abstände folgen einer festen Skala; Chip-Leiste und Panelköpfe sind kompakter.
 
 ## [0.8.0] – 2026-10-18
 
