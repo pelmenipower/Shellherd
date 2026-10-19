@@ -1,4 +1,4 @@
-# Terminus – Regeln für Claude
+# Shellherd – Regeln für Claude
 
 Electron-44-App (TypeScript, React 19, xterm, ssh2, `@kubernetes/client-node`). UI-Texte auf Deutsch, Code-Kommentare auf Englisch.
 
