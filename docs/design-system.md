@@ -10,9 +10,9 @@ Alle Farben, Maße, Ebenen, Schatten und Bewegungswerte stehen in `src/renderer/
 2. **Cyan ist das einzige Signal.** `#67e8f9` steht für Fokus, aktive Tabs, Links, Auswahl-Rand, Fortschritt und Primärbutton. Ausgewählt (dauerhaft, Zeilen) ist **ein** opakes Blau `#183245`. Aktiv in View-Tabs, Menüfokus und Badges ist **eine** Tönung `rgb(103 232 249 / 14%)`. Hover auf Buttons, Tabs und Chips ist `--color-bg-hover`. Ein einzelnes Drop-Ziel bekommt 22 %, eine ganze Ablagefläche 6 %. Mehr Stufen gibt es nicht.
 3. **Ampel nur für Zustände.** Ein Grün `#4ade80`, ein Gelb `#fcd34d`, ein Rot `#fb7185` für Punkte und Icons. Gefahr-Text ist `#fda4af`, die Gefahr-Fläche `#341c25`, der Gefahr-Rand `#713442`. Nie dekorativ.
 4. **Zwei Textstufen.** Text `#e2eaf4`, gedämpft `#a7b7cb`, dazu Code-Text `#dce9f8`. Dunklere Grautöne gibt es nicht.
-5. **Vier Control-Höhen.** 24 in Tabellen und Chip-Leisten, 28 in Leisten und Menüs, 32 Standard, 36 für Formulareingaben und Suche. Die Umbenennen-Eingabe der View-Tabs und die Pfad-Eingabe im Dateibrowser sind 24 hoch. Leisten sind 32 hoch (Pane, View, Datei, Dock, Transfer, Editor- und Assistent-Kopf), der App-Kopf 44, die Statusleiste 24.
+5. **Vier Control-Höhen.** 24 in Tabellen und Chip-Leisten, 28 in Leisten und Menüs, 32 Standard, 36 für Formulareingaben und Suche, 32 für die Inline-Eingaben im Datei-Prompt und im Rechte-Dialog. Die Umbenennen-Eingabe der View-Tabs und die Pfad-Eingabe im Dateibrowser sind 24 hoch. Leisten sind 32 hoch (Pane, View, Datei, Dock, Transfer, Editor- und Assistent-Kopf), der App-Kopf 44, die Statusleiste 24.
 6. **Drei Radien.** 4 innen (Tabs, Zeilen, Menüeinträge, Icon-Knöpfe in Leisten), 5 Standard (Buttons, Eingaben, Popover, Menüs), 8 für Dialoge und Karten. Pillen nutzen `999px` (Chips, Badges). Ausnahme: Das Layout-Menü hat 4.
-7. **Motion ist Ausnahme.** Druck (120 ms), Dialog (200 ms), Popover (160 ms), Hinweis (180 ms), Fehlerhinweis (220 ms ein, 150 ms aus), Puls (1 s). Alles, was per Tastatur erreichbar ist, alle Listen, Tabs, Chips und die Terminalausgabe reagieren sofort. Hover-Farbwechsel haben keine Transition.
+7. **Motion ist Ausnahme.** Druck (120 ms), Dialog (200 ms), Popover (160 ms), Hinweis (180 ms), Fehlerhinweis (220 ms ein, 150 ms aus), Puls (1 s), Abblenden bei verlorener Verbindung (200 ms). Alles, was per Tastatur erreichbar ist, alle Listen, Tabs, Chips und die Terminalausgabe reagieren sofort. Hover-Farbwechsel haben keine Transition.
 
 ## Tokens
 
@@ -205,7 +205,7 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 | Hover-Farbwechsel (alle) | zig/Tag | nicht | sofortiger Wechsel passt zu einem Terminal-Werkzeug | keine `transition` auf `background` oder `color` | – |
 | „Beschäftigt“-Punkt, Tipp-Indikator | laufend | behalten, vereinheitlicht | Zustandsanzeige | `tm-pulse`, `--dur-pulse`, `--ease-in-out`, `infinite` | `animation: none` |
 | Fortschrittsbalken (`progress`) | laufend | behalten | konstante Bewegung | `width`, `linear`, `--dur-fade`, geduldete Layout-Eigenschaft | `transition: none` |
-| `.kube-stale` | selten | nicht (jetzt) | `filter` über eine große Tabelle ist zu teuer | Übergang nur `opacity`, 200 ms (`--dur-modal`), Reduced Motion ohne | – |
+| `.kube-stale` | selten | animieren, nur `opacity` | Zustandswechsel weich zeigen; `filter` springt ohne Übergang | Übergang nur `opacity`, 200 ms (`--dur-modal`), Reduced Motion ohne | – |
 | `.ctr-busy` | gelegentlich | nicht | Zustand, kein Übergang nötig | – | – |
 | Tooltips | – | nicht | nur natives `title=` | – | – |
 | Welcome-Liste, Release-Box | bei jedem leeren Workspace | nicht | kein Delight-Budget | – | – |
