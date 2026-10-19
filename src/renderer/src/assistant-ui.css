@@ -38,9 +38,9 @@
 /* Provider settings. */
 .ai-settings-dialog { width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: var(--space-20); border-radius: var(--radius-lg); overflow: auto; }
 .ai-settings-dialog h2 { margin: 0 0 var(--space-8); font-size: var(--fs-xl); }
-.ai-intro { margin: 0 0 var(--space-16); color: var(--color-text-muted); font-size: var(--fs-md); line-height: 1.5; }
+.ai-intro { margin: 0 0 var(--space-12); color: var(--color-text-muted); font-size: var(--fs-md); line-height: 1.5; }
 .ai-intro strong { color: var(--color-text); }
-.ai-provider-list { display: grid; gap: var(--space-6); margin: 0 0 var(--space-16); padding: 0; list-style: none; }
+.ai-provider-list { display: grid; gap: var(--space-6); margin: 0 0 var(--space-12); padding: 0; list-style: none; }
 .ai-provider-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); padding: var(--space-8) var(--space-10); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .ai-provider-list li > div { display: grid; flex: 1 1 200px; min-width: 0; }
 .ai-provider-list small { color: var(--color-text-muted); font-size: var(--fs-sm); }

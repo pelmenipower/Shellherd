@@ -82,4 +82,4 @@
 .view-tab.is-drop-target { outline: 2px solid var(--color-accent); outline-offset: -2px; background: var(--color-bg-drop); }
 .view-tab .view-close, .view-bar .view-add { display: grid; place-items: center; width: var(--control-xs); height: var(--control-xs); padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); cursor: pointer; }
 .view-tab .view-close:hover, .view-bar .view-add:hover { color: var(--color-text); background: var(--color-overlay); }
-.view-rename { width: 140px; height: var(--control-xs); padding: 0 var(--space-6); font-size: var(--fs-sm); }
+input.view-rename:not([type='checkbox']):not([type='range']):not([type='color']) { width: 140px; height: var(--control-xs); padding: 0 var(--space-6); font-size: var(--fs-sm); }

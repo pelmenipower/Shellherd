@@ -50,7 +50,7 @@
 .context-menu [role="menuitem"]:hover:not(:disabled), .context-menu [role="menuitem"]:focus-visible { background: var(--color-bg-active); outline: none; }
 .context-menu [role="menuitem"]:disabled { color: var(--color-text-muted); opacity: .5; cursor: default; }
 .context-menu [role="menuitem"] small { color: var(--color-text-muted); font-size: var(--fs-xs); }
-.context-menu-heading { padding: var(--space-6) var(--space-10) var(--space-4); color: var(--color-text-muted); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; }
+.context-menu-heading { padding: var(--space-6) var(--space-10) var(--space-2); color: var(--color-text-muted); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; }
 .context-menu-separator { height: 1px; margin: var(--space-4) var(--space-2); background: var(--color-border); }
 /* Drag and drop in the connection tree. */
 .vault-tree-row[draggable='true'] { cursor: grab; }
