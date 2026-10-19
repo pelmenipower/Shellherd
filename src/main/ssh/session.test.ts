@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Server } from 'ssh2';
 import type { Connection, ServerChannel, PseudoTtyOptions } from 'ssh2';
-import type { SshConnectionNode } from '../../shared/vault/types';
-import type { SshEvent } from '../../shared/ssh';
+import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode } from '../../shared/vault/types';
+import type { SshEvent, TerminalSize } from '../../shared/ssh';
+import type { KubeTerminalTarget } from '../../shared/kubernetes';
+import type { KubeStream, TerminalIo } from '../kubernetes/api';
 import { agentSocket, SshSessionManager, targetExitMessage } from './session';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
@@ -501,6 +503,123 @@ describe('SSH session manager with a real local SSH server', () => {
   it('rejects invalid targets before connecting', () => {
     expect(() => manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: { ...web, ref: '$(id)' }, mode: 'shell' } })).toThrow('Ungültige Container-Angabe.');
     expect(() => manager.prepare(1, { connectionId: LOCAL_CONTAINER_HOST, cols: 80, rows: 24 })).toThrow();
+  });
+});
+
+describe('Kubernetes pod terminals', () => {
+  const target: KubeTerminalTarget = { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'logs' };
+  const cluster = (id: string, readOnly: boolean): KubernetesConnectionNode => ({ id, type: 'connection', protocol: 'kubernetes', name: 'Synthetic cluster',
+    tags: [], accessHosts: [connection.id], kubeconfig: { source: 'auto' }, production: false, readOnly });
+  let vault: Record<string, ConnectionNode>;
+  let kube: SshSessionManager;
+  let kubeEvents: { owner: number; event: SshEvent }[];
+  let opened: { clusterId: string; target: KubeTerminalTarget; size: TerminalSize; io: TerminalIo }[];
+  let streamCalls: string[];
+  let stream: KubeStream;
+
+  beforeEach(() => {
+    vault = { [connection.id]: connection, k1: cluster('k1', false), k2: cluster('k2', true) };
+    kubeEvents = []; opened = []; streamCalls = [];
+    stream = { write: data => streamCalls.push(`write:${data}`), resize: (cols, rows) => streamCalls.push(`resize:${cols}x${rows}`),
+      pause: () => streamCalls.push('pause'), resume: () => streamCalls.push('resume'), close: () => streamCalls.push('close') };
+    kube = new SshSessionManager({ getConnection: id => {
+      const node = vault[id];
+      if (!node) throw new Error('Unknown saved connection');
+      return structuredClone(node);
+    }, verifyHost: async () => true, spawnShell: noShell, emit: (owner, event) => kubeEvents.push({ owner, event }),
+    openKubeTerminal: async (clusterId, podTarget, size, io) => { opened.push({ clusterId, target: podTarget, size, io }); return stream; } });
+  });
+  afterEach(() => kube.closeAll());
+
+  const lastStatus = (id: string) => kubeEvents.flatMap(({ event }) => event.type === 'status' && event.sessionId === id ? [event] : []).pop();
+  const kubeOutput = (id: string) => Buffer.concat(kubeEvents.flatMap(({ event }) => event.type === 'data' && event.sessionId === id ? [Buffer.from(event.data)] : [])).toString('utf8');
+  async function openPod(mode: KubeTerminalTarget['mode'] = 'logs', clusterId = 'k1') {
+    const id = kube.prepare(1, { connectionId: clusterId, cols: 80, rows: 24, kube: { ...target, mode } }).sessionId;
+    await kube.connect(1, id);
+    return { id, io: opened[opened.length - 1].io };
+  }
+
+  it('requires the cluster tab for a cluster without a pod target', () => {
+    expect(() => kube.prepare(1, { connectionId: 'k1', cols: 80, rows: 24 })).toThrow('Cluster öffnen sich im Cluster-Tab.');
+    expect(opened).toHaveLength(0);
+  });
+
+  it('opens pod logs through the cluster and passes output with sequences', async () => {
+    const { id, io } = await openPod();
+    expect(opened[0]).toMatchObject({ clusterId: 'k1', target, size: { cols: 80, rows: 24 } });
+    expect(lastStatus(id)).toMatchObject({ status: 'connected' });
+    io.data(Buffer.from('line 1\r\n'));
+    io.data(Buffer.from('line 2\r\n'));
+    expect(kubeEvents.flatMap(({ event }) => event.type === 'data' ? [event.sequence] : [])).toEqual([1, 2]);
+    expect(kubeOutput(id)).toBe('line 1\r\nline 2\r\n');
+  });
+
+  it('closes cleanly on exit 0 and reports an error message when the pod gives one', async () => {
+    const clean = await openPod();
+    clean.io.end(0);
+    expect(lastStatus(clean.id)).toMatchObject({ status: 'closed' });
+    expect(kube.owns(1, clean.id)).toBe(false);
+
+    const failed = await openPod();
+    failed.io.end(137, 'x');
+    expect(lastStatus(failed.id)).toMatchObject({ status: 'error', message: 'x' });
+
+    const silent = await openPod();
+    silent.io.end(1);
+    expect(lastStatus(silent.id)).toMatchObject({ status: 'closed' });
+    expect(lastStatus(silent.id)).not.toHaveProperty('message');
+  });
+
+  it('writes input, resizes the stream and closes it with the tab', async () => {
+    const { id } = await openPod('shell');
+    await kube.input(1, id, 'ls\r');
+    kube.resize(1, id, { cols: 100, rows: 30 });
+    expect(streamCalls).toEqual(['write:ls\r', 'resize:100x30']);
+    kube.close(1, id);
+    expect(streamCalls[streamCalls.length - 1]).toBe('close');
+  });
+
+  it('pauses the stream above the high-water mark and resumes after acknowledgment', async () => {
+    const { id, io } = await openPod();
+    io.data(Buffer.alloc(128 * 1024));
+    expect(streamCalls).toEqual(['pause']);
+    kube.acknowledge(1, id, 1);
+    expect(streamCalls).toEqual(['pause', 'resume']);
+  });
+
+  it('refuses a shell on a read-only cluster but allows logs and previous logs', async () => {
+    expect(() => kube.prepare(1, { connectionId: 'k2', cols: 80, rows: 24, kube: { ...target, mode: 'shell' } })).toThrow('Dieser Cluster ist schreibgeschützt.');
+    const logs = await openPod('logs', 'k2');
+    expect(lastStatus(logs.id)).toMatchObject({ status: 'connected' });
+    const previous = await openPod('previous', 'k2');
+    expect(lastStatus(previous.id)).toMatchObject({ status: 'connected' });
+  });
+
+  it('refuses a pod target on a connection that is not a cluster', () => {
+    expect(() => kube.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, kube: target })).toThrow('Pod-Terminals gibt es nur für Kubernetes-Cluster.');
+  });
+
+  it('rejects invalid pod names and modes before connecting', () => {
+    expect(() => kube.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: { ...target, pod: 'api/../x' } })).toThrow('Ungültige Pod-Angabe.');
+    expect(() => kube.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: { ...target, mode: 'exec' as never } })).toThrow('Ungültige Pod-Angabe.');
+  });
+
+  it('fails before connecting when cluster terminals are not wired', () => {
+    const plain = new SshSessionManager({ getConnection: () => structuredClone(vault.k1), verifyHost: async () => true, spawnShell: noShell, emit: () => {} });
+    expect(() => plain.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: target })).toThrow('Pod-Terminals sind nicht verfügbar.');
+  });
+
+  it('holds output during a window transfer and delivers it to the new owner', async () => {
+    const { id, io } = await openPod();
+    io.data(Buffer.from('before\r\n'));
+    expect(kube.transferOwner(1, id, 2)).toBe('connected');
+    io.data(Buffer.from('held\r\n'));
+    expect(kubeOutput(id)).toBe('before\r\n');
+    expect(streamCalls).toEqual(['pause']);
+    kube.attach(2, id);
+    expect(kubeOutput(id)).toBe('before\r\nheld\r\n');
+    expect(kubeEvents[kubeEvents.length - 1]).toMatchObject({ owner: 2, event: { type: 'data' } });
+    expect(streamCalls).toEqual(['pause', 'resume']);
   });
 });
 

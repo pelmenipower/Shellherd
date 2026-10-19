@@ -11,6 +11,7 @@ import type {
   WorkspaceSplit,
 } from './types';
 import { ContainerTargetSchema } from '../containers-schema';
+import { KubeNameSchema, KubeViewSnapshotSchema } from '../kubernetes-schema';
 import type { EncryptedVaultFile } from './file-format';
 
 export const AuthenticationSchema = z.discriminatedUnion('method', [
@@ -39,6 +40,7 @@ const connectionBase = {
     tags: z.array(z.string()),
     color: z.string().optional(),
     icon: z.enum(CONNECTION_ICONS).optional(),
+    disabled: z.boolean().optional(),
 };
 
 const remoteTarget = {
@@ -87,12 +89,27 @@ export const AiCliConnectionNodeSchema = z.object({
     workingDirectory: z.string().optional(),
 }).refine(node => node.tool !== 'custom' || Boolean(node.command?.trim()), { message: 'Bitte gib den Befehl an.', path: ['command'] });
 
+export const KubernetesConnectionNodeSchema = z.object({
+    ...connectionBase,
+    protocol: z.literal('kubernetes'),
+    accessHosts: z.array(z.string().min(1).max(256)).min(1).max(8),
+    kubeconfig: z.discriminatedUnion('source', [
+        z.object({ source: z.literal('auto') }),
+        z.object({ source: z.literal('path'), path: z.string().min(1).max(1024).refine(path => !/[\r\n\0]/.test(path)) }),
+    ]),
+    context: z.string().min(1).max(253).optional(),
+    namespace: KubeNameSchema.optional(),
+    production: z.boolean(),
+    readOnly: z.boolean(),
+});
+
 export const ConnectionNodeSchema = z.discriminatedUnion('protocol', [
     SshConnectionNodeSchema,
     SftpConnectionNodeSchema,
     RdpConnectionNodeSchema,
     LocalShellConnectionNodeSchema,
     AiCliConnectionNodeSchema,
+    KubernetesConnectionNodeSchema,
 ]);
 
 export const VaultNodeSchema: z.ZodType<VaultNode> = z.lazy(() =>
@@ -113,6 +130,7 @@ export const WorkspacePaneSchema: z.ZodType<WorkspacePane> = z.object({
   activeConnectionId: z.string().min(1).optional(),
   fileBrowsers: z.array(z.number().int().min(0).max(63)).max(64).optional(),
   containerTabs: z.array(z.object({ index: z.number().int().min(0).max(63), target: ContainerTargetSchema, mode: z.enum(['shell', 'logs']) }).strict()).max(64).optional(),
+  kubeTabs: z.array(z.object({ index: z.number().int().min(0).max(63), view: KubeViewSnapshotSchema }).strict()).max(64).optional(),
 });
 
 export const WorkspaceLayoutSchema: z.ZodType<WorkspaceLayout> = z.lazy(() =>

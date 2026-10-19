@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
-import { containerConnection, containerTabName, emptyTerminalTabs, isRunning, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, containerTabName, emptyTerminalTabs, isRunning, kubeTabName, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
 import type { TerminalTab, TerminalTabsState } from './terminal-tabs';
 const connection = { id: 'ssh', name: 'Server', protocol: 'ssh' as const, address: 'synthetic@example.test:22' };
 function opened(): TerminalTabsState {
@@ -96,5 +96,33 @@ describe('container tabs', () => {
     expect(shellOf(tab({ id: 'p', name: 'PS', protocol: 'powershell', address: 'lokal' }))).toBe('powershell');
     expect(shellOf(tab({ id: 's', name: 'Dateien', protocol: 'sftp', address: 'x', view: 'files' }))).toBeNull();
     expect(shellOf(undefined)).toBeNull();
+  });
+});
+
+describe('kubernetes tabs', () => {
+  const cluster = { id: 'k1', name: 'k8s', protocol: 'kubernetes' as const, address: 'k8s' };
+  const logs = { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'logs' as const };
+  const tab = (connection: TerminalTab['connection']): TerminalTab => ({ id: 't', connection, ordinal: 1, status: 'connected' });
+  it('keeps the pod target when opening and adopting tabs, and tells apart tabs with different targets', () => {
+    const podTab = { ...cluster, kube: logs };
+    const state = reduce(reduce(emptyTerminalTabs, { type: 'open', id: 'a', connection: podTab }),
+      { type: 'open', id: 'b', connection: { ...cluster, kube: { ...logs, mode: 'shell' as const } } });
+    expect(state.tabs[0].connection.kube).toEqual(logs);
+    expect(state.tabs[1].connection.kube?.mode).toBe('shell');
+    expect(sameTarget(state.tabs[0].connection, state.tabs[1].connection)).toBe(false);
+    expect(sameTarget(state.tabs[0].connection, podTab)).toBe(true);
+    expect(sameTarget(cluster, podTab)).toBe(false);
+    const adopted = reduce(emptyTerminalTabs, { type: 'adopt', id: 'c', connection: podTab, status: 'connected', adopt: {} });
+    expect(adopted.tabs[0].connection.kube).toEqual(logs);
+  });
+  it('names pod tabs by mode and the cluster', () => {
+    expect(kubeTabName(logs, 'k8s')).toBe('Logs: api-1 @ k8s');
+    expect(kubeTabName({ ...logs, mode: 'previous' }, 'k8s')).toBe('Vorherige Logs: api-1 @ k8s');
+    expect(kubeTabName({ ...logs, mode: 'shell' }, 'k8s')).toBe('api-1 @ k8s');
+  });
+  it('treats only pod shells as ssh shells', () => {
+    expect(shellOf(tab({ ...cluster, kube: { ...logs, mode: 'shell' } }))).toBe('ssh');
+    expect(shellOf(tab({ ...cluster, kube: logs }))).toBeNull();
+    expect(shellOf(tab(cluster))).toBeNull();
   });
 });

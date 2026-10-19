@@ -98,17 +98,19 @@ export function savedViews(state: ViewsState, tabs: TerminalTab[]): SavedView[] 
 
 /** Restores several views; ordinals and the session limit apply across all of them. */
 export function restoreViews(saved: SavedView[], lookup: (id: string) => ConnectionNode | undefined, uuid: () => string):
-  { state: ViewsState; tabs: TerminalTab[]; activeTabId: string | null } {
+  { state: ViewsState; tabs: TerminalTab[]; activeTabId: string | null; skipped: number } {
   const tabs: TerminalTab[] = [];
+  let skipped = 0;
   const views: LiveView[] = saved.map(item => {
     const restored = restoreLayout(item.layout, lookup, uuid);
     tabs.push(...restored.tabs);
+    skipped += restored.skipped;
     return { id: uuid(), name: item.name, layout: restored.layout };
   });
   if (tabs.length > MAX_SSH_SESSIONS) throw new Error(`Ein Workspace darf höchstens ${MAX_SSH_SESSIONS} Sessions starten.`);
   for (const tab of tabs) tab.ordinal = tabs.filter(other => sameTarget(other.connection, tab.connection) && tabs.indexOf(other) <= tabs.indexOf(tab)).length;
   const state = views.length ? { views, activeViewId: views[0].id } : initialViews();
-  return { state, tabs, activeTabId: panes(activeView(state).layout).find(pane => pane.activeTabId)?.activeTabId ?? null };
+  return { state, tabs, activeTabId: panes(activeView(state).layout).find(pane => pane.activeTabId)?.activeTabId ?? null, skipped };
 }
 
 /** Workspace form: `layout` is the first view; `views` when there are several or the only one was renamed. */

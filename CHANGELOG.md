@@ -4,6 +4,14 @@ Alle nennenswerten Änderungen an Terminus. Die Versionsnummer folgt [Semantic V
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.5.0] – 2026-10-16
+
+- Kubernetes-Cluster (Stufe 1): Einrichtung aus einer SSH-Verbindung („Als Kubernetes-Cluster einrichten…“), Zugang über SSH-Tunnel mit Failover über weitere Zugangs-Hosts; Cluster-Tab mit Live-Tabelle für Nodes, Workloads, Pods und Events, Drill-down, Logs, Shell, YAML, Describe, Restart, Scale und Löschen mit Bestätigung; Produktions- und Nur-lesen-Modus.
+
+## [0.4.0] – 2026-10-15
+
+- Verbindungen deaktivieren (Rechtsklick → „Deaktivieren“): ausgegraut, lassen sich nicht öffnen und werden bei „Alle verbinden“ und in Workspaces übersprungen; Zugangsdaten bleiben erhalten.
+
 ## [0.3.0] – 2026-10-14
 
 - Container und VMs unter SSH-Verbindungen: Docker, Podman und Proxmox (LXC/VMs) werden beim Aufklappen erkannt; auf dem Server muss nichts installiert werden.

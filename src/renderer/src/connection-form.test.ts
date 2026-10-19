@@ -8,7 +8,8 @@ const fields: ConnectionFields = {
   name: ' API ', comment: ' comment ', host: ' api.example.test ', port: '22', username: ' deploy ',
   method: 'agent', password: 'synthetic-only', keyPath: '/synthetic/key', passphrase: 'synthetic-only',
   domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
-  tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off',
+  tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off', disabled: 'off',
+  accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
 };
 
 /** SSH result narrowed for property assertions. */
@@ -98,6 +99,24 @@ describe('connection form validation', () => {
   });
 });
 
+describe('kubernetes clusters in the form', () => {
+  const cluster = { ...fields, accessHosts: ['a', 'b'], context: ' prod ', namespace: 'apps', production: 'off' as const, readOnly: 'on' as const };
+  it('builds a cluster with ordered access hosts, defaults and overrides', () => {
+    expect(connectionFromFields('k', cluster, 'kubernetes')).toMatchObject({ id: 'k', protocol: 'kubernetes', name: 'API', accessHosts: ['a', 'b'],
+      kubeconfig: { source: 'auto' }, context: 'prod', namespace: 'apps', production: false, readOnly: true });
+    expect(connectionFromFields('k', { ...cluster, context: '', namespace: '' }, 'kubernetes')).not.toHaveProperty('context');
+  });
+  it('reads a cluster back into the form fields', () => {
+    const node = connectionFromFields('k', { ...cluster, kubeconfigSource: 'path', kubeconfigPath: '/etc/k.conf' }, 'kubernetes');
+    expect(fieldsFromConnection('kubernetes', node)).toMatchObject({ accessHosts: ['a', 'b'], kubeconfigSource: 'path', kubeconfigPath: '/etc/k.conf', context: 'prod', production: 'off', readOnly: 'on' });
+  });
+  it('reports access host, kubeconfig path and namespace problems on their fields', () => {
+    expect(() => connectionFromFields('k', { ...cluster, accessHosts: [] }, 'kubernetes')).toThrow(ConnectionFieldError);
+    expect(() => connectionFromFields('k', { ...cluster, kubeconfigSource: 'path', kubeconfigPath: 'rel' }, 'kubernetes')).toThrow('beginnen');
+    expect(() => connectionFromFields('k', { ...cluster, namespace: 'Bad_NS' }, 'kubernetes')).toThrow('Namespace');
+  });
+});
+
 describe('connection destinations', () => {
   const connection = connectionFromFields('connection', fields);
   const nodes: VaultNode[] = [connection, { id: 'outer', type: 'folder', name: 'Outer', children: [
@@ -110,5 +129,14 @@ describe('connection destinations', () => {
     expect(parentFolderId(nodes, 'connection')).toBe('');
     expect(parentFolderId(nodes, 'nested')).toBe('inner');
     expect(parentFolderId(nodes, 'missing')).toBeUndefined();
+  });
+});
+
+describe('disabled connections in the editor', () => {
+  it('keeps a connection disabled when it is edited and saved', () => {
+    const node: VaultNode = { id: 'c', type: 'connection', protocol: 'cmd', name: 'CMD', tags: [], disabled: true };
+    if (node.type !== 'connection') throw new Error('fixture');
+    expect(connectionFromFields('c', fieldsFromConnection('cmd', node), 'cmd')).toMatchObject({ disabled: true });
+    expect(connectionFromFields('c', { ...fieldsFromConnection('cmd'), name: 'Neu' }, 'cmd')).not.toHaveProperty('disabled');
   });
 });

@@ -4,6 +4,8 @@
 .vault-tree-row { display: flex; align-items: center; min-height: 32px; border-radius: 4px; }
 .vault-tree-row:hover { background: var(--ui-raised); }
 .vault-tree-row.is-selected { background: #183245; }
+/* Production clusters get a red left edge; inset shadow keeps the row layout unchanged. */
+.vault-tree-row.vault-node-production { box-shadow: inset 3px 0 0 var(--ui-danger); }
 .tree-toggle, .tree-row-actions button { display: grid; place-items: center; width: 26px; min-width: 26px; min-height: 28px; padding: 0; background: transparent; border: 0; }
 .tree-toggle-spacer { width: 26px; flex: 0 0 26px; }
 .tree-toggle.is-expanded svg { transform: rotate(90deg); }
@@ -47,6 +49,8 @@
 /* Drag and drop in the connection tree. */
 .vault-tree-row[draggable='true'] { cursor: grab; }
 .vault-tree-row.is-dragging { opacity: .45; }
+.vault-tree-row.is-disabled .tree-node-icon, .vault-tree-row.is-disabled .tree-node-text { opacity: .5; }
+.tree-node-badge { margin-left: 6px; font-size: 10px; font-style: normal; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
 .vault-tree-row.is-drop-into { background: rgb(103 232 249 / 18%); box-shadow: inset 0 0 0 1px var(--ui-accent); }
 .vault-tree-row.is-drop-before { box-shadow: inset 0 2px 0 var(--ui-accent); }
 .vault-tree-row.is-drop-after { box-shadow: inset 0 -2px 0 var(--ui-accent); }

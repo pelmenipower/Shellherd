@@ -45,6 +45,7 @@ function networkError(error: unknown): string {
 export async function testConnection(node: ConnectionNode, dependencies: ConnectionTestDependencies): Promise<ConnectionTestResult> {
   const steps: ConnectionTestStep[] = [];
   const done = (): ConnectionTestResult => ({ ok: steps.every(step => step.ok), steps });
+  if (node.protocol === 'kubernetes') { steps.push({ label: 'Verbindungstest', ok: false, detail: 'Für Cluster gibt es noch keinen Verbindungstest.' }); return done(); }
   if (!isRemoteConnection(node)) {
     const cwd = node.workingDirectory?.trim() || homedir();
     const folder = await stat(cwd).catch(() => null);

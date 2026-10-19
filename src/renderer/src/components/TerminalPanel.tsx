@@ -39,6 +39,8 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
   const [status, setStatus] = useState<SshStatus>(initialStatus ?? 'connecting');
   const adoptRef = useRef(adopt);
   const [error, setError] = useState<string | null>(null);
+  // A new kube target (another pod, container or mode) reconnects; the key only remounts the panel.
+  const kubeKey = connection.kube ? JSON.stringify(connection.kube) : '';
 
   useEffect(() => {
     let disposed = false;
@@ -148,6 +150,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       void (async () => {
         try {
           const result = await window.desktopApi.sshPrepare({ connectionId: connection.id, ...(connection.target ? { target: connection.target } : {}),
+            ...(connection.kube ? { kube: connection.kube } : {}),
             cols: Math.max(2, Math.min(500, term.cols)), rows: Math.max(1, Math.min(300, term.rows)) });
           if (disposed) { await window.desktopApi.sshClose({ sessionId: result.sessionId }); return; }
           register(result.sessionId);
@@ -180,7 +183,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       liveSessions.delete(tabId);
       if (sessionId && !liveSessions.takeTransferred(sessionId)) void window.desktopApi.sshClose({ sessionId }).catch(() => {});
     };
-  }, [connection.id, tabId, onStatusChange]);
+  }, [connection.id, kubeKey, tabId, onStatusChange]);
 
   useEffect(() => {
     if (!visible) return;

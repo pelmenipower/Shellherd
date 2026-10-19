@@ -1,6 +1,6 @@
 {
   "name": "Terminus",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "private": true,
   "description": "A local, encrypted SSH connection manager.",
   "main": "out/main/index.js",
@@ -21,6 +21,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
     "@fontsource-variable/inter": "^5.2.8",
+    "@kubernetes/client-node": "2.0.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/xterm": "^6.0.0",

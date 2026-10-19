@@ -8,6 +8,7 @@ import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditR
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
+import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
 
 export const IPC_CHANNELS = {
   getVersion: 'app:get-version',
@@ -90,6 +91,13 @@ export const IPC_CHANNELS = {
   fileTypeStatus: 'app:file-type-status',
   fileTypeRegister: 'app:file-type-register',
   fileTypeUnregister: 'app:file-type-unregister',
+  kubeOpen: 'k8s:open',
+  kubeSubscribe: 'k8s:subscribe',
+  kubeDetail: 'k8s:detail',
+  kubeAction: 'k8s:action',
+  kubeClose: 'k8s:close',
+  kubeProbe: 'k8s:probe',
+  kubeEvent: 'k8s:event',
 } as const;
 
 export type SelectVaultFileResult =
@@ -154,6 +162,15 @@ export interface DesktopApi {
   rdpClose: (request: RdpSessionRequest) => Promise<void>;
   rdpAction: (request: RdpActionRequest) => Promise<void>;
   onRdpEvent: (listener: (event: RdpEvent) => void) => () => void;
+  /** Opens a view on a cluster; the session starts or is shared with other views. */
+  kubeOpen: (request: KubeOpenRequest) => Promise<KubeOpenResult>;
+  kubeSubscribe: (request: KubeSubscribeRequest) => Promise<void>;
+  kubeDetail: (request: KubeDetailRequest) => Promise<KubeDetail>;
+  kubeAction: (request: KubeActionRequest) => Promise<void>;
+  kubeClose: (request: KubeViewRequest) => Promise<void>;
+  /** Reads contexts of the kubeconfig on an SSH host; never returns the config itself. */
+  kubeProbe: (request: KubeProbeRequest) => Promise<KubeProbeResult>;
+  onKubeEvent: (listener: (event: KubeEvent) => void) => () => void;
   sftpOpen: (request: SftpOpenRequest) => Promise<{ sessionId: string }>;
   sftpHome: (request: SftpSessionRequest) => Promise<string>;
   sftpList: (request: SftpPathRequest) => Promise<DirectoryListing>;

@@ -14,6 +14,7 @@ import { useAssistantToggle } from './hooks/useAssistantToggle';
 import { useCtrlShiftShortcut } from './hooks/useShortcut';
 import { WorkflowPalette } from './components/WorkflowPalette';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
+import { disabledNotice, skippedNotice } from '../../shared/vault/connections';
 
 /** Detached window: tabs and split layout only; vault, sidebar and editor stay in the main window. */
 export function SecondaryWindow() {
@@ -67,6 +68,7 @@ export function SecondaryWindow() {
       }, () => crypto.randomUUID());
       replaceViews(restored.state);
       restore(restored.tabs, restored.activeTabId);
+      if (restored.skipped) setError(skippedNotice(restored.skipped));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Das Fenster konnte nicht wiederhergestellt werden.');
     }
@@ -75,6 +77,7 @@ export function SecondaryWindow() {
   const connect = useCallback((id: string, paneId: string, asFiles = false) => {
     const node = catalog && findNode(catalog.nodes, id);
     if (!node || node.type !== 'connection') return;
+    if (node.disabled) { setError(disabledNotice(node)); return; }
     if (state.current.tabs.length >= MAX_SSH_SESSIONS) { setError(`Maximal ${MAX_SSH_SESSIONS} Sessions. Schließe zuerst einen Tab.`); return; }
     terminalLayout.setFocused(paneId);
     terminals.open(toTerminalConnection(node, asFiles));

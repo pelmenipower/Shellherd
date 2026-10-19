@@ -1,6 +1,7 @@
 import type { ConnectionProtocol, VaultNode, Workflow, WorkspaceLayout, WorkspaceView } from './vault/types';
 import type { SshStatus } from './ssh';
 import type { TerminalTarget } from './containers';
+import type { KubeTerminalTarget } from './kubernetes';
 
 export type WindowRole = 'main' | 'secondary';
 
@@ -11,6 +12,8 @@ export interface TabConnection {
   view?: 'files';
   /** Container or Proxmox guest on the host `id`. */
   target?: TerminalTarget;
+  /** Logs or shell of a pod in the cluster `id`. */
+  kube?: KubeTerminalTarget;
 }
 
 export interface TransferSession { kind: 'terminal' | 'rdp' | 'sftp'; sessionId: string }

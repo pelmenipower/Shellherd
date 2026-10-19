@@ -16,7 +16,8 @@ function fakeHost(answers: Record<string, RunResult>) {
   const sudo: (SudoPrompt | undefined)[] = [];
   const host: RemoteHost & { commands: string[]; sudo: typeof sudo } = { commands, sudo, closed: false,
     async run(command, _timeout, prompt) { commands.push(command); sudo.push(prompt); return answers[command] ?? { code: 127, stdout: '', stderr: 'not found' }; },
-    close() { (host as { closed: boolean }).closed = true; } };
+    close() { (host as { closed: boolean }).closed = true; },
+    forward: () => Promise.reject(new Error('unused')) };
   return host;
 }
 

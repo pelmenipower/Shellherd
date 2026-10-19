@@ -8,6 +8,21 @@ import { exampleVault } from './example';
 
 
 describe('ConnectionNodeSchema', () => {
+    it('accepts a kubernetes connection and keeps old vaults valid', () => {
+        const cluster = { id: 'k1', type: 'connection', name: 'k8s', tags: [], protocol: 'kubernetes', accessHosts: ['cp1'],
+            kubeconfig: { source: 'auto' }, production: true, readOnly: false };
+        expect(ConnectionNodeSchema.safeParse(cluster).success).toBe(true);
+        expect(ConnectionNodeSchema.safeParse({ ...cluster, accessHosts: [] }).success).toBe(false);
+        expect(ConnectionNodeSchema.safeParse({ ...cluster, namespace: 'Shop' }).success).toBe(false);
+    });
+
+    it('keeps the disabled flag and treats it as optional', () => {
+        const connection = { id: 'c', type: 'connection', protocol: 'cmd', name: 'CMD', tags: [] };
+        expect(ConnectionNodeSchema.parse({ ...connection, disabled: true })).toMatchObject({ disabled: true });
+        expect(ConnectionNodeSchema.safeParse(connection).success).toBe(true);
+        expect(ConnectionNodeSchema.safeParse({ ...connection, disabled: 'yes' }).success).toBe(false);
+    });
+
     it('accepts a valid SSH connection', () => {
         const connection = {
             id: 'connection-api',

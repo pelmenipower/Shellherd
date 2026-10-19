@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connectionAddress, redactSecrets } from './connections';
+import { connectionAddress, connectionsIn, disabledNotice, redactSecrets, skippedNotice } from './connections';
 import { removeNodeFromVault } from './mutations';
 import { validateVaultConsistency } from './consistency';
 import { exampleVault } from './example';
@@ -52,5 +52,28 @@ describe('workspace windows', () => {
     const updated = removeNodeFromVault(vault, 'connection-dev-api');
     expect(updated.workspaces[0].windows![0].layout).toEqual({ type: 'pane', connectionIds: [] });
     expect(validateVaultConsistency(updated)).toEqual([]);
+  });
+});
+
+describe('disabled connections', () => {
+  const tree: VaultNode[] = [
+    { id: 'a', type: 'connection', protocol: 'cmd', name: 'A', tags: [] },
+    { id: 'sub', type: 'folder', name: 'Sub', children: [
+      { id: 'b', type: 'connection', protocol: 'cmd', name: 'B', tags: [], disabled: true },
+      { id: 'c', type: 'connection', protocol: 'cmd', name: 'C', tags: [], disabled: false },
+    ] },
+  ];
+  it('collects active connections of a folder tree and counts disabled ones', () => {
+    const result = connectionsIn(tree);
+    expect(result.connections.map(node => node.id)).toEqual(['a', 'c']);
+    expect(result.disabled).toBe(1);
+  });
+  it('reports skipped disabled connections in singular and plural', () => {
+    expect(skippedNotice(1)).toBe('1 deaktivierte Verbindung wurde übersprungen.');
+    expect(skippedNotice(3)).toBe('3 deaktivierte Verbindungen wurden übersprungen.');
+  });
+  it('explains how to re-enable a disabled connection', () => {
+    expect(disabledNotice({ id: 'b', type: 'connection', protocol: 'cmd', name: 'B', tags: [], disabled: true }))
+      .toBe('Die Verbindung „B“ ist deaktiviert. Per Rechtsklick → „Aktivieren“ wieder freigeben.');
   });
 });
