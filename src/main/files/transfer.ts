@@ -90,7 +90,8 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
       }
     }
     // Write through links to the real file; the .part swap must not replace the link itself.
-    const target = existing ? await to.realpath(item.target) : item.target;
+    // Some virtual Windows drives cannot resolve paths; overwriting the path itself still works there.
+    const target = existing ? await to.realpath(item.target).catch(() => item.target) : item.target;
     await copyFile(job, item, target, existing?.mode, from, to, hooks, signal);
     await to.setModified(target, item.modified).catch(() => {});
     if (job.move) await from.removeFile(item.source);

@@ -142,6 +142,14 @@ describe('file transfer', () => {
     expect(to.nodes.has('/target/real.part')).toBe(false);
   });
 
+  it('overwrites the target itself when resolving it fails', async () => {
+    const from = memory({ '/a.txt': 'new' });
+    const to = memory({ '/target': null, '/target/a.txt': 'old' });
+    to.realpath = async () => { throw new Error('EISDIR: illegal operation on a directory, realpath'); };
+    await transfer(from, to, ['/a.txt']);
+    expect(to.nodes.get('/target/a.txt')).toMatchObject({ data: 'new' });
+  });
+
   it('passes the mode of the existing target to the writer', async () => {
     const from = memory({ '/a.txt': 'new' });
     const to = memory({ '/target': null, '/target/a.txt': 'old' });
