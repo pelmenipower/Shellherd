@@ -9,6 +9,8 @@ import {
   writeEncryptedVaultFile,
 } from './storage';
 
+import { VaultSchema } from '../../shared/vault/schema';
+
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import type { Vault } from '../../shared/vault/types';
 
@@ -73,7 +75,7 @@ export class VaultSessionManager {
     const session = this.requireSession();
 
     const updatedVault: Vault = {
-      ...structuredClone(vault),
+      ...VaultSchema.parse(vault),
       updatedAt: new Date().toISOString(),
     };
 
@@ -95,9 +97,10 @@ export class VaultSessionManager {
     );
 
     session.filePath = filePath;
-    session.vault = structuredClone(updatedVault);
+    session.vault = updatedVault;
 
-    return this.getSnapshot();
+    // Built from local values: the session may have been locked or replaced during the awaits.
+    return { filePath, vault: structuredClone(updatedVault) };
   }
 
   public getSnapshot(): VaultSessionSnapshot {
