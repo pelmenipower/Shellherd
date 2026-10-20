@@ -116,15 +116,9 @@ Feature branches merge into `staging` by pull request. `main` only receives pull
 1. On `staging`, bump the version: `npm run version:minor` (or `:patch` / `:major`).
 2. Add a matching `## [x.y.z] – YYYY-MM-DD` section to both [`CHANGELOG.md`](CHANGELOG.md) (German) and [`CHANGELOG.en.md`](CHANGELOG.en.md) (English), with the same number of entries – the build and the tests fail otherwise.
 3. Commit, push `staging` and open a pull request into `main`.
-4. After the merge, tag `main` and push the tag:
-   ```powershell
-   git switch main
-   git pull
-   git tag v0.12.1
-   git push origin v0.12.1
-   ```
+4. Merge it once CI is green.
 
-The [release workflow](.github/workflows/release.yml) then builds both executables and publishes a GitHub release with both changelog sections as bilingual release notes.
+On every push to `main`, the [release workflow](.github/workflows/release.yml) reads the version from `package.json`. If there is no tag `vX.Y.Z` yet, it runs the tests, builds both executables, creates the tag on the merged commit and publishes a GitHub release with both changelog sections as bilingual release notes. Merges that keep the version publish nothing.
 
 ## License
 

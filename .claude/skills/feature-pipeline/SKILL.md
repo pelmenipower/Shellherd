@@ -35,7 +35,7 @@ Beim Agent-Aufruf immer `subagent_type` auf einen dieser drei setzen. Ein andere
 8. **Fix-Welle** (`umsetzer`, ein Agent oder zwei auf getrennten Dateien). Danach eine **Nachprüfung** (`pruefer`). Es gibt keine zweite Fix-Welle, Restbefunde gehen an den Nutzer.
 9. **Abschluss:**
    - Push, dann ein PR auf GitHub (`gh pr create`) gegen `staging`. Ist der vorige Feature-Branch noch offen, ist er die Basis (gestapelt).
-   - `main` ist geschützt und bekommt nur PRs aus `staging`; nie direkt auf `main` pushen.
+   - `main` ist geschützt und bekommt nur PRs aus `staging`. Nie auf `main` pushen und nie nach `main` mergen: Das macht der Nutzer von Hand, und sein Merge löst das Release aus, sobald die Version in `package.json` noch keinen Tag hat.
    - Zum Schluss eine Zusammenfassung für den Nutzer mit allen Rulings und den offenen Punkten für den manuellen Test.
 
 ## Regeln aus Erfahrung
