@@ -167,7 +167,13 @@ export async function decryptVault(
   input: unknown,
   password: string,
 ): Promise<Vault> {
-  const unlocked = await unlockVault(input, password);
+  const parsedFile = EncryptedVaultFileSchema.safeParse(input);
+
+  if (!parsedFile.success) {
+    throw new AppError('core.vaultFileCorrupt');
+  }
+
+  const unlocked = await unlockVault(parsedFile.data, password);
 
   try {
     return unlocked.vault;
@@ -182,18 +188,11 @@ export async function decryptVault(
  * verwenden.
  */
 export async function unlockVault(
-  input: unknown,
+  file: EncryptedVaultFile,
   password: string,
 ): Promise<UnlockedVault> {
   assertPassword(password);
 
-  const parsedFile = EncryptedVaultFileSchema.safeParse(input);
-
-  if (!parsedFile.success) {
-    throw new AppError('core.vaultFileCorrupt');
-  }
-
-  const file = parsedFile.data;
   const salt = Buffer.from(file.kdf.salt, 'base64');
 
   assertLength(salt, SALT_LENGTH, 'core.vaultFileCorrupt');
