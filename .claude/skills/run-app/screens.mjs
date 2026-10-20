@@ -39,6 +39,8 @@ const shot = async name => { await call('ss', undefined, `?name=${name}&crop=sta
 async function closeTabs() {
   // demo-setup may leave the settings dialog open; it would intercept every click.
   if (await evaluate(`!!document.querySelector('dialog[open]')`)) { await key('Escape'); await pause(300); }
+  // The assistant panel persists between runs and would squeeze every other view; the assistant block reopens it.
+  if (await evaluate(`document.querySelector('.assistant-toggle')?.getAttribute('aria-pressed') === 'true'`)) { await click('.assistant-toggle'); await pause(300); }
   for (const end = Date.now() + 10000; await evaluate(count('.terminal-tab-close')) > 0; await pause(250)) {
     if (Date.now() > end) throw new Error('Tabs lassen sich nicht schließen (Timeout nach 10 s)');
     if (await evaluate(`!!document.querySelector('dialog.compact-confirm[open]')`)) {
@@ -115,7 +117,8 @@ const blocks = {
     await call('type', 'df -h /');
     await key('Enter');
     await pause(500);
-    await click('.assistant-toggle');
+    // The panel may already be open (state persists between runs); a click would close it.
+    if (!await evaluate(`document.querySelector('.assistant-toggle')?.getAttribute('aria-pressed') === 'true'`)) await click('.assistant-toggle');
     await waitFor('Assistent-Eingabe', `document.querySelector('.assistant-input textarea:not([disabled])')`);
     await fill('.assistant-input textarea', 'Ist die Platte zu voll?');
     await click('.assistant-input button[type=submit]');

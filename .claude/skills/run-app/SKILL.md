@@ -94,8 +94,8 @@ Häufige Wege:
 - **Nach einem Build** lädt `location.reload()` nicht zuverlässig das neue Bundle. Treiber mit `/quit` beenden und neu starten.
 - **Einzelinstanz-Sperre:** Ein zweiter Treiber auf demselben Profil beendet sich sofort. Eine normal laufende Shellherd-Instanz (anderes Profil) stört nicht.
 - **README-Screenshots** immer mit `crop=status` – die Statusleiste zeigt den Vault-Pfad mit dem Windows-Benutzernamen.
-- **Neue Demo-Einträge** erscheinen nur in einem neuen Vault: `profile\demo.term` löschen und `demo-setup.mjs` neu laufen lassen.
-- **Host-Schlüssel** liegt in `shellherd-run\sshd-host-key`. Wer ihn löscht, muss auch `profile\known-hosts.json` löschen, sonst lehnt die App den Server als „Schlüssel geändert“ ab.
+- **Neue Demo-Einträge** erscheinen nur in einem neuen Vault: `profile\demo.term` **und** `profile\Shellherd\known-hosts.json` löschen, den Treiber neu starten und `demo-setup.mjs` neu laufen lassen.
+- **Host-Schlüssel** liegt in `shellherd-run\sshd-host-key`. Nach einem neuen Schlüssel `profile\Shellherd\known-hosts.json` löschen (und `demo.term`, s. o.), sonst lehnt die App den Server als „Schlüssel geändert“ ab.
 - **openssl fehlt:** Der Kubernetes-Fake wird übersprungen (kein `prod-k8s`). Gesucht wird `$OPENSSL`, `openssl` im PATH, dann `C:\Program Files\Git\mingw64\bin` und `C:\Program Files\Git\usr\bin`.
 - **„Dieser Computer“** erscheint in der Seitenleiste, wenn Docker lokal installiert ist.
 - **Lokale SFTP-Spalte** zeigt sonst den Windows-Benutzernamen im Pfad: `SHELLHERD_RUN_DIR` ohne Benutzernamen setzen (z. B. `C:\shellherd-run`), dann zeigt `screens.mjs` synthetische Dateien.

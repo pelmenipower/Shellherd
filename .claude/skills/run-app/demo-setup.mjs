@@ -77,7 +77,10 @@ async function addAiProvider() {
   await click(`${dialog} .ai-form button[type=submit]`);
   await waitFor(`document.querySelector('.ai-provider-list li')`);
   await click(`${dialog} > .form-actions .primary-button`);
-  await pause(500);
+  await waitFor(`!document.querySelector('${dialog}[open]')`);
+  // The settings dialog stays open underneath and would swallow all clicks.
+  await click('dialog.settings-dialog > .form-actions .primary-button');
+  await waitFor(`!document.querySelector('dialog.settings-dialog[open]')`);
 }
 
 // Start states: start card (create/open buttons), open form (last vault preselected, password field) or vault already open.
@@ -90,6 +93,11 @@ if (!vaultOpen) {
     await pause(3000);
     console.log('Demo-Vault entsperrt.');
   } else {
+    // A remembered file shows the open form; go back to the start card first.
+    if (!await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Neuen Vault erstellen'))`, 2000)) {
+      await click('button:text-matches("^Zur.ck$")');
+      await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Neuen Vault erstellen'))`);
+    }
     await click('button:has-text("Neuen Vault erstellen")');
     await fill('input[placeholder="Meine Server"]', 'Demo');
     await fill('(//input[@type="password"])[1]', PASSWORD);
