@@ -4,6 +4,19 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.12.1] – 2026-10-20
+
+- Fixed: Downloads from the file view only land in the chosen target folder; names Windows cannot store (`\`, `:`, device names, trailing dot or space) are skipped or rejected with a message.
+- Fixed: When overwriting, the old file is kept until the new one has arrived completely.
+- Changed: `Edit` opens only text, configuration and source files in the default program; scripts and everything else open in Notepad, locally too.
+- Changed: The AI assistant no longer types commands itself; `Type in` writes the suggestion to the input line.
+- Fixed: The vault file is written to disk before it is renamed; saving while locking no longer returns a wrong result; after `.term` is appended, Shellherd remembers the new path.
+- Fixed: Failed RDP connections show the error instead of staying on “Connecting”.
+- Fixed: Moving a view to another window leaves no session behind when one of them has just ended.
+- Fixed: The cluster view shows only the events of the selected object; the kubeconfig search works despite a login banner; the pod terminal names the cause.
+- Fixed: The connection test waits while the host key dialog is open; the language setting reports when it cannot be saved.
+- Fixed: Numbers in messages follow the language (e.g. “1,000 skipped”); the drag preview in other windows also disappears when the view is closed during the drag.
+
 ## [0.12.0] – 2026-10-19
 
 - Shellherd is now available in German and English. It follows the Windows display language by default; “Language” in Settings (gear in the header, `Ctrl+,`, also on the start card) switches between System, Deutsch and English. The change applies to all windows at once, and open sessions keep running.

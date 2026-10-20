@@ -66,6 +66,8 @@ Rechtsklick fügt den Text aus der Zwischenablage in das angeklickte Terminal ei
 Das Einfügen läuft über xterm und berücksichtigt den Bracketed-Paste-Modus des
 Servers. Die üblichen Kopier- und Einfüge-Tastenkürzel bleiben verfügbar.
 
+Dateiansicht: `Bearbeiten` öffnet nur Text-, Konfigurations- und Quelltextdateien im Standardprogramm, alles andere in Notepad.
+
 ## Einstellungen
 
 Das Zahnrad rechts in der Kopfzeile öffnet die Einstellungen, ebenso `Strg+,`. Vor dem Entsperren führt der Link `Einstellungen` unten auf der Startkarte dorthin. Alle Werte gelten sofort, ein „Speichern“ gibt es nicht. Nebenfenster haben keine eigenen Einstellungen; Sprache und Vault-Einstellung gelten dort trotzdem. Hat eine RDP-Sitzung den Fokus, gehen Tastenkürzel an den entfernten Rechner, auch `Strg+,`.
