@@ -8,6 +8,7 @@ Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails 
 
 - Fixed: Downloads from the file view only land in the chosen target folder; names Windows cannot store (`\`, `:`, device names, trailing dot or space) are skipped or rejected with a message.
 - Fixed: When overwriting, the old file is kept until the new one has arrived completely.
+- Fixed: Uploaded files keep their permissions when overwritten; new files get 0644 instead of 0666.
 - Changed: `Edit` opens only text, configuration and source files in the default program; scripts and everything else open in Notepad, locally too.
 - Changed: The AI assistant no longer types commands itself; `Type in` writes the suggestion to the input line.
 - Fixed: The vault file is written to disk before it is renamed; saving while locking no longer returns a wrong result; after `.term` is appended, Shellherd remembers the new path.

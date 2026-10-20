@@ -89,8 +89,10 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
         continue;
       }
     }
-    await copyFile(job, item, from, to, hooks, signal);
-    await to.setModified(item.target, item.modified).catch(() => {});
+    // Write through links to the real file; the .part swap must not replace the link itself.
+    const target = existing ? await to.realpath(item.target) : item.target;
+    await copyFile(job, item, target, existing?.mode, from, to, hooks, signal);
+    await to.setModified(target, item.modified).catch(() => {});
     if (job.move) await from.removeFile(item.source);
     job.doneFiles += 1;
     hooks.progress(job);
@@ -102,28 +104,28 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
   job.current = undefined;
 }
 
-async function copyFile(job: TransferJob, item: PlannedItem, from: FileSystem, to: FileSystem, hooks: TransferHooks, signal: AbortSignal): Promise<void> {
+async function copyFile(job: TransferJob, item: PlannedItem, target: string, mode: number | undefined, from: FileSystem, to: FileSystem, hooks: TransferHooks, signal: AbortSignal): Promise<void> {
   const before = job.doneBytes;
   const counter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
     job.doneBytes += chunk.length;
     hooks.progress(job);
     callback(null, chunk);
   } });
-  // shortcut: ein echter Name x.part kollidiert; bleibt so, bis es jemand meldet.
-  const partial = `${item.target}.part`;
+  // shortcut: a real file named x.part collides (and is removed on failure); upgrade when someone reports it.
+  const partial = `${target}.part`;
   try {
-    await pipeline(from.read(item.source), counter, to.write(partial), { signal });
+    await pipeline(from.read(item.source), counter, to.write(partial, mode), { signal });
   } catch (error) {
     await to.removeFile(partial).catch(() => {});
     if (signal.aborted) throw new TransferCanceled();
     throw error;
   }
   // Local rename replaces the target; OpenSSH SFTP refuses an existing one, so it is removed first there.
-  await to.rename(partial, item.target).catch(async () => {
-    await to.removeFile(item.target).catch(() => {});
-    await to.rename(partial, item.target).catch(async error => {
+  await to.rename(partial, target).catch(async () => {
+    await to.removeFile(target).catch(() => {});
+    await to.rename(partial, target).catch(async error => {
       // The old file survived (e.g. locked): drop the copy. Otherwise `.part` is the only copy and stays.
-      if (await to.stat(item.target).catch(() => null)) await to.removeFile(partial).catch(() => {});
+      if (await to.stat(target).catch(() => null)) await to.removeFile(partial).catch(() => {});
       throw error;
     });
   });

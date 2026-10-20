@@ -8,6 +8,7 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 
 - Behoben: Downloads aus der Dateiansicht landen nur im gewählten Zielordner; Namen, die Windows nicht speichern kann (`\`, `:`, Gerätenamen, Punkt oder Leerzeichen am Ende), werden übersprungen oder mit Hinweis abgelehnt.
 - Behoben: Beim Überschreiben bleibt die alte Datei erhalten, bis die neue vollständig angekommen ist.
+- Behoben: Hochgeladene Dateien behalten beim Überschreiben ihre Rechte; neue Dateien bekommen 0644 statt 0666.
 - Geändert: `Bearbeiten` öffnet nur Text-, Konfigurations- und Quelltextdateien im Standardprogramm; Skripte und alles andere in Notepad, auch lokal.
 - Geändert: Der KI-Assistent tippt Befehle nicht mehr selbst ein; `Eintippen` schreibt den Vorschlag in die Eingabezeile.
 - Behoben: Die Vault-Datei wird vor dem Umbenennen auf die Platte geschrieben; Speichern während des Sperrens liefert kein falsches Ergebnis; nach dem Anhängen von `.term` merkt sich Shellherd den neuen Pfad.
