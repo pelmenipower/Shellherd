@@ -1,7 +1,7 @@
 /* Notice stack: fixed above the status bar, never takes focus. Errors stay until closed; info/ok run a CSS timer bar. Gate: docs/design-system.md. */
 .toast-stack { position: fixed; right: var(--space-12); bottom: calc(var(--bar-sm) + var(--space-12)); z-index: var(--layer-toast); display: flex; flex-direction: column; gap: var(--space-8); width: min(400px, calc(100vw - 2 * var(--space-12))); }
 .secondary-shell .toast-stack { bottom: var(--space-12); }
-.toast { position: relative; overflow: hidden; display: flex; flex-wrap: wrap; row-gap: var(--space-8); align-items: flex-start; gap: var(--space-12); padding: var(--space-10) var(--space-12); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-panel); color: var(--color-text); box-shadow: var(--shadow-overlay); transition: opacity var(--dur-toast) var(--ease-out); }
+.toast { position: relative; overflow: hidden; display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-8) var(--space-12); padding: var(--space-10) var(--space-12); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-panel); color: var(--color-text); box-shadow: var(--shadow-overlay); transition: opacity var(--dur-toast) var(--ease-out); }
 .toast[data-tone='error'] { border-color: var(--color-danger-border); background: var(--color-danger-bg); color: var(--color-danger-text); }
 .toast-dot { flex: 0 0 var(--size-dot); width: var(--size-dot); height: var(--size-dot); margin-top: var(--space-6); border-radius: 50%; background: var(--color-text); }
 .toast[data-tone='error'] .toast-dot { background: var(--color-danger-strong); }
@@ -10,8 +10,9 @@
 .toast-title { font-weight: 600; }
 .toast-body { color: var(--color-text-muted); }
 .toast[data-tone='error'] .toast-body { color: inherit; }
-.toast-action, .toast-close { flex: 0 0 auto; align-self: center; min-height: var(--control-sm); padding: 0 var(--space-10); font-size: var(--fs-sm); }
-.toast-action { margin-left: auto; }
+/* One group: the buttons wrap together and always sit right; margin-left has no effect while the growing text shares the row. */
+.toast-buttons { flex: 0 0 auto; display: flex; gap: var(--space-8); align-self: center; margin-left: auto; }
+.toast-action, .toast-close { flex: 0 0 auto; min-height: var(--control-sm); padding: 0 var(--space-10); font-size: var(--fs-sm); }
 .toast-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--color-text); opacity: .5; }
 .toast[data-tone='ok'] .toast-bar { background: var(--color-ok); }
 .toast[data-tone='info'] .toast-bar { animation-duration: var(--notice-ttl-info); }
