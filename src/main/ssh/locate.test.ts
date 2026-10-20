@@ -12,5 +12,5 @@ describe('locating installed command line tools', () => {
     expect(await locateCommand('cmd')).toMatch(/cmd\.exe$/i);
     expect(await locateCommand('surely-not-installed-terminus')).toBeNull();
     expect(await locateCommand('a & calc')).toBeNull();
-  });
+  }, 15_000); // two real where.exe calls, each allowed up to 5 s by locateCommand
 });
