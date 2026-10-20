@@ -1,9 +1,9 @@
-# Typecheck and tests for every push to main and every pull request.
+# Typecheck and tests for every push to main or staging and every pull request.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
 
 jobs:

@@ -106,15 +106,21 @@ The skill file lists every driver command and the known pitfalls. Claude Code lo
 
 Built with Electron, TypeScript, React, xterm.js, ssh2 and the Kubernetes JavaScript client. UI rules are documented in [`docs/design-system.md`](docs/design-system.md).
 
+### Branches
+
+Feature branches merge into `staging` by pull request. `main` only receives pull requests from `staging`. It is protected: no direct pushes (admins included), CI must pass on an up-to-date branch, and force pushes and deletion are blocked. `staging` blocks force pushes and deletion.
+
 ### Releasing
 
-1. Bump the version: `npm run version:minor` (or `:patch` / `:major`).
+1. On `staging`, bump the version: `npm run version:minor` (or `:patch` / `:major`).
 2. Add a matching `## [x.y.z] – YYYY-MM-DD` section to both [`CHANGELOG.md`](CHANGELOG.md) (German) and [`CHANGELOG.en.md`](CHANGELOG.en.md) (English), with the same number of entries – the build and the tests fail otherwise.
-3. Commit, tag and push:
+3. Commit, push `staging` and open a pull request into `main`.
+4. After the merge, tag `main` and push the tag:
    ```powershell
-   git commit -am "chore(release): 0.12.1"
+   git switch main
+   git pull
    git tag v0.12.1
-   git push origin main v0.12.1
+   git push origin v0.12.1
    ```
 
 The [release workflow](.github/workflows/release.yml) then builds both executables and publishes a GitHub release with both changelog sections as bilingual release notes.
