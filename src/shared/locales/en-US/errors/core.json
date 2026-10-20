@@ -58,6 +58,7 @@
     "vaultWriteReadOnly": "The vault file is read-only.",
     "vaultWriteLocked": "The vault file is locked by another program.",
     "vaultWriteFolderUnreachable": "The folder of the vault file cannot be reached.",
-    "vaultWriteDiskFull": "There is no space left on the drive."
+    "vaultWriteDiskFull": "There is no space left on the drive.",
+    "settingsWriteFailed": "The settings could not be saved."
   }
 }

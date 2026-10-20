@@ -42,8 +42,8 @@ describe('app settings', () => {
   });
 
   it('writes into a missing file and never throws', () => {
-    writeAppSettings(file, { language: 'de-DE' });
+    expect(writeAppSettings(file, { language: 'de-DE' })).toBe(true);
     expect(readAppSettings(file).language).toBe('de-DE');
-    expect(() => writeAppSettings(join(dir, 'missing', 'x', 'settings.json'), { language: 'de-DE' })).not.toThrow();
+    expect(writeAppSettings(join(dir, 'missing', 'x', 'settings.json'), { language: 'de-DE' })).toBe(false);
   });
 });

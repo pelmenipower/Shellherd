@@ -22,8 +22,6 @@ export class SudoWatcher {
 
   /** Prompts seen before readiness. */
   get count(): number { return this.prompts; }
-  /** False once the ready marker was seen. */
-  get armed(): boolean { return !this.done; }
   get holding(): boolean { return this.held.length > 0; }
 
   feed(chunk: Buffer): { output: Buffer; prompts: number; ready: boolean } {

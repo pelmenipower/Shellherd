@@ -67,6 +67,8 @@ Right-click pastes the clipboard text into the terminal you clicked.
 Pasting goes through xterm and respects the server's bracketed paste mode.
 The usual copy and paste shortcuts remain available.
 
+File view: `Edit` opens only text, configuration and source files in the default program, everything else in Notepad.
+
 ## Settings
 
 The gear on the right of the header opens the settings, as does `Ctrl+,`. Before unlocking, the `Settings` link at the bottom of the start card leads there. Every value applies immediately; there is no “Save”. Detached windows have no settings of their own; language and the vault setting still apply there. While an RDP session has the focus, shortcuts go to the remote computer, `Ctrl+,` included.

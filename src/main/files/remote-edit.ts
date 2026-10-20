@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { EditedFile, EditorChoice } from '../../shared/sftp';
-import { FileError, fileError } from './file-system';
+import { FileError, fileError, unsafeLocalName } from './file-system';
 import type { RemoteFileSystem } from './sftp-file-system';
 
 const MAX_EDIT_SIZE = 50 * 1024 * 1024;
@@ -52,6 +52,7 @@ export class RemoteEdits {
     if (entry.type === 'directory') throw new FileError('files.directoryNotEditable');
     if (entry.size > MAX_EDIT_SIZE) throw new FileError('files.tooLargeToEdit');
     const name = posix.basename(remotePath);
+    if (unsafeLocalName(name)) throw new FileError('files.unsafeName', { name });
     const dir = await mkdtemp(join(tmpdir(), 'shellherd-edit-'));
     const localPath = join(dir, name);
     try {
@@ -86,7 +87,7 @@ export class RemoteEdits {
         this.update(edit, { state: 'conflict', error: { code: 'files.changedOnServer' } });
         return;
       }
-      await pipeline(createReadStream(edit.localPath), this.fs.write(edit.info.remotePath));
+      await pipeline(createReadStream(edit.localPath), this.fs.write(edit.info.remotePath, remote?.mode));
       edit.remoteModified = (await this.fs.stat(edit.info.remotePath))?.modified ?? Date.now();
       this.update(edit, { state: 'saved', savedAt: Date.now() });
     } catch (error) {

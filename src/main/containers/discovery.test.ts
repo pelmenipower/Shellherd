@@ -226,7 +226,7 @@ describe('ContainerDiscovery over SSH', () => {
     const discovery = new ContainerDiscovery({ getConnection: () => connection, openRemote: async () => host, runLocal: vi.fn(), sudoRejections });
     expect((await discovery.list('h1')).problems.proxmox).toEqual({ code: SUDO_REJECTED });
     expect(host.sudo.filter(Boolean)).toHaveLength(0);
-    sudoRejections.clear('h1');
+    sudoRejections.clearAll();
     host.run = async (command, _timeout, prompt) => {
       host.sudo.push(prompt);
       return command === PROBE ? ok('has:pct\n') : { code: null, stdout: '', stderr: '', sudoRejected: true };

@@ -97,7 +97,6 @@ describe('SudoWatcher', () => {
     const result = watcher.feed(bytes(`\r\n${READY}shell$ ${PROMPT}`));
     expect(result).toMatchObject({ prompts: 0, ready: true });
     expect(result.output.toString('utf8')).toBe(`\r\nshell$ ${PROMPT}`);
-    expect(watcher.armed).toBe(false);
     const later = watcher.feed(bytes(`${PROMPT}[`));
     expect(later).toMatchObject({ prompts: 0, ready: false });
     expect(later.output.toString('utf8')).toBe(`${PROMPT}[`);

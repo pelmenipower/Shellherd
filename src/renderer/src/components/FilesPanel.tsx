@@ -8,8 +8,8 @@ import type { ConnectionErrorCode } from '../../../shared/connection-errors';
 import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
 import type { ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob, TransferState } from '../../../shared/sftp';
 import type { FileSide } from '../file-browser';
-import { errorText } from '../error-text';
-import { formatDate, formatSize, ipcErrorText, isFinished, jobPercent, joinPath } from '../file-browser';
+import { errorText, IPC_PREFIX } from '../error-text';
+import { formatDate, formatSize, isFinished, jobPercent, joinPath } from '../file-browser';
 import { formatDateTime } from '../../../shared/format';
 import { useT } from '../i18n';
 import { liveSessions } from '../session-registry';
@@ -51,7 +51,7 @@ const EDIT_STATE_KEYS = {
 
 /** A rejected open as coded error; foreign text stays raw detail for the card. */
 function codedFailure(error: Error): CodedError {
-  return decodeError(error.message) ?? { code: 'core.unknown', detail: truncateDetail(error.message.replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, '')) };
+  return decodeError(error.message) ?? { code: 'core.unknown', detail: truncateDetail(error.message.replace(IPC_PREFIX, '')) };
 }
 
 function readSnapshot(adopt?: AdoptedSession): FilesSnapshot {
@@ -64,6 +64,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   // load() must keep a stable identity or the connection effect would reconnect on a language change.
   const tRef = useRef(t);
   tRef.current = t;
+  const fail = (error: unknown) => errorText(error, tRef.current('files:actionFailed'));
   const [status, setStatus] = useState<SftpStatus>(initialStatus ?? 'connecting');
   const [failure, setFailure] = useState<{ code?: ConnectionErrorCode; error?: CodedError }>({});
   const [endedAt, setEndedAt] = useState(() => Date.now());
@@ -98,7 +99,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     } catch (error) {
       if (request !== requests.current[side]) return;
       // The previous folder stays visible; only the message is new.
-      setListings(current => ({ ...current, [side]: { ...current[side], loading: false, error: ipcErrorText(error, tRef.current('files:panel.openFolderFailed')) } }));
+      setListings(current => ({ ...current, [side]: { ...current[side], loading: false, error: errorText(error, tRef.current('files:panel.openFolderFailed')) } }));
     }
   }, []);
   const refresh = useCallback((side: FileSide): void => { const path = paths.current[side]; if (path) void load(side, path); }, [load]);
@@ -111,7 +112,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
       setDrives(places.drives);
       setHomes(current => ({ ...current, local: places.home }));
       void load('local', paths.current.local ?? places.home);
-    }).catch(error => setListings(current => ({ ...current, local: { ...current.local, error: ipcErrorText(error) } })));
+    }).catch(error => setListings(current => ({ ...current, local: { ...current.local, error: fail(error) } })));
     return () => { disposed = true; };
   }, [load]);
 
@@ -129,7 +130,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
         if (disposed) return;
         setHomes(current => ({ ...current, remote: home }));
         void load('remote', paths.current.remote ?? home);
-      }).catch(error => { if (!disposed) setListings(current => ({ ...current, remote: { ...current.remote, error: ipcErrorText(error) } })); });
+      }).catch(error => { if (!disposed) setListings(current => ({ ...current, remote: { ...current.remote, error: fail(error) } })); });
     };
     const unsubscribe = window.desktopApi.onSftpEvent(event => {
       if (event.sessionId !== id || disposed) return;
@@ -193,7 +194,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const run = async (action: () => Promise<unknown>, side?: FileSide): Promise<boolean> => {
     setBusy(true); setActionError(null);
     try { await action(); return true; }
-    catch (error) { setActionError(ipcErrorText(error)); return false; }
+    catch (error) { setActionError(fail(error)); return false; }
     finally { setBusy(false); if (side) refresh(side); }
   };
   const transfer = (from: FileSide, sources: string[], move: boolean, targetDir?: string): void => {
@@ -204,7 +205,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const answer = (choice: ConflictChoice, applyToAll: boolean): void => {
     if (!conflict || !sessionId) return;
     setConflict(null);
-    void window.desktopApi.sftpResolve({ sessionId, conflictId: conflict.conflictId, choice, applyToAll }).catch(error => setActionError(ipcErrorText(error)));
+    void window.desktopApi.sftpResolve({ sessionId, conflictId: conflict.conflictId, choice, applyToAll }).catch(error => setActionError(fail(error)));
   };
   const remoteReady = status === 'connected' && !!sessionId;
   const remoteNotice = status === 'connected' ? undefined
@@ -251,9 +252,9 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
         <DisconnectedBar reason={failure.code === 'closed-by-server' ? 'server' : 'session'} endedAt={endedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />
       )}
       {edits.length > 0 && sessionId && <EditList edits={edits}
-        onOpen={editId => void window.desktopApi.sftpEditOpen({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}
-        onUpload={editId => void window.desktopApi.sftpEditUpload({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}
-        onClose={editId => void window.desktopApi.sftpEditClose({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))} />}
+        onOpen={editId => void window.desktopApi.sftpEditOpen({ sessionId, editId }).catch(error => setActionError(fail(error)))}
+        onUpload={editId => void window.desktopApi.sftpEditUpload({ sessionId, editId }).catch(error => setActionError(fail(error)))}
+        onClose={editId => void window.desktopApi.sftpEditClose({ sessionId, editId }).catch(error => setActionError(fail(error)))} />}
       {pendingPermissions && <PermissionsDialog entries={pendingPermissions.entries} busy={busy} onCancel={() => setPendingPermissions(null)}
         onApply={(mode, recursive) => void run(() => window.desktopApi.sftpChmod({ sessionId: sessionId!, paths: pendingPermissions.paths, mode, recursive }), 'remote')
           .then(done => { if (done) setPendingPermissions(null); })} />}

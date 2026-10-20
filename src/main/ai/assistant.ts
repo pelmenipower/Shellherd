@@ -3,7 +3,7 @@ import type { AiAskRequest, AiCatalog, AiEvent, AiTerminalContext } from '../../
 import type { Locale } from '../../shared/locale';
 import { mainTFor } from '../i18n';
 import { localeStore } from '../locale';
-import { codedFrom } from '../../shared/errors';
+import { codedFrom, limitError } from '../../shared/errors';
 import { AiError, streamChat } from './providers';
 
 const MAX_PARALLEL = 3;
@@ -67,7 +67,7 @@ export class AssistantService {
       .then(() => emit({ type: 'done', requestId: request.requestId }))
       .catch(error => {
         if (controller.signal.aborted) emit({ type: 'done', requestId: request.requestId });
-        else emit({ type: 'error', requestId: request.requestId, error: codedFrom(error, 'ai.requestFailed') });
+        else emit({ type: 'error', requestId: request.requestId, error: limitError(codedFrom(error, 'ai.requestFailed')) });
       })
       .finally(() => this.running.delete(request.requestId));
   }

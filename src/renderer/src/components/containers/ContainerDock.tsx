@@ -4,7 +4,7 @@ import { containerConnection, type TerminalConnection } from '../../terminal-tab
 import { actionUnavailable } from '../../container-commands';
 import { dockTerminalKey } from '../../container-view';
 import { terminalTargetOf, type ContainerMenuTarget } from '../../container-menus';
-import { ipcMessage } from '../../container-tree';
+import { errorText } from '../../error-text';
 import { TerminalPanel } from '../TerminalPanel';
 import '../../kubernetes-dock.css';
 import { liveSessions } from '../../session-registry';
@@ -72,7 +72,7 @@ export function ContainerDock(props: ContainerDockProps) {
     let cancelled = false;
     window.desktopApi.containersInspect({ hostId: connection.id, ref: row.ref }).then(
       text => { if (!cancelled) setResult({ id: inspectId, text }); },
-      caught => { if (!cancelled) setResult({ id: inspectId, error: ipcMessage(caught, t('containers:dock.inspectFailed')) }); },
+      caught => { if (!cancelled) setResult({ id: inspectId, error: errorText(caught, t('containers:dock.inspectFailed')) }); },
     );
     return () => { cancelled = true; };
     // inspectId stands for `row`: a new row object with the same uid is the same request.

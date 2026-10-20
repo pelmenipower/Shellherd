@@ -5,11 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 const PORT = Number(process.env.DRIVER_PORT ?? 9333);
-const VAULT = path.join(process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run'), 'profile', 'demo.term');
+const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
+const VAULT = path.join(RUN_DIR, 'profile', 'demo.term');
 const PASSWORD = 'synthetic-vault-demo';
 
 async function call(route, body, query = '') {
-  const response = await fetch(`http://127.0.0.1:${PORT}/${route}${query}`, { method: body === undefined ? 'GET' : 'POST', body });
+  const response = await fetch(`http://127.0.0.1:${PORT}/${route}${query}`, { method: body === undefined ? 'GET' : 'POST', body, headers: { 'x-driver-token': fs.readFileSync(path.join(RUN_DIR, 'token'), 'utf8') } });
   const text = await response.text();
   if (!response.ok) throw new Error(`/${route}: ${text}`);
   return JSON.parse(text);

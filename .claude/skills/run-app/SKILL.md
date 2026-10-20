@@ -20,11 +20,14 @@ npx electron-vite build          # out/ muss aktuell sein; nach jedem Build den 
 npm run drive:sshd               # Hintergrund: SSH-Testserver 127.0.0.1:2222
 npm run drive                    # Hintergrund: App + Treiber, meldet "driver ready on 9333"
 node .claude/skills/run-app/demo-setup.mjs   # Demo-Vault anlegen oder entsperren
-curl -s "http://127.0.0.1:9333/ss?name=start&crop=status"
-curl -s http://127.0.0.1:9333/quit          # am Ende; Testserver-Prozess ebenfalls beenden
+T="x-driver-token: $(cat "$TEMP/shellherd-run/token")"   # nach dem Start des Treibers
+curl -s -H "$T" "http://127.0.0.1:9333/ss?name=start&crop=status"
+curl -s -H "$T" http://127.0.0.1:9333/quit          # am Ende; Testserver-Prozess ebenfalls beenden
 ```
 
-Bereitschaft abwarten: `for i in $(seq 1 60); do curl -s -m 2 http://127.0.0.1:9333/windows && break; sleep 1; done`.
+Bereitschaft abwarten: `for i in $(seq 1 60); do curl -sf -m 2 -H "x-driver-token: $(cat "$TEMP/shellherd-run/token" 2>/dev/null)" http://127.0.0.1:9333/windows && break; sleep 1; done` (`-f`, weil ein altes Token sonst mit 403 die Schleife beendet).
+
+**Treiber-Token:** Der Treiber schreibt bei jedem Start ein neues Token nach `%TEMP%\shellherd-run\token`. Jede Anfrage braucht den Header `x-driver-token` (ohne Header oder mit `Origin`: 403), sonst könnte jede Website per `POST` an `127.0.0.1:9333` Code in der App ausführen. Alle `curl`-Beispiele unten verwenden `-H "$T"`.
 
 Screenshots landen in `%TEMP%\shellherd-run\shots` (Override: `SCREENSHOT_DIR`). **Screenshot immer ansehen** (Read auf die PNG) – ein leeres Fenster ist ein Startfehler.
 

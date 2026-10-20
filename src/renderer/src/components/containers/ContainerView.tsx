@@ -11,7 +11,6 @@ import { primaryFilterColumn } from '../../container-columns';
 import { menuFor, terminalTargetOf, type ContainerMenuTarget } from '../../container-menus';
 import { runMenuAction, type ContainerMenuRunner } from '../../container-menu-run';
 import { containerViewReducer, initialContainerViewState, loadedLabel, rootlessHint, tabStatus, visibleRows } from '../../container-view';
-import { ipcMessage } from '../../container-tree';
 import { errorText } from '../../error-text';
 import { copiedMessage } from '../../kube-copy';
 import { useT } from '../../i18n';
@@ -111,7 +110,7 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
     try {
       await window.desktopApi.containersAction({ hostId: connection.id, target: row.ref, action });
     } catch (caught) {
-      say(ipcMessage(caught, t('containers:actionFailed')));
+      say(errorText(caught, t('containers:actionFailed')));
     } finally {
       dispatch({ type: 'busy', uid: row.uid });
       reload();

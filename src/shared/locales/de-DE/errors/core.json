@@ -58,6 +58,7 @@
     "vaultWriteReadOnly": "Die Vault-Datei ist schreibgeschützt.",
     "vaultWriteLocked": "Die Vault-Datei ist von einem anderen Programm gesperrt.",
     "vaultWriteFolderUnreachable": "Der Ordner der Vault-Datei ist nicht erreichbar.",
-    "vaultWriteDiskFull": "Auf dem Laufwerk ist kein Platz mehr."
+    "vaultWriteDiskFull": "Auf dem Laufwerk ist kein Platz mehr.",
+    "settingsWriteFailed": "Die Einstellungen konnten nicht gespeichert werden."
   }
 }

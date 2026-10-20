@@ -29,6 +29,7 @@ import { clearNotices, notify } from './notice-store';
 import { onEditRequest } from './edit-request';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
+import { usePersistVault } from './hooks/usePersistVault';
 import { containerConnection, containerViewConnection, isRunning, planContainerView, tabLabel, toTerminalConnection } from './terminal-tabs';
 import type { TerminalConnection, TerminalTab } from './terminal-tabs';
 import { newClusterFromSsh } from './cluster-form';
@@ -146,7 +147,6 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const saveInProgress = useRef(false);
 
   const [selectedVaultPath, setSelectedVaultPath] = useState('');
 
@@ -168,9 +168,7 @@ export default function App() {
   // Announce readiness after the transfer listeners above are registered.
   useEffect(() => { void window.desktopApi.windowReady(); }, []);
   const containerDiscovery = useContainerDiscovery();
-  // Latest vault for the retry action of a failed save (B9).
-  const vaultRef = useRef(vault);
-  vaultRef.current = vault;
+  const persistVault = usePersistVault(vault, { setVault, setVaultPath, setBusy, setSaved });
   const vaultId = vault?.id;
   const { load: loadContainers } = containerDiscovery;
   // Local discovery once per unlocked vault.
@@ -272,7 +270,7 @@ export default function App() {
     onCancel={() => setPendingVaultFile(null)} onConfirm={() => {
       const filePath = pendingVaultFile;
       setPendingVaultFile(null);
-      void lockVault().then(() => { setScreen('open'); setSelectedVaultPath(filePath); });
+      void lockVault().catch(() => {}).then(() => { setScreen('open'); setSelectedVaultPath(filePath); });
     }} />;
   const fileDropHint = fileDragActive && <div className="file-drop-hint" aria-hidden="true">{t('app:fileDrop.hint')}</div>;
 
@@ -460,40 +458,6 @@ export default function App() {
     if (await persistVault(updatedVault)) {
       setFolderName('');
       setShowFolderForm(false);
-    }
-  }
-
-  async function persistVault(updatedVault: Vault, failureTitle?: string): Promise<boolean> {
-    if (!vault || saveInProgress.current) return false;
-    saveInProgress.current = true;
-    const previousVault = vault;
-    setSaved(false);
-    setBusy(true);
-    setVault(updatedVault);
-    try {
-      const result = await window.desktopApi.saveCurrentVault({ vault: updatedVault });
-      setVault(result.vault);
-      setVaultPath(result.filePath);
-      setSaved(true);
-      return true;
-    } catch (caughtError) {
-      setVault(previousVault);
-      notify.error(failureTitle ?? t('app:notices.vaultNotSaved'), {
-        body: errorText(caughtError, t('app:errors.vaultFailed')),
-        action: {
-          label: t('common:actions.retry'),
-          // Only retry on the state the failed save started from; a newer save must not be overwritten.
-          run: () => {
-            if (saveInProgress.current) notify.info(t('app:notices.notRetried'), { body: t('app:notices.retryBusy') });
-            else if (vaultRef.current === previousVault) void persistVault(updatedVault, failureTitle);
-            else notify.info(t('app:notices.notRetried'), { body: t('app:notices.retryChanged') });
-          },
-        },
-      });
-      return false;
-    } finally {
-      saveInProgress.current = false;
-      setBusy(false);
     }
   }
 

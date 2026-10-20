@@ -1,4 +1,3 @@
-import { errorText } from './error-text';
 import { t } from './i18n';
 import { compareText, formatDateTime, formatNumber } from '../../shared/format';
 import type { FileEntry, TransferJob } from '../../shared/sftp';
@@ -95,11 +94,6 @@ export function jobPercent(job: TransferJob): number {
 }
 
 export function isFinished(job: TransferJob): boolean { return job.state !== 'queued' && job.state !== 'running'; }
-
-/** Coded main errors become catalog text; foreign errors lose Electron's prefix. */
-export function ipcErrorText(error: unknown, fallback?: string): string {
-  return errorText(error, fallback ?? t('files:actionFailed'));
-}
 
 /** Octal text (`644`, `0755`) to permission bits; null when invalid. */
 export function parseMode(text: string): number | null {

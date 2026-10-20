@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, webContents } from 'electron';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { parseRequest } from '../ssh/validation';
 import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { findConnection } from '../ssh/session';
@@ -18,12 +19,6 @@ const SessionSchema = z.object(session).strict();
 const BoundsSchema = z.object({ ...session, bounds: Rect }).strict();
 const VisibleSchema = z.object({ ...session, visible: z.boolean() }).strict();
 const ActionSchema = z.object({ ...session, action: z.enum(RDP_ACTIONS) }).strict();
-
-function parse<T>(schema: z.ZodType<T>, request: unknown): T {
-  const result = schema.safeParse(request);
-  if (!result.success) throw new AppError('core.invalidRdpRequest');
-  return result.data;
-}
 
 export function rdpSurfaceMode(): RdpSurfaceMode {
   return process.env.SHELLHERD_RDP_MODE === 'child' ? 'child' : 'owned';
@@ -52,20 +47,20 @@ export function registerRdpIpcHandlers(): RdpSessionManager {
   });
   ipcMain.handle(IPC_CHANNELS.rdpOpen, (event, request: unknown) => {
     const ownerId = requireSshSender(event);
-    return manager.open(ownerId, BrowserWindow.fromWebContents(event.sender)!, parse(OpenSchema, request));
+    return manager.open(ownerId, BrowserWindow.fromWebContents(event.sender)!, parseRequest(OpenSchema, request, 'core.invalidRdpRequest'));
   });
   ipcMain.handle(IPC_CHANNELS.rdpBounds, (event, request: unknown) => {
-    const parsed = parse(BoundsSchema, request);
+    const parsed = parseRequest(BoundsSchema, request, 'core.invalidRdpRequest');
     manager.bounds(requireSshSender(event), parsed.sessionId, parsed.bounds);
   });
   ipcMain.handle(IPC_CHANNELS.rdpVisible, (event, request: unknown) => {
-    const parsed = parse(VisibleSchema, request);
+    const parsed = parseRequest(VisibleSchema, request, 'core.invalidRdpRequest');
     manager.visible(requireSshSender(event), parsed.sessionId, parsed.visible);
   });
-  ipcMain.handle(IPC_CHANNELS.rdpFocus, (event, request: unknown) => manager.focus(requireSshSender(event), parse(SessionSchema, request).sessionId));
-  ipcMain.handle(IPC_CHANNELS.rdpClose, (event, request: unknown) => manager.close(requireSshSender(event), parse(SessionSchema, request).sessionId));
+  ipcMain.handle(IPC_CHANNELS.rdpFocus, (event, request: unknown) => manager.focus(requireSshSender(event), parseRequest(SessionSchema, request, 'core.invalidRdpRequest').sessionId));
+  ipcMain.handle(IPC_CHANNELS.rdpClose, (event, request: unknown) => manager.close(requireSshSender(event), parseRequest(SessionSchema, request, 'core.invalidRdpRequest').sessionId));
   ipcMain.handle(IPC_CHANNELS.rdpAction, (event, request: unknown) => {
-    const parsed = parse(ActionSchema, request);
+    const parsed = parseRequest(ActionSchema, request, 'core.invalidRdpRequest');
     manager.action(requireSshSender(event), parsed.sessionId, parsed.action);
   });
   return manager;

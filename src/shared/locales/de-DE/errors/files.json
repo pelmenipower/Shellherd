@@ -4,6 +4,7 @@
     "deleteCanceled": "Löschen abgebrochen.",
     "tooManyPlanned": "Mehr als {{max}} Dateien und Ordner auf einmal werden nicht übertragen.",
     "sourceNotFound": "„{{name}}“ wurde nicht gefunden.",
+    "unsafeName": "Der Dateiname „{{name}}“ ist unter Windows nicht erlaubt.",
     "existsAsFile": "„{{name}}“ existiert im Ziel bereits als Datei.",
     "existsAsDirectory": "„{{name}}“ existiert im Ziel bereits als Ordner.",
     "fileNotFound": "Die Datei wurde nicht gefunden.",

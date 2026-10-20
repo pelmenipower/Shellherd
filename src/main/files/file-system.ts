@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { access, lstat, mkdir, readdir, rename, rmdir, stat, unlink, utimes } from 'node:fs/promises';
+import { access, lstat, mkdir, readdir, realpath, rename, rmdir, stat, unlink, utimes } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { win32 } from 'node:path';
@@ -16,12 +16,15 @@ export interface FileSystem {
   stat: (path: string) => Promise<FileEntry | null>;
   mkdir: (path: string) => Promise<void>;
   read: (path: string) => Readable;
-  write: (path: string) => Writable;
+  /** Servers set `mode` on new and existing files alike (default 0644), so pass the old mode when overwriting; this computer ignores it. */
+  write: (path: string, mode?: number) => Writable;
   setModified: (path: string, modified: number) => Promise<void>;
   removeFile: (path: string) => Promise<void>;
   /** Only empty directories. */
   removeDirectory: (path: string) => Promise<void>;
   rename: (from: string, to: string) => Promise<void>;
+  /** Resolves links to the real path. */
+  realpath: (path: string) => Promise<string>;
 }
 
 const MAX_ENTRIES = 50_000;
@@ -42,6 +45,11 @@ export function fileError(error: unknown): CodedError {
   if (code === 4) return { code: 'files.serverRejected' };
   return { code: 'files.failed' };
 }
+
+/** Names Windows cannot store safely: separators, drive/stream colons, control chars, trailing dot/space, device names. */
+export const unsafeLocalName = (name: string): boolean =>
+  name === '' || name === '.' || name === '..' || /[\\/:*?"<>|\x00-\x1f]/.test(name) || /[. ]$/.test(name)
+  || /^(con|prn|aux|nul|com[1-9]|lpt[1-9]|conin\$|conout\$)(\..*)?$/i.test(name);
 
 /** Runs `task` for every item with at most `limit` running at once. */
 export async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
@@ -86,6 +94,7 @@ export const localFileSystem: FileSystem = {
   removeFile: path => unlink(path),
   removeDirectory: path => rmdir(path),
   rename: (from, to) => rename(from, to),
+  realpath: path => realpath(path),
 };
 
 /** Home folder and the drives that exist. */

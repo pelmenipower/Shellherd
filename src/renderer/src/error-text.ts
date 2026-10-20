@@ -1,7 +1,7 @@
 import { decodeError, isCodedError, truncateDetail, type CodedError } from '../../shared/errors';
 import { i18n, t } from './i18n';
 
-const IPC_PREFIX = /^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/;
+export const IPC_PREFIX = /^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/;
 
 function codedText({ code, params, detail, causes }: CodedError): string {
   const key = `errors:${code}`;

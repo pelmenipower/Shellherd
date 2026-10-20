@@ -2,18 +2,15 @@ import { constants } from 'node:fs';
 import {
   copyFile,
   mkdir,
+  open,
   readFile,
   rename,
   rm,
-  writeFile,
 } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 
-import {
-  decryptVault,
-  encryptVault,
-} from './crypto';
+import { encryptVault } from './crypto';
 import { AppError } from '../../shared/errors';
 import { EncryptedVaultFileSchema } from '../../shared/vault/schema';
 
@@ -50,10 +47,14 @@ export async function writeEncryptedVaultFile(
   });
 
   try {
-    await writeFile(temporaryPath, serializedVault, {
-      encoding: 'utf8',
-      mode: 0o600,
-    });
+    // fsync before rename so a crash cannot leave an empty vault file.
+    const handle = await open(temporaryPath, 'w', 0o600);
+    try {
+      await handle.writeFile(serializedVault, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
 
     await rename(temporaryPath, finalPath);
   } finally {
@@ -125,18 +126,5 @@ export async function saveVault(
   return writeEncryptedVaultFile(
     filePath,
     encryptedVault,
-  );
-}
-
-export async function loadVault(
-  filePath: string,
-  password: string,
-): Promise<Vault> {
-  const encryptedVault =
-    await readEncryptedVaultFile(filePath);
-
-  return decryptVault(
-    encryptedVault,
-    password,
   );
 }

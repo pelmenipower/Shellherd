@@ -4,6 +4,7 @@
     "deleteCanceled": "Delete canceled.",
     "tooManyPlanned": "More than {{max}} files and folders cannot be transferred at once.",
     "sourceNotFound": "“{{name}}” was not found.",
+    "unsafeName": "The file name “{{name}}” is not allowed on Windows.",
     "existsAsFile": "“{{name}}” already exists in the target as a file.",
     "existsAsDirectory": "“{{name}}” already exists in the target as a folder.",
     "fileNotFound": "The file was not found.",

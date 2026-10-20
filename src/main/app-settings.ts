@@ -22,11 +22,12 @@ export function readAppSettings(file: string): AppSettings {
   return { language: language.success ? language.data : DEFAULT_APP_SETTINGS.language };
 }
 
-/** Sync, best effort, never throws. Keeps unknown keys; writes `${file}.tmp` then renames. */
-export function writeAppSettings(file: string, patch: Partial<AppSettings>): void {
+/** Sync, never throws; false when the file could not be written. Keeps unknown keys; writes `${file}.tmp` then renames. */
+export function writeAppSettings(file: string, patch: Partial<AppSettings>): boolean {
   try {
     const tmp = `${file}.tmp`;
     writeFileSync(tmp, JSON.stringify({ ...readRaw(file), ...patch }, null, 2));
     renameSync(tmp, file);
-  } catch { /* best effort */ }
+    return true;
+  } catch { return false; }
 }

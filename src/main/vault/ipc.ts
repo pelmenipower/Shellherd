@@ -204,6 +204,8 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         const code = vaultWriteCode((error as NodeJS.ErrnoException)?.code);
         throw code ? new AppError(code) : error;
       }
+      // save may have renamed the file (extension added), so the stored path must follow.
+      await lastVault.set(result.filePath);
       onVaultChange();
       return result;
     },

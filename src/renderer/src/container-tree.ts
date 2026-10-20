@@ -83,7 +83,3 @@ export function itemCommands(item: DiscoveredItem): ItemCommand[] {
 export function hasUsableLocalRuntime(result: DiscoveryResult): boolean {
   return runtimeEntries(result).length > 0;
 }
-
-export function ipcMessage(error: unknown, fallback: string): string {
-  return errorText(error, fallback);
-}

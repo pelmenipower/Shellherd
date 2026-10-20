@@ -4,7 +4,8 @@ import type { TerminalTab } from '../terminal-tabs';
 import { shellOf, tabLabel } from '../terminal-tabs';
 import { typeIntoTerminal } from '../terminal-input';
 import { liveSessions } from '../session-registry';
-import { compactMessage, historyForRequest, insertableCommand, isFinished, outputMessage, parseAnswer, questionMessage, SCREEN_LINES } from '../assistant-chat';
+import type { TerminalMark } from '../terminal-access';
+import { compactMessage, historyForRequest, insertableCommand, outputMessage, parseAnswer, questionMessage, SCREEN_LINES } from '../assistant-chat';
 import { errorText } from '../error-text';
 import { Trans, useT } from '../i18n';
 import '../assistant-ui.css';
@@ -40,9 +41,12 @@ interface ChatEntry {
 interface Conversation {
   entries: ChatEntry[];
   /** A typed command waits for Enter; output after `line` belongs to it. */
-  awaiting?: { line: number; command: string };
+  awaiting?: { mark: TerminalMark; command: string };
   output?: { command: string; text: string };
 }
+
+/** Drops the wait for a typed command and frees its terminal mark. */
+const clearAwaiting = (current: Conversation): Conversation => { current.awaiting?.mark.dispose(); return { ...current, awaiting: undefined }; };
 
 const PROVIDER_KEY = 'shellherd.aiProvider';
 const AUTO_KEY = 'shellherd.aiStepByStep';
@@ -50,9 +54,9 @@ const read = (key: string): string | null => { try { return localStorage.getItem
 const write = (key: string, value: string): void => { try { localStorage.setItem(key, value); } catch { /* per-window convenience only */ } };
 
 /**
- * Terminal assistant: reads the focused terminal and types suggested commands into the input line
- * without pressing Enter. After the user runs a command it reads the output and, step by step,
- * suggests the next command until the goal is reached. It explains only when asked.
+ * Terminal assistant: reads the focused terminal and suggests commands; only the user's click on
+ * "Type in" writes one into the input line, never with Enter. After the user runs a command it reads
+ * the output and, step by step, suggests the next command until the goal is reached. It explains only when asked.
  */
 export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, onSaveWorkflow }: AssistantPanelProps) {
   const { t } = useT();
@@ -91,9 +95,15 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
 
   /** Types a command into the terminal; never adds Enter. */
   const typeCommand = useCallback((tabId: string, entryId: string, command: string): void => {
-    void typeIntoTerminal(tabsRef.current.find(item => item.id === tabId), command).then(result =>
-      updateEntry(tabId, entryId, 'typed' in result ? { inserted: result.typed, note: undefined } : { note: result.reason }));
-  }, [updateEntry]);
+    void typeIntoTerminal(tabsRef.current.find(item => item.id === tabId), command).then(result => {
+      if (!('typed' in result)) { updateEntry(tabId, entryId, { note: result.reason }); return; }
+      updateEntry(tabId, entryId, { inserted: result.typed, note: undefined });
+      const access = liveSessions.get(tabId)?.terminal;
+      // The echo of the typed command arrives first; output after Enter starts below it.
+      // The mark is created outside the updater: StrictMode runs updaters twice and would leak one.
+      if (access) setTimeout(() => { const mark = access.mark(); update(tabId, current => ({ ...clearAwaiting(current), output: undefined, awaiting: { mark, command: result.typed } })); }, 400);
+    });
+  }, [update, updateEntry]);
 
   const send = useCallback((tabId: string, shown: string, content: string, compact: string, automatic = false): void => {
     const target = tabsRef.current.find(item => item.id === tabId);
@@ -106,7 +116,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
     // Earlier turns go out in their short form; only this turn carries the full terminal text.
     const history = historyForRequest([...previous.entries.filter(entry => !entry.pending && !entry.error)
       .map(entry => ({ role: entry.role, content: entry.role === 'user' ? entry.compact : entry.content })), { role: 'user' as const, content }]);
-    update(tabId, current => ({ ...current, awaiting: undefined, output: undefined, entries: [...current.entries, user, answer] }));
+    update(tabId, current => ({ ...clearAwaiting(current), output: undefined, entries: [...current.entries, user, answer] }));
     requests.current.set(requestId, { tabId, entryId: answer.id, text: '' });
     void window.desktopApi.aiAsk({ requestId, ...(provider ? { providerId: provider.id } : {}), messages: history,
       context: { shell: targetShell, target: `${target.connection.name}, ${target.connection.address}` } })
@@ -116,29 +126,19 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
       });
   }, [provider, update, updateEntry]);
 
-  // Streamed answers: commands are typed as soon as their block is complete.
+  // Streamed answers.
   useEffect(() => window.desktopApi.onAiEvent(event => {
     const request = requests.current.get(event.requestId);
     if (!request) return;
     if (event.type === 'delta') {
-      const before = parseAnswer(request.text).some(segment => segment.type === 'command' && segment.complete);
       request.text += event.text;
       updateEntry(request.tabId, request.entryId, { content: request.text, shown: request.text });
-      const command = parseAnswer(request.text).find(segment => segment.type === 'command' && segment.complete);
-      if (!before && command?.type === 'command') typeCommand(request.tabId, request.entryId, command.command);
       return;
     }
     requests.current.delete(event.requestId);
     if (event.type === 'error') { updateEntry(request.tabId, request.entryId, { pending: false, error: errorText(event.error) }); return; }
     updateEntry(request.tabId, request.entryId, { pending: false });
-    const command = parseAnswer(request.text).find(segment => segment.type === 'command' && segment.complete);
-    const access = liveSessions.get(request.tabId)?.terminal;
-    if (!isFinished(request.text) && command?.type === 'command' && access && insertableCommand(command.command)) {
-      // The echo of the typed command arrives first; output after Enter starts below it.
-      setTimeout(() => update(request.tabId, current => ({ ...current, output: undefined,
-        awaiting: { line: access.cursorLine(), command: insertableCommand(command.command)! } })), 400);
-    }
-  }), [typeCommand, update, updateEntry]);
+  }), [updateEntry]);
 
   // Watches for the user running the typed command, then reads its output.
   const autoRef = useRef(autoEvaluate);
@@ -150,14 +150,15 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
       for (const [tabId, item] of Object.entries(conversations)) {
         const access = liveSessions.get(tabId)?.terminal;
         if (!item.awaiting || !access) continue;
-        if (access.cursorLine() <= item.awaiting.line || Date.now() - access.lastOutput() < 1500) continue;
-        const { command, line } = item.awaiting;
+        const line = item.awaiting.mark.line();
+        if (access.cursorLine() <= line || Date.now() - access.lastOutput() < 1500) continue;
+        const { command } = item.awaiting;
         const text = access.linesFrom(line, 300);
         if (autoRef.current) {
-          update(tabId, current => ({ ...current, awaiting: undefined }));
+          update(tabId, clearAwaiting);
           const message = outputMessage(command, text);
           sendRef.current(tabId, t('assistant:chat.outputRead', { command }), message, compactMessage(message), true);
-        } else update(tabId, current => ({ ...current, awaiting: undefined, output: { command, text } }));
+        } else update(tabId, current => ({ ...clearAwaiting(current), output: { command, text } }));
       }
     }, 500);
     return () => clearInterval(timer);
@@ -239,7 +240,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
           <div className="assistant-input-actions">
             <label><input type="checkbox" checked={autoEvaluate} onChange={event => { setAutoEvaluate(event.target.checked); write(AUTO_KEY, event.target.checked ? 'on' : 'off'); }} />
               {t('assistant:panel.autoEvaluate')}</label>
-            {tab && entries.length > 0 && !busy && <button type="button" className="secondary-button" onClick={() => setConversations(current => { const next = { ...current }; delete next[tab.id]; return next; })}>{t('assistant:panel.clear')}</button>}
+            {tab && entries.length > 0 && !busy && <button type="button" className="secondary-button" onClick={() => setConversations(current => { const next = { ...current }; next[tab.id]?.awaiting?.mark.dispose(); delete next[tab.id]; return next; })}>{t('assistant:panel.clear')}</button>}
             {busy ? <button type="button" className="secondary-button" onClick={stop}>{t('assistant:panel.stop')}</button>
               : <button type="submit" className="primary-button" disabled={!draft.trim() || !shell || !provider}>{t('assistant:panel.ask')}</button>}
           </div>

@@ -5,10 +5,9 @@ import {
 } from 'electron';
 
 import type { IpcRendererEvent } from 'electron';
-import type { SshEvent } from '../shared/ssh';
-import type { RdpEvent } from '../shared/rdp';
 import type { KubeEvent } from '../shared/kubernetes';
 import type { DesktopApi } from '../shared/ipc';
+import { LOCALE_ARG } from '../shared/locale';
 
 function subscribe<T>(channel: string, listener: (value: T) => void): () => void {
   const handler = (_event: IpcRendererEvent, value: T): void => listener(value);
@@ -16,7 +15,7 @@ function subscribe<T>(channel: string, listener: (value: T) => void): () => void
   return () => ipcRenderer.removeListener(channel, handler);
 }
 
-const localeArg = process.argv.find(arg => arg.startsWith('--shellherd-locale='))?.slice('--shellherd-locale='.length);
+const localeArg = process.argv.find(arg => arg.startsWith(LOCALE_ARG))?.slice(LOCALE_ARG.length);
 
 const desktopApi: DesktopApi = {
   windowReady: () => ipcRenderer.invoke('window:ready'),
@@ -65,22 +64,14 @@ const desktopApi: DesktopApi = {
   sshAck: request => ipcRenderer.invoke('ssh:ack', request),
   sshClose: request => ipcRenderer.invoke('ssh:close', request),
   sshAttach: request => ipcRenderer.invoke('ssh:attach', request),
-  onSshEvent: listener => {
-    const handler = (_event: IpcRendererEvent, event: SshEvent): void => listener(event);
-    ipcRenderer.on('ssh:event', handler);
-    return () => ipcRenderer.removeListener('ssh:event', handler);
-  },
+  onSshEvent: listener => subscribe('ssh:event', listener),
   rdpOpen: request => ipcRenderer.invoke('rdp:open', request),
   rdpBounds: request => ipcRenderer.invoke('rdp:bounds', request),
   rdpVisible: request => ipcRenderer.invoke('rdp:visible', request),
   rdpFocus: request => ipcRenderer.invoke('rdp:focus', request),
   rdpClose: request => ipcRenderer.invoke('rdp:close', request),
   rdpAction: request => ipcRenderer.invoke('rdp:action', request),
-  onRdpEvent: listener => {
-    const handler = (_event: IpcRendererEvent, event: RdpEvent): void => listener(event);
-    ipcRenderer.on('rdp:event', handler);
-    return () => ipcRenderer.removeListener('rdp:event', handler);
-  },
+  onRdpEvent: listener => subscribe('rdp:event', listener),
   kubeOpen: request => ipcRenderer.invoke('k8s:open', request),
   kubeSubscribe: request => ipcRenderer.invoke('k8s:subscribe', request),
   kubeDetail: request => ipcRenderer.invoke('k8s:detail', request),

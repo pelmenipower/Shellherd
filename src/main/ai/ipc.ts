@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain, webContents } from 'electron';
 import { z } from 'zod';
+import { parseRequest } from '../ssh/validation';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { AiProviderSchema } from '../../shared/vault/schema';
 import type { AiCatalog } from '../../shared/ai';
@@ -18,12 +19,6 @@ const AskSchema = z.object({
 }).strict().refine(request => request.messages.reduce((total, message) => total + message.content.length, 0) <= 256 * 1024);
 const CancelSchema = z.object({ requestId: z.string().uuid() }).strict();
 
-function parse<T>(schema: z.ZodType<T>, value: unknown): T {
-  const result = schema.safeParse(value);
-  if (!result.success) throw new AppError('ai.invalidRequest');
-  return result.data;
-}
-
 const userError = (error: unknown): Error => error instanceof AppError ? error : new AppError('ai.requestFailed');
 
 export function registerAiIpcHandlers(registry: WindowRegistry): { service: AssistantService; broadcast: () => void } {
@@ -37,14 +32,14 @@ export function registerAiIpcHandlers(registry: WindowRegistry): { service: Assi
   ipcMain.handle(IPC_CHANNELS.aiCatalog, event => { requireSshSender(event); return service.catalog(); });
   ipcMain.handle(IPC_CHANNELS.aiAsk, (event, request: unknown) => {
     const ownerId = requireSshSender(event);
-    try { service.ask(ownerId, parse(AskSchema, request)); } catch (error) { throw userError(error); }
+    try { service.ask(ownerId, parseRequest(AskSchema, request, 'ai.invalidRequest')); } catch (error) { throw userError(error); }
   });
-  ipcMain.handle(IPC_CHANNELS.aiCancel, (event, request: unknown) => service.cancel(requireSshSender(event), parse(CancelSchema, request).requestId));
+  ipcMain.handle(IPC_CHANNELS.aiCancel, (event, request: unknown) => service.cancel(requireSshSender(event), parseRequest(CancelSchema, request, 'ai.invalidRequest').requestId));
   // Settings form: may test a provider that is not saved yet, so only the main window may send keys here.
   ipcMain.handle(IPC_CHANNELS.aiTest, async (event, provider: unknown) => {
     registry.requireMain(event);
     vaultSessionManager.getSnapshot();
-    try { return await service.test(parse(AiProviderSchema, provider)); } catch (error) { throw userError(error); }
+    try { return await service.test(parseRequest(AiProviderSchema, provider, 'ai.invalidRequest')); } catch (error) { throw userError(error); }
   });
   return {
     service,

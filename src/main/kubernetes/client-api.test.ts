@@ -335,6 +335,19 @@ describe('createKubeApi client reuse', () => {
   });
 });
 
+describe('eventsFor', () => {
+  it('selects events by involved kind as well as name', async () => {
+    const fakeClient = { list: vi.fn(async () => ({ items: [], metadata: {} })) };
+    const spy = vi.spyOn(KubernetesObjectApi, 'makeApiClient').mockReturnValue(fakeClient as never);
+    try {
+      await createKubeApi(testConfig()).eventsFor({ kind: 'pods', namespace: 'shop', name: 'web' } as never);
+      expect((fakeClient.list.mock.calls[0] as unknown[])[6]).toContain('involvedObject.kind=Pod,');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe('manualJobBody', () => {
   const cron = {
     metadata: { name: 'backup', namespace: 'shop', uid: 'u-1', resourceVersion: '9', labels: { app: 'x' } },

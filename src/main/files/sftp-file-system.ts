@@ -31,7 +31,6 @@ const call = <T>(run: (callback: (error: Error | undefined | null, value: T) => 
   new Promise((resolve, reject) => run((error, value) => error ? reject(error) : resolve(value)));
 
 export interface RemoteFileSystem extends FileSystem {
-  realpath: (path: string) => Promise<string>;
   /** Does not follow links. */
   lstat: (path: string) => Promise<FileEntry | null>;
   chmod: (path: string, mode: number) => Promise<void>;
@@ -58,7 +57,7 @@ export function sftpFileSystem(sftp: SFTPWrapper): RemoteFileSystem {
     chmod: (path, mode) => call<void>(callback => sftp.chmod(path, mode, error => callback(error, undefined))),
     mkdir: path => call<void>(callback => sftp.mkdir(path, error => callback(error, undefined))),
     read: path => sftp.createReadStream(path, { highWaterMark: 256 * 1024 }),
-    write: path => sftp.createWriteStream(path),
+    write: (path, mode) => sftp.createWriteStream(path, { mode: mode ?? 0o644 }),
     setModified: (path, modified) => call<void>(callback => sftp.utimes(path, new Date(), new Date(modified), error => callback(error, undefined))),
     removeFile: path => call<void>(callback => sftp.unlink(path, error => callback(error, undefined))),
     removeDirectory: path => call<void>(callback => sftp.rmdir(path, error => callback(error, undefined))),

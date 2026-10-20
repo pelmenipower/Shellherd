@@ -11,10 +11,7 @@ import type { ErrorCode } from '../../shared/errors';
 import { validateVaultConsistency } from '../../shared/vault/consistency';
 import type { VaultConsistencyIssueCode } from '../../shared/vault/consistency';
 import { parseVaultDocument } from '../../shared/vault/migrations';
-import {
-  EncryptedVaultFileSchema,
-  VaultSchema,
-} from '../../shared/vault/schema';
+import { VaultSchema } from '../../shared/vault/schema';
 
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import type { Vault } from '../../shared/vault/types';
@@ -163,37 +160,17 @@ export function encryptDocumentWithKey(
   }
 }
 
-export async function decryptVault(
-  input: unknown,
-  password: string,
-): Promise<Vault> {
-  const unlocked = await unlockVault(input, password);
-
-  try {
-    return unlocked.vault;
-  } finally {
-    unlocked.key.fill(0);
-  }
-}
-
 /**
  * Entschlüsselt den Vault und gibt zusätzlich den abgeleiteten
  * Schlüssel zurück. Nur der Main Process darf diese Funktion
  * verwenden.
  */
 export async function unlockVault(
-  input: unknown,
+  file: EncryptedVaultFile,
   password: string,
 ): Promise<UnlockedVault> {
   assertPassword(password);
 
-  const parsedFile = EncryptedVaultFileSchema.safeParse(input);
-
-  if (!parsedFile.success) {
-    throw new AppError('core.vaultFileCorrupt');
-  }
-
-  const file = parsedFile.data;
   const salt = Buffer.from(file.kdf.salt, 'base64');
 
   assertLength(salt, SALT_LENGTH, 'core.vaultFileCorrupt');

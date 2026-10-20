@@ -3,6 +3,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { spawn } from 'node:child_process';
 import { extname, win32 } from 'node:path';
 import { z } from 'zod';
+import { parseRequest } from '../ssh/validation';
 import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import type { EditorChoice } from '../../shared/sftp';
@@ -39,8 +40,12 @@ const LocalOpenSchema = z.object({ path: localPath, editor }).strict();
 const EditSchema = z.object({ ...session, editId: z.string().uuid() }).strict();
 const ChmodSchema = z.object({ ...session, paths: z.array(remotePath).min(1).max(1000), mode: z.number().int().min(0).max(0o7777), recursive: z.boolean() }).strict();
 
-// Programs and scripts would run instead of opening; they and files without extension open in Notepad.
-const RUNNABLE = /^\.(exe|com|bat|cmd|ps1|psm1|psd1|vbs|vbe|js|jse|wsf|wsh|msi|msp|msc|lnk|url|scr|hta|cpl|jar|reg|pif|scf|inf|application|appref-ms|dll|sys)$/i;
+// Only types whose Windows association is a viewer or editor, never an interpreter. Everything else opens in Notepad.
+const EDITABLE = /^\.(txt|text|md|markdown|rst|json|json5|jsonc|yaml|yml|toml|ini|cfg|conf|config|properties|env|log|csv|tsv|xml|xsd|xsl|sql|diff|patch|c|h|cc|cpp|hpp|cs|java|go|rs|kt|swift|ts|tsx|jsx|css|scss|less|vue|svelte|graphql|proto|tf|hcl|service|timer)$/i;
+
+export function editorFor(path: string, editor: EditorChoice): EditorChoice {
+  return editor === 'notepad' || !EDITABLE.test(extname(path)) ? 'notepad' : 'default';
+}
 
 function openInNotepad(path: string): void {
   spawn(win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'notepad.exe'), [path], { detached: true, stdio: 'ignore' }).unref();
@@ -48,15 +53,7 @@ function openInNotepad(path: string): void {
 
 /** Opens an edited copy with the program Windows associates with it, never by running it. */
 export async function openForEditing(path: string, editor: EditorChoice = 'default'): Promise<void> {
-  const extension = extname(path);
-  if (editor === 'notepad' || !extension || RUNNABLE.test(extension)) { openInNotepad(path); return; }
-  if (await shell.openPath(path)) openInNotepad(path);
-}
-
-function parse<T>(schema: z.ZodType<T>, request: unknown): T {
-  const result = schema.safeParse(request);
-  if (!result.success) throw new AppError('files.invalidRequest');
-  return result.data;
+  if (editorFor(path, editor) === 'notepad' || await shell.openPath(path)) openInNotepad(path);
 }
 
 /** Registers a handler whose errors reach the window as readable text, never as internal details. */
@@ -64,7 +61,7 @@ function handle<T>(channel: string, schema: z.ZodType<T>, run: (ownerId: number,
   ipcMain.handle(channel, async (event: IpcMainInvokeEvent, request: unknown) => {
     const ownerId = requireSshSender(event);
     vaultSessionManager.getSnapshot();
-    const parsed = parse(schema, request);
+    const parsed = parseRequest(schema, request, 'files.invalidRequest');
     try { return await run(ownerId, parsed); } catch (error) { throw AppError.from(fileError(error)); }
   });
 }
