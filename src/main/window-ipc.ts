@@ -67,6 +67,23 @@ export interface WindowIpcDependencies {
   closeOwnerSessions: (ownerId: number) => void;
 }
 
+export type TransferTab = z.infer<z.ZodObject<typeof tabFields>>;
+
+/** Hands a session to the target window; a session that vanished meanwhile travels on as a closed tab. */
+export function moveSession(owners: Pick<WindowIpcDependencies, 'ssh' | 'rdp' | 'sftp'>, from: number, tab: TransferTab, target: BrowserWindow):
+  { connection: TransferTab['connection']; status: TransferTab['status']; session?: TransferTab['session']; snapshot?: string } {
+  try {
+    const to = target.webContents.id;
+    let status = tab.status;
+    if (tab.session?.kind === 'terminal') status = owners.ssh.transferOwner(from, tab.session.sessionId, to);
+    if (tab.session?.kind === 'rdp') status = owners.rdp.transferOwner(from, tab.session.sessionId, to, target);
+    if (tab.session?.kind === 'sftp') status = owners.sftp.transferOwner(from, tab.session.sessionId, to);
+    return { connection: tab.connection, status, ...(tab.session ? { session: tab.session } : {}), ...(tab.snapshot ? { snapshot: tab.snapshot } : {}) };
+  } catch {
+    return { connection: tab.connection, status: 'closed', ...(tab.snapshot ? { snapshot: tab.snapshot } : {}) };
+  }
+}
+
 export function catalog(): ConnectionCatalog {
   const { vault } = vaultSessionManager.getSnapshot();
   return { nodes: redactSecrets(vault.nodes), confirmBeforeClosingSession: vault.settings.confirmBeforeClosingSession, workflows: vault.workflows ?? [] };
@@ -111,14 +128,6 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSeco
     await registry.whenReady(target.webContents.id);
     return { target, ...(drop ? { drop } : {}) };
   };
-  const moveSession = (from: number, tab: z.infer<z.ZodObject<typeof tabFields>>, target: BrowserWindow) => {
-    const to = target.webContents.id;
-    let status = tab.status;
-    if (tab.session?.kind === 'terminal') status = ssh.transferOwner(from, tab.session.sessionId, to);
-    if (tab.session?.kind === 'rdp') status = rdp.transferOwner(from, tab.session.sessionId, to, target);
-    if (tab.session?.kind === 'sftp') status = sftp.transferOwner(from, tab.session.sessionId, to);
-    return { connection: tab.connection, status, ...(tab.session ? { session: tab.session } : {}), ...(tab.snapshot ? { snapshot: tab.snapshot } : {}) };
-  };
   const present = (target: BrowserWindow): void => {
     if (target.isMinimized()) target.restore();
     target.focus();
@@ -129,8 +138,9 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSeco
     const parsed = parse(TransferSchema, request);
     vaultSessionManager.getSnapshot();
     clearHover(from);
+    if (parsed.session && !{ terminal: ssh, rdp, sftp }[parsed.session.kind].owns(from, parsed.session.sessionId)) throw new AppError('core.viewSessionUnavailable');
     const { target, drop } = await resolveTarget(from, parsed.target);
-    const incoming: IncomingTab = { ...moveSession(from, parsed, target), ...(drop ? { drop } : {}) };
+    const incoming: IncomingTab = { ...moveSession({ ssh, rdp, sftp }, from, parsed, target), ...(drop ? { drop } : {}) };
     send(target, IPC_CHANNELS.tabIncoming, incoming);
     present(target);
   });
@@ -147,7 +157,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSeco
     }
     const { target } = await resolveTarget(from, parsed.target);
     const incoming: IncomingView = { name: parsed.name, layout: parsed.layout,
-      tabs: parsed.tabs.map(tab => ({ key: tab.key, ...moveSession(from, tab, target) })) };
+      tabs: parsed.tabs.map(tab => ({ key: tab.key, ...moveSession({ ssh, rdp, sftp }, from, tab, target) })) };
     send(target, IPC_CHANNELS.viewIncoming, incoming);
     present(target);
   });
