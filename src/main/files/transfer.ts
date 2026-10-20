@@ -1,6 +1,6 @@
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import type { ConflictChoice, TransferConflict, TransferJob } from '../../shared/sftp';
+import type { ConflictChoice, FileEntry, TransferConflict, TransferJob } from '../../shared/sftp';
 import { FileError, unsafeLocalName } from './file-system';
 import type { FileSystem } from './file-system';
 
@@ -21,7 +21,8 @@ function checkAborted(signal: AbortSignal): void {
 }
 
 /** Expands folders into a flat, ordered list: every folder comes before its contents. Links to folders are skipped. */
-export async function planTransfer(from: FileSystem, to: FileSystem, sources: string[], targetDir: string, signal: AbortSignal): Promise<{ items: PlannedItem[]; skipped: number }> {
+export async function planTransfer(from: FileSystem, to: FileSystem, sources: string[], targetDir: string, signal: AbortSignal,
+  skip?: (source: string, entry: FileEntry) => boolean): Promise<{ items: PlannedItem[]; skipped: number }> {
   const items: PlannedItem[] = [];
   let skipped = 0;
   const add = (item: PlannedItem): void => {
@@ -31,8 +32,8 @@ export async function planTransfer(from: FileSystem, to: FileSystem, sources: st
   const walk = async (dir: string, target: string): Promise<void> => {
     checkAborted(signal);
     for (const entry of await from.list(dir)) {
-      if (unsafeLocalName(entry.name)) { skipped += 1; continue; }
       const source = from.join(dir, entry.name);
+      if (unsafeLocalName(entry.name) || skip?.(source, entry)) { skipped += 1; continue; }
       const destination = to.join(target, entry.name);
       const type = entry.type === 'link' ? entry.linkTarget : entry.type;
       if (type === 'directory' && entry.type === 'directory') {
