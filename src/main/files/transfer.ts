@@ -1,7 +1,7 @@
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ConflictChoice, TransferConflict, TransferJob } from '../../shared/sftp';
-import { FileError } from './file-system';
+import { FileError, unsafeLocalName } from './file-system';
 import type { FileSystem } from './file-system';
 
 const MAX_PLANNED = 100_000;
@@ -31,6 +31,7 @@ export async function planTransfer(from: FileSystem, to: FileSystem, sources: st
   const walk = async (dir: string, target: string): Promise<void> => {
     checkAborted(signal);
     for (const entry of await from.list(dir)) {
+      if (unsafeLocalName(entry.name)) { skipped += 1; continue; }
       const source = from.join(dir, entry.name);
       const destination = to.join(target, entry.name);
       const type = entry.type === 'link' ? entry.linkTarget : entry.type;
@@ -46,6 +47,7 @@ export async function planTransfer(from: FileSystem, to: FileSystem, sources: st
     const entry = await from.stat(source);
     if (!entry) throw new FileError('files.sourceNotFound', { name: from.basename(source) });
     const name = from.basename(source);
+    if (unsafeLocalName(name)) throw new FileError('files.unsafeName', { name });
     const target = to.join(targetDir, name);
     if (entry.type === 'directory') {
       add({ source, target, type: 'directory', size: 0, modified: entry.modified, name });
@@ -107,14 +109,24 @@ async function copyFile(job: TransferJob, item: PlannedItem, from: FileSystem, t
     hooks.progress(job);
     callback(null, chunk);
   } });
+  // shortcut: ein echter Name x.part kollidiert; bleibt so, bis es jemand meldet.
+  const partial = `${item.target}.part`;
   try {
-    await pipeline(from.read(item.source), counter, to.write(item.target), { signal });
+    await pipeline(from.read(item.source), counter, to.write(partial), { signal });
   } catch (error) {
-    // A broken half file is worse than none.
-    await to.removeFile(item.target).catch(() => {});
+    await to.removeFile(partial).catch(() => {});
     if (signal.aborted) throw new TransferCanceled();
     throw error;
   }
+  // Local rename replaces the target; OpenSSH SFTP refuses an existing one, so it is removed first there.
+  await to.rename(partial, item.target).catch(async () => {
+    await to.removeFile(item.target).catch(() => {});
+    await to.rename(partial, item.target).catch(async error => {
+      // The old file survived (e.g. locked): drop the copy. Otherwise `.part` is the only copy and stays.
+      if (await to.stat(item.target).catch(() => null)) await to.removeFile(partial).catch(() => {});
+      throw error;
+    });
+  });
   // Files that changed size while copying still count once.
   job.doneBytes = before + item.size;
 }

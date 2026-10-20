@@ -43,6 +43,11 @@ export function fileError(error: unknown): CodedError {
   return { code: 'files.failed' };
 }
 
+/** Names Windows cannot store safely: separators, drive/stream colons, control chars, trailing dot/space, device names. */
+export const unsafeLocalName = (name: string): boolean =>
+  name === '' || name === '.' || name === '..' || /[\\/:*?"<>|\x00-\x1f]/.test(name) || /[. ]$/.test(name)
+  || /^(con|prn|aux|nul|com[1-9]|lpt[1-9]|conin\$|conout\$)(\..*)?$/i.test(name);
+
 /** Runs `task` for every item with at most `limit` running at once. */
 export async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);

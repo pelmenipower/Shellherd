@@ -96,11 +96,38 @@ describe('file transfer', () => {
     const target = memory({ '/target': null });
     await expect(transfer(slow, target, ['/big.bin'], newJob(), hooks(), controller.signal)).rejects.toBeInstanceOf(TransferCanceled);
     expect(target.nodes.has('/target/big.bin')).toBe(false);
+    expect(target.nodes.has('/target/big.bin.part')).toBe(false);
   });
 
   it('refuses to replace a folder with a file', async () => {
     const from = memory({ '/a': 'file' });
     const to = memory({ '/target': null, '/target/a': null });
     await expect(transfer(from, to, ['/a'])).rejects.toMatchObject({ code: 'files.existsAsDirectory' });
+  });
+
+  it('skips server names that are unsafe on Windows and rejects an unsafe top-level name', async () => {
+    const from = memory({ '/dir': null, '/dir/..\\evil.bat': 'x', '/dir/a:b': 'x', '/dir/trail.': 'x', '/dir/ok.txt': 'ok' });
+    const to = memory({ '/target': null });
+    const { items, skipped } = await planTransfer(from, to, ['/dir'], '/target', signal());
+    expect(items.map(item => item.target)).toEqual(['/target/dir', '/target/dir/ok.txt']);
+    expect(skipped).toBe(3);
+    await expect(planTransfer(memory({ '/src/x:y': 'x' }), to, ['/src/x:y'], '/target', signal())).rejects.toMatchObject({ code: 'files.unsafeName' });
+  });
+
+  it('keeps the existing target when reading fails and leaves no .part behind', async () => {
+    const from = memory({ '/a.txt': 'new' });
+    from.read = () => { const stream = new PassThrough(); stream.write('ne'); setTimeout(() => stream.destroy(new Error('read')), 5); return stream; };
+    const to = memory({ '/target': null, '/target/a.txt': 'old' });
+    await expect(transfer(from, to, ['/a.txt'])).rejects.toThrow('read');
+    expect(to.nodes.get('/target/a.txt')).toMatchObject({ data: 'old' });
+    expect(to.nodes.has('/target/a.txt.part')).toBe(false);
+  });
+
+  it('replaces the target on success without leaving a .part', async () => {
+    const from = memory({ '/a.txt': 'new' });
+    const to = memory({ '/target': null, '/target/a.txt': 'old' });
+    await transfer(from, to, ['/a.txt']);
+    expect(to.nodes.get('/target/a.txt')).toMatchObject({ data: 'new' });
+    expect(to.nodes.has('/target/a.txt.part')).toBe(false);
   });
 });
