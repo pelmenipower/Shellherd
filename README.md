@@ -46,6 +46,32 @@ Shellherd keeps all your servers, desktops and clusters in one window. Connectio
 - **Local shells** – PowerShell and CMD tabs next to your remote sessions.
 - **AI assistant** (optional) – reads the terminal, explains output and suggests the next command. Nothing reaches the terminal until you click **Type in**, and nothing runs until you press Enter. Works with OpenAI-compatible endpoints (including Ollama and LM Studio), Azure AI Foundry, Anthropic and Google Gemini.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/images/screenshot-kubernetes.png" alt="Kubernetes view of a production cluster: node tiles with CPU and RAM, a problem banner and the pod table" width="100%">
+</p>
+<p align="center"><sub>Kubernetes: live nodes, workloads and pods; production clusters are clearly marked</sub></p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/screenshot-sftp.png" alt="Two-pane SFTP file browser with a local folder on the left and the remote home directory on the right"></td>
+    <td width="50%"><img src="docs/images/screenshot-containers.png" alt="Container view of an SSH host with six Docker containers, their images, ports and Compose project"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>SFTP file browser: local folder and server side by side</sub></td>
+    <td align="center"><sub>Docker containers per SSH host</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/screenshot-settings.png" alt="Settings dialog with language, file association, disconnect confirmation and AI providers"></td>
+    <td width="50%"><img src="docs/images/screenshot-assistant.png" alt="AI assistant panel next to a terminal, suggesting a command with buttons to type it in or copy it"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Settings in one place</sub></td>
+    <td align="center"><sub>AI assistant: explains output and suggests the next command, nothing runs on its own</sub></td>
+  </tr>
+</table>
+
 ## Installation
 
 Download the latest version from the [releases page](https://github.com/pelmenipower/Shellherd/releases/latest):
@@ -98,7 +124,7 @@ npx electron-vite build
 npm run drive:sshd                              # second terminal
 npm run drive                                   # third terminal
 node .claude/skills/run-app/demo-setup.mjs      # demo vault with web-01, files-01, prod-k8s, Demo-KI, …
-node .claude/skills/run-app/screens.mjs         # SFTP, containers, Kubernetes, settings and assistant screenshots
+node .claude/skills/run-app/screens.mjs         # SFTP, containers, Kubernetes, settings and assistant screenshots; --readme refreshes docs/images/
 $token = Get-Content "$env:TEMP\shellherd-run\token"
 curl.exe -H "x-driver-token: $token" "http://127.0.0.1:9333/ss?name=start&crop=status"
 ```
