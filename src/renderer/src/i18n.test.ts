@@ -27,6 +27,14 @@ describe('renderer i18n', () => {
     i18n.removeResourceBundle('de-DE', 'probe');
   });
 
+  it('formats count placeholders per language, leaves ports and strings raw', async () => {
+    expect(t('files:queue.skipped', { count: 1000 })).toBe('1.000 übersprungen');
+    expect(t('connection:test.steps.portReachable', { port: 2222 })).toBe('Port 2222 erreichbar');
+    expect(t('files:queue.bytes', { done: '1,0 KB', total: '2,0 KB' })).toContain('1,0 KB');
+    await i18n.changeLanguage('en-US');
+    expect(t('files:queue.skipped', { count: 1000 })).toBe('1,000 skipped');
+  });
+
   it('pluralises common:count.tabs in both languages', async () => {
     expect(t('common:count.tabs', { count: 1 })).toBe('1 Tab');
     expect(t('common:count.tabs', { count: 2 })).toBe('2 Tabs');

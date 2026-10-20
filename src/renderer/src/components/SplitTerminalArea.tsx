@@ -177,6 +177,10 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     setHover(null); onDrag(null);
   }, [onDrag]);
   useEffect(() => { if (busy || !visible) cancelDrag(); }, [busy, visible, cancelDrag]);
+  // Clear the drag preview in other windows when this view unmounts mid-drag.
+  const cancelRef = useRef(cancelDrag);
+  cancelRef.current = cancelDrag;
+  useEffect(() => () => cancelRef.current(), []);
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
