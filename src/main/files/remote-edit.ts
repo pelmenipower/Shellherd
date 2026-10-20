@@ -87,7 +87,7 @@ export class RemoteEdits {
         this.update(edit, { state: 'conflict', error: { code: 'files.changedOnServer' } });
         return;
       }
-      await pipeline(createReadStream(edit.localPath), this.fs.write(edit.info.remotePath));
+      await pipeline(createReadStream(edit.localPath), this.fs.write(edit.info.remotePath, remote?.mode));
       edit.remoteModified = (await this.fs.stat(edit.info.remotePath))?.modified ?? Date.now();
       this.update(edit, { state: 'saved', savedAt: Date.now() });
     } catch (error) {
