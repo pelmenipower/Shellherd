@@ -262,6 +262,41 @@ The kubeconfig lives only in the main process's memory and is not written to
 disk. The tunnel to the API server listens only on `127.0.0.1`.
 Secret data is masked in the YAML view.
 
+## File view: auto-upload
+
+Auto-upload mirrors a local folder into a server folder while the connection's file view is open. You set it up in the local pane: right-click a folder (or the empty area for the current folder), then `Set up auto-upload…`. The dialog asks for the local folder, the server folder (prefilled with the current server folder) and the excludes. `Start auto-upload` begins the comparison; a list below shows each binding as “Watching”, “Syncing…” or the error. The binding is stored in the vault and starts by itself the next time the file view opens.
+
+**Rules:**
+
+- **Local → server only.** Nothing is downloaded; Shellherd never fetches changes from the server.
+- **Never deletes.** If you delete or rename a local file, the old one stays on the server (also for `Foo` → `foo`: the server then has both).
+- **At start** size and modification time are compared: missing and locally newer files are uploaded once, afterwards only changes.
+- **Newer on the server:** A file that is newer on the server, or was changed there by someone else, is skipped. The row shows the number (“2 skipped, newer on the server”), a notice the names. `Overwrite anyway` replaces all skipped files with the local ones.
+- **Pause, Resume, Edit, Remove** are on the row. `Remove` only deletes the binding, no files.
+- **Lost connection:** The binding pauses with the connection. After `Reconnect` it starts again and catches up on everything missed.
+
+**Excludes** are a list of patterns, one per line, as in `.gitignore`. The defaults are `.git`, `node_modules/`, `~$*`, `*.swp`, `*.tmp` and `.DS_Store`.
+
+| Pattern | Matches |
+|---|---|
+| `.git` | any file or folder `.git` at any level, with its contents |
+| `node_modules/` | folders of that name only (trailing `/`) |
+| `*.log` | all files ending in `.log`, hidden ones too |
+| `/build/` | only the folder `build` directly in the bound folder, not `src/build` |
+| `secrets/**/*.pem` | `.pem` files under `secrets` at any depth, from the bound folder only |
+
+Without `/` a pattern applies at every level, with a leading or inner `/` only from the bound folder, with a trailing `/` only to folders. `\` counts as `/`. Upper and lower case do not matter (`Build/` also excludes `build`). There are no exceptions with `!`. Excluded folders are not traversed.
+
+**Good to know:**
+
+- **Exclude secrets:** The defaults do not exclude `.env`, keys or credential files. Exclude them yourself (for example `.env` and `*.pem`), otherwise they land on the server, new files with permissions 0644.
+- **Renaming folders:** While the file view with an active binding is open, Windows does not let you rename or move the parent folder. Pause the binding or close the file view.
+- **Unreadable subfolders:** If Shellherd cannot read a local subfolder, the comparison stops and the binding shows an error. Exclude the folder with a pattern.
+- **Two bindings, one server folder:** Allowed. They do not overwrite each other silently but skip with a notice.
+- **Paths are machine-specific:** The local path only applies on the computer that created the binding. On another computer the row reports that the folder is missing; you can edit or remove it there.
+- **Set up in the main window only:** Setting up, editing, pausing and removing work in the main window only. In other windows bindings keep running, and `Overwrite anyway` works everywhere.
+- **Network drives:** Changes on shares are reported unreliably; anything missed is caught up at the next start.
+
 ## Notices and connection state
 
 Shellherd shows problems where they occur.

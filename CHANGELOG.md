@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.13.0] – 2026-10-20
+
+- Neu: Auto-Upload in der Dateiansicht. Ein lokaler Ordner wird in einen Server-Ordner gespiegelt, solange die Dateiansicht offen ist; eingerichtet per Rechtsklick im lokalen Bereich (`Auto-Upload einrichten …`). Die Bindung wird im Vault gemerkt und startet von selbst.
+- Auto-Upload lädt nur lokal → Server hoch und löscht auf dem Server nie. Ist eine Datei dort neuer, wird sie übersprungen; `Trotzdem überschreiben` ersetzt sie.
+- Ausschlüsse sind Muster wie bei `.gitignore` (z. B. `node_modules/`, `*.log`, `/build/`), beim Einrichten festlegbar und später änderbar. Die Vorgaben schließen `.env` und Schlüssel nicht aus.
+- Nach einem Verbindungsabbruch holt `Neu verbinden` verpasste Änderungen nach; Einrichten und Bearbeiten gehen nur im Hauptfenster.
+
 ## [0.12.1] – 2026-10-20
 
 - Behoben: Downloads aus der Dateiansicht landen nur im gewählten Zielordner; Namen, die Windows nicht speichern kann (`\`, `:`, Gerätenamen, Punkt oder Leerzeichen am Ende), werden übersprungen oder mit Hinweis abgelehnt.

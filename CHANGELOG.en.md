@@ -4,6 +4,13 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.13.0] – 2026-10-20
+
+- New: Auto-upload in the file view. A local folder is mirrored into a server folder while the file view is open; set up by right-clicking in the local pane (`Set up auto-upload…`). The binding is stored in the vault and starts by itself.
+- Auto-upload only uploads local → server and never deletes on the server. A file that is newer there is skipped; `Overwrite anyway` replaces it.
+- Excludes are patterns as in `.gitignore` (e.g. `node_modules/`, `*.log`, `/build/`), set when setting up and editable later. The defaults do not exclude `.env` and keys.
+- After a lost connection, `Reconnect` catches up on missed changes; setting up and editing work in the main window only.
+
 ## [0.12.1] – 2026-10-20
 
 - Fixed: Downloads from the file view only land in the chosen target folder; names Windows cannot store (`\`, `:`, device names, trailing dot or space) are skipped or rejected with a message.
