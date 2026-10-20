@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { z } from 'zod';
+import { AppError } from '../../shared/errors';
+import type { ErrorCode } from '../../shared/errors';
 
 const KnownHostsSchema = z.object({
   version: z.literal(1),
@@ -14,9 +16,9 @@ export function hostFingerprint(key: Buffer): string {
   return `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`;
 }
 
-export class HostKeyError extends Error {
-  constructor(message: string, readonly kind: 'changed' | 'store' = 'store',
-    readonly fingerprints?: { expected: string; received: string }) { super(message); }
+export class HostKeyError extends AppError {
+  constructor(code: ErrorCode, readonly kind: 'changed' | 'store' = 'store',
+    readonly fingerprints?: { expected: string; received: string }) { super(code); }
 }
 
 export class KnownHosts {
@@ -31,7 +33,7 @@ export class KnownHosts {
       return KnownHostsSchema.parse(JSON.parse(text));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, hosts: {} };
-      throw new HostKeyError('Die gespeicherten Server-Schlüssel konnten nicht gelesen werden.');
+      throw new HostKeyError('ssh.hostKeysUnreadable');
     }
   }
 
@@ -49,17 +51,14 @@ export class KnownHosts {
     if (!isActive()) return false;
     const previous = stored.hosts[address];
     if (previous) {
-      if (previous !== fingerprint) throw new HostKeyError(
-        'Der Server-Schlüssel hat sich geändert. Verbindung abgebrochen. Kläre die Änderung mit dem Server-Administrator.',
-        'changed', { expected: previous, received: fingerprint });
+      if (previous !== fingerprint) throw new HostKeyError('ssh.hostKeyChanged', 'changed', { expected: previous, received: fingerprint });
       return true;
     }
     if (!await this.confirm({ host, port, fingerprint }) || !isActive()) return false;
     // Re-read after the dialog so a concurrent change cannot be overwritten.
     stored = await this.read();
     if (stored.hosts[address] && stored.hosts[address] !== fingerprint) {
-      throw new HostKeyError('Der gespeicherte Server-Schlüssel wurde zwischenzeitlich geändert.',
-        'changed', { expected: stored.hosts[address], received: fingerprint });
+      throw new HostKeyError('ssh.hostKeyChangedMeanwhile', 'changed', { expected: stored.hosts[address], received: fingerprint });
     }
     const temporary = `${this.filePath}.${randomUUID()}.tmp`;
     try {
@@ -68,7 +67,7 @@ export class KnownHosts {
         { mode: 0o600, flag: 'wx' });
       await rename(temporary, this.filePath);
     } catch {
-      throw new HostKeyError('Der Server-Schlüssel konnte nicht gespeichert werden. Verbindung abgebrochen.');
+      throw new HostKeyError('ssh.hostKeySaveFailed');
     } finally { await rm(temporary, { force: true }); }
     return isActive();
   }

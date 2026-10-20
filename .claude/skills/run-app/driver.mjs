@@ -2,6 +2,7 @@
 // The app runs from out/ with an isolated profile; native dialogs are stubbed (see SKILL.md).
 import { _electron as electron } from 'playwright-core';
 import http from 'node:http';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -79,7 +80,12 @@ const routes = {
   use: async (_request, url) => { page = app.windows()[Number(url.searchParams.get('i'))]; return page.url(); },
 };
 
+// Any website can POST to 127.0.0.1 without preflight, so every request needs the per-start token (and no Origin).
+const TOKEN = randomBytes(16).toString('hex');
+fs.writeFileSync(path.join(WORK, 'token'), TOKEN, { mode: 0o600 });
+
 http.createServer(async (request, response) => {
+  if (request.headers.origin || request.headers['x-driver-token'] !== TOKEN) { response.statusCode = 403; response.end('token'); return; }
   const url = new URL(request.url, 'http://driver');
   const name = url.pathname.slice(1);
   if (name === 'quit') { response.end('"bye"'); await app.close(); process.exit(0); }
@@ -91,4 +97,4 @@ http.createServer(async (request, response) => {
     response.statusCode = 500;
     response.end(String(error?.message ?? error));
   }
-}).listen(PORT, '127.0.0.1', () => console.log(`driver ready on ${PORT} · profile ${PROFILE} · shots ${SHOTS}`));
+}).listen(PORT, '127.0.0.1', () => console.log(`driver ready on ${PORT} · token ${path.join(WORK, 'token')} · profile ${PROFILE} · shots ${SHOTS}`));

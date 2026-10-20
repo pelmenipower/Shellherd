@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { SshStep } from '../../../shared/ssh';
+import { useT } from '../i18n';
 import { cardFooter, formatSeconds, stepViews } from '../connect-timeline';
 import type { StepMark } from '../connect-timeline';
 import { focusIfAllowed } from '../focus-guard';
@@ -21,6 +22,7 @@ export interface ConnectingCardProps {
 
 /** Step timeline shown while connecting; it appears without a transition because it often follows Enter. */
 export function ConnectingCard({ name, address, steps, marks, startedAt, active, ticking = true, onCancel }: ConnectingCardProps) {
+  const { t } = useT();
   const [now, setNow] = useState(() => Date.now());
   const cancel = useRef<HTMLButtonElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -41,7 +43,7 @@ export function ConnectingCard({ name, address, steps, marks, startedAt, active,
     <div ref={root} className="connect-overlay" onKeyDown={onKeyDown}>
       <div className="connect-card">
         <div className="connect-head">
-          <strong className="connect-title">Verbinde mit {name} …</strong>
+          <strong className="connect-title">{t('terminal:timeline.title', { name })}</strong>
           <span className="connect-address">{address}</span>
         </div>
         <ol className="connect-steps">
@@ -55,7 +57,7 @@ export function ConnectingCard({ name, address, steps, marks, startedAt, active,
         </ol>
         <div className="connect-foot">
           <span className="connect-hint" data-slow={footer.slow}>{footer.text}</span>
-          <button ref={cancel} type="button" className="connect-cancel" onClick={onCancel}>Abbrechen <kbd>Esc</kbd></button>
+          <button ref={cancel} type="button" className="connect-cancel" onClick={onCancel}>{t('terminal:timeline.cancel')} <kbd>Esc</kbd></button>
         </div>
       </div>
     </div>

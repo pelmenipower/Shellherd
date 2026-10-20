@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { KubeRow } from '../../shared/kubernetes';
+import { i18n } from './i18n';
 import { capText, copiedMessage, eventsTsv } from './kube-copy';
 
 const row = (cells: KubeRow['cells']): KubeRow => ({ uid: 'u', ref: { kind: 'events', name: 'e' }, cells, tone: 'ok' }) as KubeRow;
@@ -48,5 +49,15 @@ describe('eventsTsv cell cleaning', () => {
     const cells = eventsTsv([row({ message: '=SUM(1)\u001b[2J', reason: '"q' })], 0).split('\n')[1].split('\t');
     expect(cells[3]).toBe("'=SUM(1)[2J");
     expect(cells[1]).toBe("'\"q");
+  });
+});
+
+describe('copiedMessage in English', () => {
+  it('pluralizes and marks truncation', async () => {
+    await i18n.changeLanguage('en-US');
+    try {
+      expect(copiedMessage('YAML', 'a')).toBe('Copied: YAML (1 line)');
+      expect(copiedMessage('Logs', 'a\nb', { shortened: true })).toBe('Copied: Logs (2 lines, truncated)');
+    } finally { await i18n.changeLanguage('de-DE'); }
   });
 });

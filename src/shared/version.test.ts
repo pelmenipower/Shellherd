@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { compareVersions, inlineCode, notesSince, parseChangelog } from './version';
 
 const changelog = readFileSync(new URL('../../CHANGELOG.md', import.meta.url), 'utf8');
+const changelogEn = readFileSync(new URL('../../CHANGELOG.en.md', import.meta.url), 'utf8');
 const packageVersion = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 
 describe('versioning', () => {
@@ -10,6 +11,17 @@ describe('versioning', () => {
     const releases = parseChangelog(changelog);
     expect(releases[0].version).toBe(packageVersion);
     expect(releases[0].items.length).toBeGreaterThan(0);
+  });
+
+  it('has release notes for the current package version in English too', () => {
+    const releases = parseChangelog(changelogEn);
+    expect(releases[0].version).toBe(packageVersion);
+    expect(releases[0].items.length).toBeGreaterThan(0);
+  });
+
+  it('keeps CHANGELOG.md and CHANGELOG.en.md in parity', () => {
+    const summary = (markdown: string) => parseChangelog(markdown).map(({ version, date, items }) => ({ version, date, count: items.length }));
+    expect(summary(changelogEn)).toEqual(summary(changelog));
   });
 
   it('compares versions numerically', () => {

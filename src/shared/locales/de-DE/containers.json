@@ -1,0 +1,262 @@
+{
+  "refresh": "Aktualisieren",
+  "loading": "Lade …",
+  "loadFailed": "Die Container konnten nicht geladen werden.",
+  "actionFailed": "Die Aktion ist fehlgeschlagen.",
+  "kinds": {
+    "containers": "Container",
+    "images": "Images",
+    "volumes": "Volumes",
+    "networks": "Netzwerke"
+  },
+  "columns": {
+    "name": "Name",
+    "status": "Status",
+    "info": "Details",
+    "image": "Image",
+    "ports": "Ports",
+    "project": "Projekt",
+    "pod": "Pod",
+    "networks": "Netzwerke",
+    "created": "Erstellt",
+    "repository": "Repository",
+    "tag": "Tag",
+    "id": "ID",
+    "size": "Größe",
+    "usedBy": "Benutzt",
+    "driver": "Treiber",
+    "mountpoint": "Mountpoint",
+    "scope": "Scope",
+    "internal": "Intern",
+    "containers": "Container"
+  },
+  "chips": {
+    "attention": "Auffällig",
+    "running": "Läuft",
+    "stopped": "Gestoppt",
+    "paused": "Pausiert",
+    "compose": "Compose",
+    "dangling": "Ohne Tag",
+    "unused": "Unbenutzt"
+  },
+  "filterHelp": {
+    "text": {
+      "form": "Text",
+      "description": "Spalte enthält den Text"
+    },
+    "select": {
+      "form": "Auswahl",
+      "description": "genau dieser Wert, mit Anzahl"
+    },
+    "number": {
+      "form": "Zahl",
+      "description": "Vergleich mit >, >=, <, <=, ="
+    },
+    "size": {
+      "form": "Größe",
+      "description": "Vergleich in Bytes, Einheiten B, kB, MB, GB, TB"
+    },
+    "age": {
+      "form": "Alter",
+      "description": "jünger (<) oder älter (>) als s, m, h, d"
+    }
+  },
+  "commands": {
+    "down": "Zeile nach unten",
+    "up": "Zeile nach oben",
+    "tab": "Reiter wechseln",
+    "menu": "Kontextmenü der Zeile öffnen",
+    "help": "Hilfe mit allen Tasten und Filtern",
+    "reload": "Neu laden",
+    "filter": "Name filtern (Images: Repository)",
+    "attention": "Nur auffällige Container ein/aus",
+    "resetFilter": "Alle Filter des Reiters zurücksetzen (Gruppierung bleibt)",
+    "logs": "Logs des Containers anzeigen",
+    "shell": "Shell im Container",
+    "inspect": "Inspect anzeigen",
+    "toggleDock": "Unteres Panel ein- und ausblenden",
+    "popout": "Logs oder Shell als eigenen Tab öffnen",
+    "restart": "Container neu starten",
+    "stop": "Container stoppen",
+    "remove": "Container, Image oder Volume entfernen"
+  },
+  "reasons": {
+    "noRow": "Keine Zeile ausgewählt.",
+    "onlyContainers": "Nur für Container.",
+    "networksReadOnly": "Netzwerke lassen sich hier nicht ändern.",
+    "alreadyRunning": "Der Container läuft bereits.",
+    "notRunning": "Der Container läuft nicht.",
+    "stopFirst": "Laufende Container zuerst stoppen.",
+    "imageInUse": "Das Image wird noch benutzt.",
+    "volumeInUse": "Das Volume wird noch benutzt.",
+    "noAttentionChip": "Dieser Reiter hat keinen Chip „Auffällig“.",
+    "noPopout": "Hier lässt sich kein Tab öffnen.",
+    "logsShellOnly": "Nur für Logs und Shell.",
+    "noTag": "Das Image hat kein Tag.",
+    "invalidName": "Name enthält ungültige Zeichen.",
+    "noPorts": "Keine Ports.",
+    "noFilter": "Kein Filter gesetzt.",
+    "noGrouping": "Keine Gruppierung aktiv.",
+    "sortHint": "Standard: Reihenfolge des Hosts",
+    "rowBusy": "Für diese Zeile läuft bereits eine Aktion."
+  },
+  "menu": {
+    "start": "Starten",
+    "stop": "Stoppen…",
+    "restart": "Neu starten…",
+    "remove": "Entfernen…",
+    "actions": "Aktionen",
+    "inspect": "Inspect",
+    "logs": "Logs",
+    "shell": "Shell",
+    "shellOpen": "Shell öffnen",
+    "logsTab": "Logs als Tab öffnen",
+    "shellTab": "Shell als Tab öffnen",
+    "onlyProject": "Nur Projekt „{{project}}“ anzeigen",
+    "onlyChip": "Nur „{{chip}}“ anzeigen",
+    "copyCommand": "Befehl",
+    "copyReference": "Referenz",
+    "containersWithImage": "Container mit diesem Image anzeigen",
+    "containersInNetwork": "Container in diesem Netzwerk anzeigen",
+    "restartLogs": "Logs neu starten",
+    "popout": "Als Tab öffnen",
+    "collapse": "Panel einklappen",
+    "sortAsc": "Aufsteigend sortieren",
+    "sortDesc": "Absteigend sortieren",
+    "sortClear": "Sortierung aufheben",
+    "groupBy": "Nach {{column}} gruppieren",
+    "filterClear": "Filter dieser Spalte leeren",
+    "filterReset": "Alle Filter zurücksetzen",
+    "groupClear": "Gruppierung aufheben",
+    "help": "Hilfe…"
+  },
+  "confirm": {
+    "thisComputer": "diesem Computer",
+    "typeToConfirm": "Zum Bestätigen „{{name}}“ eintippen.",
+    "stop": {
+      "title": "Container stoppen?",
+      "body": "Container „{{name}}“ auf {{where}} wird gestoppt.",
+      "confirm": "Stoppen"
+    },
+    "restart": {
+      "title": "Container neu starten?",
+      "body": "Container „{{name}}“ auf {{where}} wird neu gestartet.",
+      "confirm": "Neu starten"
+    },
+    "removeImage": {
+      "title": "Image entfernen?",
+      "body": "Image „{{name}}“ auf {{where}} wird entfernt."
+    },
+    "removeVolume": {
+      "title": "Volume entfernen?",
+      "body": "Volume „{{name}}“ auf {{where}} wird gelöscht. Die Daten gehen verloren."
+    },
+    "removeContainer": {
+      "title": "Container entfernen?",
+      "body": "Container „{{name}}“ auf {{where}} wird entfernt. Anonyme Volumes bleiben erhalten und erscheinen unter Volumes."
+    }
+  },
+  "dock": {
+    "aria": "Details",
+    "resize": "Höhe ändern",
+    "logs": "Logs",
+    "shell": "Shell",
+    "inspect": "Inspect",
+    "inspectFailed": "Inspect konnte nicht geladen werden.",
+    "nothingToCopy": "Nichts zu kopieren.",
+    "chooseForShell": "Wähle einen Container, um eine Shell zu öffnen.",
+    "chooseForLogs": "Wähle einen Container, um Logs zu sehen.",
+    "armHint": "Die Shell startet erst auf Knopfdruck, damit Auswahlwechsel keine Verbindung öffnen.",
+    "chooseRow": "Wähle eine Zeile.",
+    "followsSelection": "folgt Auswahl",
+    "expand": "Panel ausklappen"
+  },
+  "help": {
+    "aria": "Hilfe zur Container-Ansicht",
+    "title": "Tasten und Filter",
+    "searchPlaceholder": "Suchen …",
+    "searchAria": "Hilfe durchsuchen",
+    "keys": "Tasten",
+    "filters": "Filter",
+    "intro": "Unter jedem Spaltenkopf steht ein Filterfeld. / springt in das Feld „{{column}}“.",
+    "example": " · Beispiel: ",
+    "columnFilters": "Spaltenfilter für {{kind}}",
+    "statusFilters": "Status-Filter für {{kind}}",
+    "noStatusFilters": "Keine Status-Filter.",
+    "grouping": "Gruppieren für {{kind}}"
+  },
+  "table": {
+    "filterBar": "Filter",
+    "attentionTitle": "Taste w",
+    "count": "{{shown}} von {{total}}",
+    "resetTitle": "Alle Filter zurücksetzen (F)",
+    "reset": "Zurücksetzen",
+    "groupBy": "Gruppieren nach",
+    "noGrouping": "Keine Gruppierung",
+    "noMatch": "Keine Zeile passt zu den Filtern.",
+    "resetFilters": "Filter zurücksetzen",
+    "filterOf": "Filter {{column}}",
+    "clearFilterOf": "Filter {{column}} leeren",
+    "all": "alle",
+    "placeholder": "Filter …",
+    "invalid": "Ungültig, filtert nicht. {{hint}}",
+    "hintNumber": "Zahl: >3, >=3, <3, <=3, =3 oder 3",
+    "hintSize": "Größe: >100MB, <=1.5GB, 2048 (Einheiten B, kB, MB, GB, TB)",
+    "hintAge": "Alter: <10m, >1h, <2d (Einheiten s, m, h, d)",
+    "empty": {
+      "containers": "Keine Container.",
+      "images": "Keine Images.",
+      "volumes": "Keine Volumes.",
+      "networks": "Keine Netzwerke."
+    }
+  },
+  "view": {
+    "loading": "lade …",
+    "copyFailed": "Kopieren fehlgeschlagen.",
+    "runtime": "Laufzeit",
+    "resources": "Ressourcen",
+    "helpAria": "Hilfe",
+    "helpTitle": "Hilfe (?)",
+    "menuLabel": "Kontextmenü",
+    "loadedNow": "gerade geladen",
+    "loadedSeconds": "geladen vor {{seconds}} s",
+    "loadedMinutes": "geladen vor {{minutes}} min",
+    "unknownUser": "unbekannt",
+    "rootlessHint": "Podman rootless zeigt nur Container des Benutzers {{user}}. Für Root-Container sudo aktivieren."
+  },
+  "tree": {
+    "searching": "Suche Laufzeiten …",
+    "refreshing": "Aktualisiere …",
+    "noGuests": "Keine Proxmox-Gäste gefunden.",
+    "noRuntime": "Keine Container-Laufzeit gefunden.",
+    "openView": "{{runtime}}-Ansicht öffnen",
+    "newTab": "neuer Tab",
+    "viewName": "{{runtime}}-Ansicht",
+    "actionsFor": "Aktionen für {{name}}",
+    "actionsForView": "Aktionen für {{runtime}}-Ansicht",
+    "whereLocal": "auf diesem Computer",
+    "whereHost": "von {{host}}",
+    "viewTitle": "Container, Images, Volumes und Netzwerke {{where}} ({{runtime}})",
+    "itemTitle": "{{kind}} {{vmid}} — {{state}}",
+    "busy": "wird ausgeführt",
+    "serialConsole": "Serielle Konsole",
+    "shutdown": "Herunterfahren",
+    "stop": "Stoppen",
+    "confirmPowerOff": "VM „{{name}}“ hart ausschalten? Nicht gespeicherte Daten in der VM gehen verloren.",
+    "state": {
+      "running": "läuft",
+      "paused": "pausiert",
+      "stopped": "gestoppt"
+    }
+  },
+  "local": {
+    "aria": "Container auf diesem Computer",
+    "openView": "Lokale Container-Ansicht öffnen"
+  },
+  "busy": {
+    "start": "startet",
+    "stop": "stoppt",
+    "restart": "startet neu",
+    "remove": "wird entfernt"
+  }
+}

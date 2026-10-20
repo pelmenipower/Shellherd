@@ -31,7 +31,6 @@ const call = <T>(run: (callback: (error: Error | undefined | null, value: T) => 
   new Promise((resolve, reject) => run((error, value) => error ? reject(error) : resolve(value)));
 
 export interface RemoteFileSystem extends FileSystem {
-  realpath: (path: string) => Promise<string>;
   /** Does not follow links. */
   lstat: (path: string) => Promise<FileEntry | null>;
   chmod: (path: string, mode: number) => Promise<void>;
@@ -47,7 +46,7 @@ export function sftpFileSystem(sftp: SFTPWrapper): RemoteFileSystem {
     realpath: path => call<string>(callback => sftp.realpath(path, callback)),
     list: async dir => {
       const list = await call<{ filename: string; attrs: Attributes }[]>(callback => sftp.readdir(dir, callback));
-      if (list.length > MAX_ENTRIES) throw new FileError(`Der Ordner enthält mehr als ${MAX_ENTRIES} Einträge.`);
+      if (list.length > MAX_ENTRIES) throw new FileError('files.tooManyEntries', { max: MAX_ENTRIES });
       const visible = list.filter(item => item.filename !== '.' && item.filename !== '..');
       return mapLimit(visible, 16, async item => (item.attrs.mode & TYPE_MASK) === LINK
         ? remoteEntry(item.filename, item.attrs, await stat(posix.join(dir, item.filename)).catch(() => null))
@@ -58,7 +57,7 @@ export function sftpFileSystem(sftp: SFTPWrapper): RemoteFileSystem {
     chmod: (path, mode) => call<void>(callback => sftp.chmod(path, mode, error => callback(error, undefined))),
     mkdir: path => call<void>(callback => sftp.mkdir(path, error => callback(error, undefined))),
     read: path => sftp.createReadStream(path, { highWaterMark: 256 * 1024 }),
-    write: path => sftp.createWriteStream(path),
+    write: (path, mode) => sftp.createWriteStream(path, { mode: mode ?? 0o644 }),
     setModified: (path, modified) => call<void>(callback => sftp.utimes(path, new Date(), new Date(modified), error => callback(error, undefined))),
     removeFile: path => call<void>(callback => sftp.unlink(path, error => callback(error, undefined))),
     removeDirectory: path => call<void>(callback => sftp.rmdir(path, error => callback(error, undefined))),
@@ -72,7 +71,7 @@ export async function removeRemote(fs: RemoteFileSystem, path: string, signal?: 
   if (!entry) return;
   const walk = async (dir: string): Promise<void> => {
     for (const child of await fs.list(dir)) {
-      if (signal?.aborted) throw new FileError('Löschen abgebrochen.');
+      if (signal?.aborted) throw new FileError('files.deleteCanceled');
       const childPath = fs.join(dir, child.name);
       if (child.type === 'directory') await walk(childPath);
       else await fs.removeFile(childPath);

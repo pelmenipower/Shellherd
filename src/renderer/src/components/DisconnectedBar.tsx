@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { useT } from '../i18n';
 import { formatAgo } from '../connect-timeline';
 import { focusIfAllowed } from '../focus-guard';
 import './connection-ui.css';
@@ -15,12 +16,13 @@ export interface DisconnectedBarProps {
   onReconnect: () => void;
 }
 
-const REASON_TEXT: Record<DisconnectedBarProps['reason'], string> = {
-  server: 'der Server hat sie beendet', session: 'die Sitzung wurde beendet', cancel: 'abgebrochen',
-};
+const REASON_KEYS = {
+  server: 'terminal:disconnected.reasons.server', session: 'terminal:disconnected.reasons.session', cancel: 'terminal:disconnected.reasons.cancel',
+} as const satisfies Record<DisconnectedBarProps['reason'], string>;
 
 /** Bar below the output of a finished session; it sits in the flow, so it covers nothing. */
 export function DisconnectedBar({ reason, endedAt, active, ticking = true, onReconnect }: DisconnectedBarProps) {
+  const { t } = useT();
   const [now, setNow] = useState(() => Date.now());
   const button = useRef<HTMLButtonElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -37,8 +39,8 @@ export function DisconnectedBar({ reason, endedAt, active, ticking = true, onRec
   return (
     <div ref={root} className="connect-closed" data-instant={reason === 'server' ? undefined : ''} onKeyDown={onKeyDown}>
       <span className="connect-closed-dot" aria-hidden="true" />
-      <span className="connect-closed-text">Verbindung getrennt <span className="connect-closed-age">· {formatAgo(now - endedAt)} · {REASON_TEXT[reason]}</span></span>
-      <button ref={button} type="button" className="primary-button connect-reconnect" onClick={onReconnect}>Neu verbinden <kbd>Enter</kbd></button>
+      <span className="connect-closed-text">{t('terminal:disconnected.title')} <span className="connect-closed-age">{t('terminal:disconnected.detail', { age: formatAgo(now - endedAt), reason: t(REASON_KEYS[reason]) })}</span></span>
+      <button ref={button} type="button" className="primary-button connect-reconnect" onClick={onReconnect}>{t('terminal:disconnected.reconnect')} <kbd>Enter</kbd></button>
     </div>
   );
 }

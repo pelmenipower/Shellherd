@@ -1,5 +1,6 @@
 import { BrowserWindow, screen } from 'electron';
 import type { IpcMainEvent, IpcMainInvokeEvent, Point, Rectangle } from 'electron';
+import { AppError } from '../shared/errors';
 
 export type WindowRole = 'main' | 'secondary';
 
@@ -47,11 +48,11 @@ export class WindowRegistry {
 
   async whenReady(id: number, timeoutMs = 15_000): Promise<void> {
     const entry = this.entries.get(id);
-    if (!entry) throw new Error('Das Zielfenster ist nicht mehr verfügbar.');
+    if (!entry) throw new AppError('core.targetWindowGone');
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([entry.ready, new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('Das Zielfenster reagiert nicht.')), timeoutMs);
+        timer = setTimeout(() => reject(new AppError('core.targetWindowUnresponsive')), timeoutMs);
       })]);
     } finally { clearTimeout(timer); }
   }
@@ -79,7 +80,7 @@ export class WindowRegistry {
 
   requireMain(event: IpcMainInvokeEvent | IpcMainEvent): void {
     if (this.roleOf(event.sender.id) !== 'main' || event.senderFrame !== event.sender.mainFrame) {
-      throw new Error('Diese Aktion ist nur im Hauptfenster erlaubt.');
+      throw new AppError('core.mainWindowOnly');
     }
   }
 }

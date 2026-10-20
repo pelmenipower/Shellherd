@@ -3,7 +3,9 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
+import type { Vault } from '../../shared/vault/types';
 import {
   mkdtemp,
   rm,
@@ -11,10 +13,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  decryptVault,
-  encryptVault,
-} from './crypto';
+import { encryptVault } from './crypto';
+import { decryptVault } from '../../test/vault-helpers';
 import {
   readEncryptedVaultFile,
   writeEncryptedVaultFile,
@@ -23,6 +23,11 @@ import { VaultSessionManager } from './session';
 import { addNode, updateNode, removeNodeFromVault } from '../../shared/vault/mutations';
 import { validateVaultConsistency } from '../../shared/vault/consistency';
 import { exampleVault } from '../../shared/vault/example';
+
+vi.mock('./storage', async importOriginal => {
+  const actual = await importOriginal<typeof import('./storage')>();
+  return { ...actual, writeEncryptedVaultFile: vi.fn(actual.writeEncryptedVaultFile) };
+});
 
 const temporaryDirectories: string[] = [];
 
@@ -160,6 +165,32 @@ describe('VaultSessionManager', () => {
     } finally { manager.lock(); }
   });
 
+  it('drops unknown fields from the session vault on save', async () => {
+    const { filePath, password } = await createTestVault();
+    const manager = new VaultSessionManager();
+    try {
+      const { vault } = await manager.unlock(filePath, password);
+      const saved = await manager.save({ ...vault, unknownField: 1 } as Vault);
+      expect(saved.vault).not.toHaveProperty('unknownField');
+      expect(manager.getSnapshot().vault).not.toHaveProperty('unknownField');
+    } finally { manager.lock(); }
+  });
+
+  it('resolves a save that was written even if the session was locked meanwhile', async () => {
+    const { filePath, password } = await createTestVault();
+    const manager = new VaultSessionManager();
+    const actual = await vi.importActual<typeof import('./storage')>('./storage');
+    const { vault } = await manager.unlock(filePath, password);
+    vi.mocked(writeEncryptedVaultFile).mockImplementationOnce(async (path, file) => {
+      const written = await actual.writeEncryptedVaultFile(path, file);
+      manager.lock();
+      return written;
+    });
+    const saved = await manager.save({ ...vault, name: 'Racing' });
+    expect(saved.vault.name).toBe('Racing');
+    expect(saved.filePath).toBe(filePath);
+  });
+
   it('rejects saving after the vault was locked', async () => {
     const { filePath, password } =
       await createTestVault();
@@ -177,8 +208,7 @@ describe('VaultSessionManager', () => {
 
     await expect(
       manager.save(snapshot.vault),
-    ).rejects.toThrow(
-      'Es ist kein Vault entsperrt.',
+    ).rejects.toThrow(expect.objectContaining({ code: 'core.vaultLocked' })
     );
   });
 });

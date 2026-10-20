@@ -1,0 +1,46 @@
+{
+  "actions": {
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "save": "Speichern",
+    "delete": "Löschen",
+    "remove": "Entfernen",
+    "rename": "Umbenennen",
+    "copy": "Kopieren",
+    "connect": "Verbinden",
+    "retry": "Erneut versuchen",
+    "open": "Öffnen",
+    "edit": "Bearbeiten"
+  },
+  "status": {
+    "saving": "Speichert …"
+  },
+  "wait": "Einen Moment …",
+  "truncated": "(gekürzt)",
+  "none": "keine",
+  "planned": "geplant",
+  "thisComputer": "Dieser Computer",
+  "errorWithDetail": "{{message}} Details: {{detail}}",
+  "count": {
+    "tabs_one": "{{count}} Tab",
+    "tabs_other": "{{count}} Tabs",
+    "views_one": "{{count}} Ansicht",
+    "views_other": "{{count}} Ansichten"
+  },
+  "keys": {
+    "ctrl": "Strg",
+    "shift": "Umschalt",
+    "alt": "Alt",
+    "del": "Entf"
+  },
+  "shortcuts": {
+    "palette": "Strg+Umschalt+Leertaste",
+    "assistant": "Strg+Umschalt+K",
+    "settings": "Strg+,"
+  },
+  "commandGroups": {
+    "navigation": "Navigation",
+    "view": "Ansicht",
+    "actions": "Aktionen"
+  }
+}

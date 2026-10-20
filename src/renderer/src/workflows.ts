@@ -1,5 +1,6 @@
 import type { Workflow } from '../../shared/vault/types';
 import type { AiTerminalContext } from '../../shared/ai';
+import { compareText, foldCase } from '../../shared/format';
 
 const PLACEHOLDER = /\{\{\s*([\p{L}\p{N}_ .-]{1,40}?)\s*\}\}/gu;
 
@@ -14,7 +15,7 @@ export function fillWorkflow(command: string, values: Record<string, string>): s
   return command.replace(PLACEHOLDER, (_match, name: string) => (values[name.trim()] ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ''));
 }
 
-const normalize = (text: string): string => text.toLocaleLowerCase('de');
+const normalize = foldCase;
 
 /** Search across name, tags, description and command; workflows for the current shell first. */
 export function searchWorkflows(workflows: Workflow[], query: string, shell: AiTerminalContext['shell'] | null): Workflow[] {
@@ -24,5 +25,5 @@ export function searchWorkflows(workflows: Workflow[], query: string, shell: AiT
     return words.every(word => haystack.includes(word));
   });
   const rank = (workflow: Workflow): number => !workflow.shell || workflow.shell === shell ? 0 : 1;
-  return matches.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'de'));
+  return matches.sort((a, b) => rank(a) - rank(b) || compareText(a.name, b.name));
 }

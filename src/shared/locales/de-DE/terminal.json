@@ -1,0 +1,228 @@
+{
+  "views": {
+    "defaultName": "Ansicht {{index}}",
+    "barLabel": "Ansichten",
+    "renameLabel": "Ansicht umbenennen",
+    "tabTitle": "Doppelklick oder F2 benennt die Ansicht um",
+    "closeAria": "Ansicht {{name}} schließen",
+    "close": "Ansicht schließen",
+    "closeTitle": "Ansicht schließen – ihre Tabs wandern in die Nachbaransicht",
+    "add": "Neue Ansicht"
+  },
+  "summary": {
+    "moreWindows_one": "{{count}} weiteres Fenster",
+    "moreWindows_other": "{{count}} weitere Fenster"
+  },
+  "layout": {
+    "missingConnection": "Der Workspace verweist auf eine fehlende Verbindung.",
+    "tooManyPanes": "Ein Workspace darf höchstens vier Terminalbereiche enthalten.",
+    "tooManySessions": "Ein Workspace darf höchstens {{max}} Sessions starten."
+  },
+  "tabs": {
+    "label": "SSH-Sessions",
+    "editor": "Editor",
+    "closeAria": "Tab {{label}} schließen",
+    "closeTitle": "{{label}} schließen",
+    "files": "{{name}} · Dateien",
+    "logs": "Logs: {{label}}",
+    "previousLogs": "Vorherige Logs: {{label}}"
+  },
+  "panel": {
+    "copyFailedTitle": "Nicht kopiert",
+    "copyFailed": "Der markierte Text konnte nicht kopiert werden.",
+    "pasteFailedTitle": "Nicht eingefügt",
+    "pasteFailed": "Die Zwischenablage konnte nicht eingefügt werden.",
+    "inputTooLargeTitle": "Eingabe zu groß",
+    "inputTooLarge": "Füge kleinere Abschnitte ein.",
+    "inputFailedTitle": "Eingabe nicht gesendet",
+    "inputFailed": "Prüfe die Verbindung."
+  },
+  "input": {
+    "multiline": "Mehrzeiliger Befehl: bitte Zeile für Zeile kopieren.",
+    "notConnected": "Das Terminal ist nicht verbunden; der Befehl wurde nicht eingetippt.",
+    "fullscreen": "Im Terminal läuft ein Vollbildprogramm; der Befehl wurde nicht eingetippt.",
+    "failed": "Der Befehl konnte nicht eingetippt werden."
+  },
+  "rdp": {
+    "resizing": "Auflösung wird angepasst …",
+    "hiddenWhileMenu": "Remotedesktop ausgeblendet, solange ein Menü geöffnet ist.",
+    "actions": {
+      "ctrlAltDel": { "label": "{{ctrl}}+{{alt}}+{{del}}", "hint": "Sicherheitsoptionen" },
+      "taskManager": { "label": "Task-Manager", "hint": "{{ctrl}}+{{shift}}+Esc" },
+      "startScreen": { "label": "Startmenü", "hint": "Windows-Taste" },
+      "appSwitch": { "label": "Fenster wechseln", "hint": "Alt+Tab" },
+      "actionCenter": { "label": "Info-Center", "hint": "Windows+A" }
+    }
+  },
+  "area": {
+    "label": "Terminalbereiche",
+    "emptyTitle": "Leerer Bereich",
+    "emptyHint": "Verbindung aus der Liste öffnen oder einen Tab hier ablegen.",
+    "connectHere": "Hier verbinden",
+    "sessionsLabel": "Sessions in Bereich {{number}}",
+    "openFilesAria": "Dateien dieser SSH-Verbindung in Bereich {{number}} öffnen",
+    "openFilesTitle": "Dateien öffnen (SFTP)",
+    "sendKeysAria": "Tastenkombination an Remotedesktop in Bereich {{number}} senden",
+    "sendKeysTitle": "Tastenkombinationen senden",
+    "showAll": "Alle Bereiche anzeigen",
+    "maximizeAria": "Bereich {{number}} maximieren",
+    "maximizeTitle": "Bereich maximieren",
+    "layoutAria": "Layout für Bereich {{number}}",
+    "layoutTitle": "Layout und Tastaturaktionen",
+    "splitLabel": "Aufteilung {{number}}"
+  },
+  "layoutMenu": {
+    "label": "Layout per Tastatur",
+    "dragHint": "Tab oder freie Titelleiste ziehen. Am Rand teilen, in der Mitte zusammenführen oder zwischen Tabs einsortieren.",
+    "splitHorizontal": "Nebeneinander teilen",
+    "splitVertical": "Untereinander teilen",
+    "merge": "Bereich zusammenführen",
+    "moveTab": "Aktiven Tab verschieben",
+    "paneOption": "Bereich {{number}}",
+    "toOwnView": "Als eigene Ansicht öffnen",
+    "resizeHint": "Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben. Tabs auf eine Ansicht oben ziehen, um sie dorthin zu verschieben."
+  },
+  "viewMenu": {
+    "label": "Aktionen für {{name}}",
+    "moveToWindow": "In neues Fenster verschieben",
+    "closeHint": "Tabs bleiben erhalten"
+  },
+  "keysMenu": {
+    "label": "Tastenkombination senden",
+    "heading": "An Remotedesktop senden"
+  },
+  "dock": {
+    "external": {
+      "labelled": "„{{label}}“ {{action}}",
+      "asView": "als Ansicht hinzufügen",
+      "asTab": "als Tab einfügen",
+      "dockHere": "hier andocken",
+      "moveHere": "hierher verschieben",
+      "fromOtherWindow": "Aus anderem Fenster"
+    },
+    "insertTab": "Als Tab einfügen",
+    "moveHere": "Hierher verschieben",
+    "splitHere": "Hier teilen",
+    "samePosition": "Bereits an dieser Position",
+    "noSplit": "Hier nicht teilbar",
+    "escCancel": "Esc zum Abbrechen"
+  },
+  "timeline": {
+    "steps": {
+      "reach": "Server erreichen",
+      "hostkey": "Server-Schlüssel prüfen",
+      "auth": "Anmelden",
+      "shell": "Shell öffnen"
+    },
+    "title": "Verbinde mit {{name}} …",
+    "cancel": "Abbrechen",
+    "total": "Gesamt {{time}}",
+    "seconds": "{{value}} s",
+    "waitingHostKey": "Wartet auf deine Bestätigung des Server-Schlüssels …",
+    "slowServer": "Der Server antwortet langsam …",
+    "slowGeneric": "Dauert länger als üblich …",
+    "agoSeconds": "vor {{seconds}} s",
+    "agoMinutes": "vor {{minutes}} min"
+  },
+  "statusWord": {
+    "short": {
+      "connecting": "Verbindet …",
+      "connected": "Verbunden",
+      "closed": "Getrennt",
+      "error": "Fehler"
+    },
+    "long": {
+      "connecting": "Verbindet …",
+      "connected": "Verbunden",
+      "closed": "Verbindung getrennt",
+      "error": "Verbindung fehlgeschlagen"
+    },
+    "connectingTo": "Verbinde mit {{name}} …",
+    "withProtocol": "{{protocol}}: {{word}}"
+  },
+  "disconnected": {
+    "title": "Verbindung getrennt",
+    "detail": "· {{age}} · {{reason}}",
+    "reconnect": "Neu verbinden",
+    "reasons": {
+      "server": "der Server hat sie beendet",
+      "session": "die Sitzung wurde beendet",
+      "cancel": "abgebrochen"
+    }
+  },
+  "connectionCard": {
+    "details": "Details",
+    "copied": "Fingerprints kopiert",
+    "notCopied": "Nicht kopiert",
+    "clipboardUnavailable": "Die Zwischenablage ist nicht verfügbar."
+  },
+  "connectionError": {
+    "actions": {
+      "retry": "Erneut verbinden",
+      "edit": "Verbindung bearbeiten",
+      "copy": "Fingerprint kopieren"
+    },
+    "auth": {
+      "title": "Anmeldung abgelehnt",
+      "body": "Der Server hat die Anmeldung nicht angenommen.",
+      "bodyWithUser": "Der Server hat die Anmeldung als „{{user}}“ nicht angenommen.",
+      "next": "Prüfe Benutzer und Anmeldung in den Verbindungseinstellungen."
+    },
+    "timeout": {
+      "title": "Server antwortet nicht",
+      "body": "{{hostPort}} hat nicht rechtzeitig geantwortet.",
+      "next": "Prüfe VPN, Firewall und Port. Möglicherweise ist der Rechner aus."
+    },
+    "hostkey-changed": {
+      "title": "Server-Schlüssel hat sich geändert",
+      "body": "Der Fingerprint stimmt nicht mit dem bestätigten überein. Shellherd hat die Verbindung abgebrochen.",
+      "next": "Kläre den Schlüsselwechsel mit dem Administrator, bevor du fortfährst."
+    },
+    "hostkey-rejected": {
+      "title": "Server-Schlüssel nicht bestätigt",
+      "body": "Du hast den Schlüssel von {{hostPort}} nicht bestätigt.",
+      "next": "Verbinde erneut und vergleiche den Fingerprint mit einer vertrauenswürdigen Quelle."
+    },
+    "hostkey-store": {
+      "title": "Server-Schlüssel nicht geprüft",
+      "body": "Die gespeicherten Server-Schlüssel sind nicht verfügbar.",
+      "next": "Prüfe die Zugriffsrechte auf den Shellherd-Datenordner und verbinde erneut."
+    },
+    "refused": {
+      "title": "Verbindung abgelehnt",
+      "body": "{{host}} nimmt keine Verbindung an.",
+      "bodyWithPort": "{{host}} nimmt auf Port {{port}} keine Verbindung an.",
+      "next": "Prüfe Host und Port. Läuft der SSH-Dienst?"
+    },
+    "not-found": {
+      "title": "Host nicht gefunden",
+      "body": "Der Name „{{host}}“ ließ sich nicht auflösen.",
+      "next": "Prüfe Schreibweise, DNS und VPN."
+    },
+    "key-file": {
+      "title": "Schlüsseldatei nicht lesbar",
+      "body": "Die private Schlüsseldatei fehlt oder ist nicht lesbar.",
+      "next": "Prüfe Pfad und Zugriffsrechte in den Verbindungseinstellungen."
+    },
+    "agent": {
+      "title": "Kein SSH-Agent",
+      "body": "Es läuft kein SSH-Agent, der den Schlüssel liefern könnte.",
+      "next": "Starte den Agent oder wähle Passwort oder Schlüsseldatei."
+    },
+    "limit": {
+      "title": "Maximal {{max}} Sessions",
+      "body": "Alle Sessions sind belegt.",
+      "next": "Schließe zuerst einen Tab."
+    },
+    "closed-by-server": {
+      "title": "Verbindung beendet",
+      "body": "Der Server hat die Verbindung beendet.",
+      "next": "Verbinde neu, wenn du weiterarbeiten willst."
+    },
+    "unknown": {
+      "title": "Verbindung fehlgeschlagen",
+      "body": "Die Verbindung ist fehlgeschlagen.",
+      "next": "Prüfe Host, Benutzer und Anmeldung."
+    }
+  }
+}

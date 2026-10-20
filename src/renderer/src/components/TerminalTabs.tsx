@@ -5,6 +5,7 @@ import { tabLabel } from '../terminal-tabs';
 import { statusWord } from '../status-words';
 import { ConnectionIcon } from './ConnectionIcon';
 import type { ConnectionNode } from '../../../shared/vault/types';
+import { useT } from '../i18n';
 
 interface TerminalTabsProps {
   appearance: ReadonlyMap<string, Pick<ConnectionNode, 'icon' | 'color'>>;
@@ -19,14 +20,15 @@ interface TerminalTabsProps {
   onTabPointerDown: (id: string, event: PointerEvent<HTMLElement>) => void;
 }
 
-export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect, onClose, onTabPointerDown, showEditor = true, allTabs = tabs, label = 'SSH-Sessions' }: TerminalTabsProps) {
+export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect, onClose, onTabPointerDown, showEditor = true, allTabs = tabs, label: barLabel }: TerminalTabsProps) {
+  const { t } = useT();
   const barRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     barRef.current?.querySelector('[aria-selected="true"]')?.closest('.terminal-tab-item')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [activeTabId]);
   if (!tabs.length) return null;
   return (
-    <div ref={barRef} className="terminal-tab-bar" role="tablist" aria-label={label} onKeyDown={event => {
+    <div ref={barRef} className="terminal-tab-bar" role="tablist" aria-label={barLabel ?? t('terminal:tabs.label')} onKeyDown={event => {
       if (!(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'tab') return;
       const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
       if (disabled || !keys.includes(event.key)) return;
@@ -41,7 +43,7 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
     }}>
       {showEditor && <button className="terminal-tab" id="tab-editor" type="button" role="tab" aria-controls="terminal-editor"
         aria-selected={activeTabId === null} tabIndex={activeTabId === null ? 0 : -1} disabled={disabled} onClick={() => onSelect(null)}>
-        Editor
+        {t('terminal:tabs.editor')}
       </button>}
       {tabs.map(tab => {
         const label = tabLabel(tab, allTabs);
@@ -54,7 +56,7 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
             <ConnectionIcon {...appearance.get(tab.connection.id)} />
             <span className="tab-name">{label}</span>
           </button>
-          <button className="terminal-tab-close" type="button" disabled={disabled} aria-label={`Tab ${label} schließen`} title={`${label} schließen`}
+          <button className="terminal-tab-close" type="button" disabled={disabled} aria-label={t('terminal:tabs.closeAria', { label })} title={t('terminal:tabs.closeTitle', { label })}
             onClick={() => onClose(tab.id)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
           </button>

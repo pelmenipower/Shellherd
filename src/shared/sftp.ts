@@ -1,5 +1,6 @@
 /** Shared types of the file browser (SFTP now, FTP later). */
 import type { ConnectionErrorCode } from './connection-errors';
+import type { CodedError } from './errors';
 
 export const MAX_SFTP_SESSIONS = 16;
 
@@ -31,7 +32,10 @@ export interface TransferJob {
   direction: TransferDirection;
   /** Delete each source after it was copied. */
   move: boolean;
+  /** Name of the first entry. */
   label: string;
+  /** Number of requested sources. */
+  entryCount: number;
   targetDir: string;
   state: TransferState;
   totalBytes: number;
@@ -40,7 +44,7 @@ export interface TransferJob {
   doneFiles: number;
   skippedFiles: number;
   current?: string;
-  message?: string;
+  error?: CodedError;
 }
 
 export interface TransferConflict {
@@ -59,11 +63,12 @@ export interface EditedFile {
   state: 'open' | 'uploading' | 'saved' | 'conflict' | 'error';
   /** Last successful upload, milliseconds since 1970. */
   savedAt?: number;
-  message?: string;
+  error?: CodedError;
 }
 
 export type SftpEvent =
-  | { type: 'status'; sessionId: string; status: SftpStatus; message?: string; code?: ConnectionErrorCode; detail?: string }
+  /** `error` is translated by the renderer; `code` classifies the connection card (only with status 'error', or 'closed-by-server' with 'closed'). */
+  | { type: 'status'; sessionId: string; status: SftpStatus; error?: CodedError; code?: ConnectionErrorCode }
   | { type: 'edit'; sessionId: string; edit: EditedFile; closed?: boolean }
   | { type: 'transfer'; sessionId: string; job: TransferJob }
   | { type: 'conflict'; sessionId: string; conflict: TransferConflict };

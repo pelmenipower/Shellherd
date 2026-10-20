@@ -1,29 +1,39 @@
 import type { InventoryKind, InventoryRow } from '../../shared/containers';
+import { t } from './i18n';
 
 export type ChipGroup = 'attention' | 'status' | 'trait';
 export interface ChipDef {
   /** Lowercase English, stable. */
   id: string;
-  /** German UI text. */
+  /** UI text in the current language; a getter, read when it is used. */
   label: string;
   /** OR within a group, AND between groups. */
   group: ChipGroup;
   matches: (row: InventoryRow) => boolean;
 }
 
-const chip = (id: string, label: string, group: ChipGroup, matches: ChipDef['matches']): ChipDef => ({ id, label, group, matches });
-const unused = chip('unused', 'Unbenutzt', 'trait', row => row.usedBy === 0);
+const CHIP_LABEL_KEYS = {
+  attention: 'containers:chips.attention', running: 'containers:chips.running', stopped: 'containers:chips.stopped',
+  paused: 'containers:chips.paused', compose: 'containers:chips.compose', dangling: 'containers:chips.dangling',
+  unused: 'containers:chips.unused',
+} as const;
+type ChipId = keyof typeof CHIP_LABEL_KEYS;
+
+const chip = (id: ChipId, group: ChipGroup, matches: ChipDef['matches']): ChipDef => ({
+  id, get label() { return t(CHIP_LABEL_KEYS[id]); }, group, matches,
+});
+const unused = chip('unused', 'trait', row => row.usedBy === 0);
 
 /** Order in each array = order in the chip bar and the canonical order of stored ids. */
 export const CHIPS: Record<InventoryKind, readonly ChipDef[]> = {
   containers: [
-    chip('attention', 'Auffällig', 'attention', row => row.tone === 'warn' || row.tone === 'bad'),
-    chip('running', 'Läuft', 'status', row => row.state === 'running'),
-    chip('stopped', 'Gestoppt', 'status', row => row.state === 'exited' || row.state === 'stopped' || row.state === 'created' || row.state === 'dead'),
-    chip('paused', 'Pausiert', 'status', row => row.state === 'paused'),
-    chip('compose', 'Compose', 'trait', row => Boolean(row.project)),
+    chip('attention', 'attention', row => row.tone === 'warn' || row.tone === 'bad'),
+    chip('running', 'status', row => row.state === 'running'),
+    chip('stopped', 'status', row => row.state === 'exited' || row.state === 'stopped' || row.state === 'created' || row.state === 'dead'),
+    chip('paused', 'status', row => row.state === 'paused'),
+    chip('compose', 'trait', row => Boolean(row.project)),
   ],
-  images: [chip('dangling', 'Ohne Tag', 'trait', row => row.cells.tag === ''), unused],
+  images: [chip('dangling', 'trait', row => row.cells.tag === ''), unused],
   volumes: [unused],
   networks: [],
 };

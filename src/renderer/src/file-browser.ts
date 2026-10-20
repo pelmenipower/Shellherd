@@ -1,3 +1,5 @@
+import { t } from './i18n';
+import { compareText, formatDateTime, formatNumber } from '../../shared/format';
 import type { FileEntry, TransferJob } from '../../shared/sftp';
 
 export type FileSide = 'local' | 'remote';
@@ -8,8 +10,6 @@ export function isDirectory(entry: FileEntry): boolean {
   return entry.type === 'directory' || (entry.type === 'link' && entry.linkTarget === 'directory');
 }
 
-const collator = new Intl.Collator('de', { numeric: true, sensitivity: 'base' });
-
 /** Folders first, then files; both by the chosen column. */
 export function sortEntries(entries: FileEntry[], order: SortOrder): FileEntry[] {
   const direction = order.ascending ? 1 : -1;
@@ -17,7 +17,7 @@ export function sortEntries(entries: FileEntry[], order: SortOrder): FileEntry[]
     const folders = Number(isDirectory(b)) - Number(isDirectory(a));
     if (folders) return folders;
     const value = order.key === 'name' ? 0 : order.key === 'size' ? a.size - b.size : a.modified - b.modified;
-    return (value || collator.compare(a.name, b.name)) * direction;
+    return (value || compareText(a.name, b.name)) * direction;
   });
 }
 
@@ -26,11 +26,10 @@ export function formatSize(bytes: number): string {
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
-  return `${unit === 0 ? value : value.toLocaleString('de-DE', { maximumFractionDigits: value < 10 ? 1 : 0 })} ${units[unit]}`;
+  return `${unit === 0 ? value : formatNumber(value, { maximumFractionDigits: value < 10 ? 1 : 0 })} ${units[unit]}`;
 }
 
-const dateFormat = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' });
-export function formatDate(modified: number): string { return modified > 0 ? dateFormat.format(modified) : ''; }
+export function formatDate(modified: number): string { return modified > 0 ? formatDateTime(modified, 'short') : ''; }
 
 export function joinPath(side: FileSide, dir: string, name: string): string {
   if (side === 'remote') return dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
@@ -67,10 +66,10 @@ export function pathSegments(side: FileSide, path: string): { label: string; pat
 /** Error text for a new or changed name; null when it is valid. */
 export function nameError(side: FileSide, name: string): string | null {
   const trimmed = name.trim();
-  if (!trimmed) return 'Gib einen Namen ein.';
-  if (trimmed === '.' || trimmed === '..') return 'Dieser Name ist nicht erlaubt.';
+  if (!trimmed) return t('files:names.empty');
+  if (trimmed === '.' || trimmed === '..') return t('files:names.reserved');
   if (side === 'remote' ? trimmed.includes('/') : /[\\/:*?"<>|]/.test(trimmed)) {
-    return side === 'remote' ? 'Der Name darf keinen Schrägstrich enthalten.' : 'Der Name darf keines dieser Zeichen enthalten: \\ / : * ? " < > |';
+    return side === 'remote' ? t('files:names.slash') : t('files:names.chars');
   }
   return null;
 }
@@ -95,11 +94,6 @@ export function jobPercent(job: TransferJob): number {
 }
 
 export function isFinished(job: TransferJob): boolean { return job.state !== 'queued' && job.state !== 'running'; }
-
-/** Electron prefixes errors from the main process; the window shows only the message. */
-export function ipcErrorText(error: unknown, fallback = 'Die Dateiaktion ist fehlgeschlagen.'): string {
-  return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : fallback;
-}
 
 /** Octal text (`644`, `0755`) to permission bits; null when invalid. */
 export function parseMode(text: string): number | null {

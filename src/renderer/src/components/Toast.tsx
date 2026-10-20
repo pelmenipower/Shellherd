@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import './toast-ui.css';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { noticeStore, type Notice } from '../notice-store';
+import { useT } from '../i18n';
 
 const EXIT_FALLBACK_MS = 300; // transitionend may not fire in a hidden window
 
@@ -28,6 +29,7 @@ export function ToastStack() {
 
 export function ToastItem({ notice, paused }: { notice: Notice; paused: boolean }) {
   const { id, tone, title, body, action, leaving } = notice;
+  const { t } = useT();
   useEffect(() => {
     if (!leaving) return;
     const timer = setTimeout(() => noticeStore.remove(id), EXIT_FALLBACK_MS);
@@ -46,7 +48,7 @@ export function ToastItem({ notice, paused }: { notice: Notice; paused: boolean 
         <button type="button" className={`toast-action ${tone === 'error' ? 'danger-button' : 'secondary-button'}`}
           onClick={() => { noticeStore.close(id); action.run(); }}>{action.label}</button>
       )}
-      <button type="button" className="toast-close" aria-label="Meldung schließen" onClick={() => noticeStore.close(id)}>Schließen</button>
+      <button type="button" className="toast-close" aria-label={t('app:toast.closeAria')} onClick={() => noticeStore.close(id)}>{t('common:actions.close')}</button>
       {tone !== 'error' && (
         <span className="toast-bar" aria-hidden="true" onAnimationEnd={() => noticeStore.close(id)} />
       )}

@@ -3,7 +3,9 @@ import type { VaultNode } from '../../../shared/vault/types';
 import { searchVaultNodes } from '../vault-search';
 import { ConnectionIcon } from './ConnectionIcon';
 import { useNativeSurfaceBlock } from '../native-surface';
-import { connectionAddress, sessionLimitText } from '../../../shared/vault/connections';
+import { connectionAddress } from '../connection-labels';
+import { useT } from '../i18n';
+import { sessionLimitText } from '../vault-notices';
 
 interface Props {
   nodes: VaultNode[];
@@ -14,6 +16,7 @@ interface Props {
 }
 
 export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, onConnect }: Props) {
+  const { t } = useT();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const popover = useRef<HTMLDivElement>(null);
@@ -54,11 +57,11 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
 
   return <>
     <button ref={trigger} className="terminal-tab-add" type="button" disabled={disabled}
-      aria-label={`Verbindung als Tab in Bereich ${paneNumber} hinzufügen`} title="Verbindung als Tab hinzufügen"
+      aria-label={t('vault:picker.addNamed', { number: paneNumber })} title={t('vault:picker.addTitle')}
       aria-haspopup="dialog" aria-expanded={open} aria-controls={id} onClick={toggle}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
     </button>
-    <div id={id} ref={popover} popover="auto" className="connection-picker" role="dialog" aria-label="Verbindung als Tab hinzufügen"
+    <div id={id} ref={popover} popover="auto" className="connection-picker" role="dialog" aria-label={t('vault:picker.addTitle')}
       onPointerDown={event => event.stopPropagation()}
       onToggle={event => { const shown = event.newState === 'open'; setOpen(shown); if (shown) search.current?.focus(); }}
       onKeyDown={event => {
@@ -76,8 +79,8 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
           : index < 0 ? event.key === 'ArrowUp' ? buttons.length - 1 : 0 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
         buttons[next].focus();
       }}>
-      <label className="connection-picker-search">Verbindung hinzufügen
-        <input ref={search} type="search" aria-label="Verbindung für neuen Tab suchen" placeholder="Name, Host oder Ordner …"
+      <label className="connection-picker-search">{t('vault:picker.searchLabel')}
+        <input ref={search} type="search" aria-label={t('vault:picker.searchAria')} placeholder={t('vault:picker.searchPlaceholder')}
           value={query} onChange={event => setQuery(event.target.value)} />
       </label>
       {limitReached && <p className="connection-picker-hint" role="status">{sessionLimitText()}</p>}
@@ -85,9 +88,9 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
         {results.map(({ node, path }) => node.type === 'connection' && <button className="connection-picker-option" key={node.id} type="button"
           disabled={disabled || limitReached || node.disabled} onClick={() => { close(); onConnect(node.id); }}
           title={`${path ? `${path} / ` : ''}${node.name} · ${connectionAddress(node)}`}>
-          <span className="connection-picker-name"><ConnectionIcon icon={node.icon} color={node.color} /><span>{node.name}</span></span><small>{path ? `${path} · ` : ''}{connectionAddress(node)}{node.disabled ? ' · deaktiviert' : ''}</small>
+          <span className="connection-picker-name"><ConnectionIcon icon={node.icon} color={node.color} /><span>{node.name}</span></span><small>{path ? `${path} · ` : ''}{connectionAddress(node)}{node.disabled ? ` · ${t('vault:disabled')}` : ''}</small>
         </button>)}
-        {!results.length && <p className="connection-picker-hint" role="status">{query.trim() ? 'Keine passende Verbindung.' : 'Noch keine Verbindung gespeichert. Lege über „Neu“ eine Verbindung an.'}</p>}
+        {!results.length && <p className="connection-picker-hint" role="status">{query.trim() ? t('vault:picker.noMatch') : t('vault:picker.noneSaved')}</p>}
       </div>
     </div>
   </>;

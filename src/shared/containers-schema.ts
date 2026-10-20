@@ -16,4 +16,4 @@ export const InventoryRefSchema: z.ZodType<InventoryRef> = z.object({
   kind: z.enum(['containers', 'images', 'volumes', 'networks']),
   runtime: z.enum(['docker', 'podman']),
   ref: z.string().min(1).max(MAX_REF_LENGTH),
-}).strict().refine(inventoryRefValid, { message: 'Ungültige Angabe.' });
+}).strict().refine(inventoryRefValid, { message: 'invalidRef' });

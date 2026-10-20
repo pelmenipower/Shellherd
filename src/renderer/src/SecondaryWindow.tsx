@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionCatalog } from '../../shared/windows';
 import { SplitTerminalArea } from './components/SplitTerminalArea';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { errorText } from './error-text';
+import { t as translate, useT } from './i18n';
 import { ToastStack } from './components/Toast';
 import { notify } from './notice-store';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
@@ -16,10 +18,11 @@ import { useAssistantToggle } from './hooks/useAssistantToggle';
 import { useCtrlShiftShortcut } from './hooks/useShortcut';
 import { WorkflowPalette } from './components/WorkflowPalette';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
-import { disabledNotice, sessionLimitNotice, skippedNotice } from '../../shared/vault/connections';
+import { disabledNotice, disabledTitle, sessionLimitNotice, skippedNotice } from './vault-notices';
 
 /** Detached window: tabs and split layout only; vault, sidebar and editor stay in the main window. */
 export function SecondaryWindow() {
+  const { t } = useT();
   const [catalog, setCatalog] = useState<ConnectionCatalog | null>(null);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const [pendingClose, setPendingClose] = useState<string | null>(null);
@@ -32,11 +35,12 @@ export function SecondaryWindow() {
   const state = useRef({ tabs: terminals.tabs, views: terminalLayout.viewsState, catalog, replaceViews: terminalLayout.replaceViews, restore: terminals.restore });
   state.current = { tabs: terminals.tabs, views: terminalLayout.viewsState, catalog, replaceViews: terminalLayout.replaceViews, restore: terminals.restore };
 
+  // Effects run once: they use the module-level translate so a later language change is not captured stale.
   useEffect(() => {
     let active = true;
     const unsubscribe = window.desktopApi.onConnectionCatalog(setCatalog);
     window.desktopApi.connectionCatalog().then(value => { if (active) setCatalog(value); })
-      .catch(() => notify.error('Verbindungsliste nicht verfügbar', { body: 'Ist der Vault gesperrt?' }));
+      .catch(() => notify.error(translate('app:notices.catalogUnavailableTitle'), { body: translate('app:notices.catalogUnavailableBody') }));
     return () => { active = false; unsubscribe(); };
   }, []);
 
@@ -69,16 +73,16 @@ export function SecondaryWindow() {
       }, () => crypto.randomUUID());
       replaceViews(restored.state);
       restore(restored.tabs, restored.activeTabId);
-      if (restored.skipped) notify.info('Verbindungen übersprungen', { body: skippedNotice(restored.skipped) });
+      if (restored.skipped) notify.info(translate('app:notices.skippedTitle'), { body: skippedNotice(restored.skipped) });
     } catch (caught) {
-      notify.error('Fenster nicht wiederhergestellt', { body: caught instanceof Error ? caught.message : 'Das Fenster konnte nicht wiederhergestellt werden.' });
+      notify.error(translate('app:notices.windowNotRestored'), { body: errorText(caught, translate('app:errors.windowRestoreFailed')) });
     }
   }), []);
 
   const connect = useCallback((id: string, paneId: string, asFiles = false) => {
     const node = catalog && findNode(catalog.nodes, id);
     if (!node || node.type !== 'connection') return;
-    if (node.disabled) { notify.info('Verbindung deaktiviert', { body: disabledNotice(node) }); return; }
+    if (node.disabled) { notify.info(disabledTitle(), { body: disabledNotice(node) }); return; }
     if (state.current.tabs.length >= MAX_SSH_SESSIONS) { const { title, body } = sessionLimitNotice(); notify.info(title, { body }); return; }
     terminalLayout.setFocused(paneId);
     terminals.open(toTerminalConnection(node, asFiles));
@@ -106,9 +110,9 @@ export function SecondaryWindow() {
     {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)} />}
     </div>
     {paletteOpen && <WorkflowPalette workflows={catalog?.workflows ?? []} tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => setPaletteOpen(false)} />}
-    {closingTab && <ConfirmDialog title={`Tab „${tabLabel(closingTab, terminals.tabs)}“ schließen?`}
-      description="Diese Verbindung wird beendet. Laufende Programme in der Sitzung können dadurch beendet werden."
-      confirmLabel="Verbindung trennen" busy={false} onCancel={() => setPendingClose(null)}
+    {closingTab && <ConfirmDialog title={t('app:dialogs.closeTab.title', { name: tabLabel(closingTab, terminals.tabs) })}
+      description={t('app:dialogs.closeTab.description')}
+      confirmLabel={t('app:dialogs.confirmDisconnect')} busy={false} onCancel={() => setPendingClose(null)}
       onConfirm={() => { setPendingClose(null); terminals.close(closingTab.id); }} />}
     <ToastStack />
   </main>;

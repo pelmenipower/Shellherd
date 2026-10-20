@@ -1,10 +1,9 @@
 import type { KubeProbeResult } from '../../shared/kubernetes';
 import { PROTOCOLS } from '../../shared/vault/connections';
 import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode, VaultNode } from '../../shared/vault/types';
+import { t } from './i18n';
 
-export const NO_ACCESS_MESSAGE = 'Wähle mindestens eine SSH-Verbindung als Zugang.';
-export const KUBECONFIG_EMPTY_MESSAGE = 'Gib den Pfad zur Kubeconfig an.';
-export const KUBECONFIG_PATH_MESSAGE = 'Der Pfad muss mit / oder ~/ beginnen.';
+export function noAccessMessage(): string { return t('connection:cluster.validation.noAccess'); }
 
 /** Host split into prefix, the last number and the rest: "k8s-cp2.example.local" → "k8s-cp", 2, ".example.local". */
 const HOST_PATTERN = /^(.*\D)?(\d+)(\D.*)?$/;
@@ -49,21 +48,21 @@ export function emptyCluster(id: string): KubernetesConnectionNode {
 /** Message for an unusable kubeconfig path, or null. Shared by the form and validation. */
 export function kubeconfigPathError(path: string): string | null {
   const trimmed = path.trim();
-  if (!trimmed) return KUBECONFIG_EMPTY_MESSAGE;
-  return trimmed.startsWith('/') || trimmed.startsWith('~/') ? null : KUBECONFIG_PATH_MESSAGE;
+  if (!trimmed) return t('connection:cluster.validation.kubeconfigEmpty');
+  return trimmed.startsWith('/') || trimmed.startsWith('~/') ? null : t('connection:cluster.validation.kubeconfigPath');
 }
 
-/** German message for the first problem with the cluster, or null. */
+/** Localized message for the first problem with the cluster, or null. */
 export function validateCluster(node: KubernetesConnectionNode, nodes: VaultNode[]): string | null {
-  if (node.accessHosts.length === 0) return NO_ACCESS_MESSAGE;
+  if (node.accessHosts.length === 0) return noAccessMessage();
   const connections = flattenConnections(nodes);
   for (const id of node.accessHosts) {
     const access = connections.find(candidate => candidate.id === id);
-    if (!access) return `Die Zugangs-Verbindung „${id}“ gibt es nicht mehr.`;
-    if (access.protocol !== 'ssh') return `Die Zugangs-Verbindung „${access.name}“ ist keine SSH-Verbindung.`;
-    if (access.disabled) return `Die Zugangs-Verbindung „${access.name}“ ist deaktiviert.`;
+    if (!access) return t('connection:cluster.validation.accessGone', { id });
+    if (access.protocol !== 'ssh') return t('connection:cluster.validation.accessNotSsh', { name: access.name });
+    if (access.disabled) return t('connection:cluster.validation.accessDisabled', { name: access.name });
   }
-  if (!node.name.trim()) return 'Gib einen Namen an.';
+  if (!node.name.trim()) return t('connection:cluster.validation.nameMissing');
   if (node.kubeconfig.source === 'path') return kubeconfigPathError(node.kubeconfig.path);
   return null;
 }

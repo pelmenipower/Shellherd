@@ -5,6 +5,7 @@ import {
   groupRows, isValidColumnFilter, parseSizeFilter, primaryFilterColumn,
 } from './container-columns';
 import { EMPTY_VALUE } from './kube-columns';
+import { setFormatLocale } from '../../shared/format';
 
 const NOW = Date.parse('2026-10-18T12:00:00Z');
 

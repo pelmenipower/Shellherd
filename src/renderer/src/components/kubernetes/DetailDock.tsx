@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { KIND_COLUMNS, READ_ONLY_MESSAGE, refKey, type DockMode, type KubeDetail, type KubeDetailMode, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
+import { KIND_COLUMNS, refKey, type DockMode, type KubeDetail, type KubeDetailMode, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
+import { errorText } from '../../error-text';
+import { useT } from '../../i18n';
+import { columnLabel } from '../../kube-labels';
 import type { TerminalConnection } from '../../terminal-tabs';
 import { dockTerminalKey, formatAge } from '../../kube-view';
 import { TerminalPanel } from '../TerminalPanel';
@@ -8,13 +11,17 @@ import { liveSessions } from '../../session-registry';
 import { capText, eventsTsv } from '../../kube-copy';
 import { isKeyboardContextMenu, isMenuKey, menuHandlers, type MenuOpener } from '../../kube-menu-trigger';
 
-const DOCK_TABS: { mode: DockMode; label: string; key: string }[] = [
-  { mode: 'logs', label: 'Logs', key: 'l' },
-  { mode: 'shell', label: 'Shell', key: 's' },
-  { mode: 'events', label: 'Events', key: 'e' },
-  { mode: 'yaml', label: 'YAML', key: 'y' },
-  { mode: 'describe', label: 'Describe', key: 'd' },
+const DOCK_TABS: { mode: DockMode; key: string }[] = [
+  { mode: 'logs', key: 'l' },
+  { mode: 'shell', key: 's' },
+  { mode: 'events', key: 'e' },
+  { mode: 'yaml', key: 'y' },
+  { mode: 'describe', key: 'd' },
 ];
+const DOCK_TAB_LABEL_KEYS = {
+  logs: 'kubernetes:dock.tabs.logs', shell: 'kubernetes:dock.tabs.shell', events: 'kubernetes:dock.tabs.events',
+  yaml: 'kubernetes:dock.tabs.yaml', describe: 'kubernetes:dock.tabs.describe',
+} as const satisfies Record<DockMode, string>;
 const MAX_COPY_CHARS = 4 * 1024 * 1024 - 1024;
 const MIN_HEIGHT = 120;
 const DEFAULT_HEIGHT = 260;
@@ -63,6 +70,7 @@ type DetailResult = { id: string; data?: KubeDetail; error?: string };
 /** Bottom dock: logs and shell as embedded terminal, events and manifests as text. Follows the selection. */
 export function DetailDock(props: DetailDockProps) {
   const { connection, tabId, visible, open, mode, previous, armed, selected, podRef, podRow, container, readOnly, detail, onMode, onArm, onToggle, onPopout, epoch, onMenu, logFormat, onLogFormat, onCopy, onSay } = props;
+  const { t } = useT();
   const dockRef = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [result, setResult] = useState<DetailResult | null>(null);
@@ -76,11 +84,11 @@ export function DetailDock(props: DetailDockProps) {
     let cancelled = false;
     detail(selected, detailMode).then(
       data => { if (!cancelled) setResult({ id: resultId, data }); },
-      caught => { if (!cancelled) setResult({ id: resultId, error: caught instanceof Error ? caught.message : 'Die Ansicht konnte nicht geladen werden.' }); },
+      caught => { if (!cancelled) setResult({ id: resultId, error: errorText(caught, t('kubernetes:dock.loadFailed')) }); },
     );
     return () => { cancelled = true; };
     // resultId stands for `selected`: a new row object with the same key is the same request.
-  }, [open, detailMode, selectedKey, resultId, detail]);
+  }, [open, detailMode, selectedKey, resultId, detail, t]);
 
   const terminalKind: KubeTerminalMode | null = mode === 'logs' ? (previous ? 'previous' : 'logs') : mode === 'shell' ? 'shell' : null;
   const target: KubeTerminalTarget | null = terminalKind && podRef && container
@@ -110,7 +118,7 @@ export function DetailDock(props: DetailDockProps) {
   const currentResult = result?.id === resultId ? result : null;
 
   const shellWaiting = terminalKind === 'shell' && !armed;
-  const copyLabel = terminalKind === 'shell' ? 'Shell' : terminalKind === 'previous' ? 'Vorherige Logs' : terminalKind === 'logs' ? 'Logs' : mode === 'yaml' ? 'YAML' : mode === 'describe' ? 'Describe' : 'Events';
+  const copyLabel = terminalKind === 'previous' ? t('kubernetes:dock.previousLogs') : t(DOCK_TAB_LABEL_KEYS[mode]);
   const copyText = (): string => {
     if (terminalKind) return liveSessions.get(`${tabId}:dock`)?.terminal?.allText(5000) ?? '';
     const data = currentResult?.data;
@@ -120,52 +128,52 @@ export function DetailDock(props: DetailDockProps) {
   const nothingToCopy = terminalKind ? !target || shellWaiting : !currentResult?.data || (currentResult.data.mode === 'events' ? currentResult.data.rows.length === 0 : currentResult.data.text === '');
   const copy = () => {
     const full = copyText();
-    if (full.trim() === '') { onSay('Nichts zu kopieren.'); return; }
+    if (full.trim() === '') { onSay(t('kubernetes:dock.nothingToCopy')); return; }
     // The clipboard IPC rejects over 4 MiB: keep the newest part and say so.
     const { text, shortened } = capText(full, MAX_COPY_CHARS);
     onCopy(text, copyLabel, { ...(currentResult?.data?.mode === 'events' && !terminalKind ? { lines: currentResult.data.rows.length } : {}), ...(shortened ? { shortened } : {}) });
   };
 
   return (
-    <section ref={dockRef} className={`kube-dock${open ? '' : ' kube-dock-collapsed'}`} style={open ? { height } : undefined} aria-label="Details">
+    <section ref={dockRef} className={`kube-dock${open ? '' : ' kube-dock-collapsed'}`} style={open ? { height } : undefined} aria-label={t('kubernetes:dock.label')}>
       {open && (
-        <div className="kube-dock-handle" role="separator" aria-orientation="horizontal" aria-label="Höhe ändern" onPointerDown={startResize} />
+        <div className="kube-dock-handle" role="separator" aria-orientation="horizontal" aria-label={t('kubernetes:dock.resize')} onPointerDown={startResize} />
       )}
       <div className="kube-dock-bar" {...menuHandlers(onMenu, { type: 'dock', mode, pod: podRow ?? null, container, previous })}>
         <div role="tablist" className="kube-dock-tabs">
           {DOCK_TABS.map(tab => (
             <button key={tab.mode} type="button" role="tab" aria-selected={mode === tab.mode} className={mode === tab.mode ? 'kube-dock-tab kube-dock-tab-on' : 'kube-dock-tab'}
               onClick={() => onMode(tab.mode)}>
-              {tab.label} <kbd>{tab.key}</kbd>
+              {t(DOCK_TAB_LABEL_KEYS[tab.mode])} <kbd>{tab.key}</kbd>
             </button>
           ))}
         </div>
-        <span className="kube-muted kube-dock-hint">{selected ? refKey(selected).split('/').pop() : 'folgt Auswahl'}</span>
+        <span className="kube-muted kube-dock-hint">{selected ? refKey(selected).split('/').pop() : t('kubernetes:dock.followsSelection')}</span>
         {terminalKind && target && onPopout && (
-          <button type="button" className="kube-dock-popout" onClick={onPopout}>Als Tab öffnen</button>
+          <button type="button" className="kube-dock-popout" onClick={onPopout}>{t('kubernetes:dock.popout')}</button>
         )}
         {(terminalKind === 'logs' || terminalKind === 'previous') && (
-          <div className="kube-dock-format" role="group" aria-label="Log-Darstellung">
-            <button type="button" aria-pressed={logFormat === 'compact'} onClick={() => onLogFormat('compact')}>Kompakt</button>
-            <button type="button" aria-pressed={logFormat === 'raw'} onClick={() => onLogFormat('raw')}>Roh</button>
+          <div className="kube-dock-format" role="group" aria-label={t('kubernetes:dock.logFormat')}>
+            <button type="button" aria-pressed={logFormat === 'compact'} onClick={() => onLogFormat('compact')}>{t('kubernetes:dock.compact')}</button>
+            <button type="button" aria-pressed={logFormat === 'raw'} onClick={() => onLogFormat('raw')}>{t('kubernetes:dock.raw')}</button>
           </div>
         )}
-        <button type="button" className="kube-dock-copy" disabled={nothingToCopy} title={nothingToCopy ? 'Nichts zu kopieren.' : undefined} onClick={copy}>Kopieren</button>
-        <button type="button" className="kube-dock-toggle" aria-expanded={open} aria-label={open ? 'Panel einklappen' : 'Panel ausklappen'} onClick={onToggle}>
+        <button type="button" className="kube-dock-copy" disabled={nothingToCopy} title={nothingToCopy ? t('kubernetes:dock.nothingToCopy') : undefined} onClick={copy}>{t('common:actions.copy')}</button>
+        <button type="button" className="kube-dock-toggle" aria-expanded={open} aria-label={open ? t('kubernetes:dock.collapse') : t('kubernetes:dock.expand')} onClick={onToggle}>
           <svg className={`chevron${!open ? ' is-up' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m5 9 7 7 7-7" /></svg>
         </button>
       </div>
       <div className="kube-dock-body" hidden={!open}>
         {terminalKind ? (
-          !podRef ? <p className="kube-placeholder">Wähle einen Pod, um {terminalKind === 'shell' ? 'eine Shell' : 'Logs'} zu sehen.</p>
-          : !container ? <p className="kube-placeholder">Dieser Pod hat keinen Container.</p>
+          !podRef ? <p className="kube-placeholder">{terminalKind === 'shell' ? t('kubernetes:dock.selectPodForShell') : t('kubernetes:dock.selectPodForLogs')}</p>
+          : !container ? <p className="kube-placeholder">{t('kubernetes:dock.noContainer')}</p>
           : terminalKind === 'shell' && !armed ? (
             <div className="kube-placeholder">
-              <p>Die Shell startet erst auf Knopfdruck, damit Auswahlwechsel keine Verbindung öffnen.</p>
-              <button type="button" className="primary-button" disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined} onClick={onArm}>
-                Shell öffnen
+              <p>{t('kubernetes:dock.shellOnDemand')}</p>
+              <button type="button" className="primary-button" disabled={readOnly} title={readOnly ? t('errors:kubernetes.readOnly') : undefined} onClick={onArm}>
+                {t('kubernetes:dock.openShell')}
               </button>
-              {readOnly && <p className="kube-muted">{READ_ONLY_MESSAGE}</p>}
+              {readOnly && <p className="kube-muted">{t('errors:kubernetes.readOnly')}</p>}
             </div>
           ) : terminalConnection && target && (
             <div className="kube-dock-terminal">
@@ -173,8 +181,8 @@ export function DetailDock(props: DetailDockProps) {
                 visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} embedded />
             </div>
           )
-        ) : !selected ? <p className="kube-placeholder">Wähle eine Zeile.</p>
-        : !currentResult ? <p className="kube-placeholder">Lade …</p>
+        ) : !selected ? <p className="kube-placeholder">{t('kubernetes:dock.selectRow')}</p>
+        : !currentResult ? <p className="kube-placeholder">{t('kubernetes:loading')}</p>
         : currentResult.error ? <p className="kube-placeholder error-message">{currentResult.error}</p>
         : currentResult.data?.mode === 'events' ? <EventsTable rows={currentResult.data.rows} onMenu={onMenu} />
         : currentResult.data ? <ManifestText mode={currentResult.data.mode} text={currentResult.data.text} onMenu={onMenu} />
@@ -203,13 +211,14 @@ function ManifestText({ mode, text, onMenu }: { mode: KubeDetail['mode']; text: 
 }
 
 function EventsTable({ rows, onMenu }: { rows: KubeRow[]; onMenu: MenuOpener | undefined }) {
+  const { t } = useT();
   const columns = KIND_COLUMNS.events;
   const now = Date.now();
-  if (rows.length === 0) return <p className="kube-placeholder">Keine Ereignisse.</p>;
+  if (rows.length === 0) return <p className="kube-placeholder">{t('kubernetes:dock.noEvents')}</p>;
   return (
     <table className="kube-table kube-events">
       <thead>
-        <tr>{columns.map(column => <th key={column.key}>{column.label}</th>)}</tr>
+        <tr>{columns.map(column => <th key={column.key}>{columnLabel(column.key)}</th>)}</tr>
       </thead>
       <tbody>
         {rows.map(row => (

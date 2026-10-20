@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { exampleVault } from '../../shared/vault/example';
-import { decryptVault, encryptVault } from './crypto';
+import { encryptVault } from './crypto';
+import { decryptVault } from '../../test/vault-helpers';
 
 const TEST_OPTIONS = {
   memoryKiB: 16_384,
@@ -25,6 +26,12 @@ describe('vault encryption', () => {
     expect(decrypted).toEqual(exampleVault);
   });
 
+  it('reports a structurally wrong file as damaged', async () => {
+    await expect(decryptVault({ unexpected: true }, 'passwort')).rejects.toThrow(
+      expect.objectContaining({ code: 'core.vaultFileCorrupt' }),
+    );
+  });
+
   it('rejects an incorrect password', async () => {
     const encrypted = await encryptVault(
       exampleVault,
@@ -34,7 +41,7 @@ describe('vault encryption', () => {
 
     await expect(
       decryptVault(encrypted, 'falsches passwort'),
-    ).rejects.toThrow();
+    ).rejects.toThrow(expect.objectContaining({ code: 'core.wrongPassword' }));
   });
 
   it('detects a manipulated payload', async () => {
@@ -49,7 +56,7 @@ describe('vault encryption', () => {
 
     await expect(
       decryptVault(encrypted, 'testpasswort'),
-    ).rejects.toThrow();
+    ).rejects.toThrow(expect.objectContaining({ code: 'core.wrongPassword' }));
   });
 
   it('never stores the plaintext password', async () => {

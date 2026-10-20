@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connectionAddress, connectionsIn, disabledNotice, redactSecrets, sessionLimitNotice, sessionLimitText, skippedNotice } from './connections';
+import { connectionsIn, redactSecrets } from './connections';
 import { removeNodeFromVault } from './mutations';
 import { validateVaultConsistency } from './consistency';
 import { exampleVault } from './example';
@@ -19,7 +19,7 @@ describe('connection helpers', () => {
     for (const secret of ['secret-key', 'secret-pass', 'secret-rdp']) expect(text).not.toContain(secret);
     const folder = redacted[0];
     if (folder.type !== 'folder') throw new Error('folder expected');
-    expect(folder.children.map(node => node.type === 'connection' ? connectionAddress(node) : '')).toEqual(['h:22', 'D\\u@h:3389', 'Lokal · CMD']);
+    expect(folder.children.map(node => node.type === 'connection' && 'host' in node ? [node.host, node.port] : null)).toEqual([['h', 22], ['h', 3389], null]);
     expect(JSON.stringify(nodes)).toContain('secret-rdp');
   });
 });
@@ -67,21 +67,5 @@ describe('disabled connections', () => {
     const result = connectionsIn(tree);
     expect(result.connections.map(node => node.id)).toEqual(['a', 'c']);
     expect(result.disabled).toBe(1);
-  });
-  it('reports skipped disabled connections in singular and plural', () => {
-    expect(skippedNotice(1)).toBe('1 deaktivierte Verbindung wurde übersprungen.');
-    expect(skippedNotice(3)).toBe('3 deaktivierte Verbindungen wurden übersprungen.');
-  });
-  it('explains how to re-enable a disabled connection', () => {
-    expect(disabledNotice({ id: 'b', type: 'connection', protocol: 'cmd', name: 'B', tags: [], disabled: true }))
-      .toBe('Die Verbindung „B“ ist deaktiviert. Per Rechtsklick → „Aktivieren“ wieder freigeben.');
-  });
-});
-
-describe('session limit texts', () => {
-  it('builds the toast and the sentence', () => {
-    expect(sessionLimitNotice()).toEqual({ title: 'Maximal 16 Sessions', body: 'Schließe zuerst einen Tab.' });
-    expect(sessionLimitText()).toBe('Maximal 16 Sessions gleichzeitig. Schließe zuerst einen Tab.');
-    expect(sessionLimitText(4)).toBe('Maximal 4 Sessions gleichzeitig. Schließe zuerst einen Tab.');
   });
 });

@@ -1,3 +1,4 @@
+import { AppError } from '../../shared/errors';
 import {
   encryptVaultWithKey,
   unlockVault,
@@ -7,6 +8,8 @@ import {
   readEncryptedVaultFile,
   writeEncryptedVaultFile,
 } from './storage';
+
+import { VaultSchema } from '../../shared/vault/schema';
 
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import type { Vault } from '../../shared/vault/types';
@@ -72,7 +75,7 @@ export class VaultSessionManager {
     const session = this.requireSession();
 
     const updatedVault: Vault = {
-      ...structuredClone(vault),
+      ...VaultSchema.parse(vault),
       updatedAt: new Date().toISOString(),
     };
 
@@ -94,9 +97,10 @@ export class VaultSessionManager {
     );
 
     session.filePath = filePath;
-    session.vault = structuredClone(updatedVault);
+    session.vault = updatedVault;
 
-    return this.getSnapshot();
+    // Built from local values: the session may have been locked or replaced during the awaits.
+    return { filePath, vault: structuredClone(updatedVault) };
   }
 
   public getSnapshot(): VaultSessionSnapshot {
@@ -119,9 +123,7 @@ export class VaultSessionManager {
 
   private requireSession(): ActiveVaultSession {
     if (!this.activeSession) {
-      throw new Error(
-        'Es ist kein Vault entsperrt.',
-      );
+      throw new AppError('core.vaultLocked');
     }
 
     return this.activeSession;

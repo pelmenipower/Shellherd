@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { KubeQuery } from '../../shared/kubernetes';
+import type { CodedError } from '../../shared/errors';
 import { KubeApiError, type KubeApi, type KubeObject, type KubeStream, type ListResult, type WatchHandle, type WatchType } from './api';
 import { ResourceWatcher, type RowBatch, type WatcherOptions } from './watch';
 
@@ -85,8 +86,8 @@ function setup(options: WatcherOptions = {}) {
   const api = new FakeApi();
   const clock = new FakeClock();
   const batches: RowBatch[] = [];
-  const trouble: (string | undefined)[] = [];
-  const watcher = new ResourceWatcher(api, QUERY, batch => batches.push(batch), message => trouble.push(message),
+  const trouble: (CodedError | undefined)[] = [];
+  const watcher = new ResourceWatcher(api, QUERY, batch => batches.push(batch), error => trouble.push(error),
     { schedule: clock.schedule, cancel: clock.cancel, ...options });
   return { api, clock, batches, trouble, watcher };
 }
@@ -185,7 +186,7 @@ describe('ResourceWatcher', () => {
     clock.advance(1);
     await settle();
     expect(api.listCalls).toBe(3);
-    expect(trouble).toEqual(['Live-Aktualisierung gestört: Die Kubernetes-API hat einen Fehler gemeldet.']);
+    expect(trouble).toEqual([{ code: 'kubernetes.liveUpdateFailed' }]);
 
     clock.advance(4999);
     await settle();
@@ -195,7 +196,7 @@ describe('ResourceWatcher', () => {
 
     expect(api.listCalls).toBe(4);
     expect(batches[batches.length - 1].upserts.map(row => row.uid)).toEqual(['u1']);
-    expect(trouble).toEqual(['Live-Aktualisierung gestört: Die Kubernetes-API hat einen Fehler gemeldet.', undefined]);
+    expect(trouble).toEqual([{ code: 'kubernetes.liveUpdateFailed' }, undefined]);
   });
 
   it('resumes a cleanly closed watch after 1 s from the last resourceVersion without listing', async () => {
@@ -286,15 +287,15 @@ describe('ResourceWatcher', () => {
     expect(api.latest().resourceVersion).toBe('6');
   });
 
-  it('reports 401 and 403 at once with a readable message, retries every 30 s and never leaks the raw error', async () => {
+  it('reports 401 and 403 at once with their own code, retries every 30 s and never leaks the raw error', async () => {
     const { api, clock, trouble, watcher } = setup();
     const forbidden = Object.assign(new Error('Body: {"token":"secret"} Headers: {}'), { code: 403 });
     api.listQueue.push(forbidden, forbidden, { items: [pod('u1', 'a')], resourceVersion: '7' });
 
     await watcher.start();
     expect(trouble).toHaveLength(1);
-    expect(trouble[0]).toContain('Keine Berechtigung');
-    expect(trouble[0]).not.toContain('secret');
+    expect(trouble[0]).toEqual({ code: 'kubernetes.forbidden' });
+    expect(JSON.stringify(trouble[0])).not.toContain('secret');
 
     clock.advance(29_999);
     await settle();

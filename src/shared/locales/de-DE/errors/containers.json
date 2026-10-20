@@ -1,0 +1,32 @@
+{
+  "containers": {
+    "sudoRejected": "Das sudo-Passwort wurde abgelehnt.",
+    "sudoNotCached": "sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein.",
+    "invalidVmId": "Ungültige VM-ID.",
+    "logsContainersOnly": "Logs gibt es nur für Docker- und Podman-Container.",
+    "actionUnavailable": "Diese Aktion ist hier nicht möglich.",
+    "invalidTarget": "Ungültige Container-Angabe.",
+    "passwordLineBreak": "Das Passwort enthält einen Zeilenumbruch und kann nicht für sudo verwendet werden.",
+    "hostTimeout": "Der Host hat nicht rechtzeitig geantwortet.",
+    "discoveryFailed": "Die Container-Erkennung ist fehlgeschlagen (Exit-Code {{code}}).",
+    "proxmoxRemoteOnly": "Proxmox gibt es nur auf entfernten Hosts.",
+    "notInstalled": "{{tool}} ist nicht installiert.",
+    "runtimeNotFound": "{{runtime}} wurde auf diesem Host nicht gefunden.",
+    "noRuntime": "Auf diesem Host wurde weder Docker noch Podman gefunden.",
+    "sshOnly": "Container gibt es nur für SSH-Verbindungen.",
+    "hostIncomplete": "Speichere Host und Benutzername der Verbindung.",
+    "connectionNotFound": "Die Verbindung wurde nicht gefunden.",
+    "sudoBusy": "Ein anderer Tab meldet sich gerade per sudo an. Bitte später erneut versuchen.",
+    "sudoNoPrompt": "sudo hat nicht wie erwartet nach dem Passwort gefragt.",
+    "sudoPasswordMissing": "sudo verlangt ein Passwort, für diese Verbindung ist keins hinterlegt. Richte NOPASSWD ein oder melde dich per Passwort an.",
+    "noPermissionDocker": "Keine Berechtigung für Docker. Benutzer zur Gruppe docker hinzufügen oder sudo aktivieren.",
+    "noPermissionPodman": "Keine Berechtigung für Podman. sudo aktivieren oder Podman rootless einrichten.",
+    "dockerNotRunning": "Der Docker-Dienst läuft nicht.",
+    "proxmoxNeedsRoot": "Proxmox-Befehle brauchen root. sudo aktivieren oder als root verbinden.",
+    "commandFailed": "Befehl fehlgeschlagen (Exit-Code {{code}}).",
+    "remoteOutput": "{{line}}",
+    "outputTooLarge": "Die Ausgabe ist zu groß.",
+    "hostKeyRejected": "Der Server-Schlüssel wurde nicht bestätigt.",
+    "apiUnreachable": "Der API-Server ist vom Zugangs-Host aus nicht erreichbar ({{host}}:{{port}})."
+  }
+}

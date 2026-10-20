@@ -2,6 +2,9 @@ import { expect, it } from 'vitest';
 import { describe, toYaml } from './describe';
 import type { KubeObject } from './api';
 
+/** A label padded like describe.ts does, so alignment changes are caught in one place. */
+const field = (name: string, value: string, width = 21): string => name.padEnd(width) + value;
+
 const podFixture: KubeObject = {
   apiVersion: 'v1',
   kind: 'Pod',
@@ -71,14 +74,31 @@ it('masks the last-applied annotation of secrets', () => {
 });
 it('describes a pod with containers, limits and events', () => {
   const text = describe(podFixture, [eventFixture]);
-  expect(text).toContain('Name:        api-1');
-  expect(text).toContain('Namespace:   shop');
-  expect(text).toContain('Node:        worker2');
+  expect(text).toContain(field('Name:', 'api-1'));
+  expect(text).toContain(field('Namespace:', 'shop'));
+  expect(text).toContain(field('Node:', 'worker2'));
+  expect(text).toContain(field('Kind:', 'Pod'));
+  expect(text).toContain(field('Creation Timestamp:', '2026-10-15T10:00:00Z'));
   expect(text).toContain('Container api');
-  expect(text).toContain('Image:     harbor/shop/api:2.4.1');
-  expect(text).toContain('Limits:    memory=2Gi');
-  expect(text).toContain('Letzter Abbruch: OOMKilled (Exit 137)');
+  expect(text).toContain(field('Image:', 'harbor/shop/api:2.4.1', 17));
+  expect(text).toContain(field('Limits:', 'memory=2Gi', 17));
+  expect(text).toContain('Last State: Terminated (OOMKilled, Exit Code: 137)');
+  expect(text).toContain(field('Restart Count:', '', 17));
+  expect(text).toContain(field('Ready:', 'False', 17));
+  expect(text).toContain('  Environment:');
   expect(text).toContain('Warning  BackOff  Back-off restarting');
+});
+it('describes a ready container and a secret with kubectl wording', () => {
+  const ready: KubeObject = { ...podFixture, status: { containerStatuses: [{ name: 'api', ready: true, restartCount: 2 }] } };
+  const text = describe(ready, []);
+  expect(text).toContain(field('Ready:', 'True', 17));
+  expect(text).toContain(field('Restart Count:', '2', 17));
+  const secret = describe({ kind: 'Secret', metadata: { name: 's' }, type: 'Opaque', data: { password: 'x' } }, []);
+  expect(secret).toContain(field('Type:', 'Opaque'));
+  expect(secret).toContain('Keys:');
+  expect(secret).toContain('  password');
+  const workload = describe({ kind: 'Deployment', metadata: { name: 'd' }, spec: { replicas: 1, strategy: { type: 'RollingUpdate' }, selector: {}, template: { spec: { containers: [] } } } }, []);
+  expect(workload).toContain(field('Strategy:', 'RollingUpdate'));
 });
 it('shows secretKeyRef env vars as references only', () => {
   const pod: KubeObject = {

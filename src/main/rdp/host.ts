@@ -4,9 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { screen } from 'electron';
 import type { BrowserWindow, Rectangle } from 'electron';
+import { AppError, truncateDetail } from '../../shared/errors';
+import type { CodedError } from '../../shared/errors';
 import type { RdpAction, RdpEvent, RdpOpenRequest, RdpStatus, RdpSurfaceMode, ViewportRect } from '../../shared/rdp';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
-import { sessionLimitText } from '../../shared/vault/connections';
 
 /** Set SHELLHERD_RDP_DEBUG=1 to log helper traffic; passwords are masked. */
 const debug = process.env.SHELLHERD_RDP_DEBUG === '1';
@@ -32,6 +33,12 @@ interface Session {
   sentBounds?: string;
   failed: boolean;
   status: RdpStatus;
+}
+
+/** Failure reason of a helper status; the helper's own (German) text is only ever the detail. */
+export function rdpStatusError(status: 'disconnected' | 'error', text?: string): CodedError | undefined {
+  if (status === 'error') return { code: 'core.rdpFailed', ...(text ? { detail: truncateDetail(text) } : {}) };
+  return text ? { code: 'core.rdpDisconnected', detail: truncateDetail(text) } : undefined;
 }
 
 /** Splits `DOMAIN\user`; UPNs (`user@domain`) stay a plain user name. */
@@ -66,7 +73,7 @@ export class RdpSessionManager {
   constructor(private readonly dependencies: RdpDependencies) {}
 
   open(ownerId: number, window: BrowserWindow, request: RdpOpenRequest): { sessionId: string } {
-    if (this.sessions.size >= MAX_SSH_SESSIONS) throw new Error(sessionLimitText());
+    if (this.sessions.size >= MAX_SSH_SESSIONS) throw new AppError('core.rdpSessionLimit', { max: MAX_SSH_SESSIONS });
     const target = this.dependencies.getTarget(request.connectionId);
     const session: Session = { id: randomUUID(), connectionId: request.connectionId, ownerId, window, bounds: request.bounds, revision: 0, failed: false, status: 'connecting' };
     this.track(window);
@@ -145,7 +152,7 @@ export class RdpSessionManager {
 
   private owned(ownerId: number, id: string): Session {
     const session = this.sessions.get(id);
-    if (!session || session.ownerId !== ownerId) throw new Error('Die RDP-Verbindung ist nicht verfügbar.');
+    if (!session || session.ownerId !== ownerId) throw new AppError('core.rdpUnavailable');
     return session;
   }
 
@@ -178,7 +185,7 @@ export class RdpSessionManager {
       if (this.helper !== helper) return;
       this.helper = undefined;
       for (const session of this.sessions.values()) {
-        this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status: 'error', message: 'Der RDP-Helfer wurde unerwartet beendet.' });
+        this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status: 'error', error: { code: 'core.rdpHelperLost' } });
       }
       this.sessions.clear();
     };
@@ -200,8 +207,16 @@ export class RdpSessionManager {
     if (debug) console.log(`[rdp ${timestamp()}] <-`, line);
     let message: { type?: string; sessionId?: string; status?: string; message?: string; active?: boolean; dynamicResolution?: boolean };
     try { message = JSON.parse(line); } catch { return; }
-    if (message.type === 'error') { console.warn('RDP-Helfer:', message.message); return; }
     const session = message.sessionId ? this.sessions.get(message.sessionId) : undefined;
+    if (message.type === 'error') {
+      // Only a failed open carries a sessionId; the helper never created a surface for it.
+      if (!session) { console.warn('RDP-Helfer:', message.message); return; }
+      session.failed = true;
+      session.status = 'error';
+      this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status: 'error', error: rdpStatusError('error', message.message) });
+      this.sessions.delete(session.id);
+      return;
+    }
     if (!session) return;
     if (message.type === 'capability' && message.dynamicResolution === false) { this.staticResolution.add(session.connectionId); return; }
     if (message.type === 'resizing') {
@@ -209,15 +224,15 @@ export class RdpSessionManager {
       return;
     }
     if (message.type !== 'status') return;
-    const emit = (status: RdpStatus, text?: string): void => {
+    const emit = (status: RdpStatus, error?: CodedError): void => {
       session.status = status;
-      this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(text ? { message: text } : {}) });
+      this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error } : {}) });
     };
     switch (message.status) {
       case 'connecting': emit('connecting'); break;
       case 'loginComplete': emit('connected'); break;
-      case 'disconnected': emit('closed', message.message); break;
-      case 'error': session.failed = true; emit('error', message.message); break;
+      case 'disconnected': emit('closed', rdpStatusError('disconnected', message.message)); break;
+      case 'error': session.failed = true; emit('error', rdpStatusError('error', message.message)); break;
       case 'closed':
         this.sessions.delete(session.id);
         if (!session.failed) emit('closed');

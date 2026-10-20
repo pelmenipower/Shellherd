@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ButtonHTMLAttributes } from 'react';
 import './busy-button.css';
+import { useT } from '../i18n';
 
 export const DONE_MS = 1200;
 
@@ -9,7 +10,7 @@ export interface BusyButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   idleLabel: string;
   /** Default: idleLabel (label stays, the dot pulses). */
   busyLabel?: string;
-  /** Default: 'Gespeichert'. */
+  /** Default: app:status.saved. */
   doneLabel?: string;
   /** Raise after each success; every change shows doneLabel for DONE_MS. 0/undefined = never. */
   doneKey?: number;
@@ -17,7 +18,8 @@ export interface BusyButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
 
 type Face = 'idle' | 'busy' | 'done';
 
-export function BusyButton({ busy, idleLabel, busyLabel, doneLabel = 'Gespeichert', doneKey, className, disabled, ...rest }: BusyButtonProps) {
+export function BusyButton({ busy, idleLabel, busyLabel, doneLabel, doneKey, className, disabled, ...rest }: BusyButtonProps) {
+  const { t } = useT();
   const [done, setDone] = useState(false);
   const lastKey = useRef(doneKey);
   const changed = useRef(false);
@@ -30,7 +32,7 @@ export function BusyButton({ busy, idleLabel, busyLabel, doneLabel = 'Gespeicher
     return () => clearTimeout(timer);
   }, [doneKey]);
   const face: Face = busy ? 'busy' : done ? 'done' : 'idle';
-  const labels: Record<Face, string> = { idle: idleLabel, busy: busyLabel ?? idleLabel, done: doneLabel };
+  const labels: Record<Face, string> = { idle: idleLabel, busy: busyLabel ?? idleLabel, done: doneLabel ?? t('app:status.saved') };
   // Only a state change fades in; the first render must not animate (a dialog opens with its buttons).
   const previous = useRef(face);
   if (previous.current !== face) { previous.current = face; changed.current = true; }

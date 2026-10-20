@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent, MouseEvent } from 'react';
 import type { EditorChoice, FileEntry } from '../../../shared/sftp';
 import type { FileSide, SortKey, SortOrder } from '../file-browser';
+import { useT } from '../i18n';
 import { ContextMenu } from './ContextMenu';
 import { formatDate, formatSize, isDirectory, joinPath, nameError, nextSelection, parentPath, pathSegments, sortEntries } from '../file-browser';
 
@@ -42,10 +43,14 @@ interface FilePaneProps {
 
 type Prompt = { kind: 'mkdir'; value: string; error?: string } | { kind: 'file'; value: string; error?: string } | { kind: 'rename'; original: string; value: string; error?: string };
 
-const columns: { key: SortKey; label: string }[] = [{ key: 'name', label: 'Name' }, { key: 'size', label: 'Größe' }, { key: 'modified', label: 'Geändert' }];
+const columns: SortKey[] = ['name', 'size', 'modified'];
+const COLUMN_KEYS = {
+  name: 'files:pane.name', size: 'files:pane.size', modified: 'files:pane.modified',
+} as const satisfies Record<SortKey, string>;
 
 export function FilePane({ tabId, side, title, listing, active, disabled, notice, home, drives, onActivate, onNavigate, onRefresh,
   onMkdir, onRename, onDelete, onCopy, onDrop, onEdit, onCreateFile, onPermissions }: FilePaneProps) {
+  const { t, i18n } = useT();
   const [sort, setSort] = useState<SortOrder>({ key: 'name', ascending: true });
   const [selected, setSelected] = useState<string[]>([]);
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -55,11 +60,10 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const entries = useMemo(() => sortEntries(listing.entries, sort), [listing.entries, sort]);
+  const entries = useMemo(() => sortEntries(listing.entries, sort), [listing.entries, sort, i18n.language]);
   const names = useMemo(() => entries.map(entry => entry.name), [entries]);
   const path = listing.path;
   const parent = path ? parentPath(side, path) : null;
-  const other = side === 'local' ? 'Server' : 'Computer';
 
   // A new folder starts without selection; a refresh keeps what still exists.
   useEffect(() => { setSelected([]); setAnchor(null); setCursor(null); setPrompt(null); }, [path]);
@@ -96,7 +100,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
     if (error) { setPrompt({ ...prompt, error }); return; }
     const name = prompt.value.trim();
     if (prompt.kind === 'rename' && name === prompt.original) { setPrompt(null); return; }
-    if (names.includes(name)) { setPrompt({ ...prompt, error: 'Ein Eintrag mit diesem Namen existiert bereits.' }); return; }
+    if (names.includes(name)) { setPrompt({ ...prompt, error: t('files:names.exists') }); return; }
     const done = prompt.kind === 'mkdir' ? await onMkdir(joinPath(side, path, name))
       : prompt.kind === 'file' ? await onCreateFile(joinPath(side, path, name))
       : await onRename(joinPath(side, path, prompt.original), joinPath(side, path, name));
@@ -191,22 +195,22 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
       <header className="file-pane-header">
         <strong>{title}</strong>
         <div className="file-pane-tools">
-          {drives && drives.length > 0 && <select aria-label="Laufwerk" value={drives.find(drive => path?.toUpperCase().startsWith(drive.toUpperCase())) ?? ''}
+          {drives && drives.length > 0 && <select aria-label={t('files:pane.drive')} value={drives.find(drive => path?.toUpperCase().startsWith(drive.toUpperCase())) ?? ''}
             disabled={disabled} onChange={event => onNavigate(event.target.value)}>
             {drives.map(drive => <option key={drive} value={drive}>{drive.replace(/\\$/, '')}</option>)}
           </select>}
-          <button type="button" title="Übergeordneter Ordner (Rücktaste)" aria-label="Übergeordneter Ordner" disabled={disabled || !parent} onClick={() => parent && onNavigate(parent)}>↑</button>
-          <button type="button" title="Basisordner" aria-label="Basisordner" disabled={disabled || !home} onClick={() => home && onNavigate(home)}>⌂</button>
-          <button type="button" title="Aktualisieren (Strg+R)" aria-label="Aktualisieren" disabled={disabled || !path} onClick={onRefresh}>⟳</button>
-          <button type="button" title="Neue Datei (Umschalt+F4)" disabled={disabled || !path} onClick={() => setPrompt({ kind: 'file', value: '' })}>Neue Datei</button>
-          <button type="button" title="Neuer Ordner (F7)" disabled={disabled || !path} onClick={() => setPrompt({ kind: 'mkdir', value: '' })}>Neuer Ordner</button>
+          <button type="button" title={t('files:pane.upTitle')} aria-label={t('files:pane.up')} disabled={disabled || !parent} onClick={() => parent && onNavigate(parent)}>↑</button>
+          <button type="button" title={t('files:pane.home')} aria-label={t('files:pane.home')} disabled={disabled || !home} onClick={() => home && onNavigate(home)}>⌂</button>
+          <button type="button" title={t('files:pane.refreshTitle')} aria-label={t('files:pane.refresh')} disabled={disabled || !path} onClick={onRefresh}>⟳</button>
+          <button type="button" title={t('files:pane.newFileTitle')} disabled={disabled || !path} onClick={() => setPrompt({ kind: 'file', value: '' })}>{t('files:pane.newFile')}</button>
+          <button type="button" title={t('files:pane.newFolderTitle')} disabled={disabled || !path} onClick={() => setPrompt({ kind: 'mkdir', value: '' })}>{t('files:pane.newFolder')}</button>
         </div>
       </header>
       <div className="file-path">
         {editingPath !== null ? <form onSubmit={event => { event.preventDefault(); const value = editingPath.trim(); setEditingPath(null); if (value) onNavigate(value); }}>
-          <input autoFocus aria-label="Pfad" value={editingPath} spellCheck={false} onChange={event => setEditingPath(event.target.value)}
+          <input autoFocus aria-label={t('files:pane.path')} value={editingPath} spellCheck={false} onChange={event => setEditingPath(event.target.value)}
             onBlur={() => setEditingPath(null)} onKeyDown={event => { if (event.key === 'Escape') setEditingPath(null); }} />
-        </form> : <nav aria-label="Pfad" onDoubleClick={() => path && setEditingPath(path)} title="Doppelklick: Pfad eingeben">
+        </form> : <nav aria-label={t('files:pane.path')} onDoubleClick={() => path && setEditingPath(path)} title={t('files:pane.pathHint')}>
           {path && pathSegments(side, path).map((segment, index, all) => <span key={segment.path}>
             <button type="button" disabled={disabled || index === all.length - 1} onClick={() => onNavigate(segment.path)}>{segment.label}</button>
             {index < all.length - 1 && segment.label !== '/' && <span aria-hidden="true">{side === 'remote' ? '/' : '\\'}</span>}
@@ -214,31 +218,31 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
         </nav>}
       </div>
       {prompt && <form className="file-prompt" onSubmit={event => { event.preventDefault(); void submitPrompt(); }}>
-        <label>{prompt.kind === 'mkdir' ? 'Neuer Ordner' : prompt.kind === 'file' ? `Neue Datei${side === 'remote' ? ' (öffnet sich danach im Editor, Speichern lädt hoch)' : ''}` : `„${prompt.original}“ umbenennen`}
+        <label>{prompt.kind === 'mkdir' ? t('files:pane.newFolder') : prompt.kind === 'file' ? (side === 'remote' ? t('files:pane.newFileRemote') : t('files:pane.newFile')) : t('files:pane.renamePrompt', { name: prompt.original })}
           <input autoFocus value={prompt.value} spellCheck={false} aria-invalid={!!prompt.error || undefined}
             onFocus={event => { if (prompt.kind === 'rename') { const dot = prompt.original.lastIndexOf('.'); event.target.setSelectionRange(0, dot > 0 ? dot : prompt.original.length); } }}
             onChange={event => setPrompt({ ...prompt, value: event.target.value, error: undefined })}
             onKeyDown={event => { if (event.key === 'Escape') { setPrompt(null); listRef.current?.focus(); } }} /></label>
-        <button type="submit" className="primary-button" disabled={disabled}>{prompt.kind === 'rename' ? 'Umbenennen' : 'Anlegen'}</button>
-        <button type="button" className="secondary-button" onClick={() => setPrompt(null)}>Abbrechen</button>
+        <button type="submit" className="primary-button" disabled={disabled}>{prompt.kind === 'rename' ? t('common:actions.rename') : t('files:pane.create')}</button>
+        <button type="button" className="secondary-button" onClick={() => setPrompt(null)}>{t('common:actions.cancel')}</button>
         {prompt.error && <p className="field-error" role="alert">{prompt.error}</p>}
       </form>}
       {listing.error && <p className="file-error" role="alert">{listing.error}</p>}
       {notice ? <div className="file-notice"><p>{notice.text}</p>
         {notice.action && <button type="button" className="secondary-button" onClick={notice.action.run}>{notice.action.label}</button>}</div>
       : <div ref={listRef} className={`file-list${dropTarget === '' ? ' is-drop-target' : ''}`} tabIndex={0} role="grid" aria-multiselectable="true"
-        aria-busy={listing.loading} aria-label={`Dateien: ${title}`} onKeyDown={onKeyDown}
+        aria-busy={listing.loading} aria-label={t('files:pane.list', { title })} onKeyDown={onKeyDown}
         onDragOver={event => onDragOver(event)} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(null); }}
         onDrop={event => handleDrop(event)}
         onClick={event => { if (event.target === event.currentTarget) { setSelected([]); setAnchor(null); } }}
         onContextMenu={event => openMenu(event)}>
         <div className="file-row file-row-head" role="row">
-          {columns.map(column => <span key={column.key} role="columnheader" aria-sort={sort.key === column.key ? (sort.ascending ? 'ascending' : 'descending') : 'none'}>
-            <button type="button" tabIndex={-1} onClick={() => setSort(current => ({ key: column.key, ascending: current.key === column.key ? !current.ascending : true }))}>
-              {column.label}{sort.key === column.key ? (sort.ascending ? ' ▲' : ' ▼') : ''}
+          {columns.map(column => <span key={column} role="columnheader" aria-sort={sort.key === column ? (sort.ascending ? 'ascending' : 'descending') : 'none'}>
+            <button type="button" tabIndex={-1} onClick={() => setSort(current => ({ key: column, ascending: current.key === column ? !current.ascending : true }))}>
+              {t(COLUMN_KEYS[column])}{sort.key === column ? (sort.ascending ? ' ▲' : ' ▼') : ''}
             </button>
           </span>)}
-          {side === 'remote' && <span role="columnheader">Rechte</span>}
+          {side === 'remote' && <span role="columnheader">{t('files:pane.permissions')}</span>}
         </div>
         {parent && <div className="file-row is-parent" role="row" onDoubleClick={() => onNavigate(parent)}><span role="gridcell">..</span><span /><span /></div>}
         {entries.map(entry => {
@@ -251,42 +255,43 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
             onDrop={folder ? event => handleDrop(event, entry.name) : undefined}>
             <span role="gridcell" className="file-name" title={entry.name}>
               <span className={`file-kind${folder ? ' is-folder' : ''}`} aria-hidden="true">{folder ? '▸' : ''}</span>
-              {entry.name}{entry.type === 'link' && <small> → Link</small>}
+              {entry.name}{entry.type === 'link' && <small> {t('files:pane.link')}</small>}
             </span>
             <span role="gridcell" className="file-size">{folder ? '' : formatSize(entry.size)}</span>
             <span role="gridcell" className="file-date">{formatDate(entry.modified)}</span>
             {side === 'remote' && <span role="gridcell" className="file-mode">{entry.permissions ?? ''}</span>}
           </div>;
         })}
-        {!listing.loading && !entries.length && !listing.error && <p className="file-empty">Dieser Ordner ist leer.</p>}
+        {!listing.loading && !entries.length && !listing.error && <p className="file-empty">{t('files:pane.empty')}</p>}
       </div>}
-      {menu && <ContextMenu x={menu.x} y={menu.y} label={`Dateiaktionen: ${title}`} onClose={() => setMenu(null)} entries={[
-        ...(menuFolder ? [{ kind: 'item' as const, label: 'Öffnen', hint: 'Eingabe', onSelect: () => open(menuFolder) }] : []),
+      {menu && <ContextMenu x={menu.x} y={menu.y} label={t('files:pane.menu', { title })} onClose={() => setMenu(null)} entries={[
+        ...(menuFolder ? [{ kind: 'item' as const, label: t('common:actions.open'), hint: t('files:pane.enterHint'), onSelect: () => open(menuFolder) }] : []),
         ...(menuTargets.length === 1 && !menuFolder ? [
-          { kind: 'item' as const, label: 'Bearbeiten', hint: 'F4', onSelect: () => onEdit(fullPaths(menuTargets)[0], 'default') },
-          { kind: 'item' as const, label: 'Mit Editor (Notepad) bearbeiten', onSelect: () => onEdit(fullPaths(menuTargets)[0], 'notepad') },
+          { kind: 'item' as const, label: t('common:actions.edit'), hint: 'F4', onSelect: () => onEdit(fullPaths(menuTargets)[0], 'default') },
+          { kind: 'item' as const, label: t('files:pane.editNotepad'), onSelect: () => onEdit(fullPaths(menuTargets)[0], 'notepad') },
         ] : []),
         ...(menuTargets.length ? [
-          { kind: 'item' as const, label: side === 'local' ? 'Hochladen' : 'Herunterladen', hint: 'F5', onSelect: () => onCopy(fullPaths(menuTargets), false) },
-          { kind: 'item' as const, label: side === 'local' ? 'Hochladen und lokal löschen' : 'Herunterladen und vom Server löschen', hint: 'F6', onSelect: () => onCopy(fullPaths(menuTargets), true) },
+          { kind: 'item' as const, label: side === 'local' ? t('files:pane.upload') : t('files:pane.download'), hint: 'F5', onSelect: () => onCopy(fullPaths(menuTargets), false) },
+          { kind: 'item' as const, label: side === 'local' ? t('files:pane.uploadMove') : t('files:pane.downloadMove'), hint: 'F6', onSelect: () => onCopy(fullPaths(menuTargets), true) },
           { kind: 'separator' as const },
-          { kind: 'item' as const, label: 'Umbenennen', hint: 'F2', disabled: menuTargets.length !== 1, onSelect: beginRename },
-          { kind: 'item' as const, label: 'Löschen', hint: 'Entf', onSelect: () => onDelete(fullPaths(menuTargets), menuTargets) },
-          ...(onPermissions ? [{ kind: 'item' as const, label: 'Rechte …', hint: 'F9', onSelect: () => permissions(menuTargets) }] : []),
+          { kind: 'item' as const, label: t('common:actions.rename'), hint: 'F2', disabled: menuTargets.length !== 1, onSelect: beginRename },
+          { kind: 'item' as const, label: t('common:actions.delete'), hint: t('common:keys.del'), onSelect: () => onDelete(fullPaths(menuTargets), menuTargets) },
+          ...(onPermissions ? [{ kind: 'item' as const, label: t('files:pane.rights'), hint: 'F9', onSelect: () => permissions(menuTargets) }] : []),
           { kind: 'separator' as const },
         ] : []),
-        { kind: 'item', label: 'Neue Datei', hint: 'Umschalt+F4', onSelect: () => setPrompt({ kind: 'file', value: '' }) },
-        { kind: 'item', label: 'Neuer Ordner', hint: 'F7', onSelect: () => setPrompt({ kind: 'mkdir', value: '' }) },
-        { kind: 'item', label: 'Aktualisieren', hint: 'Strg+R', onSelect: onRefresh },
-        { kind: 'item', label: 'Pfad kopieren', onSelect: () => { void window.desktopApi.writeClipboardText(menuTargets.length === 1 ? fullPaths(menuTargets)[0] : path ?? '').catch(() => {}); } },
+        { kind: 'item', label: t('files:pane.newFile'), hint: `${t('common:keys.shift')}+F4`, onSelect: () => setPrompt({ kind: 'file', value: '' }) },
+        { kind: 'item', label: t('files:pane.newFolder'), hint: 'F7', onSelect: () => setPrompt({ kind: 'mkdir', value: '' }) },
+        { kind: 'item', label: t('files:pane.refresh'), hint: `${t('common:keys.ctrl')}+R`, onSelect: onRefresh },
+        { kind: 'item', label: t('files:pane.copyPath'), onSelect: () => { void window.desktopApi.writeClipboardText(menuTargets.length === 1 ? fullPaths(menuTargets)[0] : path ?? '').catch(() => {}); } },
       ]} />}
       <footer className="file-pane-footer">
-        <span>{selected.length ? `${selected.length} von ${entries.length} ausgewählt${selectedBytes ? ` · ${formatSize(selectedBytes)}` : ''}` : `${entries.length} Einträge`}</span>
+        <span>{selected.length ? (selectedBytes ? t('files:pane.selectedSize', { selected: selected.length, total: entries.length, size: formatSize(selectedBytes) })
+          : t('files:pane.selected', { selected: selected.length, total: entries.length })) : t('files:transfer.entries', { count: entries.length })}</span>
         <span className="file-pane-actions">
-          <button type="button" disabled={disabled || !targets().length} title={`Zum ${other} kopieren (F5)`} onClick={() => onCopy(fullPaths(targets()), false)}>
-            {side === 'local' ? 'Hochladen →' : '← Herunterladen'}</button>
-          <button type="button" disabled={disabled || !targets().length} title="Umbenennen (F2)" onClick={beginRename}>Umbenennen</button>
-          <button type="button" disabled={disabled || !targets().length} title="Löschen (Entf)" onClick={() => { const list = targets(); onDelete(fullPaths(list), list); }}>Löschen</button>
+          <button type="button" disabled={disabled || !targets().length} title={side === 'local' ? t('files:pane.copyToServer') : t('files:pane.copyToComputer')} onClick={() => onCopy(fullPaths(targets()), false)}>
+            {side === 'local' ? t('files:pane.uploadButton') : t('files:pane.downloadButton')}</button>
+          <button type="button" disabled={disabled || !targets().length} title={t('files:pane.renameTitle')} onClick={beginRename}>{t('common:actions.rename')}</button>
+          <button type="button" disabled={disabled || !targets().length} title={t('files:pane.deleteTitle')} onClick={() => { const list = targets(); onDelete(fullPaths(list), list); }}>{t('common:actions.delete')}</button>
         </span>
       </footer>
     </section>

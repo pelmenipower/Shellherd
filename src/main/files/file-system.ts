@@ -1,9 +1,10 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { access, lstat, mkdir, readdir, rename, rmdir, stat, unlink, utimes } from 'node:fs/promises';
+import { access, lstat, mkdir, readdir, realpath, rename, rmdir, stat, unlink, utimes } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { win32 } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
+import { AppError, type CodedError } from '../../shared/errors';
 import type { FileEntry, LocalPlaces } from '../../shared/sftp';
 
 /** One side of a transfer: this computer or a server. FTP becomes another implementation. */
@@ -15,32 +16,40 @@ export interface FileSystem {
   stat: (path: string) => Promise<FileEntry | null>;
   mkdir: (path: string) => Promise<void>;
   read: (path: string) => Readable;
-  write: (path: string) => Writable;
+  /** Servers set `mode` on new and existing files alike (default 0644), so pass the old mode when overwriting; this computer ignores it. */
+  write: (path: string, mode?: number) => Writable;
   setModified: (path: string, modified: number) => Promise<void>;
   removeFile: (path: string) => Promise<void>;
   /** Only empty directories. */
   removeDirectory: (path: string) => Promise<void>;
   rename: (from: string, to: string) => Promise<void>;
+  /** Resolves links to the real path. */
+  realpath: (path: string) => Promise<string>;
 }
 
 const MAX_ENTRIES = 50_000;
 
-/** Errors whose message is written for the user. */
-export class FileError extends Error {}
+/** Errors with a catalog code the window can show. */
+export class FileError extends AppError {}
 
-/** User-facing text for file errors of this computer and of SFTP servers (numeric status codes). */
-export function fileErrorText(error: unknown): string {
-  if (error instanceof FileError) return error.message;
+/** Coded error for file errors of this computer and of SFTP servers (numeric status codes). */
+export function fileError(error: unknown): CodedError {
+  if (error instanceof AppError) return error.toCoded();
   const code = (error as { code?: string | number })?.code;
-  if (code === 'ENOENT' || code === 2) return 'Die Datei oder der Ordner wurde nicht gefunden.';
-  if (code === 'EACCES' || code === 'EPERM' || code === 3) return 'Zugriff verweigert.';
-  if (code === 'EEXIST') return 'Ein Eintrag mit diesem Namen existiert bereits.';
-  if (code === 'ENOTEMPTY') return 'Der Ordner ist nicht leer.';
-  if (code === 'ENOSPC') return 'Auf dem Ziel ist nicht genug Speicherplatz frei.';
-  if (code === 'EBUSY') return 'Die Datei wird gerade von einem anderen Programm verwendet.';
-  if (code === 4) return 'Der Server hat die Aktion abgelehnt. Vielleicht existiert der Name schon oder der Ordner ist nicht leer.';
-  return 'Die Dateiaktion ist fehlgeschlagen.';
+  if (code === 'ENOENT' || code === 2) return { code: 'files.notFound' };
+  if (code === 'EACCES' || code === 'EPERM' || code === 3) return { code: 'files.accessDenied' };
+  if (code === 'EEXIST') return { code: 'files.exists' };
+  if (code === 'ENOTEMPTY') return { code: 'files.notEmpty' };
+  if (code === 'ENOSPC') return { code: 'files.noSpace' };
+  if (code === 'EBUSY') return { code: 'files.busy' };
+  if (code === 4) return { code: 'files.serverRejected' };
+  return { code: 'files.failed' };
 }
+
+/** Names Windows cannot store safely: separators, drive/stream colons, control chars, trailing dot/space, device names. */
+export const unsafeLocalName = (name: string): boolean =>
+  name === '' || name === '.' || name === '..' || /[\\/:*?"<>|\x00-\x1f]/.test(name) || /[. ]$/.test(name)
+  || /^(con|prn|aux|nul|com[1-9]|lpt[1-9]|conin\$|conout\$)(\..*)?$/i.test(name);
 
 /** Runs `task` for every item with at most `limit` running at once. */
 export async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
@@ -64,7 +73,7 @@ export const localFileSystem: FileSystem = {
   basename: path => win32.basename(path),
   list: async dir => {
     const names = await readdir(dir);
-    if (names.length > MAX_ENTRIES) throw new FileError(`Der Ordner enthält mehr als ${MAX_ENTRIES} Einträge.`);
+    if (names.length > MAX_ENTRIES) throw new FileError('files.tooManyEntries', { max: MAX_ENTRIES });
     const entries = await mapLimit(names, 32, async name => {
       const path = win32.join(dir, name);
       // Locked system files (pagefile.sys) cannot be inspected; they are listed without details.
@@ -85,6 +94,7 @@ export const localFileSystem: FileSystem = {
   removeFile: path => unlink(path),
   removeDirectory: path => rmdir(path),
   rename: (from, to) => rename(from, to),
+  realpath: path => realpath(path),
 };
 
 /** Home folder and the drives that exist. */

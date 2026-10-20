@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { i18n } from './i18n';
 import type { ConnectionNode } from '../../shared/vault/types';
 import type { TerminalTab } from './terminal-tabs';
 import { toTerminalConnection } from './terminal-tabs';
 import { panes, splitPane } from './terminal-layout';
-import { activeView, addView, closeView, fromWorkspaceViews, initialViews, insertView, moveTabToView, moveView, paneToView, remapLayout, removeView, renameView, restoreViews, savedViews, syncViews, toWorkspaceViews, workspaceSummary } from './terminal-views';
+import { activeView, addView, closeView, fromWorkspaceViews, initialViews, insertView, moveTabToView, moveView, nextViewName, paneToView, remapLayout, removeView, renameView, restoreViews, savedViews, syncViews, toWorkspaceViews, workspaceSummary } from './terminal-views';
 
 const connection = { id: 'server', name: 'Server', protocol: 'ssh' as const, address: 'h:22' };
 const tab = (id: string): TerminalTab => ({ id, connection, ordinal: 1, status: 'connected' });
@@ -133,5 +134,18 @@ describe('terminal views', () => {
     expect(workspaceSummary({ id: 'w', name: 'W', layout: pane(2), views: [{ name: 'A', layout: pane(2) }, { name: 'B', layout: pane(3) }],
       windows: [{ bounds: { x: 0, y: 0, width: 800, height: 600 }, layout: pane(1) }] })).toBe('3 Ansichten · 6 Tabs · 1 weiteres Fenster');
     expect(workspaceSummary({ id: 'w', name: 'W', layout: pane(1) })).toBe('1 Ansicht · 1 Tab');
+  });
+});
+
+describe('terminal views in en-US', () => {
+  afterEach(async () => { await i18n.changeLanguage('de-DE'); });
+  it('names new views and summarizes workspaces in English with plurals', async () => {
+    await i18n.changeLanguage('en-US');
+    expect(initialViews().views[0].name).toBe('View 1');
+    expect(nextViewName(initialViews())).toBe('View 2');
+    const pane = (count: number) => ({ type: 'pane' as const, connectionIds: Array(count).fill('server') });
+    expect(workspaceSummary({ id: 'w', name: 'W', layout: pane(2), views: [{ name: 'A', layout: pane(2) }, { name: 'B', layout: pane(3) }],
+      windows: [{ bounds: { x: 0, y: 0, width: 800, height: 600 }, layout: pane(1) }] })).toBe('3 views · 6 tabs · 1 more window');
+    expect(workspaceSummary({ id: 'w', name: 'W', layout: pane(1) })).toBe('1 view · 1 tab');
   });
 });

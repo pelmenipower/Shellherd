@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { KubeAction, KubeRef } from '../../shared/kubernetes';
 import { confirmationFor } from './confirm-action';
+import { i18n } from './i18n';
 
 describe('confirmationFor', () => {
   it('asks to type the name on production clusters', () => {
@@ -32,5 +33,19 @@ describe('confirmationFor', () => {
   it.each(cases)('words %s', (_name, ref, action, title, body, confirmLabel) => {
     expect(confirmationFor({ ref, action }, test)).toEqual({ title, body, requireTyping: null, confirmLabel });
     expect(confirmationFor({ ref, action }, prod)).toEqual({ title, body, requireTyping: ref.name, confirmLabel });
+  });
+});
+
+describe('confirmationFor in English', () => {
+  it('words restart, scale and delete natively', async () => {
+    await i18n.changeLanguage('en-US');
+    try {
+      const cluster = { name: 'k8s', production: false };
+      expect(confirmationFor({ ref: { kind: 'deployments', namespace: 'shop', name: 'api' }, action: 'restart' }, cluster))
+        .toEqual({ title: 'Restart rollout?', body: 'Deployment api in namespace shop on k8s will be restarted.', requireTyping: null, confirmLabel: 'Restart' });
+      expect(confirmationFor({ ref: { kind: 'deployments', namespace: 'shop', name: 'api' }, action: 'scale', replicas: 2, currentReplicas: 3 }, cluster).body)
+        .toBe('Deployment api in namespace shop on k8s: 3 → 2 replicas.');
+      expect(confirmationFor({ ref: { kind: 'jobs', namespace: 'shop', name: 'j' }, action: 'delete' }, cluster).title).toBe('Delete job?');
+    } finally { await i18n.changeLanguage('de-DE'); }
   });
 });

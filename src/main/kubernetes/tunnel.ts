@@ -1,6 +1,7 @@
 import { createServer } from 'node:net';
 import type { Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
+import { AppError } from '../../shared/errors';
 
 export interface Tunnel { readonly port: number; close(): void }
 
@@ -25,7 +26,7 @@ export function openTunnel(forward: (host: string, port: number) => Promise<Dupl
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
-      if (!address || typeof address === 'string') { server.close(); reject(new Error('Der lokale Tunnel konnte nicht starten.')); return; }
+      if (!address || typeof address === 'string') { server.close(); reject(new AppError('kubernetes.tunnelFailed')); return; }
       resolve({ port: address.port, close() { server.close(); for (const socket of sockets) socket.destroy(); } });
     });
   });

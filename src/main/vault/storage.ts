@@ -2,18 +2,16 @@ import { constants } from 'node:fs';
 import {
   copyFile,
   mkdir,
+  open,
   readFile,
   rename,
   rm,
-  writeFile,
 } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 
-import {
-  decryptVault,
-  encryptVault,
-} from './crypto';
+import { encryptVault } from './crypto';
+import { AppError } from '../../shared/errors';
 import { EncryptedVaultFileSchema } from '../../shared/vault/schema';
 
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
@@ -49,10 +47,14 @@ export async function writeEncryptedVaultFile(
   });
 
   try {
-    await writeFile(temporaryPath, serializedVault, {
-      encoding: 'utf8',
-      mode: 0o600,
-    });
+    // fsync before rename so a crash cannot leave an empty vault file.
+    const handle = await open(temporaryPath, 'w', 0o600);
+    try {
+      await handle.writeFile(serializedVault, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
 
     await rename(temporaryPath, finalPath);
   } finally {
@@ -87,7 +89,7 @@ export async function backupVaultFile(
     }
   }
 
-  throw new Error('Für die Vault-Sicherung wurde kein freier Dateiname gefunden.');
+  throw new AppError('core.vaultBackupNameTaken');
 }
 
 export async function readEncryptedVaultFile(
@@ -103,12 +105,12 @@ export async function readEncryptedVaultFile(
   try {
     parsed = JSON.parse(serializedVault);
   } catch {
-    throw new Error(
-      'Die ausgewählte Datei enthält kein gültiges JSON.',
-    );
+    throw new AppError('core.vaultFileNotJson');
   }
 
-  return EncryptedVaultFileSchema.parse(parsed);
+  const file = EncryptedVaultFileSchema.safeParse(parsed);
+  if (!file.success) throw new AppError('core.vaultFileCorrupt');
+  return file.data;
 }
 
 export async function saveVault(
@@ -124,18 +126,5 @@ export async function saveVault(
   return writeEncryptedVaultFile(
     filePath,
     encryptedVault,
-  );
-}
-
-export async function loadVault(
-  filePath: string,
-  password: string,
-): Promise<Vault> {
-  const encryptedVault =
-    await readEncryptedVaultFile(filePath);
-
-  return decryptVault(
-    encryptedVault,
-    password,
   );
 }

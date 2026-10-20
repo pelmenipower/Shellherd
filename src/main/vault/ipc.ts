@@ -7,8 +7,11 @@ import {
 import { basename, join } from 'node:path';
 import { LastVaultFile } from './last-vault';
 
+import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
-import { vaultWriteMessage } from '../../shared/vault/write-errors';
+import { mainT } from '../i18n';
+import { toVaultAppError } from './ipc-error';
+import { vaultWriteCode } from '../../shared/vault/write-errors';
 import { VaultSessionManager } from './session';
 import { saveVault } from './storage';
 
@@ -26,7 +29,7 @@ import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron';
 
 function requirePassword(password: unknown): asserts password is string {
   if (typeof password !== 'string' || password.length === 0) {
-    throw new Error('Ein Vault-Passwort ist erforderlich.');
+    throw new AppError('core.vaultPasswordRequired');
   }
 }
 
@@ -44,7 +47,14 @@ export interface VaultIpcOptions {
 
 export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultChange = () => {}, guard = () => {} }: VaultIpcOptions = {}): void {
   const handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: never[]) => unknown): void => {
-    ipcMain.handle(channel, (event, ...args) => { guard(event); return listener(event, ...(args as never[])); });
+    ipcMain.handle(channel, async (event, ...args) => {
+      try {
+        guard(event);
+        return await listener(event, ...(args as never[]));
+      } catch (error) {
+        throw toVaultAppError(error);
+      }
+    });
   };
   const lastVault = new LastVaultFile(join(app.getPath('userData'), 'last-vault.json'));
   handle(IPC_CHANNELS.lastVaultFile, () => lastVault.get());
@@ -52,7 +62,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
   handle(IPC_CHANNELS.selectPrivateKeyFile, async (event): Promise<SelectVaultFileResult> => {
     vaultSessionManager.getSnapshot();
     const parent = BrowserWindow.fromWebContents(event.sender);
-    const options: OpenDialogOptions = { title: 'Privaten SSH-Schlüssel auswählen', properties: ['openFile'] };
+    const options: OpenDialogOptions = { title: mainT('dialogs.privateKey.title'), properties: ['openFile'] };
     const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
     return result.canceled || !result.filePaths[0] ? { canceled: true } : { canceled: false, filePath: result.filePaths[0] };
   });
@@ -73,11 +83,11 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
           : 'vault.term';
 
       const options = {
-        title: 'Shellherd-Vault speichern',
+        title: mainT('dialogs.vaultSave.title'),
         defaultPath: suggestedName,
         filters: [
           {
-            name: 'Shellherd Vault',
+            name: mainT('dialogs.vaultFilter'),
             extensions: ['term', 'terminus'],
           },
         ],
@@ -118,13 +128,13 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         BrowserWindow.fromWebContents(event.sender);
 
       const options: OpenDialogOptions = {
-        title: 'Shellherd-Vault auswählen',
+        title: mainT('dialogs.vaultOpen.title'),
         // Starts in the folder of the last vault; any other file can still be picked.
         ...(await lastVault.get().then(last => last ? { defaultPath: last } : {})),
         properties: ['openFile'],
         filters: [
           {
-            name: 'Shellherd Vault',
+            name: mainT('dialogs.vaultFilter'),
             extensions: ['term', 'terminus'],
           },
         ],
@@ -160,9 +170,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         typeof request.filePath !== 'string' ||
         request.filePath.length === 0
       ) {
-        throw new Error(
-          'Es wurde keine Vault-Datei ausgewählt.',
-        );
+        throw new AppError('core.vaultFileMissing');
       }
 
       const snapshot = await vaultSessionManager.unlock(
@@ -192,10 +200,12 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
           request.vault,
         );
       } catch (error) {
-        // Fixed German cause without path or raw text; unknown errors pass through.
-        const message = vaultWriteMessage((error as NodeJS.ErrnoException)?.code);
-        throw message ? new Error(message) : error;
+        // Coded cause without path or raw text; unknown errors go through the generic mapping.
+        const code = vaultWriteCode((error as NodeJS.ErrnoException)?.code);
+        throw code ? new AppError(code) : error;
       }
+      // save may have renamed the file (extension added), so the stored path must follow.
+      await lastVault.set(result.filePath);
       onVaultChange();
       return result;
     },

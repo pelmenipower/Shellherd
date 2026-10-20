@@ -1,0 +1,25 @@
+{
+  "ai": {
+    "noProvider": "No AI provider has been set up yet.",
+    "busy": "Wait until an answer has finished.",
+    "requestRunning": "This request is already running.",
+    "requestFailed": "The AI request failed.",
+    "invalidRequest": "Invalid AI request.",
+    "azureEndpointMissing": "Enter the endpoint of the Azure resource.",
+    "endpointInvalid": "The endpoint is not a valid URL.",
+    "noHttp": "This provider does not use an HTTP interface.",
+    "unreachable": "The provider is unreachable. Check the URL and network.",
+    "noResponse": "The provider returned no response.",
+    "keyMissing": "Enter an API key for Anthropic.",
+    "refused": "The model declined the request.",
+    "anthropicUnreachable": "Anthropic is unreachable. Check network and proxy.",
+    "anthropicFailed": "The request to Anthropic failed.",
+    "keyRejected": "The provider rejects the API key.",
+    "notFound": "Model or endpoint not found. Check the model name, deployment and URL.",
+    "rateLimited": "Too many requests or quota exhausted. Wait a moment.",
+    "serverError": "The provider reported a server error ({{status}}).",
+    "rejected": "The provider rejected the request ({{status}}).",
+    "testTimeout": "No answer within 30 seconds.",
+    "testFailed": "The test failed."
+  }
+}

@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNativeSurfaceBlock } from '../../native-surface';
-import { KUBE_COMMANDS, type CommandGroup, type KubeCommand } from '../../kube-commands';
+import { KUBE_COMMANDS, commandDescription, type CommandGroup, type KubeCommand } from '../../kube-commands';
+import { useT } from '../../i18n';
+import { chipLabel, columnLabel } from '../../kube-labels';
 import { columnsOf, type KubeViewState } from '../../kube-view';
-import { FILTER_HELP, FILTER_KIND_LABEL, FILTER_NOTE, GROUP_NOTE, GROUP_OPTIONS, TEXT_FILTER_NOTE, columnFilterKind, primaryFilterColumn } from '../../kube-columns';
+import { FILTER_HELP, FILTER_KIND_LABEL, GROUP_OPTIONS, columnFilterKind, filterNote, groupNote, primaryFilterColumn, textFilterNote } from '../../kube-columns';
 import { CHIPS } from '../../../../shared/kube-status';
 import { KIND_INFO } from '../../../../shared/kubernetes';
 
-const GROUPS: CommandGroup[] = ['Navigation', 'Ansicht', 'Aktionen'];
+const GROUPS: CommandGroup[] = ['navigation', 'view', 'actions'];
+const GROUP_LABEL_KEYS = {
+  navigation: 'common:commandGroups.navigation', view: 'common:commandGroups.view', actions: 'common:commandGroups.actions',
+} as const satisfies Record<CommandGroup, string>;
 
 interface HelpOverlayProps {
   state: KubeViewState;
@@ -16,6 +21,7 @@ interface HelpOverlayProps {
 
 /** Modal with every key and the filters of the current kind; unavailable entries stay visible with the reason. */
 export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
+  const { t } = useT();
   const [search, setSearch] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   useNativeSurfaceBlock(true);
@@ -26,23 +32,23 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
   const matches = (text: string) => !needle || text.toLowerCase().includes(needle);
   const reasonOf = (command: KubeCommand) => command.unavailable?.({ state, readOnly });
   const hotkeys = KUBE_COMMANDS.filter(command => command.keys.length > 0
-    && matches([command.description, command.keys.join(' '), command.bindings.join(' ')].join(' ')));
+    && matches([commandDescription(command), command.keys.join(' '), command.bindings.join(' ')].join(' ')));
   const kind = state.query.kind;
   const label = KIND_INFO[kind].label;
-  const nameColumn = primaryFilterColumn(kind) === 'message' ? 'Meldung' : 'Name';
-  const intro = `Unter jedem Spaltenkopf steht ein Filterfeld. / springt in das Feld „${nameColumn}“.`;
+  const nameColumn = columnLabel(primaryFilterColumn(kind));
+  const intro = t('kubernetes:help.intro', { column: nameColumn });
   const showIntro = matches(intro);
   const forms = FILTER_HELP.filter(item => matches([item.form, item.description, item.example].join(' ')));
-  const showNote = matches(FILTER_NOTE);
+  const showNote = matches(filterNote());
   const columns = columnsOf(state).map(column => ({ column, art: columnFilterKind(kind, column) }))
-    .filter(item => item.art !== 'none' && matches(`${item.column.label} ${FILTER_KIND_LABEL[item.art as keyof typeof FILTER_KIND_LABEL]}`));
-  const chipText = CHIPS[kind].map(chip => chip.label).join(' · ');
+    .filter(item => item.art !== 'none' && matches(`${columnLabel(item.column.key)} ${FILTER_KIND_LABEL[item.art as keyof typeof FILTER_KIND_LABEL]}`));
+  const chipText = CHIPS[kind].map(chip => chipLabel(chip.id, kind)).join(' · ');
   const noChips = CHIPS[kind].length === 0;
-  const showChips = matches(noChips ? 'Keine Status-Filter.' : chipText);
-  const groupText = ['keine', ...GROUP_OPTIONS[kind].map(option => option.label)].join(' · ');
+  const showChips = matches(noChips ? t('kubernetes:help.noChips') : chipText);
+  const groupText = [t('common:none'), ...GROUP_OPTIONS[kind].map(option => option.label)].join(' · ');
   const showGroups = matches(groupText);
-  const showGroupNote = matches(GROUP_NOTE);
-  const showText = matches(TEXT_FILTER_NOTE);
+  const showGroupNote = matches(groupNote());
+  const showText = matches(textFilterNote());
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // The view also listens for keys; Escape must only close this dialog.
@@ -51,30 +57,30 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
 
   return (
     <div className="kube-modal-backdrop" onMouseDown={onClose}>
-      <div role="dialog" aria-modal="true" aria-label="Hilfe zur Cluster-Ansicht" className="kube-modal kube-help"
+      <div role="dialog" aria-modal="true" aria-label={t('kubernetes:help.label')} className="kube-modal kube-help"
         onMouseDown={event => event.stopPropagation()} onKeyDown={onKeyDown}>
         <div className="kube-help-head">
-          <h2>Tasten und Filter</h2>
-          <input ref={inputRef} type="search" placeholder="Suchen …" aria-label="Hilfe durchsuchen" value={search}
+          <h2>{t('kubernetes:help.title')}</h2>
+          <input ref={inputRef} type="search" placeholder={t('kubernetes:help.searchPlaceholder')} aria-label={t('kubernetes:help.searchLabel')} value={search}
             onChange={event => setSearch(event.target.value)} />
-          <button type="button" onClick={onClose}>Schließen</button>
+          <button type="button" onClick={onClose}>{t('common:actions.close')}</button>
         </div>
         <div className="kube-help-columns">
           <div>
-            <h3>Tasten</h3>
+            <h3>{t('kubernetes:help.keys')}</h3>
             {GROUPS.map(group => {
               const entries = hotkeys.filter(command => command.group === group);
               if (entries.length === 0) return null;
               return (
                 <section key={group}>
-                  <h4>{group}</h4>
+                  <h4>{t(GROUP_LABEL_KEYS[group])}</h4>
                   <dl>
                     {entries.map(command => {
                       const reason = reasonOf(command);
                       return (
                         <div key={command.id} className={`kube-help-row${reason ? ' kube-help-off' : ''}`} title={reason}>
                           <dt>{command.keys.map(key => <kbd key={key}>{key}</kbd>)}</dt>
-                          <dd>{command.description}{reason && <span className="kube-muted"> – {reason}</span>}</dd>
+                          <dd>{commandDescription(command)}{reason && <span className="kube-muted"> – {reason}</span>}</dd>
                         </div>
                       );
                     })}
@@ -84,7 +90,7 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
             })}
           </div>
           <div>
-            <h3>Filter</h3>
+            <h3>{t('kubernetes:help.filters')}</h3>
             {showIntro && <p className="kube-muted">{intro}</p>}
             <dl>
               {forms.map(item => (
@@ -92,19 +98,19 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
                   <dt><code>{item.form}</code></dt>
                   <dd>
                     {item.description}
-                    <span className="kube-muted"> · Beispiel: <code>{item.example}</code></span>
+                    <span className="kube-muted"> {t('kubernetes:help.example')} <code>{item.example}</code></span>
                   </dd>
                 </div>
               ))}
             </dl>
-            {showNote && <p className="kube-muted">{FILTER_NOTE}</p>}
+            {showNote && <p className="kube-muted">{filterNote()}</p>}
             {columns.length > 0 && (
               <section>
-                <h4>Spaltenfilter für {label}</h4>
+                <h4>{t('kubernetes:help.columnFilters', { kind: label })}</h4>
                 <dl>
                   {columns.map(({ column, art }) => (
                     <div key={column.key} className="kube-help-row">
-                      <dt>{column.label}</dt>
+                      <dt>{columnLabel(column.key)}</dt>
                       <dd>{FILTER_KIND_LABEL[art as keyof typeof FILTER_KIND_LABEL]}</dd>
                     </div>
                   ))}
@@ -113,21 +119,21 @@ export function HelpOverlay({ state, readOnly, onClose }: HelpOverlayProps) {
             )}
             {showChips && (
               <section>
-                <h4>Status-Filter für {label}</h4>
-                <p>{noChips ? 'Keine Status-Filter.' : chipText}</p>
+                <h4>{t('kubernetes:help.chipFilters', { kind: label })}</h4>
+                <p>{noChips ? t('kubernetes:help.noChips') : chipText}</p>
               </section>
             )}
             {(showGroups || showGroupNote) && (
               <section>
-                <h4>Gruppieren für {label}</h4>
+                <h4>{t('kubernetes:help.groupBy', { kind: label })}</h4>
                 {showGroups && <p>{groupText}</p>}
-                {showGroupNote && <p className="kube-muted">{GROUP_NOTE}</p>}
+                {showGroupNote && <p className="kube-muted">{groupNote()}</p>}
               </section>
             )}
             {showText && (
               <section>
-                <h4>Textfilter</h4>
-                <p className="kube-muted">{TEXT_FILTER_NOTE}</p>
+                <h4>{t('kubernetes:help.textFilter')}</h4>
+                <p className="kube-muted">{textFilterNote()}</p>
               </section>
             )}
           </div>

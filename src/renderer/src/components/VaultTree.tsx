@@ -5,7 +5,9 @@ import type { ConnectionProtocol, VaultNode } from '../../../shared/vault/types'
 import { searchVaultNodes } from '../vault-search';
 import './navigation-ui.css';
 import { ConnectionIcon } from './ConnectionIcon';
-import { connectionAddress, NEW_CONNECTION_KINDS } from '../../../shared/vault/connections';
+import { NEW_CONNECTION_KINDS } from '../../../shared/vault/connections';
+import { connectionAddress, protocolLabel } from '../connection-labels';
+import { useT } from '../i18n';
 import { ContextMenu } from './ContextMenu';
 import type { ContextMenuEntry } from './ContextMenu';
 import { parentFolderId } from '../connection-form';
@@ -57,6 +59,7 @@ function Icon({ kind }: { kind: 'folder' | 'terminal' | 'connect' | 'edit' | 'ch
   return <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={paths[kind]} /></svg>;
 }
 export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect, onEdit, onRename, onNewConnection, onNewFolder, onOpenFiles, onConnectAll, onToggleDisabled, onMove, containers, onSetupCluster, onOpenContainerView }: VaultTreeProps) {
+  const { t } = useT();
   const [menu, setMenu] = useState<{ x: number; y: number; node: VaultNode | null } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const [query, setQuery] = useState('');
@@ -122,65 +125,65 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
   };
   const submitRename = async () => {
     if (!renaming || !onRename || saving || disabled) return;
-    if (!name.trim()) { setError('Gib einen Namen ein.'); return; }
+    if (!name.trim()) { setError(t('vault:tree.nameRequired')); return; }
     setSaving(true); setError('');
     try {
       if (await onRename(renaming, name.trim())) setRenaming(null);
-      else setError('Nicht umbenannt.');
-    } catch { setError('Nicht umbenannt.'); }
+      else setError(t('vault:tree.renameFailed'));
+    } catch { setError(t('vault:tree.renameFailed')); }
     finally { setSaving(false); }
   };
   const createEntries = (parentId: string, heading: string): ContextMenuEntry[] => [
     { kind: 'heading', label: heading },
     ...NEW_CONNECTION_KINDS.map((item): ContextMenuEntry => item.planned
-      ? { kind: 'item', label: item.label, hint: 'geplant', disabled: true, onSelect: () => {} }
-      : { kind: 'item', label: item.label, disabled: !onNewConnection, onSelect: () => onNewConnection?.(item.protocol as ConnectionProtocol, parentId) }),
+      ? { kind: 'item', label: protocolLabel(item.protocol), hint: t('common:planned'), disabled: true, onSelect: () => {} }
+      : { kind: 'item', label: protocolLabel(item.protocol), disabled: !onNewConnection, onSelect: () => onNewConnection?.(item.protocol as ConnectionProtocol, parentId) }),
     { kind: 'separator' },
-    { kind: 'item', label: 'Neuer Ordner', disabled: !onNewFolder, onSelect: () => onNewFolder?.(parentId) },
+    { kind: 'item', label: t('vault:tree.newFolder'), disabled: !onNewFolder, onSelect: () => onNewFolder?.(parentId) },
   ];
   const menuEntries = (node: VaultNode | null): ContextMenuEntry[] => {
-    if (!node) return [...createEntries('', 'Neue Verbindung'), ...(containers ? [{ kind: 'separator' as const },
-      { kind: 'item' as const, label: 'Lokale Laufzeiten suchen', onSelect: () => containers.onExpand(LOCAL_CONTAINER_HOST) },
-      { kind: 'item' as const, label: 'Lokale Container-Ansicht öffnen', disabled: !onOpenContainerView, onSelect: () => onOpenContainerView?.(LOCAL_CONTAINER_HOST) }] : [])];
+    if (!node) return [...createEntries('', t('vault:tree.newConnection')), ...(containers ? [{ kind: 'separator' as const },
+      { kind: 'item' as const, label: t('vault:tree.findRuntimes'), onSelect: () => containers.onExpand(LOCAL_CONTAINER_HOST) },
+      { kind: 'item' as const, label: t('vault:tree.openLocalView'), disabled: !onOpenContainerView, onSelect: () => onOpenContainerView?.(LOCAL_CONTAINER_HOST) }] : [])];
     const edit: ContextMenuEntry[] = [
-      { kind: 'item', label: 'Bearbeiten', disabled: !onEdit, onSelect: () => onEdit?.(node.id) },
-      { kind: 'item', label: 'Umbenennen', hint: 'F2', disabled: !onRename, onSelect: () => beginRename(node) },
+      { kind: 'item', label: t('common:actions.edit'), disabled: !onEdit, onSelect: () => onEdit?.(node.id) },
+      { kind: 'item', label: t('common:actions.rename'), hint: 'F2', disabled: !onRename, onSelect: () => beginRename(node) },
     ];
     if (node.type === 'folder') return [
-      { kind: 'item', label: 'Alle verbinden', hint: 'öffnet jede Verbindung als Tab', disabled: !onConnectAll, onSelect: () => onConnectAll?.(node.id) },
-      { kind: 'separator' }, ...createEntries(node.id, `Neue Verbindung in „${node.name}“`), { kind: 'separator' }, ...edit];
+      { kind: 'item', label: t('vault:tree.connectAll'), hint: t('vault:tree.connectAllHint'), disabled: !onConnectAll, onSelect: () => onConnectAll?.(node.id) },
+      { kind: 'separator' }, ...createEntries(node.id, t('vault:tree.newConnectionIn', { name: node.name })), { kind: 'separator' }, ...edit];
     const off = Boolean(node.disabled);
-    return [{ kind: 'item', label: 'Verbinden', hint: off ? 'deaktiviert' : 'Enter', disabled: !onConnect || off, onSelect: () => onConnect?.(node.id) },
-      ...(node.protocol === 'ssh' && onOpenFiles ? [{ kind: 'item' as const, label: 'Dateien öffnen (SFTP)', disabled: off, onSelect: () => onOpenFiles(node.id) }] : []),
+    return [{ kind: 'item', label: t('common:actions.connect'), hint: off ? t('vault:disabled') : 'Enter', disabled: !onConnect || off, onSelect: () => onConnect?.(node.id) },
+      ...(node.protocol === 'ssh' && onOpenFiles ? [{ kind: 'item' as const, label: t('vault:tree.openFiles'), disabled: off, onSelect: () => onOpenFiles(node.id) }] : []),
       ...(node.protocol === 'kubernetes' ? [(() => {
         const access = firstActiveAccessHost(nodes, node);
-        return { kind: 'item' as const, label: 'Zugangs-Host per SSH öffnen', hint: access ? access.name : 'Kein aktiver Zugangs-Host.', disabled: !access || !onConnect, onSelect: () => { if (access) onConnect?.(access.id); } };
+        return { kind: 'item' as const, label: t('vault:tree.openAccessHost'), hint: access ? access.name : t('vault:tree.noAccessHost'), disabled: !access || !onConnect, onSelect: () => { if (access) onConnect?.(access.id); } };
       })()] : []),
-      ...(node.protocol === 'ssh' && onSetupCluster ? [{ kind: 'item' as const, label: 'Als Kubernetes-Cluster einrichten…', disabled: off, onSelect: () => onSetupCluster(node.id) }] : []),
-      ...(node.protocol === 'ssh' && containers ? [{ kind: 'item' as const, label: 'Laufzeiten anzeigen', disabled: off, onSelect: () => { if (!expandedHosts.has(node.id)) toggleHost(node.id); else containers.onExpand(node.id); } },
-        { kind: 'item' as const, label: 'Container-Ansicht öffnen', disabled: off || !onOpenContainerView, onSelect: () => onOpenContainerView?.(node.id) }] : []), ...edit,
-      { kind: 'item', label: off ? 'Aktivieren' : 'Deaktivieren', hint: off ? undefined : 'ausgrauen, nicht mehr öffnen', disabled: !onToggleDisabled, onSelect: () => onToggleDisabled?.(node.id) },
-      { kind: 'separator' }, ...createEntries(parentFolderId(nodes, node.id) ?? '', 'Neue Verbindung daneben')];
+      ...(node.protocol === 'ssh' && onSetupCluster ? [{ kind: 'item' as const, label: t('vault:tree.setupCluster'), disabled: off, onSelect: () => onSetupCluster(node.id) }] : []),
+      ...(node.protocol === 'ssh' && containers ? [{ kind: 'item' as const, label: t('vault:tree.showRuntimes'), disabled: off, onSelect: () => { if (!expandedHosts.has(node.id)) toggleHost(node.id); else containers.onExpand(node.id); } },
+        { kind: 'item' as const, label: t('vault:tree.openContainerView'), disabled: off || !onOpenContainerView, onSelect: () => onOpenContainerView?.(node.id) }] : []), ...edit,
+      { kind: 'item', label: off ? t('vault:tree.enable') : t('vault:tree.disable'), hint: off ? undefined : t('vault:tree.disableHint'), disabled: !onToggleDisabled, onSelect: () => onToggleDisabled?.(node.id) },
+      { kind: 'separator' }, ...createEntries(parentFolderId(nodes, node.id) ?? '', t('vault:tree.newConnectionBeside'))];
   };
   const openMenu = (x: number, y: number, node: VaultNode | null) => { if (!disabled) setMenu({ x, y, node }); };
   const renderNode = (node: VaultNode, depth: number, path?: string): React.ReactNode => <li key={node.id}>
     <div className={`vault-tree-row${selectedNodeId === node.id ? ' is-selected' : ''}${node.type === 'connection' && node.disabled ? ' is-disabled' : ''}${node.type === 'connection' && node.protocol === 'kubernetes' && node.production ? ' vault-node-production' : ''}${hintClass(node)}`} style={{ paddingLeft: `${depth * 14}px` }} {...rowDrag(node)}
       onContextMenu={event => { event.preventDefault(); event.stopPropagation(); openMenu(event.clientX, event.clientY, node); }}>
       {node.type === 'folder' && !searching ? <button className={`tree-toggle${collapsed.has(node.id) ? '' : ' is-expanded'}`} type="button"
-        aria-label={`${node.name} ${collapsed.has(node.id) ? 'aufklappen' : 'zuklappen'}`} aria-expanded={!collapsed.has(node.id)} disabled={disabled}
+        aria-label={collapsed.has(node.id) ? t('vault:tree.expand', { name: node.name }) : t('vault:tree.collapse', { name: node.name })} aria-expanded={!collapsed.has(node.id)} disabled={disabled}
         onClick={() => toggle(node.id)}><Icon kind="chevron" /></button>
         : isHost(node) ? <button className={`tree-toggle${expandedHosts.has(node.id) ? ' is-expanded' : ''}`} type="button"
-          aria-label={`Laufzeiten von ${node.name} ${expandedHosts.has(node.id) ? 'zuklappen' : 'anzeigen'}`} aria-expanded={expandedHosts.has(node.id)} disabled={disabled}
+          aria-label={expandedHosts.has(node.id) ? t('vault:tree.runtimesCollapse', { name: node.name }) : t('vault:tree.runtimesShow', { name: node.name })} aria-expanded={expandedHosts.has(node.id)} disabled={disabled}
           onClick={() => toggleHost(node.id)}><Icon kind="chevron" /></button> : <span className="tree-toggle-spacer" />}
       {renaming === node.id ? <form className="tree-rename" onSubmit={event => { event.preventDefault(); void submitRename(); }}>
-        <input aria-label={`${node.type === 'folder' ? 'Ordner' : 'Verbindung'} umbenennen`} autoFocus value={name} disabled={disabled || saving} aria-invalid={Boolean(error)}
+        <input aria-label={node.type === 'folder' ? t('vault:tree.renameFolder') : t('vault:tree.renameConnection')} autoFocus value={name} disabled={disabled || saving} aria-invalid={Boolean(error)}
           onFocus={event => event.target.select()} onChange={event => setName(event.target.value)}
           onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); setRenaming(null); setError(''); } }} />
-        <button type="submit" disabled={disabled || saving}>OK</button>
-        <button type="button" disabled={disabled || saving} onClick={() => { setRenaming(null); setError(''); }}>Abbrechen</button>
+        <button type="submit" disabled={disabled || saving}>{t('vault:tree.ok')}</button>
+        <button type="button" disabled={disabled || saving} onClick={() => { setRenaming(null); setError(''); }}>{t('common:actions.cancel')}</button>
       </form> : <>
         <button className="tree-node-button" type="button" aria-pressed={selectedNodeId === node.id} disabled={disabled}
-          title={node.type === 'connection' ? `${node.name} — ${connectionAddress(node)}${node.disabled ? ' — deaktiviert' : ''}` : node.name}
+          title={node.type === 'connection' ? `${node.name} — ${connectionAddress(node)}${node.disabled ? ` — ${t('vault:disabled')}` : ''}` : node.name}
           onClick={() => onSelect(node.id)} onDoubleClick={() => { if (node.type === 'connection') onConnect?.(node.id); else if (!searching) toggle(node.id); }}
           onKeyDown={event => {
             if (event.key === 'Enter' && node.type === 'connection' && onConnect) { event.preventDefault(); onConnect(node.id); }
@@ -200,12 +203,12 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
             }
           }}>
           <span className="tree-node-icon">{node.type === 'folder' ? <Icon kind="folder" /> : <ConnectionIcon icon={node.icon} color={node.color} />}</span>
-          <span className="tree-node-text"><span>{node.name}{node.type === 'connection' && node.disabled && <em className="tree-node-badge">deaktiviert</em>}</span>{path && <small>{path}</small>}</span>
+          <span className="tree-node-text"><span>{node.name}{node.type === 'connection' && node.disabled && <em className="tree-node-badge">{t('vault:disabled')}</em>}</span>{path && <small>{path}</small>}</span>
         </button>
         <span className="tree-row-actions">
-          {node.type === 'connection' && onConnect && <button type="button" disabled={disabled || node.disabled} aria-label={`${node.name} verbinden`} title="Verbinden (Enter)" onClick={() => onConnect(node.id)}><Icon kind="connect" /></button>}
-          {onEdit && <button type="button" disabled={disabled} aria-label={`${node.name} bearbeiten`} title="Bearbeiten" onClick={() => onEdit(node.id)}><Icon kind="edit" /></button>}
-          {node.type === 'folder' && onRename && <button type="button" disabled={disabled} aria-label={`${node.name} umbenennen`} title="Umbenennen (F2)" onClick={() => beginRename(node)}><Icon kind="rename" /></button>}
+          {node.type === 'connection' && onConnect && <button type="button" disabled={disabled || node.disabled} aria-label={t('vault:tree.connectNamed', { name: node.name })} title={t('vault:tree.connectTitle')} onClick={() => onConnect(node.id)}><Icon kind="connect" /></button>}
+          {onEdit && <button type="button" disabled={disabled} aria-label={t('vault:tree.editNamed', { name: node.name })} title={t('common:actions.edit')} onClick={() => onEdit(node.id)}><Icon kind="edit" /></button>}
+          {node.type === 'folder' && onRename && <button type="button" disabled={disabled} aria-label={t('vault:tree.renameNamed', { name: node.name })} title={t('vault:tree.renameTitle')} onClick={() => beginRename(node)}><Icon kind="rename" /></button>}
         </span>
       </>}
     </div>
@@ -214,17 +217,17 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
       disabled={disabled} onOpen={containers.onOpen} onOpenView={containers.onOpenView} onAction={containers.onAction} onRefresh={() => containers.onExpand(node.id)} />}
   </li>;
   const results = searching ? searchVaultNodes(nodes, query) : [];
-  return <nav className={`vault-tree${dropHint?.id === null ? ' is-drop-root' : ''}`} aria-label="Verbindungen und Ordner"
+  return <nav className={`vault-tree${dropHint?.id === null ? ' is-drop-root' : ''}`} aria-label={t('vault:tree.aria')}
     onDragOver={event => { if (!dragging || !onMove) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropHint({ id: null, kind: 'into' }); }}
     onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropHint(null); }}
     onDrop={event => { event.preventDefault(); dropOn({ id: null, kind: 'into' }); }}
     onContextMenu={event => { if ((event.target as HTMLElement).closest('input')) return; event.preventDefault(); openMenu(event.clientX, event.clientY, null); }}>
-    {menu && <ContextMenu x={menu.x} y={menu.y} label={menu.node ? `Aktionen für ${menu.node.name}` : 'Neu anlegen'}
+    {menu && <ContextMenu x={menu.x} y={menu.y} label={menu.node ? t('vault:tree.menuLabel', { name: menu.node.name }) : t('vault:tree.menuCreate')}
       entries={menuEntries(menu.node)} onClose={closeMenu} />}
-    <input className="tree-search" type="search" aria-label="Verbindungen suchen" placeholder="Verbindungen suchen …" value={query}
+    <input className="tree-search" type="search" aria-label={t('vault:tree.searchAria')} placeholder={t('vault:tree.searchPlaceholder')} value={query}
       onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setQuery(''); }} />
     {error && <p className="area-error" role="alert">{error}</p>}
-    {searching && results.length === 0 ? <p className="tree-empty" role="status">Keine passenden Verbindungen oder Ordner.</p>
+    {searching && results.length === 0 ? <p className="tree-empty" role="status">{t('vault:tree.empty')}</p>
       : <ul className="vault-tree-list">{searching ? results.map(({ node, path }) => renderNode(node, 0, path)) : nodes.map(node => renderNode(node, 0))}</ul>}
   </nav>;
 }

@@ -3,7 +3,8 @@ import { CONNECTION_ICONS } from '../../shared/vault/appearance';
 import { PROTOCOLS } from '../../shared/vault/connections';
 import { KUBE_NAME } from '../../shared/kubernetes';
 import type { Authentication, ConnectionNode, ConnectionProtocol, VaultNode } from '../../shared/vault/types';
-import { NO_ACCESS_MESSAGE, kubeconfigPathError } from './cluster-form';
+import { kubeconfigPathError, noAccessMessage } from './cluster-form';
+import { t } from './i18n';
 
 /** All form values as strings; only the fields of the chosen protocol are used. */
 export interface ConnectionFields {
@@ -89,15 +90,15 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
 }
 
 function remoteTarget(fields: ConnectionFields): { host: string; port: number; username?: string } {
-  if (!fields.host.trim()) throw new ConnectionFieldError('host', 'Gib einen Host oder eine IP-Adresse ein.');
-  if (!/^\d+$/.test(fields.port.trim())) throw new ConnectionFieldError('port', 'Der Port muss eine ganze Zahl zwischen 1 und 65535 sein.');
+  if (!fields.host.trim()) throw new ConnectionFieldError('host', t('connection:validation.hostMissing'));
+  if (!/^\d+$/.test(fields.port.trim())) throw new ConnectionFieldError('port', t('connection:validation.portInteger'));
   const port = Number(fields.port.trim());
-  if (port < 1 || port > 65535) throw new ConnectionFieldError('port', 'Der Port muss zwischen 1 und 65535 liegen.');
+  if (port < 1 || port > 65535) throw new ConnectionFieldError('port', t('connection:validation.portRange'));
   return { host: fields.host.trim(), port, ...(fields.username.trim() ? { username: fields.username.trim() } : {}) };
 }
 
 export function connectionFromFields(id: string, fields: ConnectionFields, protocol: ConnectionProtocol = 'ssh'): ConnectionNode {
-  if (!fields.name.trim()) throw new ConnectionFieldError('name', 'Gib einen Verbindungsnamen ein.');
+  if (!fields.name.trim()) throw new ConnectionFieldError('name', t('connection:validation.nameMissing'));
   const base = {
     id, type: 'connection', name: fields.name.trim(),
     ...(fields.comment.trim() ? { comment: fields.comment.trim() } : {}),
@@ -109,7 +110,7 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
   let node: object;
   if (protocol === 'ssh' || protocol === 'sftp') {
     const target = remoteTarget(fields);
-    if (fields.method === 'privateKey' && !fields.keyPath.trim()) throw new ConnectionFieldError('keyPath', 'Gib den Pfad zum privaten Schlüssel ein.');
+    if (fields.method === 'privateKey' && !fields.keyPath.trim()) throw new ConnectionFieldError('keyPath', t('connection:validation.keyPathMissing'));
     const authentication: Authentication = fields.method === 'agent' ? { method: 'agent' }
       : fields.method === 'password' ? { method: 'password', password: fields.password }
       : { method: 'privateKey', keyPath: fields.keyPath.trim(), ...(fields.passphrase ? { passphrase: fields.passphrase } : {}) };
@@ -118,26 +119,26 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
     const target = remoteTarget(fields);
     const domain = fields.domain.trim();
     if (domain && /[\\@]/.test(target.username ?? '')) {
-      throw new ConnectionFieldError('domain', 'Gib die Domäne entweder hier oder im Benutzernamen an (DOMÄNE\\Benutzer oder benutzer@domäne), nicht beides.');
+      throw new ConnectionFieldError('domain', t('connection:validation.domainTwice'));
     }
     node = { ...base, protocol, ...target, ...(fields.password ? { password: fields.password } : {}),
       rdp: { ...(domain ? { domain } : {}), clipboard: fields.clipboard === 'on' } };
   } else if (protocol === 'aicli') {
     const command = fields.command.trim();
-    if (fields.tool === 'custom' && !command) throw new ConnectionFieldError('command', 'Gib den Befehl an, z. B. aider --model sonnet.');
-    if (/[\r\n]/.test(command)) throw new ConnectionFieldError('command', 'Der Befehl muss eine Zeile sein.');
+    if (fields.tool === 'custom' && !command) throw new ConnectionFieldError('command', t('connection:validation.commandMissing'));
+    if (/[\r\n]/.test(command)) throw new ConnectionFieldError('command', t('connection:validation.commandSingleLine'));
     node = { ...base, protocol, tool: fields.tool, ...(fields.tool === 'custom' ? { command } : {}),
       ...(fields.workingDirectory.trim() ? { workingDirectory: fields.workingDirectory.trim() } : {}) };
   } else if (protocol === 'kubernetes') {
     // Access hosts and the kubeconfig path get field errors here; ConnectionForm adds validateCluster for the rest.
-    if (fields.accessHosts.length === 0) throw new ConnectionFieldError('accessHosts', NO_ACCESS_MESSAGE);
+    if (fields.accessHosts.length === 0) throw new ConnectionFieldError('accessHosts', noAccessMessage());
     const kubeconfigPath = fields.kubeconfigPath.trim();
     if (fields.kubeconfigSource === 'path') {
       const problem = kubeconfigPathError(kubeconfigPath);
       if (problem) throw new ConnectionFieldError('kubeconfigPath', problem);
     }
     const namespace = fields.namespace.trim();
-    if (namespace && !KUBE_NAME.test(namespace)) throw new ConnectionFieldError('namespace', 'Gib einen gültigen Namespace ein, z. B. default.');
+    if (namespace && !KUBE_NAME.test(namespace)) throw new ConnectionFieldError('namespace', t('connection:validation.namespaceInvalid'));
     const context = fields.context.trim();
     node = { ...base, protocol, accessHosts: [...fields.accessHosts],
       kubeconfig: fields.kubeconfigSource === 'path' ? { source: 'path', path: kubeconfigPath } : { source: 'auto' },
@@ -146,10 +147,10 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
   } else {
     node = { ...base, protocol, ...(fields.workingDirectory.trim() ? { workingDirectory: fields.workingDirectory.trim() } : {}) };
   }
-  if (fields.color && !/^#[\da-f]{6}$/i.test(fields.color)) throw new ConnectionFieldError('color', 'Gib die Farbe als #RRGGBB an.');
-  if (!CONNECTION_ICONS.some(icon => icon === fields.icon)) throw new ConnectionFieldError('icon', 'Wähle ein verfügbares Symbol.');
+  if (fields.color && !/^#[\da-f]{6}$/i.test(fields.color)) throw new ConnectionFieldError('color', t('connection:validation.colorInvalid'));
+  if (!CONNECTION_ICONS.some(icon => icon === fields.icon)) throw new ConnectionFieldError('icon', t('connection:validation.iconInvalid'));
   const result = ConnectionNodeSchema.safeParse(node);
-  if (!result.success) throw new Error('Prüfe die Verbindungsdaten.');
+  if (!result.success) throw new Error(t('connection:validation.checkData'));
   return result.data;
 }
 

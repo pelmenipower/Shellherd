@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { i18n } from './i18n';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import { containerConnection, containerTabName, containerViewConnection, emptyTerminalTabs, isRunning, kubeTabName, planContainerView, reusableTab, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
@@ -196,5 +197,15 @@ describe('container view tabs', () => {
     expect(planContainerView(full, null, docker, false)).toEqual({ kind: 'limit' });
     expect(planContainerView(filler(2), null, docker, true)).toEqual({ kind: 'open' });
     expect(planContainerView([...filler(2), mk('v', docker)], null, docker, false)).toEqual({ kind: 'open' });
+  });
+});
+
+describe('terminal tab names in en-US', () => {
+  afterEach(async () => { await i18n.changeLanguage('de-DE'); });
+  it('translates the log prefixes and the file browser suffix', async () => {
+    await i18n.changeLanguage('en-US');
+    const logs = { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'logs' as const };
+    expect(kubeTabName({ ...logs, mode: 'previous' }, 'k8s')).toBe('Previous logs: api-1 @ k8s');
+    expect(kubeTabName(logs, 'k8s')).toBe('Logs: api-1 @ k8s');
   });
 });

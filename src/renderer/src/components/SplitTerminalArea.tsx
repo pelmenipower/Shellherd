@@ -13,7 +13,8 @@ import { sshConnectionForNode } from '../kube-ssh';
 import type { KubeViewSnapshot } from '../../../shared/kubernetes';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { ContextMenu } from './ContextMenu';
-import { RDP_ACTION_LABELS } from '../rdp-sessions';
+import { rdpActionLabel } from '../rdp-sessions';
+import { useT } from '../i18n';
 import { liveSessions } from '../session-registry';
 import type { ExternalDragHover } from '../../../shared/windows';
 import { tabLabel } from '../terminal-tabs';
@@ -63,6 +64,7 @@ interface DockTarget {
 }
 export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, focused, busy, onLayout, onFocus, onSelect, onStatus, onClose, draggedTabId, onDrag, visible = true,
   externalHover = null, pendingDock = null, onDockHandled, onTearOff, viewControls, onPopout, onSnapshot }: Props) {
+  const { t } = useT();
   const [viewDrop, setViewDrop] = useState<string | null>(null);
   const viewDropRef = useRef<string | null>(null);
   const [renamingView, setRenamingView] = useState<{ id: string; name: string } | null>(null);
@@ -175,6 +177,10 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     setHover(null); onDrag(null);
   }, [onDrag]);
   useEffect(() => { if (busy || !visible) cancelDrag(); }, [busy, visible, cancelDrag]);
+  // Clear the drag preview in other windows when this view unmounts mid-drag.
+  const cancelRef = useRef(cancelDrag);
+  cancelRef.current = cancelDrag;
+  useEffect(() => () => cancelRef.current(), []);
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
@@ -282,6 +288,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
   }, [pendingDock, layout]);
   const externalTarget = externalHover && externalHover.kind !== 'view' ? targetAt(externalHover.x, externalHover.y, '') : null;
   const externalRegion = externalTarget ? regions.find(region => region.pane.id === externalTarget.paneId) : undefined;
+  const externalAction = externalHover?.kind === 'view' ? t('terminal:dock.external.asView')
+    : externalTarget?.marker ? t('terminal:dock.external.asTab') : externalTarget && externalTarget.zone !== 'center' ? t('terminal:dock.external.dockHere') : t('terminal:dock.external.moveHere');
   const beginResize = (event: React.PointerEvent<HTMLDivElement>, region: SplitRect) => {
     if (busy || event.button !== 0 || !stage.current) return;
     event.preventDefault();
@@ -300,32 +308,32 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     target.addEventListener('pointermove', update);
     target.addEventListener('pointerup', stop); target.addEventListener('pointercancel', stop); target.addEventListener('lostpointercapture', stop);
   };
-  return <section className="split-workspace" hidden={!visible} aria-label="Terminalbereiche">
-    {viewControls && <div className="view-bar" role="tablist" aria-label="Ansichten">
+  return <section className="split-workspace" hidden={!visible} aria-label={t('terminal:area.label')}>
+    {viewControls && <div className="view-bar" role="tablist" aria-label={t('terminal:views.barLabel')}>
       {viewControls.views.map(view => {
         const active = view.id === viewControls.activeViewId;
         return <div key={view.id} data-view-id={view.id} className={`view-tab${active ? ' is-active' : ''}${viewDrop === view.id ? ' is-drop-target' : ''}`}>
-          {renamingView?.id === view.id ? <input className="view-rename" aria-label="Ansicht umbenennen" autoFocus value={renamingView.name}
+          {renamingView?.id === view.id ? <input className="view-rename" aria-label={t('terminal:views.renameLabel')} autoFocus value={renamingView.name}
             onFocus={event => event.target.select()} onChange={event => setRenamingView({ id: view.id, name: event.target.value })}
             onBlur={() => { viewControls.rename(view.id, renamingView.name); setRenamingView(null); }}
             onKeyDown={event => {
               if (event.key === 'Enter') { viewControls.rename(view.id, renamingView.name); setRenamingView(null); }
               if (event.key === 'Escape') setRenamingView(null);
             }} />
-            : <button type="button" role="tab" aria-selected={active} disabled={busy} title="Doppelklick oder F2 benennt die Ansicht um"
+            : <button type="button" role="tab" aria-selected={active} disabled={busy} title={t('terminal:views.tabTitle')}
               onClick={() => viewControls.select(view.id)} onDoubleClick={() => setRenamingView({ id: view.id, name: view.name })}
               onPointerDown={event => beginViewDrag(view, event)}
               onContextMenu={event => { event.preventDefault(); if (!busy) setViewMenu({ x: event.clientX, y: event.clientY, id: view.id }); }}
               onKeyDown={event => { if (event.key === 'F2') { event.preventDefault(); setRenamingView({ id: view.id, name: view.name }); } }}>
               <span>{view.name}</span><small>{view.tabCount}</small>
             </button>}
-          {viewControls.views.length > 1 && <button type="button" className="view-close" disabled={busy} aria-label={`Ansicht ${view.name} schließen`}
-            title="Ansicht schließen – ihre Tabs wandern in die Nachbaransicht" onClick={() => viewControls.close(view.id)}>
+          {viewControls.views.length > 1 && <button type="button" className="view-close" disabled={busy} aria-label={t('terminal:views.closeAria', { name: view.name })}
+            title={t('terminal:views.closeTitle')} onClick={() => viewControls.close(view.id)}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg>
           </button>}
         </div>;
       })}
-      <button type="button" className="view-add" disabled={busy || viewControls.views.length >= 12} aria-label="Neue Ansicht" title="Neue Ansicht" onClick={viewControls.add}>
+      <button type="button" className="view-add" disabled={busy || viewControls.views.length >= 12} aria-label={t('terminal:views.add')} title={t('terminal:views.add')} onClick={viewControls.add}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
       </button>
     </div>}
@@ -338,54 +346,54 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           if (region.pane.activeTabId && !(event.target as HTMLElement).closest('button, input, select')) beginTabDrag(region.pane.activeTabId, event);
         }}>
           {region.pane.tabIds.length ? <TerminalTabs appearance={appearance} tabs={region.pane.tabIds.flatMap(id => tabs.find(tab => tab.id === id) ?? [])} allTabs={tabs}
-            activeTabId={region.pane.activeTabId} showEditor={false} label={`Sessions in Bereich ${index + 1}`} disabled={busy}
+            activeTabId={region.pane.activeTabId} showEditor={false} label={t('terminal:area.sessionsLabel', { number: index + 1 })} disabled={busy}
             onSelect={id => selectTab(region.pane.id, id)} onClose={onClose} onTabPointerDown={beginTabDrag} />
-            : <span className="empty-pane-title">Leerer Bereich</span>}
+            : <span className="empty-pane-title">{t('terminal:area.emptyTitle')}</span>}
           <ConnectionPicker nodes={nodes} disabled={busy} limitReached={tabs.length >= MAX_SSH_SESSIONS} paneNumber={index + 1}
             onConnect={id => onConnect(id, region.pane.id)} />
           <span className="pane-header-spacer" />
-          {tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'ssh' && tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.view !== 'containers' && <button type="button" className="pane-action" disabled={busy || tabs.length >= MAX_SSH_SESSIONS}
-            aria-label={`Dateien dieser SSH-Verbindung in Bereich ${index + 1} öffnen`} title="Dateien öffnen (SFTP)"
+          {/* i18n-ignore: arrow functions, not text */}{tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'ssh' && tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.view !== 'containers' && <button type="button" className="pane-action" disabled={busy || tabs.length >= MAX_SSH_SESSIONS}
+            aria-label={t('terminal:area.openFilesAria', { number: index + 1 })} title={t('terminal:area.openFilesTitle')}
             onClick={() => onConnect(tabs.find(tab => tab.id === region.pane.activeTabId)!.connection.id, region.pane.id, true)}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM12 10v6m-3-3 3 3 3-3"/></svg>
           </button>}
-          {tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'rdp' && <button type="button" className="pane-action" disabled={busy}
-            aria-label={`Tastenkombination an Remotedesktop in Bereich ${index + 1} senden`} title="Tastenkombinationen senden" aria-haspopup="menu"
+          {/* i18n-ignore: arrow function, not text */}{tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'rdp' && <button type="button" className="pane-action" disabled={busy}
+            aria-label={t('terminal:area.sendKeysAria', { number: index + 1 })} title={t('terminal:area.sendKeysTitle')} aria-haspopup="menu"
             onClick={event => {
               const rect = event.currentTarget.getBoundingClientRect();
               setKeysMenu({ x: rect.left, y: rect.bottom + 4, tabId: region.pane.activeTabId! });
             }}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
           </button>}
-          {paneList.length > 1 && <button type="button" className="pane-action" disabled={busy} aria-label={zoomed ? 'Alle Bereiche anzeigen' : `Bereich ${index + 1} maximieren`}
-            title={zoomed ? 'Alle Bereiche anzeigen' : 'Bereich maximieren'} onClick={() => setMaximized(zoomed ? null : region.pane.id)}>
+          {paneList.length > 1 && <button type="button" className="pane-action" disabled={busy} aria-label={zoomed ? t('terminal:area.showAll') : t('terminal:area.maximizeAria', { number: index + 1 })}
+            title={zoomed ? t('terminal:area.showAll') : t('terminal:area.maximizeTitle')} onClick={() => setMaximized(zoomed ? null : region.pane.id)}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5"><path d={zoomed ? 'M8 3v5H3m18 0h-5V3M3 16h5v5m8 0v-5h5' : 'M3 9V3h6m6 0h6v6M3 15v6h6m6 0h6v-6'} /></svg>
           </button>}
-          <button type="button" className="pane-action" disabled={busy} aria-label={`Layout für Bereich ${index + 1}`} title="Layout und Tastaturaktionen"
+          <button type="button" className="pane-action" disabled={busy} aria-label={t('terminal:area.layoutAria', { number: index + 1 })} title={t('terminal:area.layoutTitle')}
             aria-expanded={menuPane === region.pane.id} onClick={() => setMenuPane(menuPane === region.pane.id ? null : region.pane.id)}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
           </button>
         </div>
-        {menuPane === region.pane.id && <div className="pane-layout-menu" role="group" aria-label="Layout per Tastatur">
-          <p>Tab oder freie Titelleiste ziehen. Am Rand teilen, in der Mitte zusammenführen oder zwischen Tabs einsortieren.</p>
+        {menuPane === region.pane.id && <div className="pane-layout-menu" role="group" aria-label={t('terminal:layoutMenu.label')}>
+          <p>{t('terminal:layoutMenu.dragHint')}</p>
           {(['horizontal', 'vertical'] as const).map(direction => <button key={direction} type="button" disabled={busy || paneList.length >= 4} onClick={() => {
             const id = crypto.randomUUID(); onLayout(splitPane(layout, region.pane.id, direction, id)); onFocus(`${id}-pane`); setMenuPane(null); setMaximized(null);
-          }}>{direction === 'horizontal' ? 'Nebeneinander teilen' : 'Untereinander teilen'}</button>)}
+          }}>{direction === 'horizontal' ? t('terminal:layoutMenu.splitHorizontal') : t('terminal:layoutMenu.splitVertical')}</button>)}
           {paneList.length > 1 && <>
-            <button type="button" disabled={busy} onClick={() => { const next = mergePane(layout, region.pane.id); onLayout(next); onFocus(panes(next)[0].id); setMenuPane(null); setMaximized(null); }}>Bereich zusammenführen</button>
-            {region.pane.activeTabId && <label>Aktiven Tab verschieben<select aria-label="Aktiven Tab verschieben" value={region.pane.id} disabled={busy}
+            <button type="button" disabled={busy} onClick={() => { const next = mergePane(layout, region.pane.id); onLayout(next); onFocus(panes(next)[0].id); setMenuPane(null); setMaximized(null); }}>{t('terminal:layoutMenu.merge')}</button>
+            {region.pane.activeTabId && <label>{t('terminal:layoutMenu.moveTab')}<select aria-label={t('terminal:layoutMenu.moveTab')} value={region.pane.id} disabled={busy}
               onChange={event => { onLayout(moveTab(layout, region.pane.activeTabId!, event.target.value)); selectTab(event.target.value, region.pane.activeTabId); setMenuPane(null); setMaximized(null); }}>
-              {paneList.map((pane, paneIndex) => <option value={pane.id} key={pane.id}>Bereich {paneIndex + 1}</option>)}
+              {paneList.map((pane, paneIndex) => <option value={pane.id} key={pane.id}>{t('terminal:layoutMenu.paneOption', { number: paneIndex + 1 })}</option>)}
             </select></label>}
           </>}
           {viewControls && region.pane.tabIds.length > 0 && <button type="button" disabled={busy} onClick={() => {
             setMenuPane(null); setMaximized(null); viewControls.paneToView(region.pane.id);
-          }}>Als eigene Ansicht öffnen</button>}
-          <p>Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben. Tabs auf eine Ansicht oben ziehen, um sie dorthin zu verschieben.</p>
-          <button type="button" onClick={() => setMenuPane(null)}>Schließen</button>
+          }}>{t('terminal:layoutMenu.toOwnView')}</button>}
+          <p>{t('terminal:layoutMenu.resizeHint')}</p>
+          <button type="button" onClick={() => setMenuPane(null)}>{t('common:actions.close')}</button>
         </div>}
-        {!region.pane.activeTabId && <div className="empty-pane"><p>Verbindung aus der Liste öffnen oder einen Tab hier ablegen.</p>
-          <button type="button" disabled={busy} onClick={() => onFocus(region.pane.id)}>Hier verbinden</button></div>}
+        {!region.pane.activeTabId && <div className="empty-pane"><p>{t('terminal:area.emptyHint')}</p>
+          <button type="button" disabled={busy} onClick={() => onFocus(region.pane.id)}>{t('terminal:area.connectHere')}</button></div>}
       </div>)}
       {/* Stable siblings: docking and maximizing must never remount a session. */}
       {tabs.map(tab => {
@@ -411,7 +419,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
         const size = (horizontal ? stageSize.width * region.width : stageSize.height * region.height) / 100;
         const bounds = resizeBounds(region.split, size);
         return <div key={region.split.id} className={`split-handle ${horizontal ? 'split-handle-vertical' : 'split-handle-horizontal'}`} role="separator"
-          aria-label={`Aufteilung ${index + 1}`} aria-orientation={horizontal ? 'vertical' : 'horizontal'}
+          aria-label={t('terminal:area.splitLabel', { number: index + 1 })} aria-orientation={horizontal ? 'vertical' : 'horizontal'}
           aria-valuemin={Math.round(bounds.min * 100)} aria-valuemax={Math.round(bounds.max * 100)} aria-valuenow={Math.round(region.split.ratio * 100)}
           tabIndex={busy ? -1 : 0} aria-disabled={busy} style={horizontal
             ? { left: `${region.left + region.width * region.split.ratio}%`, top: `${region.top}%`, height: `${region.height}%` }
@@ -428,29 +436,29 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
       {viewMenu && viewControls && (() => {
         const view = viewControls.views.find(item => item.id === viewMenu.id);
         if (!view) return null;
-        return <ContextMenu x={viewMenu.x} y={viewMenu.y} label={`Aktionen für ${view.name}`} onClose={closeViewMenu} entries={[
-          { kind: 'item', label: 'In neues Fenster verschieben', disabled: view.tabCount === 0,
+        return <ContextMenu x={viewMenu.x} y={viewMenu.y} label={t('terminal:viewMenu.label', { name: view.name })} onClose={closeViewMenu} entries={[
+          { kind: 'item', label: t('terminal:viewMenu.moveToWindow'), disabled: view.tabCount === 0,
             onSelect: () => viewControls.transfer(view.id, { kind: 'new', x: window.screenX + 80, y: window.screenY + 80 }) },
-          { kind: 'item', label: 'Umbenennen', hint: 'F2', onSelect: () => setRenamingView({ id: view.id, name: view.name }) },
+          { kind: 'item', label: t('common:actions.rename'), hint: 'F2', onSelect: () => setRenamingView({ id: view.id, name: view.name }) },
           { kind: 'separator' },
-          { kind: 'item', label: 'Ansicht schließen', hint: 'Tabs bleiben erhalten', disabled: viewControls.views.length < 2, onSelect: () => viewControls.close(view.id) },
+          { kind: 'item', label: t('terminal:views.close'), hint: t('terminal:viewMenu.closeHint'), disabled: viewControls.views.length < 2, onSelect: () => viewControls.close(view.id) },
         ]} />;
       })()}
-      {keysMenu && <ContextMenu x={keysMenu.x} y={keysMenu.y} label="Tastenkombination senden" onClose={closeKeysMenu}
-        entries={[{ kind: 'heading', label: 'An Remotedesktop senden' }, ...RDP_ACTIONS.map(action => ({ kind: 'item' as const,
-          label: RDP_ACTION_LABELS[action].label, hint: RDP_ACTION_LABELS[action].hint, disabled: !liveSessions.get(keysMenu.tabId),
+      {keysMenu && <ContextMenu x={keysMenu.x} y={keysMenu.y} label={t('terminal:keysMenu.label')} onClose={closeKeysMenu}
+        entries={[{ kind: 'heading', label: t('terminal:keysMenu.heading') }, ...RDP_ACTIONS.map(action => ({ kind: 'item' as const,
+          ...rdpActionLabel(action), disabled: !liveSessions.get(keysMenu.tabId),
           onSelect: () => {
             const sessionId = liveSessions.get(keysMenu.tabId)?.sessionId;
             if (sessionId) void window.desktopApi.rdpAction({ sessionId, action }).catch(() => {});
           } }))]} />}
       {externalHover && <div className="dock-preview" style={rectangle(externalRegion
         ? zoneRect(externalRegion, externalTarget!.marker ? 'center' : externalTarget!.zone) : { left: 0, top: 0, width: 100, height: 100 })}>
-        <span>{externalHover.label ? `„${externalHover.label}“ ` : ''}{externalHover.kind === 'view' ? 'als Ansicht hinzufügen'
-          : externalTarget?.marker ? 'als Tab einfügen' : externalTarget && externalTarget.zone !== 'center' ? 'hier andocken' : 'hierher verschieben'}
-          <small>Aus anderem Fenster</small></span>
+        <span>{externalHover.label ? t('terminal:dock.external.labelled', { label: externalHover.label, action: externalAction }) : externalAction}
+          <small>{t('terminal:dock.external.fromOtherWindow')}</small></span>
       </div>}
       {hover && draggedTabId && <div className={`dock-preview${previewRegion ? '' : ' dock-blocked'}`} style={rectangle(previewRegion ?? regions.find(region => region.pane.id === hover.paneId) ?? regions[0])}>
-        <span>{previewRegion ? hover.marker ? 'Als Tab einfügen' : hover.zone === 'center' ? 'Hierher verschieben' : 'Hier teilen' : hover.zone === 'center' ? 'Bereits an dieser Position' : 'Hier nicht teilbar'}<small>Esc zum Abbrechen</small></span>
+        <span>{previewRegion ? hover.marker ? t('terminal:dock.insertTab') : hover.zone === 'center' ? t('terminal:dock.moveHere') : t('terminal:dock.splitHere')
+          : hover.zone === 'center' ? t('terminal:dock.samePosition') : t('terminal:dock.noSplit')}<small>{t('terminal:dock.escCancel')}</small></span>
       </div>}
       {hover?.marker && previewRegion && draggedTabId && <div className="tab-drop-marker" style={hover.marker} />}
     </div>

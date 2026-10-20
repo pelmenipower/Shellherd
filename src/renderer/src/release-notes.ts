@@ -1,8 +1,16 @@
-import changelog from '../../../CHANGELOG.md?raw';
+import changelogDe from '../../../CHANGELOG.md?raw';
+import changelogEn from '../../../CHANGELOG.en.md?raw';
+import type { Locale } from '../../shared/locale';
 import { parseChangelog } from '../../shared/version';
+import type { ReleaseNotes } from '../../shared/version';
 
-/** Release notes bundled from CHANGELOG.md, newest first. */
-export const releases = parseChangelog(changelog);
+const byLocale: Record<Locale, ReleaseNotes[]> = {
+  'de-DE': parseChangelog(changelogDe),
+  'en-US': parseChangelog(changelogEn),
+};
+
+/** Release notes bundled from CHANGELOG.md / CHANGELOG.en.md, newest first. */
+export function releasesFor(locale: Locale): ReleaseNotes[] { return byLocale[locale]; }
 
 const SEEN_KEY = 'shellherd.seenVersion';
 

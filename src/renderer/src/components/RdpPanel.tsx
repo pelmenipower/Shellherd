@@ -5,6 +5,9 @@ import type { RdpStatus, ViewportRect } from '../../../shared/rdp';
 import type { SshStatus } from '../../../shared/ssh';
 import { useNativeSurfacesBlocked } from '../native-surface';
 import { liveSessions } from '../session-registry';
+import { useT } from '../i18n';
+import { codedFrom } from '../../../shared/errors';
+import type { CodedError } from '../../../shared/errors';
 import { statusWord } from '../status-words';
 import { ConnectionErrorCard } from './ConnectionErrorCard';
 import { DisconnectedBar } from './DisconnectedBar';
@@ -24,12 +27,13 @@ interface RdpPanelProps {
 
 /** Placeholder in the layout; the native RDP surface is positioned exactly over it by the main process. */
 export function RdpPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus }: RdpPanelProps) {
+  const { t } = useT();
   const container = useRef<HTMLDivElement>(null);
   const session = useRef<string | null>(null);
   const lastBounds = useRef('');
   const [status, setStatus] = useState<RdpStatus>(initialStatus ?? 'connecting');
   const adoptRef = useRef(adopt);
-  const [message, setMessage] = useState<string | null>(null);
+  const [failure, setFailure] = useState<CodedError | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [endedAt, setEndedAt] = useState(() => Date.now());
   const [resizing, setResizing] = useState(false);
@@ -56,16 +60,16 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
   useEffect(() => {
     let disposed = false;
     let id: string | null = null;
-    if (attempt > 0) { setStatus('connecting'); setMessage(null); setResizing(false); onStatusChange(tabId, 'connecting'); }
-    const report = (next: RdpStatus, text?: string): void => {
+    if (attempt > 0) { setStatus('connecting'); setFailure(null); setResizing(false); onStatusChange(tabId, 'connecting'); }
+    const report = (next: RdpStatus, failed?: unknown): void => {
       if (disposed) return;
       if (next === 'closed' || next === 'error') setEndedAt(Date.now());
-      setStatus(next); setMessage(text ?? null); onStatusChange(tabId, next);
+      setStatus(next); setFailure(failed ? codedFrom(failed, 'core.unknown') : null); onStatusChange(tabId, next);
     };
     const unsubscribe = window.desktopApi.onRdpEvent(event => {
       if (event.sessionId !== id || disposed) return;
       if (event.type === 'resizing') setResizing(event.active);
-      else report(event.status, event.message);
+      else report(event.status, event.error);
     });
     const attach = (sessionId: string): void => {
       id = sessionId;
@@ -89,7 +93,7 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
         attach(result.sessionId);
         lastBounds.current = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
         syncRef.current();
-      }).catch((error: Error) => report('error', error.message));
+      }).catch((error: unknown) => report('error', error));
     }, 0);
     return () => {
       disposed = true;
@@ -132,13 +136,13 @@ export function RdpPanel({ connection, tabId, visible, focused = true, style, on
       id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
       <span className="terminal-live-status" role="status">{statusWord(status, 'long', { protocol: 'RDP' })}</span>
       <div ref={container} className="rdp-surface">
-        {!shown && status !== 'error' && status !== 'closed' && <p className="rdp-placeholder">{resizing ? 'Auflösung wird angepasst …'
-          : blocked && status === 'connected' ? 'Remotedesktop ausgeblendet, solange ein Menü geöffnet ist.'
+        {!shown && status !== 'error' && status !== 'closed' && <p className="rdp-placeholder">{resizing ? t('terminal:rdp.resizing')
+          : blocked && status === 'connected' ? t('terminal:rdp.hiddenWhileMenu')
           : statusWord(status, 'long', { name: connection.name })}</p>}
       </div>
       {status === 'error' && (
-        <ConnectionErrorCard connectionId={connection.id} code="unknown" name={connection.name} address={connection.address}
-          remote message={message ?? undefined} active={cardActive} onRetry={reconnect} />
+        <ConnectionErrorCard connectionId={connection.id} code={failure?.code === 'core.rdpSessionLimit' ? 'limit' : 'unknown'} name={connection.name} address={connection.address}
+          remote error={failure ?? undefined} active={cardActive} onRetry={reconnect} />
       )}
       {status === 'closed' && (
         <DisconnectedBar reason="session" endedAt={endedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />

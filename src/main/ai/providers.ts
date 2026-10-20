@@ -1,14 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AiProvider } from '../../shared/vault/types';
 import type { AiChatMessage } from '../../shared/ai';
+import { AppError, type ErrorCode } from '../../shared/errors';
 
 export interface ChatRequest { system: string; messages: AiChatMessage[] }
 export type TextSink = (text: string) => void;
 /** Injected so tests never reach the network. */
 export type Fetch = typeof fetch;
 
-/** Errors whose message is written for the user; never contains the API key. */
-export class AiError extends Error {}
+/** Coded errors for the user; params and detail never contain the API key. */
+export class AiError extends AppError {}
 
 /** Models that accept the server-side refusal fallback on the Claude API. */
 const FALLBACK_MODELS = new Set(['claude-fable-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5']);
@@ -23,7 +24,7 @@ export interface HttpCall { label: string; url: string; headers: Record<string, 
  * otherwise the resource is derived and all fitting ways are tried in order.
  */
 function azureCalls(provider: AiProvider, chat: unknown[]): HttpCall[] {
-  if (!provider.baseUrl) throw new AiError('Bitte gib den Endpoint der Azure-Ressource an.');
+  if (!provider.baseUrl) throw new AiError('ai.azureEndpointMissing');
   const headers: Record<string, string> = provider.apiKey ? { 'api-key': provider.apiKey } : {};
   const version = (fallback: string): string => encodeURIComponent(provider.apiVersion || fallback);
   const v1 = (base: string): HttpCall => ({ label: 'openai/v1', url: `${base}/chat/completions`, headers, body: { model: provider.model, stream: true, messages: chat } });
@@ -32,7 +33,7 @@ function azureCalls(provider: AiProvider, chat: unknown[]): HttpCall[] {
   const deployment = (origin: string): HttpCall => ({ label: 'openai/deployments',
     url: `${origin}/openai/deployments/${encodeURIComponent(provider.model)}/chat/completions?api-version=${version('2024-10-21')}`, headers, body: { stream: true, messages: chat } });
   let url: URL;
-  try { url = new URL(provider.baseUrl); } catch { throw new AiError('Der Endpoint ist keine gültige URL.'); }
+  try { url = new URL(provider.baseUrl); } catch { throw new AiError('ai.endpointInvalid'); }
   const endpoint = trimSlash(`${url.origin}${url.pathname}`);
   if (/\/openai\/v1$/i.test(endpoint)) return [v1(endpoint)];
   if (/\/models$/i.test(endpoint)) return [models(endpoint)];
@@ -57,7 +58,7 @@ export function httpRequests(provider: AiProvider, request: ChatRequest): HttpCa
       body: { systemInstruction: { parts: [{ text: request.system }] },
         contents: request.messages.map(message => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: message.content }] })) } }];
   }
-  throw new AiError('Dieser Anbieter nutzt keine HTTP-Schnittstelle.');
+  throw new AiError('ai.noHttp');
 }
 
 /** Text of one streamed JSON event; providers differ only here. */
@@ -85,12 +86,10 @@ export async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator
   }
 }
 
-function statusText(status: number): string {
-  if (status === 401 || status === 403) return 'Der Anbieter lehnt den API-Schlüssel ab.';
-  if (status === 404) return 'Modell oder Endpoint wurde nicht gefunden. Prüfe Modellname, Deployment und URL.';
-  if (status === 429) return 'Zu viele Anfragen oder Kontingent erschöpft. Bitte kurz warten.';
-  if (status >= 500) return `Der Anbieter hat einen Serverfehler gemeldet (${status}).`;
-  return `Der Anbieter hat die Anfrage abgelehnt (${status}).`;
+function statusError(status: number, detail?: string): AiError {
+  const code: ErrorCode = status === 401 || status === 403 ? 'ai.keyRejected' : status === 404 ? 'ai.notFound'
+    : status === 429 ? 'ai.rateLimited' : status >= 500 ? 'ai.serverError' : 'ai.rejected';
+  return new AiError(code, code === 'ai.serverError' || code === 'ai.rejected' ? { status } : undefined, detail);
 }
 
 /** Only "this way does not exist here" moves on to the next way; key or quota errors stop at once. */
@@ -105,15 +104,15 @@ async function streamHttp(provider: AiProvider, request: ChatRequest, onText: Te
       response = await fetcher(call.url, { method: 'POST', headers: { 'content-type': 'application/json', ...call.headers }, body: JSON.stringify(call.body), signal });
     } catch (error) {
       if (signal.aborted) throw error;
-      throw new AiError('Der Anbieter ist nicht erreichbar. Prüfe URL und Netzwerk.');
+      throw new AiError('ai.unreachable');
     }
     if (response.ok && response.body) break;
     const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300);
     if (index < calls.length - 1 && tryNext(response.status)) { failures.push(`${call.label}: ${response.status}${detail ? ` ${detail.slice(0, 120)}` : ''}`); continue; }
-    const tried = failures.length ? ` Vorher versucht: ${failures.join(' · ')}.` : '';
-    throw new AiError(`${statusText(response.status)}${detail ? ` Antwort (${call.label}): ${detail}` : ''}${tried}`);
+    const parts = [...(detail ? [`${call.label}: ${detail}`] : []), ...failures];
+    throw statusError(response.status, parts.join(' · ') || undefined);
   }
-  if (!response?.body) throw new AiError('Der Anbieter hat keine Antwort geliefert.');
+  if (!response?.body) throw new AiError('ai.noResponse');
   for await (const data of sseData(response.body)) {
     if (!data || data === '[DONE]') continue;
     let event: unknown;
@@ -124,7 +123,7 @@ async function streamHttp(provider: AiProvider, request: ChatRequest, onText: Te
 }
 
 async function streamAnthropic(provider: AiProvider, request: ChatRequest, onText: TextSink, signal: AbortSignal): Promise<void> {
-  if (!provider.apiKey) throw new AiError('Bitte hinterlege einen API-Schlüssel für Anthropic.');
+  if (!provider.apiKey) throw new AiError('ai.keyMissing');
   const client = new Anthropic({ apiKey: provider.apiKey, ...(provider.baseUrl ? { baseURL: provider.baseUrl } : {}), maxRetries: 1 });
   // On the Claude API, a declined request is retried on a suitable model instead of just stopping.
   const fallback = !provider.baseUrl && FALLBACK_MODELS.has(provider.model)
@@ -134,15 +133,15 @@ async function streamAnthropic(provider: AiProvider, request: ChatRequest, onTex
       messages: request.messages, ...fallback }, { signal });
     stream.on('text', text => onText(text));
     const message = await stream.finalMessage();
-    if (message.stop_reason === 'refusal') throw new AiError('Das Modell hat die Anfrage abgelehnt.');
+    if (message.stop_reason === 'refusal') throw new AiError('ai.refused');
   } catch (error) {
     if (error instanceof AiError || signal.aborted) throw error;
-    if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) throw new AiError(statusText(401));
-    if (error instanceof Anthropic.NotFoundError) throw new AiError(statusText(404));
-    if (error instanceof Anthropic.RateLimitError) throw new AiError(statusText(429));
-    if (error instanceof Anthropic.APIConnectionError) throw new AiError('Anthropic ist nicht erreichbar. Prüfe Netzwerk und Proxy.');
-    if (error instanceof Anthropic.APIError) throw new AiError(statusText(error.status ?? 0));
-    throw new AiError('Die Anfrage an Anthropic ist fehlgeschlagen.');
+    if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) throw statusError(401);
+    if (error instanceof Anthropic.NotFoundError) throw statusError(404);
+    if (error instanceof Anthropic.RateLimitError) throw statusError(429);
+    if (error instanceof Anthropic.APIConnectionError) throw new AiError('ai.anthropicUnreachable');
+    if (error instanceof Anthropic.APIError) throw statusError(error.status ?? 0);
+    throw new AiError('ai.anthropicFailed');
   }
 }
 

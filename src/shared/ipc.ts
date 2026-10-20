@@ -1,6 +1,7 @@
 import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
 import type { AiProvider, ConnectionNode, Vault, WorkspaceLayout } from './vault/types';
 import type { AiAskRequest, AiCatalog, AiEvent } from './ai';
+import type { LanguageSetting, LanguageState, Locale } from './locale';
 import type { ConnectionTestResult } from './connection-test';
 import type {
   ContainerAction, ContainerHostId, ContainerInventory, ContainerRuntime, ContainerTarget, DiscoveryResult, InventoryAction, InventoryRef,
@@ -96,6 +97,9 @@ export const IPC_CHANNELS = {
   fileTypeStatus: 'app:file-type-status',
   fileTypeRegister: 'app:file-type-register',
   fileTypeUnregister: 'app:file-type-unregister',
+  appGetLanguage: 'app:get-language',
+  appSetLanguage: 'app:set-language',
+  appLocaleChanged: 'app:locale-changed',
   kubeOpen: 'k8s:open',
   kubeSubscribe: 'k8s:subscribe',
   kubeDetail: 'k8s:detail',
@@ -249,6 +253,13 @@ export interface DesktopApi {
   fileTypeStatus: () => Promise<boolean>;
   fileTypeRegister: () => Promise<void>;
   fileTypeUnregister: () => Promise<void>;
+  /** Effective UI language when the window was created (`--shellherd-locale=`); synchronous for the first frame. */
+  initialLocale: Locale;
+  /** Any Shellherd window. */
+  getLanguage: () => Promise<LanguageState>;
+  /** Main window only. */
+  setLanguage: (setting: LanguageSetting) => Promise<LanguageState>;
+  onLocaleChanged: (listener: (state: LanguageState) => void) => () => void;
   getVersion: () => Promise<string>;
   selectVaultFile: () => Promise<SelectVaultFileResult>;
   selectPrivateKeyFile: () => Promise<SelectVaultFileResult>;

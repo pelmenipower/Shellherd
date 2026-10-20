@@ -1,4 +1,5 @@
 import type { KubeMeta, KubeObject } from './api';
+import type { CodedError } from '../../shared/errors';
 import { refKey, type KubeProblem, type KubeRef } from '../../shared/kubernetes';
 
 const OOM_WINDOW_MS = 60 * 60_000;
@@ -14,8 +15,8 @@ type PodMeta = KubeMeta & { deletionTimestamp?: string };
 
 const toMillis = (value: string | Date | undefined): number => (value === undefined ? NaN : new Date(value).getTime());
 
-const problem = (kind: KubeProblem['kind'], ref: KubeRef, message: string): KubeProblem =>
-  ({ id: `${kind}:${refKey(ref)}`, kind, ref, message });
+const problem = (kind: KubeProblem['kind'], ref: KubeRef, error: CodedError): KubeProblem =>
+  ({ id: `${kind}:${refKey(ref)}`, kind, ref, error });
 
 /** Detects problems in pods (all namespaces) and nodes. Nodes come first, then pods sorted by namespace and name. */
 export function detectProblems(pods: KubeObject[], nodes: KubeObject[], now: number): KubeProblem[] {
@@ -38,19 +39,19 @@ function podProblem(pod: KubeObject, now: number): KubeProblem | undefined {
   const name = meta.name;
 
   const crashing = containers.find(c => c.state?.waiting?.reason === 'CrashLoopBackOff');
-  if (crashing) return problem('crashloop', ref, `${name} crasht (CrashLoopBackOff, ${crashing.restartCount ?? 0} Neustarts)`);
+  if (crashing) return problem('crashloop', ref, { code: 'kubernetes.problemCrashloop', params: { name, restarts: crashing.restartCount ?? 0 } });
 
   const image = containers.find(c => IMAGE_REASONS.has(c.state?.waiting?.reason ?? ''));
-  if (image) return problem('image', ref, `${name}: Image kann nicht geladen werden (${image.state?.waiting?.reason})`);
+  if (image) return problem('image', ref, { code: 'kubernetes.problemImage', params: { name, reason: image.state?.waiting?.reason ?? '' } });
 
   const oom = containers.find(c => c.lastState?.terminated?.reason === 'OOMKilled' && withinOomWindow(c, now));
-  if (oom) return problem('oomkilled', ref, `${name} wurde wegen Speichermangel beendet (OOMKilled)`);
+  if (oom) return problem('oomkilled', ref, { code: 'kubernetes.problemOom', params: { name } });
 
   if (status.phase === 'Pending') {
     const created = toMillis(meta.creationTimestamp);
     const age = now - created;
     if (Number.isFinite(age) && age > PENDING_LIMIT_MS) {
-      return problem('pending', ref, `${name} wartet seit ${Math.floor(age / 60_000)} min (Pending)`);
+      return problem('pending', ref, { code: 'kubernetes.problemPending', params: { name, minutes: Math.floor(age / 60_000) } });
     }
   }
   return undefined;
@@ -67,8 +68,8 @@ function nodeProblem(node: KubeObject): KubeProblem | undefined {
   const ref: KubeRef = { kind: 'nodes', name: meta.name };
   const conditions = ((node.status ?? {}) as { conditions?: Condition[] }).conditions ?? [];
   const ready = conditions.find(c => c.type === 'Ready');
-  if (ready?.status !== 'True') return problem('node', ref, `${meta.name} ist nicht bereit`);
+  if (ready?.status !== 'True') return problem('node', ref, { code: 'kubernetes.problemNodeNotReady', params: { name: meta.name } });
   const pressure = NODE_PRESSURE.filter(type => conditions.some(c => c.type === type && c.status === 'True'));
-  if (pressure.length > 0) return problem('node', ref, `${meta.name}: ${pressure.join(', ')}`);
+  if (pressure.length > 0) return problem('node', ref, { code: 'kubernetes.problemNodePressure', params: { name: meta.name, pressure: pressure.join(', ') } });
   return undefined;
 }

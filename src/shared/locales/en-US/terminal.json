@@ -1,0 +1,228 @@
+{
+  "views": {
+    "defaultName": "View {{index}}",
+    "barLabel": "Views",
+    "renameLabel": "Rename view",
+    "tabTitle": "Double-click or F2 renames the view",
+    "closeAria": "Close view {{name}}",
+    "close": "Close view",
+    "closeTitle": "Close view – its tabs move to the neighboring view",
+    "add": "New view"
+  },
+  "summary": {
+    "moreWindows_one": "{{count}} more window",
+    "moreWindows_other": "{{count}} more windows"
+  },
+  "layout": {
+    "missingConnection": "The workspace refers to a missing connection.",
+    "tooManyPanes": "A workspace can contain at most four terminal panes.",
+    "tooManySessions": "A workspace can start at most {{max}} sessions."
+  },
+  "tabs": {
+    "label": "SSH sessions",
+    "editor": "Editor",
+    "closeAria": "Close tab {{label}}",
+    "closeTitle": "Close {{label}}",
+    "files": "{{name}} · Files",
+    "logs": "Logs: {{label}}",
+    "previousLogs": "Previous logs: {{label}}"
+  },
+  "panel": {
+    "copyFailedTitle": "Not copied",
+    "copyFailed": "The selected text could not be copied.",
+    "pasteFailedTitle": "Not pasted",
+    "pasteFailed": "The clipboard could not be pasted.",
+    "inputTooLargeTitle": "Input too large",
+    "inputTooLarge": "Paste smaller chunks.",
+    "inputFailedTitle": "Input not sent",
+    "inputFailed": "Check the connection."
+  },
+  "input": {
+    "multiline": "Multi-line command: copy it line by line.",
+    "notConnected": "The terminal is not connected; the command was not typed.",
+    "fullscreen": "A full-screen program is running in the terminal; the command was not typed.",
+    "failed": "The command could not be typed."
+  },
+  "rdp": {
+    "resizing": "Adjusting resolution…",
+    "hiddenWhileMenu": "Remote desktop hidden while a menu is open.",
+    "actions": {
+      "ctrlAltDel": { "label": "{{ctrl}}+{{alt}}+{{del}}", "hint": "Security options" },
+      "taskManager": { "label": "Task Manager", "hint": "{{ctrl}}+{{shift}}+Esc" },
+      "startScreen": { "label": "Start menu", "hint": "Windows key" },
+      "appSwitch": { "label": "Switch window", "hint": "Alt+Tab" },
+      "actionCenter": { "label": "Action Center", "hint": "Windows+A" }
+    }
+  },
+  "area": {
+    "label": "Terminal panes",
+    "emptyTitle": "Empty pane",
+    "emptyHint": "Open a connection from the list or drop a tab here.",
+    "connectHere": "Connect here",
+    "sessionsLabel": "Sessions in pane {{number}}",
+    "openFilesAria": "Open files of this SSH connection in pane {{number}}",
+    "openFilesTitle": "Open files (SFTP)",
+    "sendKeysAria": "Send key combination to remote desktop in pane {{number}}",
+    "sendKeysTitle": "Send key combinations",
+    "showAll": "Show all panes",
+    "maximizeAria": "Maximize pane {{number}}",
+    "maximizeTitle": "Maximize pane",
+    "layoutAria": "Layout for pane {{number}}",
+    "layoutTitle": "Layout and keyboard actions",
+    "splitLabel": "Split {{number}}"
+  },
+  "layoutMenu": {
+    "label": "Layout by keyboard",
+    "dragHint": "Drag a tab or an empty part of the title bar. Split at an edge, merge in the middle, or insert between tabs.",
+    "splitHorizontal": "Split side by side",
+    "splitVertical": "Split top and bottom",
+    "merge": "Merge pane",
+    "moveTab": "Move active tab",
+    "paneOption": "Pane {{number}}",
+    "toOwnView": "Open as its own view",
+    "resizeHint": "Drag the dividers, or focus them and move them with the arrow keys. Drag tabs onto a view above to move them there."
+  },
+  "viewMenu": {
+    "label": "Actions for {{name}}",
+    "moveToWindow": "Move to new window",
+    "closeHint": "Tabs are kept"
+  },
+  "keysMenu": {
+    "label": "Send key combination",
+    "heading": "Send to remote desktop"
+  },
+  "dock": {
+    "external": {
+      "labelled": "“{{label}}” {{action}}",
+      "asView": "add as view",
+      "asTab": "insert as tab",
+      "dockHere": "dock here",
+      "moveHere": "move here",
+      "fromOtherWindow": "From another window"
+    },
+    "insertTab": "Insert as tab",
+    "moveHere": "Move here",
+    "splitHere": "Split here",
+    "samePosition": "Already at this position",
+    "noSplit": "Cannot split here",
+    "escCancel": "Press Esc to cancel"
+  },
+  "timeline": {
+    "steps": {
+      "reach": "Reaching server",
+      "hostkey": "Checking server key",
+      "auth": "Signing in",
+      "shell": "Opening shell"
+    },
+    "title": "Connecting to {{name}}…",
+    "cancel": "Cancel",
+    "total": "Total {{time}}",
+    "seconds": "{{value}} s",
+    "waitingHostKey": "Waiting for you to confirm the server key…",
+    "slowServer": "The server is slow to respond…",
+    "slowGeneric": "Taking longer than usual…",
+    "agoSeconds": "{{seconds}} s ago",
+    "agoMinutes": "{{minutes}} min ago"
+  },
+  "statusWord": {
+    "short": {
+      "connecting": "Connecting…",
+      "connected": "Connected",
+      "closed": "Disconnected",
+      "error": "Error"
+    },
+    "long": {
+      "connecting": "Connecting…",
+      "connected": "Connected",
+      "closed": "Disconnected",
+      "error": "Connection failed"
+    },
+    "connectingTo": "Connecting to {{name}}…",
+    "withProtocol": "{{protocol}}: {{word}}"
+  },
+  "disconnected": {
+    "title": "Disconnected",
+    "detail": "· {{age}} · {{reason}}",
+    "reconnect": "Reconnect",
+    "reasons": {
+      "server": "the server ended it",
+      "session": "the session ended",
+      "cancel": "cancelled"
+    }
+  },
+  "connectionCard": {
+    "details": "Details",
+    "copied": "Fingerprints copied",
+    "notCopied": "Not copied",
+    "clipboardUnavailable": "The clipboard is not available."
+  },
+  "connectionError": {
+    "actions": {
+      "retry": "Reconnect",
+      "edit": "Edit connection",
+      "copy": "Copy fingerprint"
+    },
+    "auth": {
+      "title": "Sign-in rejected",
+      "body": "The server did not accept the sign-in.",
+      "bodyWithUser": "The server did not accept the sign-in as “{{user}}”.",
+      "next": "Check the user and sign-in method in the connection settings."
+    },
+    "timeout": {
+      "title": "Server not responding",
+      "body": "{{hostPort}} did not respond in time.",
+      "next": "Check VPN, firewall and port. The machine may be off."
+    },
+    "hostkey-changed": {
+      "title": "Server key has changed",
+      "body": "The fingerprint does not match the confirmed one. Shellherd aborted the connection.",
+      "next": "Clarify the key change with the administrator before you continue."
+    },
+    "hostkey-rejected": {
+      "title": "Server key not confirmed",
+      "body": "You did not confirm the key of {{hostPort}}.",
+      "next": "Connect again and compare the fingerprint with a trusted source."
+    },
+    "hostkey-store": {
+      "title": "Server key not checked",
+      "body": "The stored server keys are not available.",
+      "next": "Check the permissions on the Shellherd data folder and connect again."
+    },
+    "refused": {
+      "title": "Connection refused",
+      "body": "{{host}} does not accept connections.",
+      "bodyWithPort": "{{host}} does not accept connections on port {{port}}.",
+      "next": "Check host and port. Is the SSH service running?"
+    },
+    "not-found": {
+      "title": "Host not found",
+      "body": "The name “{{host}}” could not be resolved.",
+      "next": "Check the spelling, DNS and VPN."
+    },
+    "key-file": {
+      "title": "Key file not readable",
+      "body": "The private key file is missing or not readable.",
+      "next": "Check the path and permissions in the connection settings."
+    },
+    "agent": {
+      "title": "No SSH agent",
+      "body": "No SSH agent is running that could supply the key.",
+      "next": "Start the agent or choose password or key file."
+    },
+    "limit": {
+      "title": "At most {{max}} sessions",
+      "body": "All sessions are in use.",
+      "next": "Close a tab first."
+    },
+    "closed-by-server": {
+      "title": "Connection ended",
+      "body": "The server ended the connection.",
+      "next": "Reconnect when you want to keep working."
+    },
+    "unknown": {
+      "title": "Connection failed",
+      "body": "The connection failed.",
+      "next": "Check host, user and sign-in."
+    }
+  }
+}

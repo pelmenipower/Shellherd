@@ -1,11 +1,12 @@
 import { INVENTORY_KINDS, LOCAL_CONTAINER_HOST, RUNTIME_LABEL } from '../../shared/containers';
 import type { ContainerAction, ContainerHostId, ContainerInventory, ContainerRuntime, ContainerTarget, DiscoveredItem, DiscoveryResult, InventoryAction, InventoryKind, InventoryRef, InventoryRow, RuntimeKind } from '../../shared/containers';
 import type { ConnectionNode, SshConnectionNode } from '../../shared/vault/types';
+import { AppError, type CodedError } from '../../shared/errors';
 import { publicError } from '../ssh/session';
 import { actionArgv, ContainerInputError, inspectArgv, inventoryActionArgv, inventoryArgv, listArgv, localProbeArgv, PROBE_COMMAND, sudoSetting } from './commands';
 import { BATCH_OUTPUT_LIMIT, BATCH_TIMEOUT, inventoryBatchCommand, splitInventoryBatch } from './inventory-batch';
 import { linkUsage, maskInspect, parseContainerRows, parseImageRows, parseNetworkRows, parseVolumeRows } from './inventory-parsers';
-import { describeFailure, parsePctList, parseProbe, parseQmList } from './parsers';
+import { describeFailure, lastLine, parsePctList, parseProbe, parseQmList } from './parsers';
 import type { RunResult } from './parsers';
 import { HostAccessError } from './runner';
 import { createSudoMarker } from './sudo';
@@ -30,15 +31,20 @@ interface CachedHost { fingerprint: string; host: Promise<RemoteHost>; timer?: R
 
 function readable(error: unknown): Error {
   if (error instanceof HostAccessError || error instanceof ContainerInputError) return error;
-  return new Error(publicError(error));
+  return AppError.from(publicError(error));
+}
+
+/** A tool missing locally, otherwise the described failure. */
+function failure(result: RunResult, tool: string, kind: RuntimeKind): CodedError {
+  return result.notFound ? { code: 'containers.notInstalled', params: { tool } } : describeFailure(kind, result);
 }
 
 /** A failed probe must not look like a host without containers. */
 function probeOutput(result: RunResult): string {
-  if (result.timedOut) throw new HostAccessError('Der Host hat nicht rechtzeitig geantwortet.');
+  if (result.timedOut) throw new HostAccessError('containers.hostTimeout');
   if (result.code !== 0) {
-    const last = result.stderr.split(/\r?\n/).map(line => line.trim()).filter(Boolean).pop();
-    throw new HostAccessError(last ? last.slice(0, 200) : `Die Container-Erkennung ist fehlgeschlagen (Exit-Code ${result.code ?? '?'}).`);
+    const last = lastLine(result.stderr);
+    throw last ? new HostAccessError(last.code, last.params) : new HostAccessError('containers.discoveryFailed', { code: result.code ?? '?' });
   }
   return result.stdout;
 }
@@ -82,7 +88,7 @@ export class ContainerDiscovery {
     try {
       argv = actionArgv(target, action);
       if (hostId === LOCAL_CONTAINER_HOST) {
-        if (target.kind !== 'container') throw new ContainerInputError('Proxmox gibt es nur auf entfernten Hosts.');
+        if (target.kind !== 'container') throw new ContainerInputError('containers.proxmoxRemoteOnly');
         result = await this.dependencies.runLocal(argv[0], argv.slice(1), ACTION_TIMEOUT);
       } else {
         const connection = this.sshConnection(hostId);
@@ -91,7 +97,7 @@ export class ContainerDiscovery {
         result = await this.withHost(connection, host => runWithSudo(host, connection, command, ACTION_TIMEOUT, this.sudoRejections));
       }
     } catch (error) { throw readable(error); }
-    if (result.code !== 0) throw new Error(result.notFound ? `${argv[0]} ist nicht installiert.` : describeFailure(kindOf(target), result));
+    if (result.code !== 0) throw AppError.from(failure(result, argv[0], kindOf(target)));
   }
 
   async inventory(hostId: ContainerHostId, runtime?: ContainerRuntime): Promise<ContainerInventory> {
@@ -101,8 +107,8 @@ export class ContainerDiscovery {
       const runtimes: ContainerRuntime[] = [];
       const build = async (lists: (rt: ContainerRuntime) => Promise<Record<InventoryKind, RunResult>>): Promise<ContainerInventory> => {
         // A requested runtime is strict: nothing runs for another one (P6), locally too (its list is the probe).
-        if (runtime && !runtimes.includes(runtime)) throw new HostAccessError(`${RUNTIME_LABEL[runtime]} wurde auf diesem Host nicht gefunden.`);
-        if (runtimes.length === 0) throw new HostAccessError('Auf diesem Host wurde weder Docker noch Podman gefunden.');
+        if (runtime && !runtimes.includes(runtime)) throw new HostAccessError('containers.runtimeNotFound', { runtime: RUNTIME_LABEL[runtime] });
+        if (runtimes.length === 0) throw new HostAccessError('containers.noRuntime');
         const rt = runtime ?? runtimes[0];
         const results = await lists(rt);
         const rows = emptyRows();
@@ -110,7 +116,7 @@ export class ContainerDiscovery {
         for (const kind of INVENTORY_KINDS) {
           const result = results[kind];
           if (result.code === 0) rows[kind] = INVENTORY_PARSERS[kind](rt, result.stdout);
-          else problems[kind] = result.notFound ? `${rt} ist nicht installiert.` : describeFailure(rt, result);
+          else problems[kind] = failure(result, rt, rt);
         }
         return { runtime: rt, runtimes, rows: linkUsage(rt, rows, !problems.containers), problems, at: Date.now(),
           ...(connection ? { user: connection.username } : {}), sudo: !!connection && connection.containers?.sudo === true };
@@ -146,13 +152,13 @@ export class ContainerDiscovery {
 
   async inspect(hostId: ContainerHostId, ref: InventoryRef): Promise<string> {
     const result = await this.runInventoryCommand(hostId, () => inspectArgv(ref), LIST_TIMEOUT);
-    if (result.code !== 0) throw new Error(result.notFound ? `${ref.runtime} ist nicht installiert.` : describeFailure(ref.runtime, result));
+    if (result.code !== 0) throw AppError.from(failure(result, ref.runtime, ref.runtime));
     return maskInspect(result.stdout);
   }
 
   async inventoryAction(hostId: ContainerHostId, ref: InventoryRef, action: InventoryAction): Promise<void> {
     const result = await this.runInventoryCommand(hostId, () => inventoryActionArgv(ref, action), ACTION_TIMEOUT);
-    if (result.code !== 0) throw new Error(result.notFound ? `${ref.runtime} ist nicht installiert.` : describeFailure(ref.runtime, result));
+    if (result.code !== 0) throw AppError.from(failure(result, ref.runtime, ref.runtime));
   }
 
   closeAll(): void {
@@ -187,8 +193,8 @@ export class ContainerDiscovery {
 
   private sshConnection(hostId: string): SshConnectionNode {
     const connection = this.dependencies.getConnection(hostId);
-    if (connection.protocol !== 'ssh') throw new ContainerInputError('Container gibt es nur für SSH-Verbindungen.');
-    if (!connection.host.trim() || !connection.username?.trim()) throw new ContainerInputError('Bitte speichere Host und Benutzername der Verbindung.');
+    if (connection.protocol !== 'ssh') throw new ContainerInputError('containers.sshOnly');
+    if (!connection.host.trim() || !connection.username?.trim()) throw new ContainerInputError('containers.hostIncomplete');
     return connection;
   }
 

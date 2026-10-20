@@ -1,9 +1,16 @@
+import { i18n } from './i18n';
 import '@fontsource-variable/inter';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { SecondaryWindow } from './SecondaryWindow';
 import './styles.css';
+
+// Language changes come from the main process; a reload with stale argv heals itself via getLanguage.
+window.desktopApi.onLocaleChanged(state => { void i18n.changeLanguage(state.effective); });
+void window.desktopApi.getLanguage()
+  .then(state => { if (state.effective !== i18n.language) void i18n.changeLanguage(state.effective); })
+  .catch(() => {});
 
 // Detached windows are opened by the main process with ?role=secondary.
 const secondary = new URLSearchParams(window.location.search).get('role') === 'secondary';

@@ -1,10 +1,13 @@
 /** Context menus of the cluster tab as pure data; see docs/superpowers/specs/2026-10-16-kubernetes-context-menus-design.md. */
 import {
-  KIND_INFO, NOT_CONNECTED_MESSAGE, READ_ONLY_MESSAGE, RECONNECTING_MESSAGE, refKey,
+  KIND_INFO, refKey,
   type ClusterStatus, type ColumnInfo, type DockMode, type KubeAction, type KubeKind, type KubeProblem, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget, type NodeTile,
 } from '../../shared/kubernetes';
 import { KUBE_COMMANDS, actionReason, podNotRunning, type CommandId } from './kube-commands';
 import * as kubectl from './kube-kubectl';
+import { errorText } from './error-text';
+import { t } from './i18n';
+import { chipLabel } from './kube-labels';
 import { primaryChip } from '../../shared/kube-status';
 import { defaultSort, filterOf, type KubeViewAction, type KubeViewState } from './kube-view';
 
@@ -46,13 +49,6 @@ export interface MenuContext {
 }
 
 const ARGO_LABEL = 'argocd.argoproj.io/instance';
-const INVALID_NAME = 'Name enthält ungültige Zeichen.';
-const NO_POPOUT = 'Hier lässt sich kein Tab öffnen.';
-const NO_CONTAINER = 'Der Pod hat keine Container.';
-const NOT_RUNNING = 'Der Pod läuft nicht.';
-const ONLY_PODS = 'Nur für Pods.';
-const SORT_HINT = 'Standard: Reihenfolge des Eintreffens';
-const EVENTS_SORT_HINT = 'Standard: Zuletzt absteigend';
 const PREFERRED_LABELS = ['app', 'app.kubernetes.io/name', 'app.kubernetes.io/instance', 'app.kubernetes.io/component'];
 
 interface Env { ctx: MenuContext; connected: boolean; /** status.state === 'reconnecting' */ reconnecting: boolean; readOnly: boolean; /** Hotkey hints only for targets that are the selection. */ hot: boolean }
@@ -82,7 +78,8 @@ function assemble(lead: MenuEntry[], groups: Group[]): MenuEntry[] {
 const view = (...actions: KubeViewAction[]): MenuAction => ({ type: 'view', actions });
 const select = (row: KubeRow): KubeViewAction => ({ type: 'select', key: refKey(row.ref) });
 const dock = (mode: DockMode): KubeViewAction => ({ type: 'dock', mode });
-const connectedReason = (env: Env): string | undefined => (env.connected ? undefined : env.reconnecting ? RECONNECTING_MESSAGE : NOT_CONNECTED_MESSAGE);
+const connectedReason = (env: Env): string | undefined => (env.connected ? undefined : env.reconnecting ? t('kubeActions:reasons.reconnecting') : t('errors:kubernetes.notConnected'));
+const readOnlyReason = (): string => t('errors:kubernetes.readOnly');
 const hasSelector = (row: KubeRow): boolean => Object.keys(row.selector ?? {}).length > 0;
 const cell = (row: KubeRow, key: string): string => String(row.cells[key] ?? '').trim();
 
@@ -91,9 +88,9 @@ function copyGroup(env: Env, entries: [id: string, label: string, text: string |
   const items = entries.flatMap(([id, label, text]): MenuEntry[] => {
     if (text === undefined || text === '') return [];
     const run: MenuAction = { type: 'copy', text: text ?? '', label };
-    return [item(env, `copy-${id}`, label, run, text === null ? { reason: INVALID_NAME } : {})];
+    return [item(env, `copy-${id}`, label, run, text === null ? { reason: t('kubeActions:reasons.invalidName') } : {})];
   });
-  return items.length === 0 ? [] : [{ kind: 'heading', label: 'Kopieren' }, ...items];
+  return items.length === 0 ? [] : [{ kind: 'heading', label: t('kubeActions:copy.heading') }, ...items];
 }
 
 const kubeActionItem = (env: Env, id: string, label: string, ref: KubeRef, action: KubeAction, options: Options & { replicas?: number } = {}): MenuEntry =>
@@ -105,42 +102,44 @@ const namespaceOf = (row: KubeRow): string | undefined => row.ref.namespace;
 function namespaceGroup(env: Env, row: KubeRow): MenuEntry[] {
   const namespace = namespaceOf(row);
   if (env.ctx.state.query.namespace !== null || !namespace) return [];
-  return [item(env, 'namespace', `Namespace ${namespace} anzeigen`, view(select(row), { type: 'setNamespace', namespace }))];
+  return [item(env, 'namespace', t('kubeActions:menu.showNamespace', { namespace }), view(select(row), { type: 'setNamespace', namespace }))];
 }
 
-const podsOnNode = (env: Env, node: string, prefix: KubeViewAction[], id = 'node-pods', label = `Pods auf Node ${node} anzeigen`): MenuEntry =>
-  item(env, id, label, view(...prefix, { type: 'openQuery', query: { kind: 'pods', namespace: null, selector: { node } }, crumb: `Node ${node}` }));
+const podsOnNode = (env: Env, node: string, prefix: KubeViewAction[], id = 'node-pods', label = t('kubeActions:menu.podsOnNode', { node })): MenuEntry =>
+  item(env, id, label, view(...prefix, { type: 'openQuery', query: { kind: 'pods', namespace: null, selector: { node } }, crumb: t('kubeActions:crumb.node', { name: node }) }));
 
 function sshItem(env: Env, node: { name: string; ip?: string }): MenuEntry {
   const match = env.ctx.sshForNode(node);
   return match
-    ? item(env, 'ssh', 'SSH-Verbindung öffnen', { type: 'ssh', connectionId: match.id }, { extra: match.name })
-    : item(env, 'ssh', 'SSH-Verbindung öffnen', { type: 'ssh', connectionId: '' },
-      { reason: env.ctx.canSsh === false ? 'Hier lässt sich keine Verbindung öffnen.' : `Keine SSH-Verbindung für ${node.name} im Vault.` });
+    ? item(env, 'ssh', t('kubeActions:menu.ssh'), { type: 'ssh', connectionId: match.id }, { extra: match.name })
+    : item(env, 'ssh', t('kubeActions:menu.ssh'), { type: 'ssh', connectionId: '' },
+      { reason: env.ctx.canSsh === false ? t('kubeActions:reasons.noSshHere') : t('kubeActions:reasons.noSshForNode', { name: node.name }) });
 }
 
 function ownerItem(env: Env, row: KubeRow, kinds: KubeKind[]): MenuEntry[] {
   const owner = row.owner;
   if (!owner || !kinds.includes(owner.kind)) return [];
-  return [item(env, 'owner', `${KIND_INFO[owner.kind].kind} ${owner.name} anzeigen`, view(select(row), { type: 'jump', ref: owner }))];
+  return [item(env, 'owner', t('kubeActions:menu.showOwner', { kind: KIND_INFO[owner.kind].kind, name: owner.name }), view(select(row), { type: 'jump', ref: owner }))];
 }
 
-function viewItems(env: Env, prefix: KubeViewAction[], suffix = ''): MenuEntry[] {
+function viewItems(env: Env, prefix: KubeViewAction[], ofPod = false): MenuEntry[] {
   const reason = connectedReason(env);
-  return ([['events', 'Events', 'events'], ['yaml', 'YAML', 'yaml'], ['describe', 'Describe', 'describe']] as const).map(([id, label, mode]) =>
-    item(env, id, `${label}${suffix}`, view(...prefix, dock(mode)), { hotkey: id, reason }));
+  const labels = ofPod
+    ? { events: t('kubeActions:menu.eventsOfPod'), yaml: t('kubeActions:menu.yamlOfPod'), describe: t('kubeActions:menu.describeOfPod') }
+    : { events: t('kubeActions:menu.events'), yaml: t('kubeActions:menu.yaml'), describe: t('kubeActions:menu.describe') };
+  return (['events', 'yaml', 'describe'] as const).map(id => item(env, id, labels[id], view(...prefix, dock(id)), { hotkey: id, reason }));
 }
 
 const SHELL_ARMED = (...actions: KubeViewAction[]): MenuAction => ({ type: 'view', actions, armShell: true });
 
 /** Logs, previous logs and shell of one container; `prefix` selects the pod/container first. */
 function terminalItems(env: Env, pod: KubeRow, container: string | undefined, prefix: KubeViewAction[], extra?: string): MenuEntry[] {
-  const logsReason = container ? connectedReason(env) : NO_CONTAINER;
-  const shellReason = env.readOnly ? READ_ONLY_MESSAGE : connectedReason(env) ?? (podNotRunning(pod) ? NOT_RUNNING : undefined) ?? (container ? undefined : NO_CONTAINER);
+  const logsReason = container ? connectedReason(env) : t('kubeActions:reasons.noContainer');
+  const shellReason = env.readOnly ? readOnlyReason() : connectedReason(env) ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined) ?? (container ? undefined : t('kubeActions:reasons.noContainer'));
   return [
-    { ...item(env, 'logs', 'Logs', { type: 'view', actions: [...prefix, dock('logs')], previous: false }, { hotkey: 'logs', extra, reason: logsReason }) },
-    item(env, 'previous', 'Logs des vorherigen Containers', { type: 'view', actions: [...prefix, dock('logs')], previous: true }, { hotkey: 'previous', extra, reason: logsReason }),
-    item(env, 'shell', 'Shell öffnen', SHELL_ARMED(...prefix, dock('shell')), { hotkey: 'shell', extra, reason: shellReason }),
+    { ...item(env, 'logs', t('kubeActions:menu.logs'), { type: 'view', actions: [...prefix, dock('logs')], previous: false }, { hotkey: 'logs', extra, reason: logsReason }) },
+    item(env, 'previous', t('kubeActions:menu.previousLogs'), { type: 'view', actions: [...prefix, dock('logs')], previous: true }, { hotkey: 'previous', extra, reason: logsReason }),
+    item(env, 'shell', t('kubeActions:menu.openShell'), SHELL_ARMED(...prefix, dock('shell')), { hotkey: 'shell', extra, reason: shellReason }),
   ];
 }
 
@@ -148,10 +147,10 @@ function popoutItems(env: Env, pod: KubeRow, container: string | undefined, extr
   const namespace = pod.ref.namespace ?? '';
   const make = (mode: KubeTerminalMode, id: string, label: string, reason: string | undefined): MenuEntry =>
     item(env, id, label, { type: 'popout', target: { namespace, pod: pod.ref.name, container: container ?? '', mode } },
-      { hotkey: 'popout', extra, reason: env.ctx.canPopout ? reason : NO_POPOUT });
-  const logsReason = connectedReason(env) ?? (container ? undefined : NO_CONTAINER);
-  const shellReason = env.readOnly ? READ_ONLY_MESSAGE : connectedReason(env) ?? (podNotRunning(pod) ? NOT_RUNNING : undefined) ?? (container ? undefined : NO_CONTAINER);
-  return [make('logs', 'popout-logs', 'Logs als Tab öffnen', logsReason), make('shell', 'popout-shell', 'Shell als Tab öffnen', shellReason)];
+      { hotkey: 'popout', extra, reason: env.ctx.canPopout ? reason : t('kubeActions:reasons.noPopout') });
+  const logsReason = connectedReason(env) ?? (container ? undefined : t('kubeActions:reasons.noContainer'));
+  const shellReason = env.readOnly ? readOnlyReason() : connectedReason(env) ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined) ?? (container ? undefined : t('kubeActions:reasons.noContainer'));
+  return [make('logs', 'popout-logs', t('kubeActions:menu.popoutLogs'), logsReason), make('shell', 'popout-shell', t('kubeActions:menu.popoutShell'), shellReason)];
 }
 
 function imageLines(row: KubeRow): string | undefined {
@@ -167,7 +166,7 @@ function filterItems(env: Env, row: KubeRow): MenuEntry[] {
   const entries = Object.entries(row.labels);
   const preferred = PREFERRED_LABELS.filter(key => key in row.labels).map(key => [key, row.labels[key]] as const);
   return (preferred.length > 0 ? preferred : entries).slice(0, 3).map(([key, value]) =>
-    item(env, `filter-${key}=${value}`, `Filtern: ${key}=${value}`, view(select(row), { type: 'search', text: `${key}=${value}` })));
+    item(env, `filter-${key}=${value}`, t('kubeActions:menu.filterBy', { key, value }), view(select(row), { type: 'search', text: `${key}=${value}` })));
 }
 
 function podRowGroups(env: Env, row: KubeRow): Group[] {
@@ -179,7 +178,7 @@ function podRowGroups(env: Env, row: KubeRow): Group[] {
   const prefix: KubeViewAction[] = [select(row), ...(first ? [{ type: 'selectContainer', name: first } as const] : [])];
   return [
     [
-      item(env, 'drill', 'Container anzeigen', view(select(row), { type: 'drill' }), { hotkey: 'drill' }),
+      item(env, 'drill', t('kubeActions:menu.showContainers'), view(select(row), { type: 'drill' }), { hotkey: 'drill' }),
       ...(row.node ? [podsOnNode(env, row.node, [select(row)])] : []),
       ...ownerItem(env, row, [...(Object.keys(KIND_INFO) as KubeKind[])]),
       ...namespaceGroup(env, row),
@@ -187,21 +186,21 @@ function podRowGroups(env: Env, row: KubeRow): Group[] {
     ],
     [...terminalItems(env, row, first, prefix, extra), ...viewItems(env, [select(row)]), ...popoutItems(env, row, first, extra)],
     copyGroup(env, [
-      ['name', 'Name', name],
-      ['namespaced-name', 'Namespace/Name', namespacedName(row)],
-      ['image', 'Image', imageLines(row)],
-      ['labels', 'Labels', Object.keys(row.labels).length > 0 ? kubectl.labelsText(row.labels) : undefined],
-      ['ip', 'Pod-IP', row.ip],
+      ['name', t('kubeActions:copy.name'), name],
+      ['namespaced-name', t('kubeActions:copy.namespacedName'), namespacedName(row)],
+      ['image', t('kubeActions:copy.image'), imageLines(row)],
+      ['labels', t('kubeActions:copy.labels'), Object.keys(row.labels).length > 0 ? kubectl.labelsText(row.labels) : undefined],
+      ['ip', t('kubeActions:copy.podIp'), row.ip],
       ['logs', 'kubectl logs -f', kubectl.logs(namespace, name, first)],
       ['exec', 'kubectl exec', kubectl.exec(namespace, name, first)],
       ['describe', 'kubectl describe', kubectl.describe('pods', namespace, name)],
       ...argoCopy(row),
     ]),
-    [kubeActionItem(env, 'delete', 'Pod löschen…', row.ref, 'delete', { hotkey: 'delete' })],
+    [kubeActionItem(env, 'delete', t('kubeActions:menu.deletePod'), row.ref, 'delete', { hotkey: 'delete' })],
   ];
 }
 
-const argoCopy = (row: KubeRow): [string, string, string][] => (row.labels[ARGO_LABEL] ? [['argo', 'Argo-App-Name', row.labels[ARGO_LABEL]]] : []);
+const argoCopy = (row: KubeRow): [string, string, string][] => (row.labels[ARGO_LABEL] ? [['argo', t('kubeActions:copy.argoApp'), row.labels[ARGO_LABEL]]] : []);
 
 function workloadGroups(env: Env, row: KubeRow): Group[] {
   const { kind, name } = row.ref;
@@ -210,24 +209,24 @@ function workloadGroups(env: Env, row: KubeRow): Group[] {
   const scalable = kind === 'deployments' || kind === 'statefulsets';
   return [
     [
-      item(env, 'drill', 'Pods anzeigen', view(select(row), { type: 'drill' }), { hotkey: 'drill', reason: hasSelector(row) ? undefined : 'Dieser Workload hat keinen Selector.' }),
+      item(env, 'drill', t('kubeActions:menu.showPods'), view(select(row), { type: 'drill' }), { hotkey: 'drill', reason: hasSelector(row) ? undefined : t('kubeActions:reasons.noSelectorWorkload') }),
       ...namespaceGroup(env, row),
     ],
     viewItems(env, [select(row)]),
     copyGroup(env, [
-      ['name', 'Name', name],
-      ['namespaced-name', 'Namespace/Name', namespacedName(row)],
-      ['image', 'Image', images],
-      ['selector', 'Selector', hasSelector(row) ? kubectl.selectorText(row.selector ?? {}) : undefined],
-      ['labels', 'Labels', Object.keys(row.labels).length > 0 ? kubectl.labelsText(row.labels) : undefined],
+      ['name', t('kubeActions:copy.name'), name],
+      ['namespaced-name', t('kubeActions:copy.namespacedName'), namespacedName(row)],
+      ['image', t('kubeActions:copy.image'), images],
+      ['selector', t('kubeActions:copy.selector'), hasSelector(row) ? kubectl.selectorText(row.selector ?? {}) : undefined],
+      ['labels', t('kubeActions:copy.labels'), Object.keys(row.labels).length > 0 ? kubectl.labelsText(row.labels) : undefined],
       ['restart', 'kubectl rollout restart', kubectl.rolloutRestart(kind, namespace, name)],
       ['scale', 'kubectl scale', scalable && row.replicas !== undefined ? kubectl.scale(kind, namespace, name, row.replicas) : undefined],
       ['status', 'kubectl rollout status', kubectl.rolloutStatus(kind, namespace, name)],
       ...argoCopy(row),
     ]),
     [
-      kubeActionItem(env, 'restart', 'Rollout neu starten…', row.ref, 'restart', { hotkey: 'restart' }),
-      kubeActionItem(env, 'scale', 'Skalieren…', row.ref, 'scale', { hotkey: 'scale', replicas: row.replicas }),
+      kubeActionItem(env, 'restart', t('kubeActions:menu.restart'), row.ref, 'restart', { hotkey: 'restart' }),
+      kubeActionItem(env, 'scale', t('kubeActions:menu.scale'), row.ref, 'scale', { hotkey: 'scale', replicas: row.replicas }),
     ],
   ];
 }
@@ -237,19 +236,19 @@ function jobGroups(env: Env, row: KubeRow): Group[] {
   const namespace = namespaceOf(row) ?? '';
   return [
     [
-      item(env, 'drill', 'Pods anzeigen', view(select(row), { type: 'drill' }), { hotkey: 'drill', reason: hasSelector(row) ? undefined : 'Dieser Job hat keinen Selector.' }),
+      item(env, 'drill', t('kubeActions:menu.showPods'), view(select(row), { type: 'drill' }), { hotkey: 'drill', reason: hasSelector(row) ? undefined : t('kubeActions:reasons.noSelectorJob') }),
       ...ownerItem(env, row, ['cronjobs']),
       ...namespaceGroup(env, row),
     ],
     viewItems(env, [select(row)]),
     copyGroup(env, [
-      ['name', 'Name', name],
-      ['namespaced-name', 'Namespace/Name', namespacedName(row)],
+      ['name', t('kubeActions:copy.name'), name],
+      ['namespaced-name', t('kubeActions:copy.namespacedName'), namespacedName(row)],
       ['logs', 'kubectl logs', kubectl.logsJob(namespace, name)],
       ['describe', 'kubectl describe', kubectl.describe('jobs', namespace, name)],
       ...argoCopy(row),
     ]),
-    [kubeActionItem(env, 'delete', 'Job löschen…', row.ref, 'delete', { hotkey: 'delete' })],
+    [kubeActionItem(env, 'delete', t('kubeActions:menu.deleteJob'), row.ref, 'delete', { hotkey: 'delete' })],
   ];
 }
 
@@ -258,21 +257,21 @@ function cronJobGroups(env: Env, row: KubeRow): Group[] {
   const namespace = namespaceOf(row) ?? '';
   const suspended = row.suspended === true;
   return [
-    [item(env, 'drill', 'Jobs anzeigen', view(select(row), { type: 'openQuery', query: { kind: 'jobs', namespace: row.ref.namespace ?? null }, crumb: `CronJob ${name}` },
+    [item(env, 'drill', t('kubeActions:menu.showJobs'), view(select(row), { type: 'openQuery', query: { kind: 'jobs', namespace: row.ref.namespace ?? null }, crumb: t('kubeActions:crumb.cronJob', { name }) },
       { type: 'search', text: `owner:${name}` }), { hotkey: 'drill' })],
     viewItems(env, [select(row)]),
     copyGroup(env, [
-      ['name', 'Name', name],
-      ['schedule', 'Zeitplan', cell(row, 'schedule')],
+      ['name', t('kubeActions:copy.name'), name],
+      ['schedule', t('kubeActions:copy.schedule'), cell(row, 'schedule')],
       ['create-job', 'kubectl create job', kubectl.createJobFromCron(namespace, name, Math.floor(env.ctx.now / 1000))],
-      ['patch', suspended ? 'kubectl patch (fortsetzen)' : 'kubectl patch (anhalten)', kubectl.patchSuspend(namespace, name, !suspended)],
+      ['patch', t(suspended ? 'kubeActions:copy.patchResume' : 'kubeActions:copy.patchSuspend'), kubectl.patchSuspend(namespace, name, !suspended)],
       ...argoCopy(row),
     ]),
     [
       suspended
-        ? kubeActionItem(env, 'resume', 'Fortsetzen…', row.ref, 'resume')
-        : kubeActionItem(env, 'suspend', 'Anhalten…', row.ref, 'suspend'),
-      kubeActionItem(env, 'trigger', 'Jetzt ausführen…', row.ref, 'trigger'),
+        ? kubeActionItem(env, 'resume', t('kubeActions:menu.resume'), row.ref, 'resume')
+        : kubeActionItem(env, 'suspend', t('kubeActions:menu.suspend'), row.ref, 'suspend'),
+      kubeActionItem(env, 'trigger', t('kubeActions:menu.trigger'), row.ref, 'trigger'),
     ],
   ];
 }
@@ -289,15 +288,15 @@ function serviceGroups(env: Env, row: KubeRow): Group[] {
   const ports = cell(row, 'ports');
   const port = firstPort(ports);
   return [
-    [item(env, 'drill', 'Pods anzeigen', view(select(row), { type: 'drill' }),
-      { hotkey: 'drill', reason: hasSelector(row) ? undefined : 'Dieser Service hat keinen Selector, z. B. ExternalName.' })],
+    [item(env, 'drill', t('kubeActions:menu.showPods'), view(select(row), { type: 'drill' }),
+      { hotkey: 'drill', reason: hasSelector(row) ? undefined : t('kubeActions:reasons.noSelectorService') })],
     viewItems(env, [select(row)]),
     copyGroup(env, [
-      ['name', 'Name', name],
-      ['cluster-ip', 'Cluster-IP', ip === 'None' || ip === '-' ? undefined : ip],
-      ['dns', 'DNS-Name', kubectl.serviceDns(namespace, name)],
-      ['ports', 'Ports', ports === '-' ? undefined : ports],
-      ['selector', 'Selector', hasSelector(row) ? kubectl.selectorText(row.selector ?? {}) : undefined],
+      ['name', t('kubeActions:copy.name'), name],
+      ['cluster-ip', t('kubeActions:copy.clusterIp'), ip === 'None' || ip === '-' ? undefined : ip],
+      ['dns', t('kubeActions:copy.dns'), kubectl.serviceDns(namespace, name)],
+      ['ports', t('kubeActions:copy.ports'), ports === '-' ? undefined : ports],
+      ['selector', t('kubeActions:copy.selector'), hasSelector(row) ? kubectl.selectorText(row.selector ?? {}) : undefined],
       ['port-forward', 'kubectl port-forward', port === undefined ? undefined : kubectl.portForward(namespace, name, port)],
       ...argoCopy(row),
     ]),
@@ -311,10 +310,10 @@ function ingressGroups(env: Env, row: KubeRow): Group[] {
   return [
     viewItems(env, [select(row)]),
     copyGroup(env, [
-      ['name', 'Name', row.ref.name],
-      ['hosts', 'Hosts', hosts === '-' ? undefined : hosts],
-      ['urls', 'URL(s)', names.length > 0 ? names.map(host => `https://${host}`).join('\n') : undefined],
-      ['address', 'Adresse', address === '-' ? undefined : address],
+      ['name', t('kubeActions:copy.name'), row.ref.name],
+      ['hosts', t('kubeActions:copy.hosts'), hosts === '-' ? undefined : hosts],
+      ['urls', t('kubeActions:copy.urls'), names.length > 0 ? names.map(host => `https://${host}`).join('\n') : undefined],
+      ['address', t('kubeActions:copy.address'), address === '-' ? undefined : address],
       ...argoCopy(row),
     ]),
   ];
@@ -324,20 +323,20 @@ function nodeRowGroups(env: Env, row: KubeRow): Group[] {
   const { name } = row.ref;
   const unschedulable = row.unschedulable === true;
   return [
-    [item(env, 'drill', 'Pods auf dieser Node anzeigen', view(select(row), { type: 'drill' }), { hotkey: 'drill' })],
+    [item(env, 'drill', t('kubeActions:menu.podsOnThisNode'), view(select(row), { type: 'drill' }), { hotkey: 'drill' })],
     [...viewItems(env, [select(row)]), sshItem(env, { name, ip: row.ip })],
     copyGroup(env, [
-      ['name', 'Name', name],
-      ['ip', 'Interne IP', row.ip],
-      ['version', 'Kubelet-Version', cell(row, 'version')],
+      ['name', t('kubeActions:copy.name'), name],
+      ['ip', t('kubeActions:copy.internalIp'), row.ip],
+      ['version', t('kubeActions:copy.kubeletVersion'), cell(row, 'version')],
       ['describe', 'kubectl describe', kubectl.describe('nodes', undefined, name)],
       ['drain', 'kubectl drain', kubectl.drain(name)],
       unschedulable ? ['uncordon', 'kubectl uncordon', kubectl.uncordon(name)] : ['cordon', 'kubectl cordon', kubectl.cordon(name)],
       ...argoCopy(row),
     ]),
     [unschedulable
-      ? kubeActionItem(env, 'uncordon', 'Node freigeben (uncordon)…', row.ref, 'uncordon')
-      : kubeActionItem(env, 'cordon', 'Node sperren (cordon)…', row.ref, 'cordon')],
+      ? kubeActionItem(env, 'uncordon', t('kubeActions:menu.uncordon'), row.ref, 'uncordon')
+      : kubeActionItem(env, 'cordon', t('kubeActions:menu.cordon'), row.ref, 'cordon')],
   ];
 }
 
@@ -352,7 +351,7 @@ function involvedOf(row: KubeRow): { kind: string; name: string; ref?: KubeRef }
 }
 
 const involvedReason = (involved: { kind: string; ref?: KubeRef }): string | undefined =>
-  involved.ref ? undefined : `Objekte vom Typ ${involved.kind} zeigt Shellherd nicht an.`;
+  involved.ref ? undefined : t('kubeActions:reasons.involvedUnsupported', { kind: involved.kind });
 
 function eventGroups(env: Env, row: KubeRow): Group[] {
   const involved = involvedOf(row);
@@ -361,22 +360,22 @@ function eventGroups(env: Env, row: KubeRow): Group[] {
   const jumpTo = (...actions: KubeViewAction[]): MenuAction => view(select(row), ...(ref ? [{ type: 'jump', ref } as const] : []), ...actions);
   const label = involved ? `${involved.kind} ${involved.name}` : '';
   const viaConnection = reason ?? connectedReason(env);
-  const nav: Group = involved ? [item(env, 'involved', `${label} anzeigen`, jumpTo(), { reason })] : [];
+  const nav: Group = involved ? [item(env, 'involved', t('kubeActions:menu.showObject', { label }), jumpTo(), { reason })] : [];
   const views: Group = involved ? [
-    item(env, 'involved-events', 'Events des Objekts', jumpTo(dock('events')), { reason: viaConnection }),
-    item(env, 'involved-describe', 'Describe des Objekts', jumpTo(dock('describe')), { reason: viaConnection }),
-    ...(ref?.kind === 'pods' ? [item(env, 'involved-logs', 'Logs des Pods', { type: 'view', actions: [select(row), { type: 'jump', ref }, dock('logs')], previous: false }, { reason: viaConnection })] : []),
+    item(env, 'involved-events', t('kubeActions:menu.objectEvents'), jumpTo(dock('events')), { reason: viaConnection }),
+    item(env, 'involved-describe', t('kubeActions:menu.objectDescribe'), jumpTo(dock('describe')), { reason: viaConnection }),
+    ...(ref?.kind === 'pods' ? [item(env, 'involved-logs', t('kubeActions:menu.podLogs'), { type: 'view', actions: [select(row), { type: 'jump', ref }, dock('logs')], previous: false }, { reason: viaConnection })] : []),
   ] : [];
   return [nav, views, copyGroup(env, [
-    ['message', 'Meldung', cell(row, 'message')],
-    ['object', 'Objekt', involved ? `${involved.kind}/${involved.name}` : undefined],
-    ['reason', 'Grund', cell(row, 'reason')],
+    ['message', t('kubeActions:copy.message'), cell(row, 'message')],
+    ['object', t('kubeActions:copy.object'), involved ? `${involved.kind}/${involved.name}` : undefined],
+    ['reason', t('kubeActions:copy.reason'), cell(row, 'reason')],
   ])];
 }
 
 function rowMenu(env: Env, row: KubeRow): MenuEntry[] {
   const argo = row.labels[ARGO_LABEL];
-  const lead: MenuEntry[] = argo ? [{ kind: 'heading', label: `Argo CD: App ${argo}` }] : [];
+  const lead: MenuEntry[] = argo ? [{ kind: 'heading', label: t('kubeActions:menu.argoApp', { name: argo }) }] : [];
   const groups = ((): Group[] => {
     switch (row.ref.kind) {
       case 'pods': return podRowGroups(env, row);
@@ -391,7 +390,7 @@ function rowMenu(env: Env, row: KubeRow): MenuEntry[] {
   })();
   const chip = primaryChip(row.ref.kind, row, env.ctx.now);
   if (chip && groups.length > 0) {
-    groups[0] = [...groups[0], item(env, `only-${chip.id}`, `Nur ${chip.label} anzeigen`, view(select(row), { type: 'setChips', ids: [chip.id] }))];
+    groups[0] = [...groups[0], item(env, `only-${chip.id}`, t('kubeActions:menu.onlyChip', { label: chipLabel(chip.id, row.ref.kind) }), view(select(row), { type: 'setChips', ids: [chip.id] }))];
   }
   return assemble(lead, groups);
 }
@@ -402,19 +401,19 @@ function containerMenu(env: Env, pod: KubeRow, name: string): MenuEntry[] {
   const prefix: KubeViewAction[] = [...podPrefix, { type: 'selectContainer', name }];
   const namespace = namespaceOf(pod) ?? '';
   return assemble([], [
-    [...terminalItems(env, pod, name, prefix), ...popoutItems(env, pod, name), ...viewItems(env, podPrefix, ' des Pods')],
+    [...terminalItems(env, pod, name, prefix), ...popoutItems(env, pod, name), ...viewItems(env, podPrefix, true)],
     copyGroup(env, [
-      ['name', 'Container-Name', name],
-      ['image', 'Image', cell(pod, `image:${name}`)],
+      ['name', t('kubeActions:copy.containerName'), name],
+      ['image', t('kubeActions:copy.image'), cell(pod, `image:${name}`)],
       ['logs', 'kubectl logs -f', kubectl.logs(namespace, pod.ref.name, name)],
       ['exec', 'kubectl exec', kubectl.exec(namespace, pod.ref.name, name)],
     ]),
-    [kubeActionItem(env, 'delete', 'Pod löschen…', pod.ref, 'delete', { hotkey: 'delete' })],
+    [kubeActionItem(env, 'delete', t('kubeActions:menu.deletePod'), pod.ref, 'delete', { hotkey: 'delete' })],
   ]);
 }
 
 function nodeStateText(tile: NodeTile): string {
-  return [tile.ready ? 'bereit' : 'nicht bereit', ...tile.pressure, ...(tile.unschedulable ? ['gesperrt'] : [])].join(', ');
+  return [t(tile.ready ? 'kubeActions:menu.nodeReady' : 'kubeActions:menu.nodeNotReady'), ...tile.pressure, ...(tile.unschedulable ? [t('kubeActions:menu.nodeCordoned')] : [])].join(', ');
 }
 
 function nodeTileMenu(env: Env, tile: NodeTile): MenuEntry[] {
@@ -422,12 +421,12 @@ function nodeTileMenu(env: Env, tile: NodeTile): MenuEntry[] {
   const reason = connectedReason(env);
   const onNode = (id: string, label: string, mode: DockMode): MenuEntry => item(env, id, label, view({ type: 'jump', ref }, dock(mode)), { reason });
   return assemble([{ kind: 'heading', label: `${tile.name} · ${nodeStateText(tile)}` }], [
-    [item(env, 'node', 'Node anzeigen', view({ type: 'jump', ref })), podsOnNode(env, tile.name, [], 'node-pods', 'Pods auf dieser Node anzeigen')],
-    [onNode('describe', 'Describe', 'describe'), onNode('events', 'Events', 'events'), onNode('yaml', 'YAML', 'yaml'), sshItem(env, { name: tile.name, ip: tile.ip })],
-    copyGroup(env, [['name', 'Name', tile.name], ['ip', 'Interne IP', tile.ip]]),
+    [item(env, 'node', t('kubeActions:menu.showNode'), view({ type: 'jump', ref })), podsOnNode(env, tile.name, [], 'node-pods', t('kubeActions:menu.podsOnThisNode'))],
+    [onNode('describe', t('kubeActions:menu.describe'), 'describe'), onNode('events', t('kubeActions:menu.events'), 'events'), onNode('yaml', t('kubeActions:menu.yaml'), 'yaml'), sshItem(env, { name: tile.name, ip: tile.ip })],
+    copyGroup(env, [['name', t('kubeActions:copy.name'), tile.name], ['ip', t('kubeActions:copy.internalIp'), tile.ip]]),
     [tile.unschedulable
-      ? kubeActionItem(env, 'uncordon', 'Node freigeben (uncordon)…', ref, 'uncordon')
-      : kubeActionItem(env, 'cordon', 'Node sperren (cordon)…', ref, 'cordon')],
+      ? kubeActionItem(env, 'uncordon', t('kubeActions:menu.uncordon'), ref, 'uncordon')
+      : kubeActionItem(env, 'cordon', t('kubeActions:menu.cordon'), ref, 'cordon')],
   ]);
 }
 
@@ -441,62 +440,62 @@ function problemMenu(env: Env, problem: KubeProblem): MenuEntry[] {
   const nodeTile = env.ctx.state.nodes.find(tile => tile.name === ref.name);
   return assemble([], [
     [
-      item(env, 'show', 'Anzeigen', view(jump)),
-      ...(kind === 'node' ? [podsOnNode(env, ref.name, [], 'node-pods', 'Pods auf dieser Node anzeigen')] : []),
+      item(env, 'show', t('kubeActions:menu.show'), view(jump)),
+      ...(kind === 'node' ? [podsOnNode(env, ref.name, [], 'node-pods', t('kubeActions:menu.podsOnThisNode'))] : []),
     ],
     [
-      ...(crashes ? [item(env, 'previous', 'Logs des vorherigen Containers', { type: 'view', actions: [jump, dock('logs')], previous: true }, { reason })] : []),
-      ...(podProblem ? [item(env, 'logs', 'Logs', { type: 'view', actions: [jump, dock('logs')], previous: false }, { reason })] : []),
-      item(env, 'describe', 'Describe', view(jump, dock('describe')), { reason }),
-      item(env, 'events', 'Events', view(jump, dock('events')), { reason }),
+      ...(crashes ? [item(env, 'previous', t('kubeActions:menu.previousLogs'), { type: 'view', actions: [jump, dock('logs')], previous: true }, { reason })] : []),
+      ...(podProblem ? [item(env, 'logs', t('kubeActions:menu.logs'), { type: 'view', actions: [jump, dock('logs')], previous: false }, { reason })] : []),
+      item(env, 'describe', t('kubeActions:menu.describe'), view(jump, dock('describe')), { reason }),
+      item(env, 'events', t('kubeActions:menu.events'), view(jump, dock('events')), { reason }),
       ...(kind === 'node' ? [sshItem(env, { name: ref.name, ip: nodeTile?.ip })] : []),
     ],
     copyGroup(env, [
-      ['name', 'Name', ref.name],
-      ['namespaced-name', 'Namespace/Name', ref.namespace ? `${ref.namespace}/${ref.name}` : undefined],
-      ['message', 'Meldung', problem.message],
+      ['name', t('kubeActions:copy.name'), ref.name],
+      ['namespaced-name', t('kubeActions:copy.namespacedName'), ref.namespace ? `${ref.namespace}/${ref.name}` : undefined],
+      ['message', t('kubeActions:copy.message'), errorText(problem.error)],
       ['logs', 'kubectl logs --previous', crashes ? kubectl.logs(namespace, ref.name, undefined, true) : undefined],
     ]),
-    podProblem ? [kubeActionItem(env, 'delete', 'Pod löschen…', ref, 'delete')] : [],
+    podProblem ? [kubeActionItem(env, 'delete', t('kubeActions:menu.deletePod'), ref, 'delete')] : [],
   ]);
 }
 
 function dockMenu(env: Env, target: Extract<MenuTarget, { type: 'dock' }>): MenuEntry[] {
   const { pod, container, previous, mode } = target;
   const reason = connectedReason(env);
-  const podOnly = pod ? undefined : ONLY_PODS;
+  const podOnly = pod ? undefined : t('kubeActions:reasons.onlyPods');
   const containers = pod?.containers ?? [];
   const terminalMode = mode === 'logs' || mode === 'shell';
   const popoutMode: KubeTerminalMode = mode === 'shell' ? 'shell' : previous ? 'previous' : 'logs';
-  const popoutReason = !env.ctx.canPopout ? NO_POPOUT : !pod || !container ? ONLY_PODS
-    : mode === 'shell' ? (env.readOnly ? READ_ONLY_MESSAGE : reason ?? (podNotRunning(pod) ? NOT_RUNNING : undefined)) : reason;
-  const shellReason = podOnly ?? (env.readOnly ? READ_ONLY_MESSAGE : reason ?? (podNotRunning(pod) ? NOT_RUNNING : undefined));
+  const popoutReason = !env.ctx.canPopout ? t('kubeActions:reasons.noPopout') : !pod || !container ? t('kubeActions:reasons.onlyPods')
+    : mode === 'shell' ? (env.readOnly ? readOnlyReason() : reason ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined)) : reason;
+  const shellReason = podOnly ?? (env.readOnly ? readOnlyReason() : reason ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined));
   return assemble([], [
     [
-      item(env, 'mode-logs', 'Logs', { type: 'view', actions: [dock('logs')], previous: false }, { hotkey: 'logs', reason: podOnly ?? reason }),
-      item(env, 'mode-shell', 'Shell', SHELL_ARMED(dock('shell')), { hotkey: 'shell', reason: shellReason }),
-      item(env, 'mode-events', 'Events', view(dock('events')), { hotkey: 'events', reason }),
-      item(env, 'mode-yaml', 'YAML', view(dock('yaml')), { hotkey: 'yaml', reason }),
-      item(env, 'mode-describe', 'Describe', view(dock('describe')), { hotkey: 'describe', reason }),
+      item(env, 'mode-logs', t('kubeActions:menu.logs'), { type: 'view', actions: [dock('logs')], previous: false }, { hotkey: 'logs', reason: podOnly ?? reason }),
+      item(env, 'mode-shell', t('kubeActions:menu.shell'), SHELL_ARMED(dock('shell')), { hotkey: 'shell', reason: shellReason }),
+      item(env, 'mode-events', t('kubeActions:menu.events'), view(dock('events')), { hotkey: 'events', reason }),
+      item(env, 'mode-yaml', t('kubeActions:menu.yaml'), view(dock('yaml')), { hotkey: 'yaml', reason }),
+      item(env, 'mode-describe', t('kubeActions:menu.describe'), view(dock('describe')), { hotkey: 'describe', reason }),
     ],
     [
-      ...(mode === 'logs' ? [item(env, 'previous', previous ? 'Aktuelle Logs' : 'Logs des vorherigen Containers',
+      ...(mode === 'logs' ? [item(env, 'previous', t(previous ? 'kubeActions:menu.currentLogs' : 'kubeActions:menu.previousLogs'),
         { type: 'view', actions: [], previous: !previous }, { hotkey: previous ? undefined : 'previous', reason: podOnly ?? reason })] : []),
       ...(pod && containers.length > 1 ? containers.map(name =>
-        item(env, `container-${name}`, `Container: ${name}`, view({ type: 'selectContainer', name }), { extra: name === container ? 'aktiv' : undefined, reason })) : []),
-      ...(mode === 'logs' && pod && container ? [item(env, 'reload', 'Logs neu starten', { type: 'dockReload' }, { reason })] : []),
-      ...(terminalMode ? [item(env, 'popout', 'Als Tab öffnen',
+        item(env, `container-${name}`, t('kubeActions:menu.container', { name }), view({ type: 'selectContainer', name }), { extra: name === container ? t('kubeActions:menu.active') : undefined, reason })) : []),
+      ...(mode === 'logs' && pod && container ? [item(env, 'reload', t('kubeActions:menu.reloadLogs'), { type: 'dockReload' }, { reason })] : []),
+      ...(terminalMode ? [item(env, 'popout', t('kubeActions:menu.popout'),
         { type: 'popout', target: { namespace: pod?.ref.namespace ?? '', pod: pod?.ref.name ?? '', container: container ?? '', mode: popoutMode } },
         { hotkey: 'popout', reason: popoutReason })] : []),
     ],
-    [item(env, 'toggle', 'Panel einklappen', view({ type: 'toggleDock' }), { hotkey: 'toggleDock' })],
+    [item(env, 'toggle', t('kubeActions:menu.collapsePanel'), view({ type: 'toggleDock' }), { hotkey: 'toggleDock' })],
   ]);
 }
 
 function dockTextMenu(env: Env, target: Extract<MenuTarget, { type: 'dockText' }>): MenuEntry[] {
   const entries: [string, string, string | undefined][] = [
-    [target.mode, target.mode === 'yaml' ? 'YAML kopieren' : 'Describe kopieren', target.text],
-    ['selection', 'Markierung kopieren', target.selection],
+    [target.mode, t(target.mode === 'yaml' ? 'kubeActions:menu.copyYaml' : 'kubeActions:menu.copyDescribe'), target.text],
+    ['selection', t('kubeActions:menu.copySelection'), target.selection],
   ];
   return assemble([], [copyGroup(env, entries)]);
 }
@@ -504,9 +503,9 @@ function dockTextMenu(env: Env, target: Extract<MenuTarget, { type: 'dockText' }
 function dockEventMenu(env: Env, row: KubeRow): MenuEntry[] {
   const involved = involvedOf(row);
   return assemble([], [
-    involved?.ref ? [item(env, 'involved', 'Zum Objekt springen', view({ type: 'jump', ref: involved.ref }))]
-      : involved ? [item(env, 'involved', 'Zum Objekt springen', view(), { reason: involvedReason(involved) })] : [],
-    copyGroup(env, [['message', 'Meldung kopieren', cell(row, 'message')]]),
+    involved?.ref ? [item(env, 'involved', t('kubeActions:menu.jumpToObject'), view({ type: 'jump', ref: involved.ref }))]
+      : involved ? [item(env, 'involved', t('kubeActions:menu.jumpToObject'), view(), { reason: involvedReason(involved) })] : [],
+    copyGroup(env, [['message', t('kubeActions:menu.copyMessage'), cell(row, 'message')]]),
   ]);
 }
 
@@ -515,14 +514,14 @@ function sortClearItem(env: Env): MenuEntry {
   const { sort, query } = env.ctx.state;
   const standard = defaultSort(query.kind);
   const atDefault = sort === null || standard === null ? sort === standard : sort.key === standard.key && sort.descending === standard.descending;
-  return { kind: 'item', id: 'sort-clear', label: 'Sortierung aufheben', hint: standard ? EVENTS_SORT_HINT : SORT_HINT, ...(atDefault ? { disabled: true } : {}), run: view({ type: 'sortBy', sort: null }) };
+  return { kind: 'item', id: 'sort-clear', label: t('kubeActions:menu.sortClear'), hint: t(standard ? 'kubeActions:menu.sortHintEvents' : 'kubeActions:menu.sortHintArrival'), ...(atDefault ? { disabled: true } : {}), run: view({ type: 'sortBy', sort: null }) };
 }
 
 function headerMenu(env: Env, column: ColumnInfo): MenuEntry[] {
   const sort = (descending: boolean): MenuAction => view({ type: 'sortBy', sort: { key: column.key, descending } });
   return [
-    item(env, 'sort-asc', 'Aufsteigend sortieren', sort(false)),
-    item(env, 'sort-desc', 'Absteigend sortieren', sort(true)),
+    item(env, 'sort-asc', t('kubeActions:menu.sortAsc'), sort(false)),
+    item(env, 'sort-desc', t('kubeActions:menu.sortDesc'), sort(true)),
     sortClearItem(env),
   ];
 }
@@ -534,15 +533,15 @@ function backgroundMenu(env: Env): MenuEntry[] {
   const back = status?.namespace ?? 'default';
   return assemble([], [
     [
-      item(env, 'filter-reset', 'Alle Filter zurücksetzen', view({ type: 'clearFilter' }), { extra: 'F', reason: filter.text !== '' || filter.chips.length > 0 || Object.keys(filter.columns ?? {}).length > 0 ? undefined : 'Kein Filter gesetzt.' }),
-      item(env, 'search-clear', 'Textfilter entfernen', view({ type: 'search', text: '' }), { reason: filter.text !== '' ? undefined : 'Kein Textfilter gesetzt.' }),
-      item(env, 'chips-clear', 'Status-Filter leeren', view({ type: 'setChips', ids: [] }), { reason: filter.chips.length > 0 ? undefined : 'Kein Status-Filter gesetzt.' }),
-      item(env, 'group-clear', 'Gruppierung aufheben', view({ type: 'setGroupBy', groupBy: null }), { reason: state.groups[state.query.kind] ? undefined : 'Keine Gruppierung gesetzt.' }),
-      all ? item(env, 'namespace', `Zurück zu ${back}`, view({ type: 'setNamespace', namespace: back }))
-        : item(env, 'namespace', 'Alle Namespaces', view({ type: 'setNamespace', namespace: null })),
+      item(env, 'filter-reset', t('kubeActions:menu.filterReset'), view({ type: 'clearFilter' }), { extra: 'F', reason: filter.text !== '' || filter.chips.length > 0 || Object.keys(filter.columns ?? {}).length > 0 ? undefined : t('kubeActions:reasons.noFilter') }),
+      item(env, 'search-clear', t('kubeActions:menu.searchClear'), view({ type: 'search', text: '' }), { reason: filter.text !== '' ? undefined : t('kubeActions:reasons.noTextFilter') }),
+      item(env, 'chips-clear', t('kubeActions:menu.chipsClear'), view({ type: 'setChips', ids: [] }), { reason: filter.chips.length > 0 ? undefined : t('kubeActions:reasons.noChipFilter') }),
+      item(env, 'group-clear', t('kubeActions:menu.groupClear'), view({ type: 'setGroupBy', groupBy: null }), { reason: state.groups[state.query.kind] ? undefined : t('kubeActions:reasons.noGrouping') }),
+      all ? item(env, 'namespace', t('kubeActions:menu.backTo', { namespace: back }), view({ type: 'setNamespace', namespace: back }))
+        : item(env, 'namespace', t('kubeActions:menu.allNamespaces'), view({ type: 'setNamespace', namespace: null })),
       sortClearItem(env),
     ],
-    [item(env, 'help', 'Hilfe…', { type: 'help' }, { extra: '?' })],
+    [item(env, 'help', t('kubeActions:menu.help'), { type: 'help' }, { extra: '?' })],
   ]);
 }
 

@@ -1,6 +1,7 @@
 /** Context menus of the container view as pure data; see docs/superpowers/specs/2026-10-18-container-view-validation.md (C24-C27). */
 import { IMAGE_NAME_TAG, type ContainerDockMode, type InventoryAction, type InventoryRow, type TerminalTarget } from '../../shared/containers';
-import { groupOptionsFor, type ContainerColumn } from './container-columns';
+import { columnLabel, groupOptionsFor, type ContainerColumn } from './container-columns';
+import { t } from './i18n';
 import { CONTAINER_COMMANDS, actionUnavailable, type ContainerCommandContext, type ContainerCommandId } from './container-commands';
 import { primaryChip } from './container-status';
 import type { ContainerViewAction, ContainerViewState } from './container-view';
@@ -27,11 +28,10 @@ export type ContainerMenuEntry =
 
 export interface ContainerMenuContext { state: ContainerViewState; canPopout: boolean }
 
-const NO_POPOUT = 'Hier lässt sich kein Tab öffnen.';
-const NOT_RUNNING = 'Der Container läuft nicht.';
-const NO_TAG = 'Das Image hat kein Tag.';
-const INVALID_NAME = 'Name enthält ungültige Zeichen.';
-const SORT_HINT = 'Standard: Reihenfolge des Hosts';
+const noPopout = (): string => t('containers:reasons.noPopout');
+const notRunning = (): string => t('containers:reasons.notRunning');
+const noTag = (): string => t('containers:reasons.noTag');
+const sortHint = (): string => t('containers:reasons.sortHint');
 
 /** TerminalTarget of a container row for logs or shell. */
 export function terminalTargetOf(row: InventoryRow, mode: 'logs' | 'shell'): TerminalTarget {
@@ -68,42 +68,43 @@ const cell = (row: InventoryRow, key: string): string => String(row.cells[key] ?
 function copyGroup(env: Env, entries: [id: string, label: string, text: string | undefined, reason?: string][]): Group {
   const items = entries.flatMap(([id, label, text, reason]): ContainerMenuEntry[] =>
     text === undefined ? [] : [item(env, `copy-${id}`, label, { type: 'copy', text, label }, { reason })]);
-  return items.length === 0 ? [] : [{ kind: 'heading', label: 'Kopieren' }, ...items];
+  return items.length === 0 ? [] : [{ kind: 'heading', label: t('common:actions.copy') }, ...items];
 }
 
 function actionGroup(env: Env, row: InventoryRow): Group {
   const kind = row.ref.kind;
   if (kind === 'networks') return [];
   const all: [InventoryAction, string, ContainerCommandId | undefined][] = [
-    ['start', 'Starten', undefined], ['stop', 'Stoppen…', 'stop'], ['restart', 'Neu starten…', 'restart'], ['remove', 'Entfernen…', 'remove'],
+    ['start', t('containers:menu.start'), undefined], ['stop', t('containers:menu.stop'), 'stop'],
+    ['restart', t('containers:menu.restart'), 'restart'], ['remove', t('containers:menu.remove'), 'remove'],
   ];
   const wanted = kind === 'containers' ? all : all.filter(([action]) => action === 'remove');
-  return [{ kind: 'heading', label: 'Aktionen' },
+  return [{ kind: 'heading', label: t('containers:menu.actions') },
     ...wanted.map(([action, label, hotkey]) => item(env, action, label, { type: 'containerAction', row, action }, { hotkey, reason: actionUnavailable(row, action) }))];
 }
 
 function rowMenu(env: Env, row: InventoryRow): ContainerMenuEntry[] {
   const kind = row.ref.kind;
   const rt = row.ref.runtime;
-  const inspect = item(env, 'inspect', 'Inspect', view(select(row), dock('inspect')), { hotkey: 'inspect' });
+  const inspect = item(env, 'inspect', t('containers:menu.inspect'), view(select(row), dock('inspect')), { hotkey: 'inspect' });
   if (kind === 'containers') {
     const running = row.state === 'running';
-    const tab = (mode: 'logs' | 'shell'): ContainerMenuEntry => item(env, `tab-${mode}`, mode === 'logs' ? 'Logs als Tab öffnen' : 'Shell als Tab öffnen',
-      { type: 'popout', target: terminalTargetOf(row, mode) }, { reason: env.ctx.canPopout ? undefined : NO_POPOUT });
+    const tab = (mode: 'logs' | 'shell'): ContainerMenuEntry => item(env, `tab-${mode}`, mode === 'logs' ? t('containers:menu.logsTab') : t('containers:menu.shellTab'),
+      { type: 'popout', target: terminalTargetOf(row, mode) }, { reason: env.ctx.canPopout ? undefined : noPopout() });
     const chip = primaryChip('containers', row);
     const ref = row.ref.ref;
     const ports = cell(row, 'ports');
     return assemble([
-      [item(env, 'logs', 'Logs', view(select(row), dock('logs')), { hotkey: 'logs' }),
-        item(env, 'shell', 'Shell öffnen', view(select(row), dock('shell'), { type: 'arm' }), { hotkey: 'shell', reason: running ? undefined : NOT_RUNNING }),
+      [item(env, 'logs', t('containers:menu.logs'), view(select(row), dock('logs')), { hotkey: 'logs' }),
+        item(env, 'shell', t('containers:menu.shellOpen'), view(select(row), dock('shell'), { type: 'arm' }), { hotkey: 'shell', reason: running ? undefined : notRunning() }),
         inspect],
       [tab('logs'), ...(running ? [tab('shell')] : [])],
-      [...(row.project ? [item(env, 'project', `Nur Projekt „${row.project}“ anzeigen`, view({ type: 'setColumnFilter', key: 'project', value: row.project }))] : []),
-        ...(chip ? [item(env, 'chip', `Nur „${chip.label}“ anzeigen`, view({ type: 'setChips', ids: [chip.id] }))] : [])],
+      [...(row.project ? [item(env, 'project', t('containers:menu.onlyProject', { project: row.project }), view({ type: 'setColumnFilter', key: 'project', value: row.project }))] : []),
+        ...(chip ? [item(env, 'chip', t('containers:menu.onlyChip', { chip: chip.label }), view({ type: 'setChips', ids: [chip.id] }))] : [])],
       copyGroup(env, [
-        ['name', 'Name', row.name], ['id', 'ID', row.id], ['image', 'Image', cell(row, 'image') || undefined],
-        ['ports', 'Ports', ports, ports === '' ? 'Keine Ports.' : undefined],
-        ['logs', 'Befehl', `${rt} logs -f ${ref}`], ['exec', 'Befehl', `${rt} exec -it ${ref} sh`],
+        ['name', columnLabel('name'), row.name], ['id', columnLabel('id'), row.id], ['image', columnLabel('image'), cell(row, 'image') || undefined],
+        ['ports', columnLabel('ports'), ports, ports === '' ? t('containers:reasons.noPorts') : undefined],
+        ['logs', t('containers:menu.copyCommand'), `${rt} logs -f ${ref}`], ['exec', t('containers:menu.copyCommand'), `${rt} exec -it ${ref} sh`],
       ]),
       actionGroup(env, row),
     ]);
@@ -111,23 +112,23 @@ function rowMenu(env: Env, row: InventoryRow): ContainerMenuEntry[] {
   if (kind === 'images') {
     const tag = cell(row, 'tag');
     const name = tag === '' ? '' : `${cell(row, 'repository')}:${tag}`;
-    const pullReason = tag === '' ? NO_TAG : IMAGE_NAME_TAG.test(name) ? undefined : INVALID_NAME;
+    const pullReason = tag === '' ? noTag() : IMAGE_NAME_TAG.test(name) ? undefined : t('containers:reasons.invalidName');
     const value = cell(row, 'repository') || row.id.slice(0, 12);
     return assemble([
-      [inspect, item(env, 'containers-with', 'Container mit diesem Image anzeigen', view({ type: 'showContainersWith', key: 'image', value }))],
+      [inspect, item(env, 'containers-with', t('containers:menu.containersWithImage'), view({ type: 'showContainersWith', key: 'image', value }))],
       copyGroup(env, [
-        ['ref', 'Referenz', name, tag === '' ? NO_TAG : undefined], ['id', 'ID', row.id],
-        ['pull', 'Befehl', `${rt} pull ${name}`, pullReason],
+        ['ref', t('containers:menu.copyReference'), name, tag === '' ? noTag() : undefined], ['id', columnLabel('id'), row.id],
+        ['pull', t('containers:menu.copyCommand'), `${rt} pull ${name}`, pullReason],
       ]),
       actionGroup(env, row),
     ]);
   }
   if (kind === 'volumes') {
-    return assemble([[inspect], copyGroup(env, [['name', 'Name', row.name], ['mountpoint', 'Mountpoint', cell(row, 'mountpoint') || undefined]]), actionGroup(env, row)]);
+    return assemble([[inspect], copyGroup(env, [['name', columnLabel('name'), row.name], ['mountpoint', columnLabel('mountpoint'), cell(row, 'mountpoint') || undefined]]), actionGroup(env, row)]);
   }
   return assemble([
-    [inspect, item(env, 'containers-with', 'Container in diesem Netzwerk anzeigen', view({ type: 'showContainersWith', key: 'networks', value: row.name }))],
-    copyGroup(env, [['name', 'Name', row.name], ['id', 'ID', row.id]]),
+    [inspect, item(env, 'containers-with', t('containers:menu.containersInNetwork'), view({ type: 'showContainersWith', key: 'networks', value: row.name }))],
+    copyGroup(env, [['name', columnLabel('name'), row.name], ['id', columnLabel('id'), row.id]]),
   ]);
 }
 
@@ -137,14 +138,14 @@ function dockMenu(env: Env, mode: ContainerDockMode, row: InventoryRow | null): 
   const popoutReason = reasonOf('popout');
   const target = row && (mode === 'logs' || mode === 'shell') ? terminalTargetOf(row, mode) : null;
   return assemble([
-    [item(env, 'logs', 'Logs', view(dock('logs')), { hotkey: 'logs', reason: reasonOf('logs') }),
-      item(env, 'shell', 'Shell', view(dock('shell')), { hotkey: 'shell', reason: reasonOf('shell') }),
-      item(env, 'inspect', 'Inspect', view(dock('inspect')), { hotkey: 'inspect', reason: reasonOf('inspect') })],
-    [...(mode === 'logs' && row ? [item(env, 'reload', 'Logs neu starten', { type: 'dockReload' })] : []),
-      target ? item(env, 'popout', 'Als Tab öffnen', { type: 'popout', target }, { hotkey: 'popout', reason: popoutReason })
+    [item(env, 'logs', t('containers:menu.logs'), view(dock('logs')), { hotkey: 'logs', reason: reasonOf('logs') }),
+      item(env, 'shell', t('containers:menu.shell'), view(dock('shell')), { hotkey: 'shell', reason: reasonOf('shell') }),
+      item(env, 'inspect', t('containers:menu.inspect'), view(dock('inspect')), { hotkey: 'inspect', reason: reasonOf('inspect') })],
+    [...(mode === 'logs' && row ? [item(env, 'reload', t('containers:menu.restartLogs'), { type: 'dockReload' })] : []),
+      target ? item(env, 'popout', t('containers:menu.popout'), { type: 'popout', target }, { hotkey: 'popout', reason: popoutReason })
         // No target to open: a greyed entry with a no-op run.
-        : item(env, 'popout', 'Als Tab öffnen', view(), { reason: popoutReason ?? 'Keine Zeile ausgewählt.' })],
-    [item(env, 'toggle', 'Panel einklappen', view({ type: 'toggleDock' }), { hotkey: 'toggleDock' })],
+        : item(env, 'popout', t('containers:menu.popout'), view(), { reason: popoutReason ?? t('containers:reasons.noRow') })],
+    [item(env, 'toggle', t('containers:menu.collapse'), view({ type: 'toggleDock' }), { hotkey: 'toggleDock' })],
   ]);
 }
 
@@ -154,11 +155,11 @@ function headerMenu(env: Env, column: ContainerColumn): ContainerMenuEntry[] {
   const option = groupOptionsFor(state.kind, state.inventory?.runtime ?? 'docker').find(candidate => candidate.id === column.key);
   const filtered = (kindView.filters[column.key] ?? '') !== '';
   return assemble([
-    [item(env, 'sort-asc', 'Aufsteigend sortieren', view({ type: 'sort', key: column.key, dir: 'asc' })),
-      item(env, 'sort-desc', 'Absteigend sortieren', view({ type: 'sort', key: column.key, dir: 'desc' })),
-      item(env, 'sort-clear', 'Sortierung aufheben', view({ type: 'clearSort' }), { reason: kindView.sort === null ? SORT_HINT : undefined })],
-    option ? [item(env, 'group', `Nach ${column.label} gruppieren`, view({ type: 'setGroupBy', groupBy: option.id }))] : [],
-    [item(env, 'filter-clear', 'Filter dieser Spalte leeren', view({ type: 'setColumnFilter', key: column.key, value: '' }), { reason: filtered ? undefined : 'Kein Filter gesetzt.' })],
+    [item(env, 'sort-asc', t('containers:menu.sortAsc'), view({ type: 'sort', key: column.key, dir: 'asc' })),
+      item(env, 'sort-desc', t('containers:menu.sortDesc'), view({ type: 'sort', key: column.key, dir: 'desc' })),
+      item(env, 'sort-clear', t('containers:menu.sortClear'), view({ type: 'clearSort' }), { reason: kindView.sort === null ? sortHint() : undefined })],
+    option ? [item(env, 'group', t('containers:menu.groupBy', { column: column.label }), view({ type: 'setGroupBy', groupBy: option.id }))] : [],
+    [item(env, 'filter-clear', t('containers:menu.filterClear'), view({ type: 'setColumnFilter', key: column.key, value: '' }), { reason: filtered ? undefined : t('containers:reasons.noFilter') })],
   ]);
 }
 
@@ -166,10 +167,10 @@ function backgroundMenu(env: Env): ContainerMenuEntry[] {
   const state = env.ctx.state;
   const kindView = state.views[state.kind];
   return assemble([
-    [item(env, 'filter-reset', 'Alle Filter zurücksetzen', view({ type: 'clearFilter' }), { hotkey: 'resetFilter' }),
-      item(env, 'group-clear', 'Gruppierung aufheben', view({ type: 'setGroupBy', groupBy: null }), { reason: kindView.groupBy === null ? 'Keine Gruppierung aktiv.' : undefined }),
-      item(env, 'sort-clear', 'Sortierung aufheben', view({ type: 'clearSort' }), { reason: kindView.sort === null ? SORT_HINT : undefined })],
-    [item(env, 'reload', 'Aktualisieren', { type: 'reload' }, { hotkey: 'reload' }), item(env, 'help', 'Hilfe…', { type: 'help' }, { hotkey: 'help' })],
+    [item(env, 'filter-reset', t('containers:menu.filterReset'), view({ type: 'clearFilter' }), { hotkey: 'resetFilter' }),
+      item(env, 'group-clear', t('containers:menu.groupClear'), view({ type: 'setGroupBy', groupBy: null }), { reason: kindView.groupBy === null ? t('containers:reasons.noGrouping') : undefined }),
+      item(env, 'sort-clear', t('containers:menu.sortClear'), view({ type: 'clearSort' }), { reason: kindView.sort === null ? sortHint() : undefined })],
+    [item(env, 'reload', t('containers:refresh'), { type: 'reload' }, { hotkey: 'reload' }), item(env, 'help', t('containers:menu.help'), { type: 'help' }, { hotkey: 'help' })],
   ]);
 }
 

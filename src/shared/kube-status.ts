@@ -4,8 +4,6 @@ export type ChipGroup = 'attention' | 'status' | 'type' | 'trait' | 'time';
 export interface ChipDef {
   /** Lowercase English, stable; also the :status value. */
   id: string;
-  /** German UI text. */
-  label: string;
   /** OR within a group, AND between groups. */
   group: ChipGroup;
   matches: (row: KubeRow, now: number) => boolean;
@@ -35,8 +33,8 @@ export function jobTone(status: JobStatus): RowTone {
 }
 
 const status = (row: KubeRow): string => String(row.cells.status ?? '');
-const attention: ChipDef = { id: 'attention', label: 'Auffällig', group: 'attention', matches: row => row.tone === 'warn' || row.tone === 'bad' };
-const chip = (id: string, label: string, group: ChipGroup, matches: ChipDef['matches']): ChipDef => ({ id, label, group, matches });
+const attention: ChipDef = { id: 'attention', group: 'attention', matches: row => row.tone === 'warn' || row.tone === 'bad' };
+const chip = (id: string, group: ChipGroup, matches: ChipDef['matches']): ChipDef => ({ id, group, matches });
 
 function notReady(row: KubeRow): boolean {
   const state = status(row);
@@ -46,9 +44,9 @@ function notReady(row: KubeRow): boolean {
 }
 
 const workloadChips = (): ChipDef[] => [attention,
-  chip('complete', 'Vollständig', 'status', row => row.tone === 'ok'),
-  chip('incomplete', 'Nicht vollständig', 'status', row => row.tone === 'warn'),
-  chip('zero', 'Auf 0', 'status', row => row.tone === 'muted')];
+  chip('complete', 'status', row => row.tone === 'ok'),
+  chip('incomplete', 'status', row => row.tone === 'warn'),
+  chip('zero', 'status', row => row.tone === 'muted')];
 
 const recent = (minutes: number): ChipDef['matches'] => (row, now) => {
   const time = Date.parse(String(row.cells.last));
@@ -58,41 +56,41 @@ const recent = (minutes: number): ChipDef['matches'] => (row, now) => {
 /** Order in each array = order in the chip bar and the canonical order of stored ids. */
 export const CHIPS: Record<KubeKind, ChipDef[]> = {
   pods: [attention,
-    chip('running', 'Läuft', 'status', row => status(row) === 'Running'),
-    chip('waiting', 'Wartet', 'status', row => WARN_STATES.has(status(row))),
-    chip('failed', 'Fehler', 'status', row => row.tone === 'bad'),
-    chip('completed', 'Abgeschlossen', 'status', row => status(row) === 'Completed'),
-    chip('terminating', 'Beendet', 'status', row => status(row) === 'Terminating'),
-    chip('notready', 'Nicht bereit', 'trait', notReady),
-    chip('restarts', 'Mit Neustarts', 'trait', row => Number(row.cells.restarts) > 0)],
+    chip('running', 'status', row => status(row) === 'Running'),
+    chip('waiting', 'status', row => WARN_STATES.has(status(row))),
+    chip('failed', 'status', row => row.tone === 'bad'),
+    chip('completed', 'status', row => status(row) === 'Completed'),
+    chip('terminating', 'status', row => status(row) === 'Terminating'),
+    chip('notready', 'trait', notReady),
+    chip('restarts', 'trait', row => Number(row.cells.restarts) > 0)],
   deployments: workloadChips(),
   statefulsets: workloadChips(),
   daemonsets: workloadChips(),
   jobs: [attention,
-    chip('running', 'Läuft', 'status', row => status(row) === 'Running' || status(row) === 'Pending'),
-    chip('success', 'Erfolgreich', 'status', row => status(row) === 'Complete'),
-    chip('failed', 'Fehlgeschlagen', 'status', row => status(row) === 'Failed')],
+    chip('running', 'status', row => status(row) === 'Running' || status(row) === 'Pending'),
+    chip('success', 'status', row => status(row) === 'Complete'),
+    chip('failed', 'status', row => status(row) === 'Failed')],
   cronjobs: [
-    chip('active', 'Aktiv', 'status', row => row.suspended !== true),
-    chip('suspended', 'Angehalten', 'status', row => row.suspended === true)],
+    chip('active', 'status', row => row.suspended !== true),
+    chip('suspended', 'status', row => row.suspended === true)],
   services: [
-    chip('clusterip', 'ClusterIP', 'type', row => row.cells.type === 'ClusterIP'),
-    chip('nodeport', 'NodePort', 'type', row => row.cells.type === 'NodePort'),
-    chip('loadbalancer', 'LoadBalancer', 'type', row => row.cells.type === 'LoadBalancer'),
-    chip('externalname', 'ExternalName', 'type', row => row.cells.type === 'ExternalName'),
-    chip('headless', 'Headless', 'trait', row => row.cells.clusterIp === 'None'),
-    chip('noselector', 'Ohne Selector', 'trait', row => Object.keys(row.selector ?? {}).length === 0)],
+    chip('clusterip', 'type', row => row.cells.type === 'ClusterIP'),
+    chip('nodeport', 'type', row => row.cells.type === 'NodePort'),
+    chip('loadbalancer', 'type', row => row.cells.type === 'LoadBalancer'),
+    chip('externalname', 'type', row => row.cells.type === 'ExternalName'),
+    chip('headless', 'trait', row => row.cells.clusterIp === 'None'),
+    chip('noselector', 'trait', row => Object.keys(row.selector ?? {}).length === 0)],
   ingresses: [],
   nodes: [attention,
-    chip('notready', 'Nicht bereit', 'trait', row => status(row).startsWith('NotReady')),
-    chip('cordoned', 'Gesperrt', 'trait', row => row.unschedulable === true),
-    chip('pressure', 'Druck', 'trait', row => (row.pressure ?? []).length > 0),
-    chip('controlplane', 'Control-Plane', 'trait', row => String(row.cells.roles ?? '').split(',').some(role => role === 'control-plane' || role === 'master'))],
+    chip('notready', 'trait', row => status(row).startsWith('NotReady')),
+    chip('cordoned', 'trait', row => row.unschedulable === true),
+    chip('pressure', 'trait', row => (row.pressure ?? []).length > 0),
+    chip('controlplane', 'trait', row => String(row.cells.roles ?? '').split(',').some(role => role === 'control-plane' || role === 'master'))],
   events: [
-    chip('warning', 'Warning', 'type', row => row.cells.type === 'Warning'),
-    chip('normal', 'Normal', 'type', row => row.cells.type === 'Normal'),
-    chip('5m', 'Letzte 5 min', 'time', recent(5)),
-    chip('15m', 'Letzte 15 min', 'time', recent(15))],
+    chip('warning', 'type', row => row.cells.type === 'Warning'),
+    chip('normal', 'type', row => row.cells.type === 'Normal'),
+    chip('5m', 'time', recent(5)),
+    chip('15m', 'time', recent(15))],
 };
 
 /** 'attention' where CHIPS[kind] has it, 'warning' for events, else null (cronjobs, services, ingresses). */
@@ -101,7 +99,7 @@ export function attentionChip(kind: KubeKind): string | null {
   return CHIPS[kind].some(def => def.id === 'attention') ? 'attention' : null;
 }
 
-/** Chip for the row menu "Nur <label> anzeigen"; undefined = no entry. */
+/** Chip for the row menu "only <chip> shown" (label via chipLabel); undefined = no entry. */
 export function primaryChip(kind: KubeKind, row: KubeRow, now: number): ChipDef | undefined {
   const defs = CHIPS[kind];
   switch (kind) {

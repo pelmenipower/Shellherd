@@ -2,11 +2,16 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import type { SshStatus } from '../../../shared/ssh';
+import { decodeError, truncateDetail } from '../../../shared/errors';
+import type { CodedError } from '../../../shared/errors';
 import type { ConnectionErrorCode } from '../../../shared/connection-errors';
 import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
-import type { ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob } from '../../../shared/sftp';
+import type { ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob, TransferState } from '../../../shared/sftp';
 import type { FileSide } from '../file-browser';
-import { formatDate, formatSize, ipcErrorText, isFinished, jobPercent, joinPath } from '../file-browser';
+import { errorText, IPC_PREFIX } from '../error-text';
+import { formatDate, formatSize, isFinished, jobPercent, joinPath } from '../file-browser';
+import { formatDateTime } from '../../../shared/format';
+import { useT } from '../i18n';
 import { liveSessions } from '../session-registry';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { statusWord } from '../status-words';
@@ -35,7 +40,19 @@ interface FilesPanelProps {
 interface FilesSnapshot { local?: string; remote?: string }
 
 const emptyListing: FileListing = { path: null, entries: [], loading: false, error: null };
-const stateLabels: Record<TransferJob['state'], string> = { queued: 'Wartet', running: 'Läuft', done: 'Fertig', error: 'Fehler', canceled: 'Abgebrochen' };
+const QUEUE_STATE_KEYS = {
+  queued: 'files:queue.state.queued', running: 'files:queue.state.running', done: 'files:queue.state.done',
+  error: 'files:queue.state.error', canceled: 'files:queue.state.canceled',
+} as const satisfies Record<TransferState, string>;
+const EDIT_STATE_KEYS = {
+  open: 'files:edit.state.open', uploading: 'files:edit.state.uploading', saved: 'files:edit.state.saved',
+  conflict: 'files:edit.state.conflict', error: 'files:edit.state.error',
+} as const satisfies Record<EditedFile['state'], string>;
+
+/** A rejected open as coded error; foreign text stays raw detail for the card. */
+function codedFailure(error: Error): CodedError {
+  return decodeError(error.message) ?? { code: 'core.unknown', detail: truncateDetail(error.message.replace(IPC_PREFIX, '')) };
+}
 
 function readSnapshot(adopt?: AdoptedSession): FilesSnapshot {
   try { return adopt?.snapshot ? JSON.parse(adopt.snapshot) as FilesSnapshot : {}; } catch { return {}; }
@@ -43,9 +60,13 @@ function readSnapshot(adopt?: AdoptedSession): FilesSnapshot {
 
 /** WinSCP-style commander: this computer on the left, the server on the right, transfers below. */
 export function FilesPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus }: FilesPanelProps) {
+  const { t } = useT();
+  // load() must keep a stable identity or the connection effect would reconnect on a language change.
+  const tRef = useRef(t);
+  tRef.current = t;
+  const fail = (error: unknown) => errorText(error, tRef.current('files:actionFailed'));
   const [status, setStatus] = useState<SftpStatus>(initialStatus ?? 'connecting');
-  const [message, setMessage] = useState<string | null>(null);
-  const [failure, setFailure] = useState<{ code?: ConnectionErrorCode; detail?: string }>({});
+  const [failure, setFailure] = useState<{ code?: ConnectionErrorCode; error?: CodedError }>({});
   const [endedAt, setEndedAt] = useState(() => Date.now());
   const [attempt, setAttempt] = useState(0);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -78,7 +99,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     } catch (error) {
       if (request !== requests.current[side]) return;
       // The previous folder stays visible; only the message is new.
-      setListings(current => ({ ...current, [side]: { ...current[side], loading: false, error: ipcErrorText(error, 'Der Ordner konnte nicht geöffnet werden.') } }));
+      setListings(current => ({ ...current, [side]: { ...current[side], loading: false, error: errorText(error, tRef.current('files:panel.openFolderFailed')) } }));
     }
   }, []);
   const refresh = useCallback((side: FileSide): void => { const path = paths.current[side]; if (path) void load(side, path); }, [load]);
@@ -91,17 +112,17 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
       setDrives(places.drives);
       setHomes(current => ({ ...current, local: places.home }));
       void load('local', paths.current.local ?? places.home);
-    }).catch(error => setListings(current => ({ ...current, local: { ...current.local, error: ipcErrorText(error) } })));
+    }).catch(error => setListings(current => ({ ...current, local: { ...current.local, error: fail(error) } })));
     return () => { disposed = true; };
   }, [load]);
 
   useEffect(() => {
     let disposed = false;
     let id: string | null = null;
-    const report = (next: SftpStatus, text?: string, code?: ConnectionErrorCode, detail?: string): void => {
+    const report = (next: SftpStatus, error?: CodedError, code?: ConnectionErrorCode): void => {
       if (disposed) return;
       if (next === 'closed' || next === 'error') setEndedAt(Date.now());
-      setStatus(next); setMessage(text ?? null); setFailure({ code, detail }); onStatusChange(tabId, next);
+      setStatus(next); setFailure({ code, error }); onStatusChange(tabId, next);
     };
     const connected = (): void => {
       report('connected');
@@ -109,11 +130,11 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
         if (disposed) return;
         setHomes(current => ({ ...current, remote: home }));
         void load('remote', paths.current.remote ?? home);
-      }).catch(error => { if (!disposed) setListings(current => ({ ...current, remote: { ...current.remote, error: ipcErrorText(error) } })); });
+      }).catch(error => { if (!disposed) setListings(current => ({ ...current, remote: { ...current.remote, error: fail(error) } })); });
     };
     const unsubscribe = window.desktopApi.onSftpEvent(event => {
       if (event.sessionId !== id || disposed) return;
-      if (event.type === 'status') { if (event.status === 'connected') connected(); else report(event.status, event.message, event.code, event.detail); }
+      if (event.type === 'status') { if (event.status === 'connected') connected(); else report(event.status, event.error, event.code); }
       else if (event.type === 'conflict') setConflict(event.conflict);
       else if (event.type === 'edit') {
         const { edit, closed } = event;
@@ -149,7 +170,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
           setEdits(state.edits);
           setConflict(state.conflict ?? null);
           if (state.status === 'connected') connected(); else report(state.status);
-        }).catch((error: Error) => report('error', ipcErrorText(error)));
+        }).catch((error: Error) => report('error', codedFailure(error)));
         return;
       }
       // A closed tab moved from another window stays closed until "Neu verbinden".
@@ -158,7 +179,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
       window.desktopApi.sftpOpen({ connectionId: connection.id }).then(result => {
         if (disposed) { void window.desktopApi.sftpClose(result).catch(() => {}); return; }
         attach(result.sessionId);
-      }).catch((error: Error) => report('error', ipcErrorText(error)));
+      }).catch((error: Error) => report('error', codedFailure(error)));
     }, 0);
     return () => {
       disposed = true;
@@ -173,7 +194,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const run = async (action: () => Promise<unknown>, side?: FileSide): Promise<boolean> => {
     setBusy(true); setActionError(null);
     try { await action(); return true; }
-    catch (error) { setActionError(ipcErrorText(error)); return false; }
+    catch (error) { setActionError(fail(error)); return false; }
     finally { setBusy(false); if (side) refresh(side); }
   };
   const transfer = (from: FileSide, sources: string[], move: boolean, targetDir?: string): void => {
@@ -184,7 +205,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const answer = (choice: ConflictChoice, applyToAll: boolean): void => {
     if (!conflict || !sessionId) return;
     setConflict(null);
-    void window.desktopApi.sftpResolve({ sessionId, conflictId: conflict.conflictId, choice, applyToAll }).catch(error => setActionError(ipcErrorText(error)));
+    void window.desktopApi.sftpResolve({ sessionId, conflictId: conflict.conflictId, choice, applyToAll }).catch(error => setActionError(fail(error)));
   };
   const remoteReady = status === 'connected' && !!sessionId;
   const remoteNotice = status === 'connected' ? undefined
@@ -194,7 +215,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const remote = connection.id !== LOCAL_CONTAINER_HOST;
   const active = jobs.filter(job => !isFinished(job));
 
-  const pane = (side: FileSide) => <FilePane tabId={tabId} side={side} title={side === 'local' ? 'Dieser Computer' : `${connection.name} (${connection.address})`}
+  const pane = (side: FileSide) => <FilePane tabId={tabId} side={side} title={side === 'local' ? t('common:thisComputer') : `${connection.name} (${connection.address})`}
     listing={listings[side]} active={activeSide === side} disabled={busy || (side === 'remote' && !remoteReady)}
     notice={side === 'remote' ? remoteNotice : undefined} home={homes[side]} drives={side === 'local' ? drives : undefined}
     onActivate={() => setActiveSide(side)} onNavigate={path => void load(side, path)} onRefresh={() => refresh(side)}
@@ -220,20 +241,20 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     <section className={`terminal-panel files-panel${focused ? ' focused-pane' : ''}`} style={style} onPointerDown={onFocus}
       id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
       <span className="terminal-live-status" role="status">{statusWord(status, 'long', { protocol: 'SFTP' })}</span>
-      {actionError && <p className="file-error file-action-error" role="alert">{actionError}<button type="button" aria-label="Meldung schließen" onClick={() => setActionError(null)}>×</button></p>}
+      {actionError && <p className="file-error file-action-error" role="alert">{actionError}<button type="button" aria-label={t('files:panel.dismiss')} onClick={() => setActionError(null)}>×</button></p>}
       <div className="files-commander">{pane('local')}{pane('remote')}
       {status === 'error' && (
         <ConnectionErrorCard connectionId={connection.id} code={failure.code ?? 'unknown'} name={connection.name} address={connection.address}
-          remote={remote} message={message ?? undefined} detail={failure.detail} active={cardActive} onRetry={reconnect} />
+          remote={remote} error={failure.error} active={cardActive} onRetry={reconnect} />
       )}
       </div>
       {status === 'closed' && (
         <DisconnectedBar reason={failure.code === 'closed-by-server' ? 'server' : 'session'} endedAt={endedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />
       )}
       {edits.length > 0 && sessionId && <EditList edits={edits}
-        onOpen={editId => void window.desktopApi.sftpEditOpen({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}
-        onUpload={editId => void window.desktopApi.sftpEditUpload({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))}
-        onClose={editId => void window.desktopApi.sftpEditClose({ sessionId, editId }).catch(error => setActionError(ipcErrorText(error)))} />}
+        onOpen={editId => void window.desktopApi.sftpEditOpen({ sessionId, editId }).catch(error => setActionError(fail(error)))}
+        onUpload={editId => void window.desktopApi.sftpEditUpload({ sessionId, editId }).catch(error => setActionError(fail(error)))}
+        onClose={editId => void window.desktopApi.sftpEditClose({ sessionId, editId }).catch(error => setActionError(fail(error)))} />}
       {pendingPermissions && <PermissionsDialog entries={pendingPermissions.entries} busy={busy} onCancel={() => setPendingPermissions(null)}
         onApply={(mode, recursive) => void run(() => window.desktopApi.sftpChmod({ sessionId: sessionId!, paths: pendingPermissions.paths, mode, recursive }), 'remote')
           .then(done => { if (done) setPendingPermissions(null); })} />}
@@ -242,10 +263,9 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
         onClear={() => { setJobs(current => current.filter(job => !isFinished(job))); if (sessionId) void window.desktopApi.sftpClearFinished({ sessionId }).catch(() => {}); }} />}
       {conflict && visible && <ConflictDialog conflict={conflict} onAnswer={answer} />}
       {pendingDelete && <ConfirmDialog busy={busy} instant
-        title={pendingDelete.names.length === 1 ? `„${pendingDelete.names[0]}“ löschen?` : `${pendingDelete.names.length} Einträge löschen?`}
-        description={pendingDelete.side === 'local' ? 'Die Einträge werden in den Papierkorb verschoben.'
-          : 'Die Einträge werden auf dem Server endgültig gelöscht, Ordner mit ihrem gesamten Inhalt. Das kann nicht rückgängig gemacht werden.'}
-        confirmLabel={pendingDelete.side === 'local' ? 'In den Papierkorb' : 'Endgültig löschen'}
+        title={pendingDelete.names.length === 1 ? t('files:panel.deleteOne', { name: pendingDelete.names[0] }) : t('files:panel.deleteMany', { count: pendingDelete.names.length })}
+        description={pendingDelete.side === 'local' ? t('files:panel.deleteLocal') : t('files:panel.deleteRemote')}
+        confirmLabel={pendingDelete.side === 'local' ? t('files:panel.toTrash') : t('files:panel.deleteForever')}
         onCancel={() => setPendingDelete(null)} onConfirm={() => {
           const { side, paths: targets } = pendingDelete;
           void run(() => side === 'local' ? window.desktopApi.localDelete({ paths: targets }) : window.desktopApi.sftpDelete({ sessionId: sessionId!, paths: targets }), side)
@@ -256,51 +276,49 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
 }
 
 function TransferQueue({ jobs, activeCount, onCancel, onClear }: { jobs: TransferJob[]; activeCount: number; onCancel: (jobId: string) => void; onClear: () => void }) {
+  const { t } = useT();
+  const jobLabel = (job: TransferJob): string => job.entryCount > 1 ? t('files:transfer.entries', { count: job.entryCount }) : job.label;
   return (
-    <section className="transfer-queue" aria-label="Übertragungen">
-      <header><strong>Übertragungen</strong><span>{activeCount ? `${activeCount} aktiv` : 'alle erledigt'}</span>
-        <button type="button" className="secondary-button" disabled={activeCount === jobs.length} onClick={onClear}>Erledigte entfernen</button></header>
+    <section className="transfer-queue" aria-label={t('files:queue.title')}>
+      <header><strong>{t('files:queue.title')}</strong><span>{activeCount ? t('files:queue.active', { count: activeCount }) : t('files:queue.allDone')}</span>
+        <button type="button" className="secondary-button" disabled={activeCount === jobs.length} onClick={onClear}>{t('files:queue.clear')}</button></header>
       <ul>
         {[...jobs].reverse().map(job => <li key={job.id} className={`transfer-job is-${job.state}`}>
-          <span className="transfer-direction" title={job.direction === 'upload' ? 'Hochladen' : 'Herunterladen'}>{job.direction === 'upload' ? '↑' : '↓'}</span>
+          <span className="transfer-direction" title={job.direction === 'upload' ? t('files:pane.upload') : t('files:pane.download')}>{job.direction === 'upload' ? '↑' : '↓'}</span>
           <div className="transfer-main">
-            <div className="transfer-title"><strong>{job.label}</strong>{job.move && <small>verschieben</small>}<span className="transfer-target" title={job.targetDir}>→ {job.targetDir}</span></div>
-            <progress max={100} value={jobPercent(job)} aria-label={`Fortschritt ${job.label}`} />
-            <small>{stateLabels[job.state]}
-              {job.totalFiles > 0 && ` · ${job.doneFiles} von ${job.totalFiles} Dateien`}
-              {job.totalBytes > 0 && ` · ${formatSize(job.doneBytes)} von ${formatSize(job.totalBytes)}`}
-              {job.skippedFiles > 0 && ` · ${job.skippedFiles} übersprungen`}
+            <div className="transfer-title"><strong>{jobLabel(job)}</strong>{job.move && <small>{t('files:queue.move')}</small>}<span className="transfer-target" title={job.targetDir}>→ {job.targetDir}</span></div>
+            <progress max={100} value={jobPercent(job)} aria-label={t('files:queue.progress', { label: jobLabel(job) })} />
+            <small>{t(QUEUE_STATE_KEYS[job.state])}
+              {job.totalFiles > 0 && ` · ${t('files:queue.files', { done: job.doneFiles, count: job.totalFiles })}`}
+              {job.totalBytes > 0 && ` · ${t('files:queue.bytes', { done: formatSize(job.doneBytes), total: formatSize(job.totalBytes) })}`}
+              {job.skippedFiles > 0 && ` · ${t('files:queue.skipped', { count: job.skippedFiles })}`}
               {job.current && ` · ${job.current}`}
-              {job.message && ` · ${job.message}`}</small>
+              {job.error && ` · ${errorText(job.error)}`}</small>
           </div>
-          {!isFinished(job) && <button type="button" className="secondary-button" onClick={() => onCancel(job.id)}>Abbrechen</button>}
+          {!isFinished(job) && <button type="button" className="secondary-button" onClick={() => onCancel(job.id)}>{t('common:actions.cancel')}</button>}
         </li>)}
       </ul>
     </section>
   );
 }
 
-const editLabels: Record<EditedFile['state'], string> = {
-  open: 'Im Editor geöffnet – Speichern lädt hoch', uploading: 'Wird hochgeladen …', saved: 'Hochgeladen', conflict: 'Auf dem Server geändert', error: 'Hochladen fehlgeschlagen',
-};
-const timeFormat = new Intl.DateTimeFormat('de-DE', { timeStyle: 'medium' });
-
 function EditList({ edits, onOpen, onUpload, onClose }: { edits: EditedFile[]; onOpen: (id: string) => void; onUpload: (id: string) => void; onClose: (id: string) => void }) {
+  const { t } = useT();
   return (
-    <section className="transfer-queue edit-list" aria-label="Bearbeitete Dateien">
-      <header><strong>Bearbeitete Dateien</strong><span>Speichern im Editor lädt die Datei automatisch hoch.</span></header>
+    <section className="transfer-queue edit-list" aria-label={t('files:edit.title')}>
+      <header><strong>{t('files:edit.title')}</strong><span>{t('files:edit.hint')}</span></header>
       <ul>
         {edits.map(edit => <li key={edit.id} className={`transfer-job is-edit-${edit.state}`}>
           <span className="transfer-direction" aria-hidden="true">✎</span>
           <div className="transfer-main">
             <div className="transfer-title"><strong>{edit.name}</strong><span className="transfer-target" title={edit.remotePath}>{edit.remotePath}</span></div>
-            <small role="status">{editLabels[edit.state]}{edit.state === 'saved' && edit.savedAt ? ` um ${timeFormat.format(edit.savedAt)}` : ''}
-              {edit.message && ` · ${edit.message}`}</small>
+            <small role="status">{t(EDIT_STATE_KEYS[edit.state])}{edit.state === 'saved' && edit.savedAt ? ` ${t('files:edit.savedAt', { time: formatDateTime(edit.savedAt, 'time') })}` : ''}
+              {edit.error && ` · ${errorText(edit.error)}`}</small>
           </div>
-          {edit.state === 'conflict' && <button type="button" className="secondary-button" title="Die Serverversion wird durch deine Fassung ersetzt" onClick={() => onUpload(edit.id)}>Trotzdem hochladen</button>}
-          {edit.state === 'error' && <button type="button" className="secondary-button" onClick={() => onUpload(edit.id)}>Erneut hochladen</button>}
-          <button type="button" className="secondary-button" onClick={() => onOpen(edit.id)}>Im Editor öffnen</button>
-          <button type="button" className="secondary-button" title="Nicht mehr überwachen; die lokale Kopie wird gelöscht" onClick={() => onClose(edit.id)}>Schließen</button>
+          {edit.state === 'conflict' && <button type="button" className="secondary-button" title={t('files:edit.forceTitle')} onClick={() => onUpload(edit.id)}>{t('files:edit.force')}</button>}
+          {edit.state === 'error' && <button type="button" className="secondary-button" onClick={() => onUpload(edit.id)}>{t('files:edit.retry')}</button>}
+          <button type="button" className="secondary-button" onClick={() => onOpen(edit.id)}>{t('files:edit.openEditor')}</button>
+          <button type="button" className="secondary-button" title={t('files:edit.closeTitle')} onClick={() => onClose(edit.id)}>{t('common:actions.close')}</button>
         </li>)}
       </ul>
     </section>
@@ -308,6 +326,7 @@ function EditList({ edits, onOpen, onUpload, onClose }: { edits: EditedFile[]; o
 }
 
 function ConflictDialog({ conflict, onAnswer }: { conflict: TransferConflict; onAnswer: (choice: ConflictChoice, applyToAll: boolean) => void }) {
+  const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [applyToAll, setApplyToAll] = useState(false);
@@ -317,17 +336,17 @@ function ConflictDialog({ conflict, onAnswer }: { conflict: TransferConflict; on
   return (
     <dialog ref={dialogRef} className="confirm-dialog conflict-dialog" aria-labelledby={`${id}-title`}
       onCancel={event => { event.preventDefault(); onAnswer('cancel', false); }}>
-      <h2 id={`${id}-title`}>„{conflict.name}“ existiert bereits</h2>
+      <h2 id={`${id}-title`}>{t('files:conflict.title', { name: conflict.name })}</h2>
       <dl>
-        <dt>Neue Datei</dt><dd>{formatSize(conflict.source.size)} · {formatDate(conflict.source.modified)}{newer && <strong> (neuer)</strong>}</dd>
-        <dt>Vorhandene Datei</dt><dd>{formatSize(conflict.target.size)} · {formatDate(conflict.target.modified)}{!newer && <strong> (gleich alt oder neuer)</strong>}</dd>
+        <dt>{t('files:conflict.newFile')}</dt><dd>{formatSize(conflict.source.size)} · {formatDate(conflict.source.modified)}{newer && <strong> {t('files:conflict.newer')}</strong>}</dd>
+        <dt>{t('files:conflict.existing')}</dt><dd>{formatSize(conflict.target.size)} · {formatDate(conflict.target.modified)}{!newer && <strong> {t('files:conflict.sameOrNewer')}</strong>}</dd>
       </dl>
-      <label className="editor-checkbox"><input type="checkbox" checked={applyToAll} onChange={event => setApplyToAll(event.target.checked)} />Für alle weiteren Konflikte dieser Übertragung</label>
+      <label className="editor-checkbox"><input type="checkbox" checked={applyToAll} onChange={event => setApplyToAll(event.target.checked)} />{t('files:conflict.applyAll')}</label>
       <div className="form-actions">
-        <button type="button" className="secondary-button" onClick={() => onAnswer('cancel', false)}>Übertragung abbrechen</button>
-        <button type="button" className="secondary-button" onClick={() => onAnswer('skip', applyToAll)}>Überspringen</button>
-        <button type="button" className="secondary-button" onClick={() => onAnswer('newer', applyToAll)}>Nur wenn neuer</button>
-        <button type="button" className="primary-button" autoFocus onClick={() => onAnswer('overwrite', applyToAll)}>Überschreiben</button>
+        <button type="button" className="secondary-button" onClick={() => onAnswer('cancel', false)}>{t('files:conflict.cancel')}</button>
+        <button type="button" className="secondary-button" onClick={() => onAnswer('skip', applyToAll)}>{t('files:conflict.skip')}</button>
+        <button type="button" className="secondary-button" onClick={() => onAnswer('newer', applyToAll)}>{t('files:conflict.onlyNewer')}</button>
+        <button type="button" className="primary-button" autoFocus onClick={() => onAnswer('overwrite', applyToAll)}>{t('files:conflict.overwrite')}</button>
       </div>
     </dialog>
   );

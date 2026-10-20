@@ -4,6 +4,28 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.12.1] – 2026-10-20
+
+- Behoben: Downloads aus der Dateiansicht landen nur im gewählten Zielordner; Namen, die Windows nicht speichern kann (`\`, `:`, Gerätenamen, Punkt oder Leerzeichen am Ende), werden übersprungen oder mit Hinweis abgelehnt.
+- Behoben: Beim Überschreiben bleibt die alte Datei erhalten, bis die neue vollständig angekommen ist.
+- Behoben: Hochgeladene Dateien behalten beim Überschreiben ihre Rechte; neue Dateien bekommen 0644 statt 0666.
+- Geändert: `Bearbeiten` öffnet nur Text-, Konfigurations- und Quelltextdateien im Standardprogramm; Skripte und alles andere in Notepad, auch lokal.
+- Geändert: Der KI-Assistent tippt Befehle nicht mehr selbst ein; `Eintippen` schreibt den Vorschlag in die Eingabezeile.
+- Behoben: Die Vault-Datei wird vor dem Umbenennen auf die Platte geschrieben; Speichern während des Sperrens liefert kein falsches Ergebnis; nach dem Anhängen von `.term` merkt sich Shellherd den neuen Pfad.
+- Behoben: Fehlgeschlagene RDP-Verbindungen zeigen den Fehler statt dauerhaft „Verbindet“.
+- Behoben: Verschieben einer Ansicht in ein anderes Fenster lässt keine Sitzung zurück, wenn eine davon gerade endete.
+- Behoben: Cluster-Ansicht zeigt nur die Ereignisse des gewählten Objekts; Kubeconfig-Suche funktioniert trotz Login-Banner; das Pod-Terminal nennt die Ursache.
+- Behoben: Der Verbindungstest wartet, solange der Server-Schlüssel-Dialog offen ist; die Spracheinstellung meldet, wenn sie nicht gespeichert werden kann.
+- Behoben: Zahlen in Meldungen folgen der Sprache (z. B. „1.000 übersprungen“); die Drag-Vorschau in anderen Fenstern verschwindet auch, wenn die Ansicht während des Ziehens geschlossen wird.
+
+## [0.12.0] – 2026-10-19
+
+- Shellherd gibt es jetzt auf Deutsch und Englisch. Standard ist die Windows-Anzeigesprache; unter Einstellungen (Zahnrad in der Kopfzeile, `Strg+,`, auch auf der Startkarte) stellt „Sprache“ auf System, Deutsch oder English um. Der Wechsel gilt sofort in allen Fenstern, offene Sitzungen laufen weiter.
+- Neuer Dialog „Einstellungen“: Sprache, die Dateiverknüpfung mit `.term`, die Nachfrage vor dem Trennen laufender Sitzungen (pro Vault, bisher ohne Schalter) und der Einstieg zu den KI-Anbietern an einem Ort.
+- Fehlermeldungen, Dialoge, Fenstertitel und der KI-Assistent folgen der eingestellten Sprache; der Assistent antwortet in dieser Sprache.
+- Datum, Zahlen, Dateigrößen, Sortierung und Suche richten sich nach der Sprache. Die Ausgabe von „Beschreiben“ in der Cluster-Ansicht nutzt jetzt die englischen Feldnamen wie `kubectl describe`.
+- Der Installer zeigt seine Texte auf Deutsch oder Englisch, passend zur Windows-Sprache. Release-Notes und Handbuch gibt es in beiden Sprachen (`docs/manual.md`).
+
 ## [0.11.0] – 2026-10-19
 
 - Neue Farbwelt „Berner Kupfer“: Der Akzent ist jetzt Kupfer statt Cyan, passend zum Shellherd-Zeichen. Flächen und Text sind einen Hauch wärmer; Kupfer steht nur für Fokus, Auswahl und Aktionen, Gelb, Grün und Rot nur für Zustände.

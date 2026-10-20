@@ -1,7 +1,21 @@
 import type { ConnectionIconName } from '../../../shared/vault/appearance';
+import { t } from '../i18n';
 
+const ICON_LABEL_KEYS = {
+  terminal: 'app:icons.terminal', server: 'app:icons.server', database: 'app:icons.database', desktop: 'app:icons.desktop',
+  cloud: 'app:icons.cloud', network: 'app:icons.network', files: 'app:icons.files',
+} as const satisfies Record<ConnectionIconName, string>;
+/** Label of an icon in the current UI language. */
+export const connectionIconLabel = (icon: ConnectionIconName): string => t(ICON_LABEL_KEYS[icon]);
+/** Getters keep existing `connectionIconLabels[icon]` consumers working; the text resolves on access, never at module load. */
 export const connectionIconLabels: Record<ConnectionIconName, string> = {
-  terminal: 'Terminal', server: 'Server', database: 'Datenbank', desktop: 'Desktop', cloud: 'Cloud', network: 'Netzwerk', files: 'Dateien',
+  get terminal() { return connectionIconLabel('terminal'); },
+  get server() { return connectionIconLabel('server'); },
+  get database() { return connectionIconLabel('database'); },
+  get desktop() { return connectionIconLabel('desktop'); },
+  get cloud() { return connectionIconLabel('cloud'); },
+  get network() { return connectionIconLabel('network'); },
+  get files() { return connectionIconLabel('files'); },
 };
 const paths: Record<ConnectionIconName, string> = {
   terminal: 'm4 6 6 6-6 6m9 0h7',

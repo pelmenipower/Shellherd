@@ -23,6 +23,11 @@ import { testConnection } from './connection-test';
 import { registerAiIpcHandlers } from './ai/ipc';
 import type { AssistantService } from './ai/assistant';
 import { ConnectionNodeSchema } from '../shared/vault/schema';
+import { z } from 'zod';
+import { AppError } from '../shared/errors';
+import { LANGUAGE_SETTINGS, LOCALE_ARG } from '../shared/locale';
+import { localeStore } from './locale';
+import { mainT, setMainLocale } from './i18n';
 
 import { IPC_CHANNELS } from '../shared/ipc';
 import {
@@ -64,7 +69,7 @@ function createWindow(role: WindowRole, bounds?: Rectangle): BrowserWindow {
     ...(bounds ?? { width: 1280, height: 800 }),
     minWidth: role === 'main' ? 900 : 480,
     minHeight: role === 'main' ? 600 : 320,
-    title: role === 'main' ? 'Shellherd' : 'Shellherd – Sitzungen',
+    title: mainT(role === 'main' ? 'window.main' : 'window.secondary'),
     ...(icon ? { icon } : {}),
     backgroundColor: '#0b1120',
     show: false,
@@ -74,9 +79,12 @@ function createWindow(role: WindowRole, bounds?: Rectangle): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       devTools: false,
+      additionalArguments: [`${LOCALE_ARG}${localeStore.get().effective}`],
     },
   });
   windowRegistry.register(window, role);
+  // index.html has its own <title>; keep the localized window title.
+  window.on('page-title-updated', event => event.preventDefault());
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
@@ -113,8 +121,8 @@ function guardMainWindowClose(window: BrowserWindow, ownerId: number): void {
     if (confirmingClose) return;
     confirmingClose = true;
     void dialog.showMessageBox(window, {
-      type: 'question', title: 'Shellherd schließen', message: 'Alle aktiven Verbindungen in allen Fenstern trennen und Shellherd schließen?',
-      buttons: ['Abbrechen', 'Trennen und schließen'], defaultId: 0, cancelId: 0, noLink: true,
+      type: 'question', title: mainT('dialogs.closeApp.title'), message: mainT('dialogs.closeApp.message'),
+      buttons: [mainT('dialogs.cancel'), mainT('dialogs.closeApp.confirm')], defaultId: 0, cancelId: 0, noLink: true,
     }).then(result => {
       if (result.response === 1 && !window.isDestroyed()) {
         closing = true;
@@ -143,9 +151,9 @@ function guardSecondaryWindowClose(window: BrowserWindow, ownerId: number): void
     if (confirming) return;
     confirming = true;
     void dialog.showMessageBox(window, {
-      type: 'question', title: 'Fenster schließen', message: 'Alle Verbindungen in diesem Fenster trennen und das Fenster schließen?',
-      detail: 'Tabs, die du behalten willst, ziehst du vorher in ein anderes Fenster.',
-      buttons: ['Abbrechen', 'Trennen und schließen'], defaultId: 0, cancelId: 0, noLink: true,
+      type: 'question', title: mainT('dialogs.closeWindow.title'), message: mainT('dialogs.closeWindow.message'),
+      detail: mainT('dialogs.closeWindow.detail'),
+      buttons: [mainT('dialogs.cancel'), mainT('dialogs.closeWindow.confirm')], defaultId: 0, cancelId: 0, noLink: true,
     }).then(result => { if (result.response === 1) closeNow(); }).catch(() => {}).finally(() => { confirming = false; });
   });
 }
@@ -173,6 +181,11 @@ app.whenReady().then(() => {
   if (!singleInstance) return;
   // Before anything reads userData (known hosts, last vault): take over the legacy profile files once.
   migrateUserData(join(app.getPath('appData'), 'Terminus'), app.getPath('userData'));
+  const languageState = localeStore.init({
+    settingsFile: join(app.getPath('userData'), 'settings.json'),
+    systemLanguages: () => app.getPreferredSystemLanguages(),
+  });
+  setMainLocale(languageState.effective);
   const association = new FileAssociation(process.execPath, process.defaultApp ? app.getAppPath() : null, brandIconPath());
   ipcMain.handle(IPC_CHANNELS.vaultLaunchFile, event => {
     windowRegistry.requireMain(event);
@@ -188,6 +201,28 @@ app.whenReady().then(() => {
     IPC_CHANNELS.getVersion,
     () => app.getVersion(),
   );
+
+  // Any registered window may read the language (self-healing); only the main window changes it.
+  ipcMain.handle(IPC_CHANNELS.appGetLanguage, event => {
+    if (!windowRegistry.roleOf(event.sender.id) || event.senderFrame !== event.sender.mainFrame) throw new AppError('core.invalidRequest');
+    return localeStore.get();
+  });
+  ipcMain.handle(IPC_CHANNELS.appSetLanguage, (event, value: unknown) => {
+    windowRegistry.requireMain(event);
+    const parsed = z.enum(LANGUAGE_SETTINGS).safeParse(value);
+    if (!parsed.success) throw new AppError('core.invalidRequest');
+    return localeStore.set(parsed.data);
+  });
+  // Broadcast only to main/secondary windows (not the drag ghost window).
+  localeStore.subscribe(state => {
+    setMainLocale(state.effective);
+    const targets = [windowRegistry.main(), ...windowRegistry.secondaries()];
+    for (const target of targets) {
+      if (!target || target.isDestroyed()) continue;
+      target.setTitle(mainT(target === windowRegistry.main() ? 'window.main' : 'window.secondary'));
+      if (!target.webContents.isDestroyed()) target.webContents.send(IPC_CHANNELS.appLocaleChanged, state);
+    }
+  });
 
   const knownHosts = createKnownHosts();
   // One memory of refused sudo passwords for container lists and container tabs.
@@ -206,7 +241,7 @@ app.whenReady().then(() => {
     windowRegistry.requireMain(event);
     vaultSessionManager.getSnapshot();
     const parsed = ConnectionNodeSchema.safeParse(request);
-    if (!parsed.success) throw new Error('Bitte prüfe die Verbindungsdaten.');
+    if (!parsed.success) throw new AppError('core.invalidConnectionData');
     return testConnection(parsed.data, { verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive) });
   });
   ipcMain.handle(IPC_CHANNELS.readClipboardText, event => {
@@ -217,7 +252,7 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_CHANNELS.writeClipboardText, (event, text: unknown) => {
     requireSshSender(event);
     vaultSessionManager.getSnapshot();
-    if (typeof text !== 'string' || text.length > 4 * 1024 * 1024) throw new Error('Der markierte Text ist zu groß.');
+    if (typeof text !== 'string' || text.length > 4 * 1024 * 1024) throw new AppError('core.clipboardTooLarge');
     clipboard.writeText(text);
   });
   const { broadcastCatalog } = registerWindowIpcHandlers({

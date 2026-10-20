@@ -1,18 +1,22 @@
 // Pure column model of the Kubernetes table: filter kinds, cell normalisation, column filters, grouping.
 // Imports only from shared/kubernetes; never from kube-view (import cycle, B12).
 import { KIND_COLUMNS, KIND_INFO, type ColumnInfo, type GroupBy, type KubeKind, type KubeRow } from '../../shared/kubernetes';
+import { compareText } from '../../shared/format';
+import { t } from './i18n';
 
 export type ColumnFilterKind = 'text' | 'select' | 'number' | 'age' | 'none';
 
-/** Value of the empty option in select filters and the key of the empty group's label. */
+/** Stored value of the empty option in select filters (saved with the view, so it never changes with the language). Shown as `emptyLabel()`. */
 export const EMPTY_VALUE = '(ohne)';
+/** Display text of the empty option and the empty group. */
+export const emptyLabel = (): string => t('kubernetes:filter.empty');
 
 /** Columns of a table: KIND_COLUMNS[kind], plus a Namespace column after 'name' for all-namespaces tables of namespaced kinds. */
 export function columnsFor(kind: KubeKind, namespace: string | null): ColumnInfo[] {
   const columns = KIND_COLUMNS[kind];
   if (namespace !== null || !KIND_INFO[kind].namespaced) return columns;
   const at = columns.findIndex(column => column.key === 'name') + 1;
-  return [...columns.slice(0, at), { key: 'namespace', label: 'Namespace' }, ...columns.slice(at)];
+  return [...columns.slice(0, at), { key: 'namespace' }, ...columns.slice(at)];
 }
 
 const SELECT_COLUMNS: Partial<Record<KubeKind, string[]>> = {
@@ -131,7 +135,7 @@ export function compileColumnFilters(kind: KubeKind, columns: readonly ColumnInf
   return row => predicates.every(predicate => predicate(row));
 }
 
-/** Options of a select filter: unique values of `rows`, sorted with localeCompare; EMPTY_VALUE last when a row is empty;
+/** Options of a select filter: unique values of `rows`, sorted with compareText; EMPTY_VALUE last when a row is empty;
  *  `selected` (non-blank) is always included, even if no row has it anymore. */
 export function columnValues(kind: KubeKind, rows: readonly KubeRow[], key: string, selected?: string): string[] {
   const values = new Set<string>();
@@ -145,7 +149,7 @@ export function columnValues(kind: KubeKind, rows: readonly KubeRow[], key: stri
     if (selected === EMPTY_VALUE) empty = true;
     else values.add(selected);
   }
-  const sorted = [...values].sort((a, b) => a.localeCompare(b));
+  const sorted = [...values].sort(compareText);
   return empty ? [...sorted, EMPTY_VALUE] : sorted;
 }
 
@@ -168,17 +172,18 @@ export function facetValues(
   }
   const selected = filters?.[column.key];
   if (selected !== undefined && selected.trim() !== '' && !counts.has(selected)) counts.set(selected, 0);
-  const values = [...counts.keys()].filter(value => value !== EMPTY_VALUE).sort((a, b) => a.localeCompare(b));
+  const values = [...counts.keys()].filter(value => value !== EMPTY_VALUE).sort(compareText);
   if (counts.has(EMPTY_VALUE)) values.push(EMPTY_VALUE);
   return values.map(value => {
     const count = counts.get(value) as number;
-    return { value, label: `${value} (${count})`, count };
+    return { value, label: `${value === EMPTY_VALUE ? emptyLabel() : value} (${count})`, count };
   });
 }
 
 export interface GroupOption {
   id: GroupBy;
-  label: string;
+  /** Display text in the current language, resolved on read. */
+  readonly label: string;
   /** Group key of a row; '' = "(ohne)". */
   key: (row: KubeRow) => string;
   /** Only with all namespaces (query.namespace === null). */
@@ -186,7 +191,7 @@ export interface GroupOption {
 }
 
 const whole = (key: string) => (row: KubeRow): string => normalise([row.cells[key] === undefined ? undefined : String(row.cells[key])])[0] ?? '';
-const namespaceOption: GroupOption = { id: 'namespace', label: 'Namespace', key: row => normalise([row.ref.namespace])[0] ?? '', allNamespacesOnly: true };
+const namespaceOption: GroupOption = { id: 'namespace', get label() { return t('kubernetes:groups.namespace'); }, key: row => normalise([row.ref.namespace])[0] ?? '', allNamespacesOnly: true };
 
 function objectKind(row: KubeRow): string {
   const kind = row.involved?.kind ?? (row.cells.object === undefined ? undefined : String(row.cells.object).split('/')[0]);
@@ -196,9 +201,9 @@ function objectKind(row: KubeRow): string {
 export const GROUP_OPTIONS: Record<KubeKind, GroupOption[]> = {
   pods: [
     namespaceOption,
-    { id: 'node', label: 'Node', key: row => normalise([row.node])[0] ?? '' },
-    { id: 'status', label: 'Status', key: whole('status') },
-    { id: 'owner', label: 'Owner', key: row => (row.owner ? `${KIND_INFO[row.owner.kind].kind} ${row.owner.name}` : '') },
+    { id: 'node', get label() { return t('kubernetes:groups.node'); }, key: row => normalise([row.node])[0] ?? '' },
+    { id: 'status', get label() { return t('kubernetes:groups.status'); }, key: whole('status') },
+    { id: 'owner', get label() { return t('kubernetes:groups.owner'); }, key: row => (row.owner ? `${KIND_INFO[row.owner.kind].kind} ${row.owner.name}` : '') },
   ],
   deployments: [namespaceOption],
   statefulsets: [namespaceOption],
@@ -208,14 +213,14 @@ export const GROUP_OPTIONS: Record<KubeKind, GroupOption[]> = {
   services: [namespaceOption],
   ingresses: [namespaceOption],
   nodes: [
-    { id: 'status', label: 'Status', key: whole('status') },
-    { id: 'roles', label: 'Rollen', key: whole('roles') },
+    { id: 'status', get label() { return t('kubernetes:groups.status'); }, key: whole('status') },
+    { id: 'roles', get label() { return t('kubernetes:groups.roles'); }, key: whole('roles') },
   ],
   events: [
     namespaceOption,
-    { id: 'type', label: 'Typ', key: whole('type') },
-    { id: 'reason', label: 'Grund', key: whole('reason') },
-    { id: 'objectKind', label: 'Objekt-Art', key: objectKind },
+    { id: 'type', get label() { return t('kubernetes:groups.type'); }, key: whole('type') },
+    { id: 'reason', get label() { return t('kubernetes:groups.reason'); }, key: whole('reason') },
+    { id: 'objectKind', get label() { return t('kubernetes:groups.objectKind'); }, key: objectKind },
   ],
 };
 
@@ -243,26 +248,31 @@ export function groupRows(rows: readonly KubeRow[], kind: KubeKind, groupBy: Gro
     if (members) members.push(row);
     else groups.set(key, [row]);
   }
-  const keys = [...groups.keys()].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)));
+  const keys = [...groups.keys()].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : compareText(a, b)));
   const items: TableItem[] = [];
   for (const key of keys) {
     const members = groups.get(key) as KubeRow[];
     const isCollapsed = collapsed.includes(key);
-    items.push({ type: 'group', key, label: key || EMPTY_VALUE, count: members.length, collapsed: isCollapsed });
+    items.push({ type: 'group', key, label: key || emptyLabel(), count: members.length, collapsed: isCollapsed });
     if (!isCollapsed) for (const row of members) items.push({ type: 'row', row });
   }
   return items;
 }
 
-/** Help texts. */
-export interface FilterHelpForm { form: string; description: string; example: string }
-export const FILTER_HELP: FilterHelpForm[] = [
-  { form: 'Text', description: 'Spalte enthält den Text', example: 'api' },
-  { form: 'Auswahl', description: 'Spalte hat genau diesen Wert; „(ohne)“ für leere Zellen', example: 'shop' },
-  { form: '>3  >=3  <3  <=3  =3  3', description: 'Zahlenspalten vergleichen; eine reine Zahl heißt gleich', example: '>3' },
-  { form: '<10m  >1h  <2d', description: 'Alter jünger (<) oder älter (>) als; Einheiten s, m, h, d', example: '<10m' },
+/** Help texts; every text resolves on read, so the language can change at runtime. */
+export interface FilterHelpForm { readonly form: string; readonly description: string; readonly example: string }
+export const FILTER_HELP: readonly FilterHelpForm[] = [
+  { get form() { return t('kubernetes:filterHelp.text.form'); }, get description() { return t('kubernetes:filterHelp.text.description'); }, example: 'api' },
+  { get form() { return t('kubernetes:filterHelp.select.form'); }, get description() { return t('kubernetes:filterHelp.select.description'); }, example: 'shop' },
+  { form: '>3  >=3  <3  <=3  =3  3', get description() { return t('kubernetes:filterHelp.number.description'); }, example: '>3' },
+  { form: '<10m  >1h  <2d', get description() { return t('kubernetes:filterHelp.age.description'); }, example: '<10m' },
 ];
-export const FILTER_NOTE = 'Alle Filter gelten zusammen, Groß- und Kleinschreibung zählen nicht. Ungültige Eingaben sind rot markiert und filtern nicht. F setzt alle Filter des Reiters zurück, die Gruppierung bleibt.';
-export const GROUP_NOTE = 'Gruppen sind nach Name sortiert, „(ohne)“ steht am Ende. Ein Klick auf die Gruppenzeile klappt sie auf und zu; j und k überspringen Gruppenzeilen.';
-export const TEXT_FILTER_NOTE = 'Kontextmenüs setzen Textfilter wie app=api oder owner:nightly. Sie stehen als Chip „Filter: …“ am Anfang der Leiste und lassen sich mit × entfernen.';
-export const FILTER_KIND_LABEL: Record<Exclude<ColumnFilterKind, 'none'>, string> = { text: 'Text', select: 'Auswahl', number: 'Zahl', age: 'Alter' };
+export const filterNote = (): string => t('kubernetes:filterHelp.note');
+export const groupNote = (): string => t('kubernetes:filterHelp.groupNote');
+export const textFilterNote = (): string => t('kubernetes:filterHelp.textFilterNote');
+export const FILTER_KIND_LABEL: Readonly<Record<Exclude<ColumnFilterKind, 'none'>, string>> = {
+  get text() { return t('kubernetes:filterHelp.text.form'); },
+  get select() { return t('kubernetes:filterHelp.select.form'); },
+  get number() { return t('kubernetes:filterHelp.numberKind'); },
+  get age() { return t('kubernetes:filterHelp.ageKind'); },
+};

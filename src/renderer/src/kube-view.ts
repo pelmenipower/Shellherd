@@ -1,3 +1,5 @@
+import { errorText } from './error-text';
+import { compareText } from '../../shared/format';
 import { compileSearch, EMPTY_FILTER, MAX_SEARCH_LENGTH, type KubeFilter } from '../../shared/kube-filter';
 import { compileChips, knownChips } from '../../shared/kube-status';
 import { columnFilterKind, columnsFor, compileColumnFilters, groupKey, groupRows, GROUP_OPTIONS, type KubeGrouping, type TableItem } from './kube-columns';
@@ -297,7 +299,7 @@ function applyEvent(state: KubeViewState, event: KubeEvent, at: number): KubeVie
     case 'overview': return { ...state, nodes: event.nodes, problems: event.problems, namespaces: event.namespaces, updatedAt: at };
     case 'usage': return { ...state, usage: event.pods };
     case 'rows': return applyRows(state, event, at);
-    case 'trouble': return queryKey(event.query) === queryKey(state.query) ? { ...state, trouble: event.message ?? null } : state;
+    case 'trouble': return queryKey(event.query) === queryKey(state.query) ? { ...state, trouble: event.error ? errorText(event.error) : null } : state;
   }
 }
 
@@ -498,7 +500,7 @@ function compareValues(a: SortValue, b: SortValue, direction: 1 | -1): number {
     if (aMissing || bMissing) return aMissing === bMissing ? 0 : aMissing ? 1 : -1;
     return (a - b) * direction;
   }
-  return String(a).localeCompare(String(b)) * direction;
+  return compareText(String(a), String(b)) * direction;
 }
 
 /** Container for the dock: the chosen one if the pod has it, else the pod's first container. */

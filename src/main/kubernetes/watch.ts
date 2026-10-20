@@ -1,3 +1,4 @@
+import type { CodedError } from '../../shared/errors';
 import type { KubeQuery, KubeRow } from '../../shared/kubernetes';
 import { KubeApiError, type KubeApi, type KubeObject, type ListResult, type WatchHandle, type WatchType } from './api';
 import { toApiError } from './client-api';
@@ -52,11 +53,11 @@ export class ResourceWatcher {
   private failures = 0;
   private cleanCloses = 0;
   private troubled = false;
-  private troubleMessage: string | undefined;
+  private troubleKey: string | undefined;
 
   constructor(private readonly api: KubeApi, private readonly query: KubeQuery,
     private readonly emit: (batch: RowBatch) => void,
-    private readonly onTrouble: (message: string | undefined) => void, private readonly options: WatcherOptions = {}) {
+    private readonly onTrouble: (error: CodedError | undefined) => void, private readonly options: WatcherOptions = {}) {
     this.batchMs = options.batchMs ?? BATCH_MS;
     this.schedule = options.schedule ?? defaultSchedule;
     this.cancel = options.cancel ?? defaultCancel;
@@ -214,10 +215,12 @@ export class ResourceWatcher {
     const auth = api.code === 401 || api.code === 403;
     if (auth || this.failures >= TROUBLE_AFTER) {
       this.troubled = true;
-      const message = auth ? api.message : `Live-Aktualisierung gestört: ${api.message}`;
-      if (message !== this.troubleMessage) {
-        this.troubleMessage = message;
-        this.onTrouble(message);
+      // A specific mapped code is shown as is; the generic API error becomes the live-update message (no English detail).
+      const trouble: CodedError = auth || api.coded.code !== 'kubernetes.apiError' ? api.coded : { code: 'kubernetes.liveUpdateFailed' };
+      const key = JSON.stringify(trouble);
+      if (key !== this.troubleKey) {
+        this.troubleKey = key;
+        this.onTrouble(trouble);
       }
     }
     const delay = auth ? AUTH_RETRY_MS : RETRY_DELAYS_MS[Math.min(this.failures, RETRY_DELAYS_MS.length) - 1];
@@ -235,7 +238,7 @@ export class ResourceWatcher {
     this.cleanCloses = 0;
     if (this.troubled) {
       this.troubled = false;
-      this.troubleMessage = undefined;
+      this.troubleKey = undefined;
       this.onTrouble(undefined);
     }
   }

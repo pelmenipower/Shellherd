@@ -2,6 +2,7 @@ import { INVENTORY_KINDS } from '../../shared/containers';
 import type { ContainerRuntime, InventoryKind } from '../../shared/containers';
 import { inventoryArgv, remoteScript, shellJoin } from './commands';
 import type { SudoMode } from './commands';
+import { BATCH_TOO_LARGE } from './parsers';
 import type { RunResult } from './parsers';
 
 export const LIST_MARKER = /^\[terminus-list-[0-9a-f]{16}\]$/;
@@ -10,7 +11,7 @@ export const BATCH_OUTPUT_LIMIT = 4 * 1024 * 1024;
 /** C1: four times LIST_TIMEOUT (15 s) a single list had. */
 export const BATCH_TIMEOUT = 60_000;
 /** Same text as runLocal's maxBuffer case (runner.ts:113). */
-export const BATCH_TOO_LARGE = 'Die Ausgabe ist zu groß.';
+export { BATCH_TOO_LARGE } from './parsers';
 
 /** One remote command for all four lists; after each list `<marker>:<kind>:<exit code>` is printed on its own line, on stdout and on stderr. */
 export function inventoryBatchCommand(runtime: ContainerRuntime, marker: string, sudo: SudoMode): string {

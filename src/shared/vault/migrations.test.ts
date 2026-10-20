@@ -34,9 +34,9 @@ describe('parseVaultDocument', () => {
   });
 
   it('rejects newer and unknown versions instead of guessing', () => {
-    expect(() => parseVaultDocument({ ...exampleVault, version: 3 })).toThrow(/neueren Shellherd-Version/);
-    expect(() => parseVaultDocument({ ...exampleVault, version: 'x' })).toThrow(/nicht unterstützt/);
-    expect(() => parseVaultDocument(null)).toThrow(/nicht unterstützt/);
+    expect(() => parseVaultDocument({ ...exampleVault, version: 3 })).toThrow(expect.objectContaining({ code: 'core.vaultVersionTooNew', params: { version: 3 } }));
+    expect(() => parseVaultDocument({ ...exampleVault, version: 'x' })).toThrow(expect.objectContaining({ code: 'core.vaultFormatUnsupported' }));
+    expect(() => parseVaultDocument(null)).toThrow(expect.objectContaining({ code: 'core.vaultFormatUnsupported' }));
   });
 
   it('rejects version 2 data claiming to be version 1', () => {

@@ -36,6 +36,11 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   artifactName: ${productName}-Setup-${version}.${ext}
+  multiLanguageInstaller: true
+  installerLanguages:
+    - de_DE
+    - en_US
+  displayLanguageSelector: false
 
 portable:
   artifactName: ${productName}-Portable-${version}.${ext}

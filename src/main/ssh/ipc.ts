@@ -2,7 +2,9 @@ import { app, BrowserWindow, dialog, ipcMain, webContents } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { join } from 'node:path';
 import { spawn as spawnShell } from 'node-pty';
+import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
+import { mainT } from '../i18n';
 import { vaultSessionManager } from '../vault/ipc';
 import { KnownHosts } from './known-hosts';
 import { findConnection, SshSessionManager } from './session';
@@ -13,7 +15,7 @@ import { AckSchema, InputSchema, PrepareSchema, ResizeSchema, SessionSchema, par
 export function requireSshSender(event: IpcMainInvokeEvent): number {
   const window = BrowserWindow.fromWebContents(event.sender);
   if (!window || event.sender.isDestroyed() || event.senderFrame !== event.sender.mainFrame) {
-    throw new Error('Diese Terminal-Anfrage ist nicht erlaubt.');
+    throw new AppError('ssh.senderNotAllowed');
   }
   return event.sender.id;
 }
@@ -24,10 +26,10 @@ export function createKnownHosts(): KnownHosts {
     const parent = BrowserWindow.getFocusedWindow();
     const options = {
       type: 'warning' as const,
-      title: 'Unbekannter SSH-Server',
-      message: `Server-Schlüssel für ${prompt.host}:${prompt.port} prüfen`,
-      detail: `SHA-256-Fingerprint:\n${prompt.fingerprint}\n\nVergleiche diesen Fingerprint mit einer vertrauenswürdigen Quelle. Bei Bestätigung wird dieser Server-Schlüssel für künftige Verbindungen gespeichert.`,
-      buttons: ['Abbrechen', 'Schlüssel vertrauen und speichern'], defaultId: 0, cancelId: 0, noLink: true,
+      title: mainT('dialogs.hostKey.title'),
+      message: mainT('dialogs.hostKey.message', { host: prompt.host, port: prompt.port }),
+      detail: mainT('dialogs.hostKey.detail', { fingerprint: prompt.fingerprint }),
+      buttons: [mainT('dialogs.cancel'), mainT('dialogs.hostKey.confirm')], defaultId: 0, cancelId: 0, noLink: true,
     };
     const result = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
     return result.response === 1;
@@ -41,7 +43,7 @@ export function registerSshIpcHandlers(knownHosts: KnownHosts, sudoRejections = 
     openKubeTerminal,
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
-      if (!connection) throw new Error('Die Verbindung wurde nicht gefunden.');
+      if (!connection) throw new AppError('ssh.connectionNotFound');
       return connection;
     },
     spawnShell,

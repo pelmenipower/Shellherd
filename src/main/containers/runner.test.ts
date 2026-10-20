@@ -6,7 +6,7 @@ import { Client, Server } from 'ssh2';
 import type { Connection, ServerChannel } from 'ssh2';
 import type { SshConnectionNode } from '../../shared/vault/types';
 import { remoteCommand } from './commands';
-import { describeFailure } from './parsers';
+import { BATCH_TOO_LARGE, describeFailure } from './parsers';
 import { HostAccessError, openRemoteHost, runLocal } from './runner';
 
 const hostKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
@@ -109,7 +109,7 @@ describe('openRemoteHost', () => {
   });
   it('refuses an unconfirmed host key with a readable error', async () => {
     await expect(openRemoteHost(connection, async () => false)).rejects.toThrow(HostAccessError);
-    await expect(openRemoteHost(connection, async () => false)).rejects.toThrow('Der Server-Schlüssel wurde nicht bestätigt.');
+    await expect(openRemoteHost(connection, async () => false)).rejects.toMatchObject({ code: 'containers.hostKeyRejected' });
   });
 });
 
@@ -166,7 +166,7 @@ describe('openRemoteHost sudo prompts', () => {
     const host = await openRemoteHost(connection, async () => true);
     const result = await host.run(sudoCommand('nocache'), 5_000, prompt());
     expect(result).toEqual({ code: 1, stdout: '', stderr: 'sudo: a password is required\n', sudoReady: true });
-    expect(describeFailure('docker', result)).toBe('sudo speichert die Anmeldung nicht zwischen (timestamp_timeout=0). Richte NOPASSWD ein.');
+    expect(describeFailure('docker', result)).toEqual({ code: 'containers.sudoNotCached' });
     host.close();
   });
   it('reports a missing prompt on timeout and never sends the password', async () => {
@@ -211,7 +211,7 @@ describe('runLocal', () => {
     const exec = ((_f: string, _a: string[], _o: object, callback: (error: object | null, stdout: string, stderr: string) => void) => {
       callback(Object.assign(new Error('maxBuffer'), { killed: true, code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }), 'big', '');
     }) as never;
-    expect(await runLocal('docker', ['ps'], 1_000, exec)).toEqual({ code: null, stdout: 'big', stderr: 'Die Ausgabe ist zu groß.' });
+    expect(await runLocal('docker', ['ps'], 1_000, exec)).toEqual({ code: null, stdout: 'big', stderr: BATCH_TOO_LARGE });
   });
 });
 
@@ -235,6 +235,6 @@ describe('RemoteHost.forward', () => {
   });
   it('rejects forward with a readable error when the server refuses', async () => {
     const host = await openFakeHost((...args: unknown[]) => (args[4] as (e: Error) => void)(new Error('Connection refused')));
-    await expect(host.forward('10.0.0.5', 6443)).rejects.toThrow('Der API-Server ist vom Zugangs-Host aus nicht erreichbar (10.0.0.5:6443).');
+    await expect(host.forward('10.0.0.5', 6443)).rejects.toMatchObject({ code: 'containers.apiUnreachable', params: { host: '10.0.0.5', port: 6443 } });
   });
 });

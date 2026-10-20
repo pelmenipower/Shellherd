@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LOCAL_CONTAINER_HOST, type ContainerInventory, type InventoryKind, type InventoryRow, type InventoryState } from '../../shared/containers';
 import {
-  BUSY_LABEL, containerViewReducer, currentColumns, dockTerminalKey, initialContainerViewState, loadedLabel, navigableRows, rootlessHint, rowsOf,
+  busyLabel, containerViewReducer, currentColumns, dockTerminalKey, initialContainerViewState, loadedLabel, navigableRows, rootlessHint, rowsOf,
   selectedRow, tabStatus, tableItems, visibleRows, type ContainerViewAction, type ContainerViewState,
 } from './container-view';
 
@@ -236,8 +236,8 @@ describe('dock and shell arm', () => {
     expect(run(busy, { type: 'busy', uid: 'x' }).busy).toEqual({});
     expect(run(base, { type: 'busy', uid: 'x' })).toBe(base);
   });
-  it('BUSY_LABEL names every action', () => {
-    expect(BUSY_LABEL).toEqual({ start: 'startet', stop: 'stoppt', restart: 'startet neu', remove: 'wird entfernt' });
+  it('busyLabel names every action', () => {
+    expect((['start', 'stop', 'restart', 'remove'] as const).map(busyLabel)).toEqual(['startet', 'stoppt', 'startet neu', 'wird entfernt']);
   });
 });
 
@@ -286,7 +286,7 @@ describe('selectors and labels', () => {
     expect(rootlessHint(loaded([], { user: 'anna' }), 'host-1')).toBeNull();
     expect(rootlessHint(loaded([], { runtime: 'podman', runtimes: ['podman'], sudo: true }), 'host-1')).toBeNull();
     expect(rootlessHint(loaded([ctr('a')], { runtime: 'podman', runtimes: ['podman'] }), 'host-1')).toBeNull();
-    expect(rootlessHint(loaded([], { runtime: 'podman', runtimes: ['podman'], problems: { containers: 'Fehler' } }), 'host-1')).toBeNull();
+    expect(rootlessHint(loaded([], { runtime: 'podman', runtimes: ['podman'], problems: { containers: { code: 'containers.commandFailed', params: { code: 1 } } } }), 'host-1')).toBeNull();
     expect(rootlessHint(initialContainerViewState(NOW), 'host-1')).toBeNull();
   });
   it('tabStatus', () => {

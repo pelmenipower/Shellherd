@@ -11,7 +11,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078D6)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[**Download**](https://github.com/pelmenipower/Shellherd/releases/latest) · [Changelog](CHANGELOG.md) · [User guide (German)](docs/handbuch.md)
+[**Download**](https://github.com/pelmenipower/Shellherd/releases/latest) · [Changelog](CHANGELOG.en.md) · [Änderungen (German)](CHANGELOG.md) · [User guide (English)](docs/manual.md) · [Handbuch (German)](docs/handbuch.md)
 
 </div>
 
@@ -32,19 +32,19 @@
 
 Shellherd keeps all your servers, desktops and clusters in one window. Connections and their credentials live in a single encrypted vault file (`.term`) that you can carry around, back up or keep in sync – no account and no cloud service required.
 
-> The user interface is in German.
-
 ## Features
 
 - **SSH terminals** – up to 16 sessions as tabs, password, private key (with passphrase) or SSH agent, verified host keys.
 - **Split views and workspaces** – drag tabs into up to four panes and save the layout as a named workspace.
 - **Remote Desktop (RDP)** – embedded in a tab, no extra install, including shortcuts like Ctrl+Alt+Del.
-- **SFTP file browser** – two-pane, WinSCP style, with a transfer queue and edit-and-upload for remote files.
+- **SFTP file browser** – two-pane, WinSCP style, with a transfer queue and edit-and-upload for remote files. Text, configuration and source files open in their default program, everything else in Notepad, so a remote script never runs by accident.
 - **Docker and Podman** – a container view per SSH host or for the local machine: containers, images, volumes and networks with filters, logs, shell and inspect.
 - **Proxmox** – LXC containers and VMs under their host, with shell, serial console and power actions.
 - **Kubernetes** – set up a cluster from an existing SSH connection; live nodes, workloads, pods and events with drill-down, logs, shell, YAML and describe. Production clusters ask you to type the resource name before any change.
+- **German and English UI** – follows the Windows language by default; switch any time without a restart. Dates, numbers and sorting follow the language too.
+- **Settings in one place** – gear in the header or `Ctrl+,`: language, `.term` file association, confirmation before disconnecting and the AI providers.
 - **Local shells** – PowerShell and CMD tabs next to your remote sessions.
-- **AI assistant** (optional) – reads the terminal, explains output and types commands for you to review. Works with OpenAI-compatible endpoints (including Ollama and LM Studio), Azure AI Foundry, Anthropic and Google Gemini.
+- **AI assistant** (optional) – reads the terminal, explains output and suggests the next command. Nothing reaches the terminal until you click **Type in**, and nothing runs until you press Enter. Works with OpenAI-compatible endpoints (including Ollama and LM Studio), Azure AI Foundry, Anthropic and Google Gemini.
 
 ## Installation
 
@@ -61,9 +61,10 @@ The builds are not code-signed yet, so Windows SmartScreen may warn on first sta
 
 ## Security
 
-- Vault files are encrypted with **AES-256-GCM**; the key is derived from your password with **Argon2id**.
+- Vault files are encrypted with **AES-256-GCM**; the key is derived from your password with **Argon2id**. Saving writes the file to disk before it replaces the old one, so a crash cannot leave an empty vault.
 - The renderer has no Node, file system or network access; everything sensitive stays in the main process.
 - Server host keys must be confirmed once and are pinned afterwards; a changed key aborts the connection.
+- File transfers never write outside the chosen folder: server file names that Windows cannot store safely are skipped. Overwrites keep the old file until the new one is complete, and uploads keep the file's permissions.
 - Terminal output is never written to disk. Kubeconfigs stay in memory, the API tunnel only listens on `127.0.0.1`, and secrets are masked in YAML and inspect views.
 
 Found a vulnerability? Please open a [private security advisory](https://github.com/pelmenipower/Shellherd/security/advisories/new) instead of a public issue.
@@ -90,14 +91,15 @@ npm run dev
 
 ### Driving the app (screenshots, UI checks)
 
-[`.claude/skills/run-app/`](.claude/skills/run-app/SKILL.md) runs the built app under Playwright with an isolated profile, a synthetic demo vault and a local SSH test server. Native dialogs are stubbed, and real vaults and `%APPDATA%\Shellherd` are never touched. A small HTTP driver accepts clicks, typing and screenshots:
+[`.claude/skills/run-app/`](.claude/skills/run-app/SKILL.md) runs the built app under Playwright with an isolated profile, a synthetic demo vault and a local SSH test server. Native dialogs are stubbed, and real vaults and `%APPDATA%\Shellherd` are never touched. A small HTTP driver on `127.0.0.1:9333` accepts clicks, typing and screenshots. It writes a new token to `%TEMP%\shellherd-run\token` on every start and rejects requests without it, or from a browser, with 403:
 
 ```powershell
 npx electron-vite build
 npm run drive:sshd                              # second terminal
 npm run drive                                   # third terminal
 node .claude/skills/run-app/demo-setup.mjs      # demo vault with web-01, db-main, legacy-app
-curl "http://127.0.0.1:9333/ss?name=start&crop=status"
+$token = Get-Content "$env:TEMP\shellherd-run\token"
+curl.exe -H "x-driver-token: $token" "http://127.0.0.1:9333/ss?name=start&crop=status"
 ```
 
 The skill file lists every driver command and the known pitfalls. Claude Code loads it as the `run-app` skill; the README screenshots were taken this way.
@@ -107,15 +109,15 @@ Built with Electron, TypeScript, React, xterm.js, ssh2 and the Kubernetes JavaSc
 ### Releasing
 
 1. Bump the version: `npm run version:minor` (or `:patch` / `:major`).
-2. Add a matching `## [x.y.z] – YYYY-MM-DD` section to [`CHANGELOG.md`](CHANGELOG.md) – the build fails without it.
+2. Add a matching `## [x.y.z] – YYYY-MM-DD` section to both [`CHANGELOG.md`](CHANGELOG.md) (German) and [`CHANGELOG.en.md`](CHANGELOG.en.md) (English), with the same number of entries – the build and the tests fail otherwise.
 3. Commit, tag and push:
    ```powershell
-   git commit -am "chore(release): 0.11.0"
-   git tag v0.11.0
-   git push origin main v0.11.0
+   git commit -am "chore(release): 0.12.1"
+   git tag v0.12.1
+   git push origin main v0.12.1
    ```
 
-The [release workflow](.github/workflows/release.yml) then builds both executables and publishes a GitHub release with the changelog section as release notes.
+The [release workflow](.github/workflows/release.yml) then builds both executables and publishes a GitHub release with both changelog sections as bilingual release notes.
 
 ## License
 

@@ -3,7 +3,7 @@ import type { DiscoveryResult } from '../../shared/containers';
 import { containerTreeReducer, groupItems, hasUsableLocalRuntime, itemCommands, runtimeEntries } from './container-tree';
 
 const ct = { kind: 'lxc' as const, vmid: 101, name: 'ct', state: 'running' as const };
-const result: DiscoveryResult = { runtimes: ['docker', 'proxmox'], problems: { proxmox: 'Proxmox-Befehle brauchen root.' },
+const result: DiscoveryResult = { runtimes: ['docker', 'proxmox'], problems: { proxmox: { code: 'containers.proxmoxNeedsRoot' } },
   items: [ct, { kind: 'vm', vmid: 100, name: 'win11', state: 'stopped' }] };
 
 describe('container tree state', () => {
@@ -52,7 +52,7 @@ describe('runtimeEntries', () => {
 describe('groupItems', () => {
   it('returns only Proxmox groups and keeps the problem once', () => {
     expect(groupItems(result).map(group => [group.label, group.items.length, group.problem])).toEqual([
-      ['Proxmox LXC', 1, 'Proxmox-Befehle brauchen root.'], ['Proxmox VMs', 1, undefined],
+      ['Proxmox LXC', 1, 'Proxmox-Befehle brauchen root. sudo aktivieren oder als root verbinden.'], ['Proxmox VMs', 1, undefined],
     ]);
   });
   it('hides empty Proxmox groups without problems', () => {
@@ -76,7 +76,7 @@ describe('itemCommands', () => {
 describe('hasUsableLocalRuntime', () => {
   it('is true when docker or podman is listed, even with a problem', () => {
     expect(hasUsableLocalRuntime({ runtimes: ['docker'], items: [], problems: {} })).toBe(true);
-    expect(hasUsableLocalRuntime({ runtimes: ['docker'], items: [], problems: { docker: 'Der Docker-Dienst läuft nicht.' } })).toBe(true);
+    expect(hasUsableLocalRuntime({ runtimes: ['docker'], items: [], problems: { docker: { code: 'containers.dockerNotRunning' } } })).toBe(true);
     expect(hasUsableLocalRuntime({ runtimes: ['proxmox'], items: [], problems: {} })).toBe(false);
     expect(hasUsableLocalRuntime({ runtimes: [], items: [], problems: {} })).toBe(false);
   });

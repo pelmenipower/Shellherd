@@ -8,10 +8,12 @@ import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import { liveSessions } from '../session-registry';
 import { terminalAccess } from '../terminal-access';
 import { xtermTheme } from '../terminal-theme';
+import { useT } from '../i18n';
+import { codedFrom } from '../../../shared/errors';
+import type { CodedError } from '../../../shared/errors';
 import type { SshStatus, SshStep } from '../../../shared/ssh';
 import type { ConnectionErrorCode } from '../../../shared/connection-errors';
 import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
-import { sessionLimitText } from '../../../shared/vault/connections';
 import { WAIT_MS } from '../connect-timeline';
 import type { StepMark } from '../connect-timeline';
 import { notify } from '../notice-store';
@@ -37,14 +39,17 @@ interface TerminalPanelProps {
   embedded?: boolean;
 }
 
-interface Failure { code: ConnectionErrorCode; message?: string; detail?: string }
+interface Failure { code: ConnectionErrorCode; error?: CodedError }
 interface Closed { reason: 'server' | 'session' | 'cancel'; endedAt: number }
 
 const SSH2_STEPS: readonly SshStep[] = ['reach', 'hostkey', 'auth', 'shell'];
 const SHELL_STEPS: readonly SshStep[] = ['shell'];
-const stripIpc = (message: string): string => message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
 
 export function TerminalPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus, embedded = false }: TerminalPanelProps) {
+  const { t } = useT();
+  // The session effect must not restart on a language change, so it reads the latest translator here.
+  const tRef = useRef(t);
+  tRef.current = t;
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
@@ -103,7 +108,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       clearTimeout(copyTimer); copyTimer = undefined;
       const text = pendingSelection; pendingSelection = '';
       if (text) copyQueue = copyQueue.then(() => window.desktopApi.writeClipboardText(text))
-        .catch(() => report(() => notify.error('Nicht kopiert', { body: 'Der markierte Text konnte nicht kopiert werden.' })));
+        .catch(() => report(() => notify.error(tRef.current('terminal:panel.copyFailedTitle'), { body: tRef.current('terminal:panel.copyFailed') })));
       return copyQueue;
     };
     const selection = term.onSelectionChange(() => {
@@ -123,7 +128,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       term.focus();
       void flushCopy().then(() => window.desktopApi.readClipboardText()).then(text => {
         if (!disposed && connected && text) term.paste(text);
-      }).catch(() => report(() => notify.error('Nicht eingefügt', { body: 'Die Zwischenablage konnte nicht eingefügt werden.' })));
+      }).catch(() => report(() => notify.error(tRef.current('terminal:panel.pasteFailedTitle'), { body: tRef.current('terminal:panel.pasteFailed') })));
     };
     terminalElement.addEventListener('mousedown', preventRightMouse, true);
     terminalElement.addEventListener('contextmenu', pasteOnRightClick, true);
@@ -141,7 +146,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
         connected = event.status === 'connected';
         setStatus(event.status);
         onStatusChange(tabId, event.status);
-        if (event.status === 'error') setFailure({ code: event.code ?? 'unknown', message: event.message, detail: event.detail });
+        if (event.status === 'error') setFailure({ code: event.code ?? 'unknown', ...(event.error ? { error: event.error } : {}) });
         if (event.status === 'closed') {
           const reason = cancelledRef.current ? 'cancel' : event.code === 'closed-by-server' ? 'server' : 'session';
           setClosed(previous => (previous?.reason === 'cancel' ? previous : { reason, endedAt: Date.now() }));
@@ -155,7 +160,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       if (!sessionId || !connected) return;
       const bytes = new TextEncoder().encode(data).length;
       if (pendingInputBytes + bytes > 256 * 1024) {
-        notify.info('Eingabe zu groß', { body: 'Füge kleinere Abschnitte ein.' });
+        notify.info(tRef.current('terminal:panel.inputTooLargeTitle'), { body: tRef.current('terminal:panel.inputTooLarge') });
         return;
       }
       pendingInputBytes += bytes;
@@ -166,7 +171,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
           if (disposed || !connected || !sessionId) return;
           await window.desktopApi.sshInput({ sessionId, data: chunk });
         }
-      }).catch(() => report(() => notify.error('Eingabe nicht gesendet', { body: 'Prüfe die Verbindung.' })))
+      }).catch(() => report(() => notify.error(tRef.current('terminal:panel.inputFailedTitle'), { body: tRef.current('terminal:panel.inputFailed') })))
         .finally(() => { pendingInputBytes -= bytes; });
     });
     const resize = term.onResize(size => {
@@ -183,7 +188,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
         register(adopted.session.sessionId);
         connected = (initialStatus ?? 'connecting') === 'connected';
         void window.desktopApi.sshAttach({ sessionId: adopted.session.sessionId }).catch(() => report(() => {
-          setFailure({ code: 'unknown', message: 'Die Sitzung konnte nicht übernommen werden.' });
+          setFailure({ code: 'unknown', error: { code: 'ssh.adoptFailed' } });
           setStatus('error');
           onStatusChange(tabId, 'error');
         }));
@@ -204,8 +209,8 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
           if (disposed || cancelledRef.current) return;
           setStatus('error');
           onStatusChange(tabId, 'error');
-          const message = caught instanceof Error ? stripIpc(caught.message) : 'Der SSH-Start ist fehlgeschlagen.';
-          setFailure({ code: message === sessionLimitText() ? 'limit' : 'unknown', message });
+          const coded = codedFrom(caught, 'ssh.startFailed');
+          setFailure({ code: coded.code === 'ssh.sessionLimit' || coded.code === 'core.rdpSessionLimit' ? 'limit' : 'unknown', error: coded });
           if (sessionId) void window.desktopApi.sshClose({ sessionId }).catch(() => {});
         }
       })();
@@ -274,7 +279,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       )}
       {status === 'error' && (
         <ConnectionErrorCard connectionId={connection.id} code={failure?.code ?? 'unknown'} name={connection.name} address={connection.address}
-          remote={remote} message={failure?.message} detail={failure?.detail} active={cardActive} onRetry={reconnect} />
+          remote={remote} error={failure?.error} active={cardActive} onRetry={reconnect} />
       )}
       {status === 'closed' && (
         <DisconnectedBar reason={closed?.reason ?? 'session'} endedAt={closed?.endedAt ?? startedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />

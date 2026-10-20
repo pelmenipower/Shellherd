@@ -1,0 +1,34 @@
+{
+  "title": "Workflows",
+  "dialog": {
+    "intro": "Saved commands for the palette (Ctrl+Shift+Space). Placeholders like <code>{{placeholder}}</code> are prompted for when inserted.",
+    "empty": "No workflows yet.",
+    "new": "New workflow",
+    "done": "Done",
+    "back": "Back",
+    "saveFailed": "Saving failed.",
+    "invalid": "Enter a name and a command.",
+    "multiline": "A workflow is a single line. Join multiple commands with && or ;."
+  },
+  "form": {
+    "name": "Name",
+    "command": "Command (single line)",
+    "params": "Placeholders: {{list}}",
+    "paramsHint": "Mark placeholders with {{example}}, e.g. ssh {{sample}}",
+    "description": "Description (optional)",
+    "tags": "Tags (comma-separated)",
+    "shell": "For shell",
+    "shellAll": "All"
+  },
+  "palette": {
+    "noTerminal": "no terminal selected",
+    "searchPlaceholder": "Search workflows (name, tag, command)…",
+    "searchLabel": "Search workflows",
+    "noMatch": "No workflow matches the search.",
+    "noneSaved": "No workflows saved yet.",
+    "copyFailed": "Copying failed.",
+    "type": "Type in",
+    "hints": "↑↓ select · Enter type in (without running) · Esc close",
+    "manage": "Manage workflows"
+  }
+}

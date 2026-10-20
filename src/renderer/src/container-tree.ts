@@ -1,3 +1,5 @@
+import { errorText } from './error-text';
+import { t } from './i18n';
 import type { ContainerAction, ContainerRuntime, DiscoveredItem, DiscoveryResult, TerminalTargetMode } from '../../shared/containers';
 
 /** What VaultTree and LocalContainers need from the app. */
@@ -58,7 +60,7 @@ export function groupItems(result: DiscoveryResult): ItemGroup[] {
   const groups: ItemGroup[] = [];
   if (result.runtimes.includes('proxmox')) {
     const lxc = result.items.filter(item => item.kind === 'lxc'), vms = result.items.filter(item => item.kind === 'vm');
-    const problem = result.problems.proxmox;
+    const problem = result.problems.proxmox ? errorText(result.problems.proxmox) : undefined;
     // The problem is shown once, on the first Proxmox group.
     if (lxc.length || problem) groups.push({ key: 'lxc', label: 'Proxmox LXC', items: lxc, problem });
     if (vms.length) groups.push({ key: 'vm', label: 'Proxmox VMs', items: vms });
@@ -70,18 +72,14 @@ export type ItemCommand = { label: string; run: 'shell' | 'logs' | ContainerActi
 
 export function itemCommands(item: DiscoveredItem): ItemCommand[] {
   const running = item.state === 'running';
-  if (!running) return [{ label: 'Starten', run: 'start' }];
+  if (!running) return [{ label: t('containers:menu.start'), run: 'start' }];
   return [
-    { label: item.kind === 'lxc' ? 'Shell öffnen' : 'Serielle Konsole', run: 'shell' },
-    { label: 'Herunterfahren', run: 'shutdown' },
-    { label: 'Stoppen', run: 'stop', ...(item.kind === 'vm' ? { confirm: `VM „${item.name}“ hart ausschalten? Nicht gespeicherte Daten in der VM gehen verloren.` } : {}) },
+    { label: item.kind === 'lxc' ? t('containers:menu.shellOpen') : t('containers:tree.serialConsole'), run: 'shell' },
+    { label: t('containers:tree.shutdown'), run: 'shutdown' },
+    { label: t('containers:tree.stop'), run: 'stop', ...(item.kind === 'vm' ? { confirm: t('containers:tree.confirmPowerOff', { name: item.name }) } : {}) },
   ];
 }
 
 export function hasUsableLocalRuntime(result: DiscoveryResult): boolean {
   return runtimeEntries(result).length > 0;
-}
-
-export function ipcMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : fallback;
 }

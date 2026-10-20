@@ -143,7 +143,7 @@ describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', 
     await manager.createFile(1, sessionId, '/project/notes.md');
     expect(readFileSync(join(remoteRoot, 'project', 'notes.md'), 'utf8')).toBe('');
     writeFileSync(join(remoteRoot, 'project', 'notes.md'), 'keep');
-    await expect(manager.createFile(1, sessionId, '/project/notes.md')).rejects.toThrow('existiert bereits');
+    await expect(manager.createFile(1, sessionId, '/project/notes.md')).rejects.toMatchObject({ code: 'files.exists' });
     expect(readFileSync(join(remoteRoot, 'project', 'notes.md'), 'utf8')).toBe('keep');
     const { editId } = await manager.edit(1, sessionId, '/project/notes.md', 'notepad');
     expect(openedWith.at(-1)).toBe('notepad');
@@ -159,6 +159,6 @@ describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', 
     await manager.rename(1, sessionId, '/project', '/renamed');
     await manager.delete(1, sessionId, ['/renamed']);
     expect(readdirSync(remoteRoot)).toEqual([]);
-    await expect(manager.delete(1, sessionId, ['/'])).rejects.toThrow('Wurzelverzeichnis');
+    await expect(manager.delete(1, sessionId, ['/'])).rejects.toMatchObject({ code: 'files.rootDelete' });
   });
 });

@@ -4,22 +4,22 @@ import { containerConnection, type TerminalConnection } from '../../terminal-tab
 import { actionUnavailable } from '../../container-commands';
 import { dockTerminalKey } from '../../container-view';
 import { terminalTargetOf, type ContainerMenuTarget } from '../../container-menus';
-import { ipcMessage } from '../../container-tree';
+import { errorText } from '../../error-text';
 import { TerminalPanel } from '../TerminalPanel';
 import '../../kubernetes-dock.css';
 import { liveSessions } from '../../session-registry';
 import { capText } from '../../kube-copy';
 import { isKeyboardContextMenu, isMenuKey, keyMenuAnchor, markKeyMenu } from '../../kube-menu-trigger';
+import { useT } from '../../i18n';
 
-const DOCK_TABS: { mode: ContainerDockMode; label: string; key: string }[] = [
-  { mode: 'logs', label: 'Logs', key: 'l' },
-  { mode: 'shell', label: 'Shell', key: 's' },
-  { mode: 'inspect', label: 'Inspect', key: 'i' },
-];
+const DOCK_TABS = [
+  { mode: 'logs', label: 'containers:dock.logs', key: 'l' },
+  { mode: 'shell', label: 'containers:dock.shell', key: 's' },
+  { mode: 'inspect', label: 'containers:dock.inspect', key: 'i' },
+] as const satisfies readonly { mode: ContainerDockMode; label: string; key: string }[];
 const MAX_COPY_CHARS = 4 * 1024 * 1024 - 1024;
 const MIN_HEIGHT = 120;
 const DEFAULT_HEIGHT = 260;
-const ONLY_CONTAINERS = 'Nur für Container.';
 /** Stable identity: TerminalPanel's effect depends on it, so a new function would reconnect. */
 const ignoreStatus = (): void => {};
 const noop = (): void => {};
@@ -58,6 +58,8 @@ type InspectResult = { id: string; text?: string; error?: string };
 /** Bottom dock: logs and shell as embedded terminal, inspect as text. Follows the selection. */
 export function ContainerDock(props: ContainerDockProps) {
   const { connection, hostName, tabId, visible, open, mode, kind, row, armed, epoch, onMode, onArm, onStart, onToggle, onPopout, onMenu, onCopy, onSay } = props;
+  const { t } = useT();
+  const onlyContainers = t('containers:reasons.onlyContainers');
   const dockRef = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [result, setResult] = useState<InspectResult | null>(null);
@@ -70,7 +72,7 @@ export function ContainerDock(props: ContainerDockProps) {
     let cancelled = false;
     window.desktopApi.containersInspect({ hostId: connection.id, ref: row.ref }).then(
       text => { if (!cancelled) setResult({ id: inspectId, text }); },
-      caught => { if (!cancelled) setResult({ id: inspectId, error: ipcMessage(caught, 'Inspect konnte nicht geladen werden.') }); },
+      caught => { if (!cancelled) setResult({ id: inspectId, error: errorText(caught, t('containers:dock.inspectFailed')) }); },
     );
     return () => { cancelled = true; };
     // inspectId stands for `row`: a new row object with the same uid is the same request.
@@ -103,11 +105,11 @@ export function ContainerDock(props: ContainerDockProps) {
     window.addEventListener('pointerup', up);
   };
 
-  const copyLabel = mode === 'shell' ? 'Shell' : mode === 'logs' ? 'Logs' : 'Inspect';
+  const copyLabel = mode === 'shell' ? t('containers:dock.shell') : mode === 'logs' ? t('containers:dock.logs') : t('containers:dock.inspect');
   const nothingToCopy = terminalMode ? !terminalConnection || shellWaiting : !current?.text;
   const copy = () => {
     const full = terminalMode ? liveSessions.get(`${tabId}:dock`)?.terminal?.allText(5000) ?? '' : current?.text ?? '';
-    if (full.trim() === '') { onSay('Nichts zu kopieren.'); return; }
+    if (full.trim() === '') { onSay(t('containers:dock.nothingToCopy')); return; }
     // The clipboard IPC rejects over 4 MiB: keep the newest part and say so.
     const { text, shortened } = capText(full, MAX_COPY_CHARS);
     onCopy(text, copyLabel, shortened ? { shortened } : {});
@@ -134,20 +136,20 @@ export function ContainerDock(props: ContainerDockProps) {
   const startReason = row ? actionUnavailable(row, 'start') : undefined;
   let body;
   if (terminalMode) {
-    if (!isContainer) body = <p className="kube-placeholder">{ONLY_CONTAINERS}</p>;
-    else if (!row) body = <p className="kube-placeholder">Wähle einen Container, um {terminalMode === 'shell' ? 'eine Shell zu öffnen' : 'Logs zu sehen'}.</p>;
+    if (!isContainer) body = <p className="kube-placeholder">{onlyContainers}</p>;
+    else if (!row) body = <p className="kube-placeholder">{terminalMode === 'shell' ? t('containers:dock.chooseForShell') : t('containers:dock.chooseForLogs')}</p>;
     else if (terminalMode === 'shell' && !running) {
       body = (
         <div className="kube-placeholder">
-          <p>Der Container läuft nicht.</p>
-          <button type="button" className="primary-button" disabled={startReason !== undefined} title={startReason} onClick={() => onStart(row)}>Starten</button>
+          <p>{t('containers:reasons.notRunning')}</p>
+          <button type="button" className="primary-button" disabled={startReason !== undefined} title={startReason} onClick={() => onStart(row)}>{t('containers:menu.start')}</button>
         </div>
       );
     } else if (terminalMode === 'shell' && !armed) {
       body = (
         <div className="kube-placeholder">
-          <p>Die Shell startet erst auf Knopfdruck, damit Auswahlwechsel keine Verbindung öffnen.</p>
-          <button type="button" className="primary-button" onClick={onArm}>Shell öffnen</button>
+          <p>{t('containers:dock.armHint')}</p>
+          <button type="button" className="primary-button" onClick={onArm}>{t('containers:menu.shellOpen')}</button>
         </div>
       );
     } else if (terminalConnection) {
@@ -159,32 +161,32 @@ export function ContainerDock(props: ContainerDockProps) {
         </div>
       );
     }
-  } else if (!row) body = <p className="kube-placeholder">Wähle eine Zeile.</p>;
-  else if (!current) body = <p className="kube-placeholder">Lade …</p>;
+  } else if (!row) body = <p className="kube-placeholder">{t('containers:dock.chooseRow')}</p>;
+  else if (!current) body = <p className="kube-placeholder">{t('containers:loading')}</p>;
   else if (current.error) body = <p className="kube-placeholder error-message">{current.error}</p>;
   else body = <pre className="kube-manifest">{current.text}</pre>;
 
   return (
-    <section ref={dockRef} className={`kube-dock${open ? '' : ' kube-dock-collapsed'}`} style={open ? { height } : undefined} aria-label="Details">
+    <section ref={dockRef} className={`kube-dock${open ? '' : ' kube-dock-collapsed'}`} style={open ? { height } : undefined} aria-label={t('containers:dock.aria')}>
       {open && (
-        <div className="kube-dock-handle" role="separator" aria-orientation="horizontal" aria-label="Höhe ändern" onPointerDown={startResize} />
+        <div className="kube-dock-handle" role="separator" aria-orientation="horizontal" aria-label={t('containers:dock.resize')} onPointerDown={startResize} />
       )}
       <div className="kube-dock-bar" {...barMenu}>
         <div role="tablist" className="kube-dock-tabs">
           {DOCK_TABS.map(tab => {
             const off = tab.mode !== 'inspect' && !isContainer;
             return (
-              <button key={tab.mode} type="button" role="tab" aria-selected={mode === tab.mode} disabled={off} title={off ? ONLY_CONTAINERS : undefined}
+              <button key={tab.mode} type="button" role="tab" aria-selected={mode === tab.mode} disabled={off} title={off ? onlyContainers : undefined}
                 className={mode === tab.mode ? 'kube-dock-tab kube-dock-tab-on' : 'kube-dock-tab'} onClick={() => onMode(tab.mode)}>
-                {tab.label} <kbd>{tab.key}</kbd>
+                {t(tab.label)} <kbd>{tab.key}</kbd>
               </button>
             );
           })}
         </div>
-        <span className="kube-muted kube-dock-hint">{row ? row.name : 'folgt Auswahl'}</span>
-        {terminalConnection && onPopout && !(terminalMode === 'shell' && !running) && <button type="button" className="kube-dock-popout" onClick={onPopout}>Als Tab öffnen</button>}
-        <button type="button" className="kube-dock-copy" disabled={nothingToCopy} title={nothingToCopy ? 'Nichts zu kopieren.' : undefined} onClick={copy}>Kopieren</button>
-        <button type="button" className="kube-dock-toggle" aria-expanded={open} aria-label={open ? 'Panel einklappen' : 'Panel ausklappen'} onClick={onToggle}>
+        <span className="kube-muted kube-dock-hint">{row ? row.name : t('containers:dock.followsSelection')}</span>
+        {terminalConnection && onPopout && !(terminalMode === 'shell' && !running) && <button type="button" className="kube-dock-popout" onClick={onPopout}>{t('containers:menu.popout')}</button>}
+        <button type="button" className="kube-dock-copy" disabled={nothingToCopy} title={nothingToCopy ? t('containers:dock.nothingToCopy') : undefined} onClick={copy}>{t('common:actions.copy')}</button>
+        <button type="button" className="kube-dock-toggle" aria-expanded={open} aria-label={open ? t('containers:menu.collapse') : t('containers:dock.expand')} onClick={onToggle}>
           <svg className={`chevron${open ? '' : ' is-up'}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m5 9 7 7 7-7" /></svg>
         </button>
       </div>

@@ -3,6 +3,7 @@ import type { Workspace } from '../../../shared/vault/types';
 import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { workspaceSummary } from '../terminal-views';
+import { useT } from '../i18n';
 import './navigation-ui.css';
 interface Props {
   workspaces: Workspace[]; busy: boolean; hasTabs: boolean;
@@ -14,6 +15,7 @@ interface Props {
   onClose: () => void;
 }
 export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, dirty = false, onSave, onOpen, onRename, onDelete, onClose }: Props) {
+  const { t } = useT();
   const [selectedId, setSelectedId] = useState('');
   const [name, setName] = useState('');
   const [mode, setMode] = useState<'saveAs' | 'rename' | null>(null);
@@ -45,7 +47,7 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
     return () => document.removeEventListener('pointerdown', outside);
   }, [deletingId, unavailable]);
   const beginName = (nextMode: 'saveAs' | 'rename') => {
-    setName(nextMode === 'rename' ? selected?.name ?? '' : active ? `${active.name} Kopie` : '');
+    setName(nextMode === 'rename' ? selected?.name ?? '' : active ? t('vault:workspaces.copyName', { name: active.name }) : '');
     setMode(nextMode); setError('');
     if (menuRef.current) menuRef.current.open = true;
   };
@@ -55,68 +57,68 @@ export function WorkspaceControls({ workspaces, busy, hasTabs, activeId = null, 
     setPending(true); setError('');
     try {
       if (await onSave(active.name, active.id)) { setSavedCount(count => count + 1); closeMenu(); }
-      else { setError('Nicht gespeichert.'); if (menuRef.current) menuRef.current.open = true; }
-    } catch { setError('Nicht gespeichert.'); if (menuRef.current) menuRef.current.open = true; }
+      else { setError(t('vault:workspaces.saveFailed')); if (menuRef.current) menuRef.current.open = true; }
+    } catch { setError(t('vault:workspaces.saveFailed')); if (menuRef.current) menuRef.current.open = true; }
     finally { setPending(false); }
   };
   const submitName = async () => {
     if (unavailable || !mode) return;
-    if (!name.trim()) { setError('Gib einen Workspace-Namen ein.'); nameRef.current?.focus(); return; }
+    if (!name.trim()) { setError(t('vault:workspaces.nameRequired')); nameRef.current?.focus(); return; }
     setPending(true); setError('');
     try {
       const result = mode === 'rename' && selected ? await onRename(selected.id, name.trim()) : await onSave(name.trim());
-      if (result) { setSavedCount(count => count + 1); closeMenu(); } else setError('Nicht gespeichert.');
-    } catch { setError('Nicht gespeichert.'); }
+      if (result) { setSavedCount(count => count + 1); closeMenu(); } else setError(t('vault:workspaces.saveFailed'));
+    } catch { setError(t('vault:workspaces.saveFailed')); }
     finally { setPending(false); }
   };
-  return <div className="workspace-switcher" aria-label="Workspace-Verwaltung">
+  return <div className="workspace-switcher" aria-label={t('vault:workspaces.aria')}>
     <details ref={menuRef} className="workspace-menu" onKeyDown={event => {
       if (event.key === 'Escape' && !unavailable && !deletingId) { event.preventDefault(); event.stopPropagation(); closeMenu(); }
     }}>
-      <summary aria-label="Workspace-Menü" title={active?.name ?? 'Ungespeicherter Workspace'} onClick={event => {
+      <summary aria-label={t('vault:workspaces.menu')} title={active?.name ?? t('vault:workspaces.unsaved')} onClick={event => {
         if (unavailable) { event.preventDefault(); return; }
         if (!menuRef.current?.open) { setSelectedId(activeId ?? workspaces[0]?.id ?? ''); setMode(null); setError(''); }
       }}>
         <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M12 4v16M12 12h9" /></svg>
-        <span className="workspace-current-name">{active?.name ?? 'Ungespeicherter Workspace'}</span>
-        {dirty && <span className="workspace-dirty" title="Layout geändert" aria-label="Layout geändert">geändert</span>}
+        <span className="workspace-current-name">{active?.name ?? t('vault:workspaces.unsaved')}</span>
+        {dirty && <span className="workspace-dirty" title={t('vault:workspaces.dirty')} aria-label={t('vault:workspaces.dirty')}>{t('vault:workspaces.dirtyBadge')}</span>}
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m5 9 7 7 7-7" /></svg>
       </summary>
       <div className="workspace-menu-content">
         {mode ? <form className="workspace-name-form" onSubmit={event => { event.preventDefault(); void submitName(); }}>
-          <label>{mode === 'rename' ? 'Workspace umbenennen' : 'Workspace speichern unter'}
-            <input ref={nameRef} aria-label="Workspace-Name" value={name} disabled={unavailable} aria-invalid={Boolean(error)}
+          <label>{mode === 'rename' ? t('vault:workspaces.renameLabel') : t('vault:workspaces.saveAsLabel')}
+            <input ref={nameRef} aria-label={t('vault:workspaces.nameLabel')} value={name} disabled={unavailable} aria-invalid={Boolean(error)}
               onChange={event => { setName(event.target.value); setError(''); }} /></label>
-          <div className="workspace-menu-actions"><button type="button" disabled={unavailable} onClick={() => { setMode(null); setError(''); }}>Abbrechen</button>
-            <BusyButton type="submit" busy={pending} disabled={unavailable} idleLabel="Speichern" busyLabel="Speichert …" doneKey={savedCount} /></div>
+          <div className="workspace-menu-actions"><button type="button" disabled={unavailable} onClick={() => { setMode(null); setError(''); }}>{t('common:actions.cancel')}</button>
+            <BusyButton type="submit" busy={pending} disabled={unavailable} idleLabel={t('common:actions.save')} busyLabel={t('common:status.saving')} doneKey={savedCount} /></div>
         </form> : <>
-          <label className="workspace-definition-label">Gespeicherte Workspaces
-            <select aria-label="Gespeicherter Workspace" value={selectedId} disabled={unavailable || workspaces.length === 0} onChange={event => setSelectedId(event.target.value)}>
-              <option value="">Workspace auswählen</option>{workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+          <label className="workspace-definition-label">{t('vault:workspaces.savedLabel')}
+            <select aria-label={t('vault:workspaces.selectAria')} value={selectedId} disabled={unavailable || workspaces.length === 0} onChange={event => setSelectedId(event.target.value)}>
+              <option value="">{t('vault:workspaces.choose')}</option>{workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
             </select>
           </label>
-          {selected && <p className="workspace-menu-hint">Enthält {workspaceSummary(selected)}</p>}
+          {selected && <p className="workspace-menu-hint">{t('vault:workspaces.contains', { summary: workspaceSummary(selected) })}</p>}
           <div className="workspace-definition-actions">
-            <button type="button" disabled={unavailable || !selected} onClick={() => { if (selected) { closeMenu(); onOpen(selected.id); } }}>Workspace öffnen</button>
-            <button type="button" disabled={unavailable || !selected} onClick={() => beginName('rename')}>Umbenennen</button>
-            <button type="button" disabled={unavailable || !selected} onClick={() => setDeletingId(selectedId)}>Workspace löschen</button>
+            <button type="button" disabled={unavailable || !selected} onClick={() => { if (selected) { closeMenu(); onOpen(selected.id); } }}>{t('vault:workspaces.open')}</button>
+            <button type="button" disabled={unavailable || !selected} onClick={() => beginName('rename')}>{t('common:actions.rename')}</button>
+            <button type="button" disabled={unavailable || !selected} onClick={() => setDeletingId(selectedId)}>{t('vault:workspaces.deleteWorkspace')}</button>
           </div>
-          {workspaces.length === 0 && <p className="workspace-menu-hint">Speichere deine Terminalanordnung als Workspace.</p>}
+          {workspaces.length === 0 && <p className="workspace-menu-hint">{t('vault:workspaces.emptyHint')}</p>}
           <div className="workspace-current-actions">
-            <button type="button" disabled={unavailable} onClick={() => { void saveActive(); }}>Layout speichern{active ? `: ${active.name}` : ''}</button>
-            <button type="button" disabled={unavailable} onClick={() => beginName('saveAs')}>Speichern unter …</button>
-            <button type="button" disabled={unavailable || !hasTabs} onClick={() => { closeMenu(); onClose(); }}>Workspace schließen</button>
+            <button type="button" disabled={unavailable} onClick={() => { void saveActive(); }}>{active ? t('vault:workspaces.saveLayoutNamed', { name: active.name }) : t('vault:workspaces.saveLayout')}</button>
+            <button type="button" disabled={unavailable} onClick={() => beginName('saveAs')}>{t('vault:workspaces.saveAs')}</button>
+            <button type="button" disabled={unavailable || !hasTabs} onClick={() => { closeMenu(); onClose(); }}>{t('vault:workspaces.closeWorkspace')}</button>
           </div>
         </>}
         {error && <p className="area-error" role="alert">{error}</p>}
       </div>
     </details>
-    <BusyButton className="workspace-save" type="button" busy={unavailable} disabled={Boolean(active) && !dirty} idleLabel="Speichern" busyLabel="Speichert …" doneKey={savedCount}
+    <BusyButton className="workspace-save" type="button" busy={unavailable} disabled={Boolean(active) && !dirty} idleLabel={t('common:actions.save')} busyLabel={t('common:status.saving')} doneKey={savedCount}
       onClick={() => { void saveActive(); }} />
-    {deletingId && <ConfirmDialog title="Gespeicherten Workspace löschen?" description={`„${workspaces.find(workspace => workspace.id === deletingId)?.name ?? 'Workspace'}“ wird entfernt. Aktive SSH-Sessions bleiben geöffnet.`}
+    {deletingId && <ConfirmDialog title={t('vault:workspaces.confirmTitle')} description={t('vault:workspaces.confirmDescription', { name: workspaces.find(workspace => workspace.id === deletingId)?.name ?? t('vault:workspaces.fallbackName') })}
       busy={unavailable} onCancel={() => setDeletingId(null)} onConfirm={() => {
         setPending(true);
-        void onDelete(deletingId).then(saved => { if (saved) setDeletingId(null); }).catch(() => { setError('Nicht gelöscht.'); setDeletingId(null); }).finally(() => setPending(false));
+        void onDelete(deletingId).then(saved => { if (saved) setDeletingId(null); }).catch(() => { setError(t('vault:workspaces.deleteFailed')); setDeletingId(null); }).finally(() => setPending(false));
       }} />}
   </div>;
 }

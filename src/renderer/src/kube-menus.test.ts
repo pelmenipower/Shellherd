@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { ACTION_KINDS, KIND_COLUMNS, NOT_CONNECTED_MESSAGE, READ_ONLY_MESSAGE, RECONNECTING_MESSAGE, refKey, type ClusterStatus, type KubeKind, type KubeProblem, type KubeRow, type NodeTile, type ProblemKind } from '../../shared/kubernetes';
+import { ACTION_KINDS, KIND_COLUMNS, refKey, type ClusterStatus, type KubeKind, type KubeProblem, type KubeRow, type NodeTile, type ProblemKind } from '../../shared/kubernetes';
 import { actionReason } from './kube-commands';
+import { i18n, t } from './i18n';
 import { menuFor, type MenuContext, type MenuEntry, type MenuTarget } from './kube-menus';
 import { initialKubeView, type KubeViewState } from './kube-view';
+
+/** The shared reasons now come from the catalog (de-DE in the test setup). */
+const READ_ONLY_MESSAGE = t('errors:kubernetes.readOnly');
+const NOT_CONNECTED_MESSAGE = t('errors:kubernetes.notConnected');
+const RECONNECTING_MESSAGE = t('kubeActions:reasons.reconnecting');
 
 type Item = Extract<MenuEntry, { kind: 'item' }>;
 
@@ -30,7 +36,7 @@ const deployment = (patch: Partial<KubeRow> = {}): KubeRow => row('deployments',
 const node = (patch: Partial<KubeRow> = {}): KubeRow => row('nodes', 'worker2', { cells: { version: 'v1.30.1' }, ip: '10.0.0.2', ...patch });
 const tile = (patch: Partial<NodeTile> = {}): NodeTile => ({ name: 'worker2', ready: true, roles: [], pressure: [], unschedulable: false, ip: '10.0.0.2', ...patch });
 const problem = (kind: ProblemKind, patch: Partial<KubeProblem> = {}): KubeProblem => ({
-  id: `p-${kind}`, kind, ref: kind === 'node' ? { kind: 'nodes', name: 'worker2' } : { kind: 'pods', namespace: 'shop', name: 'api-1' }, message: 'bad thing', ...patch,
+  id: `p-${kind}`, kind, ref: kind === 'node' ? { kind: 'nodes', name: 'worker2' } : { kind: 'pods', namespace: 'shop', name: 'api-1' }, error: { code: 'kubernetes.problemOom', params: { name: 'api-1' } }, ...patch,
 });
 
 const items = (entries: MenuEntry[]): Item[] => entries.filter((entry): entry is Item => entry.kind === 'item');
@@ -568,6 +574,9 @@ describe('D problems', () => {
     for (const entry of items(entries)) if (!entry.disabled) expect(entry.hint).toBeUndefined();
     expect(find(entries, 'copy-logs').run).toMatchObject({ text: 'kubectl -n shop logs --previous api-1' });
   });
+  it('copies the problem as readable text, not as its code', () => {
+    expect(find(entriesFor('crashloop'), 'copy-message').run).toMatchObject({ text: 'api-1 wurde wegen Speichermangel beendet (OOMKilled)' });
+  });
   it('takes the ssh ip from state.nodes (C27)', () => {
     const seen: unknown[] = [];
     entriesFor('node', context({ state: state({ nodes: [tile({ ip: '10.7.7.7' })] }), sshForNode: n => { seen.push(n); return ssh(n); } }));
@@ -838,5 +847,19 @@ describe('T6 "Nur <Chip> anzeigen" (C24)', () => {
   it('does not read the selection (C14)', () => {
     const r = pod({ tone: 'bad' });
     expect(rowMenu(r, context({ state: state({ selected: 'other' }) }))).toEqual(rowMenu(r, context({ state: state({ selected: null }) })));
+  });
+});
+
+describe('English catalog', () => {
+  it('words the pod menu and its reasons natively', async () => {
+    await i18n.changeLanguage('en-US');
+    try {
+      const entries = rowMenu(pod(), withStatus(READ_ONLY));
+      expect(find(entries, 'drill').label).toBe('Show containers');
+      expect(find(entries, 'delete')).toMatchObject({ label: 'Delete pod…', disabled: true, hint: 'This cluster is read-only.' });
+      expect(find(entries, 'copy-namespaced-name').label).toBe('Namespace/Name');
+      expect(find(entries, 'events').label).toBe('Events');
+      expect(labels(menu({ type: 'background' }))).toContain('Help…');
+    } finally { await i18n.changeLanguage('de-DE'); }
   });
 });

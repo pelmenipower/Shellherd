@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ACTION_KINDS, RECONNECTING_MESSAGE, type KubeAction, type KubeKind, type KubeRow } from '../../shared/kubernetes';
-import { KUBE_COMMANDS, actionReason, bindingOf, commandForKey, podNotRunning } from './kube-commands';
+import { ACTION_KINDS, type KubeAction, type KubeKind, type KubeRow } from '../../shared/kubernetes';
+import { KUBE_COMMANDS, actionReason, commandDescription, bindingOf, commandForKey, podNotRunning } from './kube-commands';
+import { i18n, t } from './i18n';
 import { initialKubeView, type KubeViewState } from './kube-view';
+
+const RECONNECTING_MESSAGE = t('kubeActions:reasons.reconnecting');
 
 const READY = { state: 'ready', name: 'c', production: false, readOnly: false, metrics: true } as const;
 const ref = (kind: KubeKind) => ({ kind, namespace: kind === 'nodes' ? undefined : 'shop', name: 'x' });
@@ -53,7 +56,7 @@ describe('actionReason', () => {
 
 describe('kube commands', () => {
   it('gives every command a description and a group', () => {
-    for (const command of KUBE_COMMANDS) { expect(command.description.length).toBeGreaterThan(3); expect(['Navigation', 'Ansicht', 'Aktionen']).toContain(command.group); }
+    for (const command of KUBE_COMMANDS) { expect(commandDescription(command).length).toBeGreaterThan(3); expect(['navigation', 'view', 'actions']).toContain(command.group); }
   });
   it('never binds a key twice', () => {
     const bindings = KUBE_COMMANDS.flatMap(command => command.bindings);
@@ -98,11 +101,11 @@ describe('kube commands', () => {
   });
   it('describes / as the name filter and locks it in the container list', () => {
     const filter = commandForKey('/')!;
-    expect(filter.description).toBe('Name filtern (Events: Meldung)');
+    expect(commandDescription(filter)).toBe('Name filtern (Events: Meldung)');
     expect(filter.unavailable?.({ state: withRow('pods'), readOnly: false })).toBeUndefined();
     const pods = withRow('pods');
     expect(filter.unavailable?.({ state: { ...pods, containersOf: pods.rows[0] }, readOnly: false })).toBe('In der Container-Liste gibt es keine Filter.');
-    expect(commandForKey('F')!.description).toBe('Alle Filter des Reiters zurücksetzen (Gruppierung bleibt)');
+    expect(commandDescription(commandForKey('F')!)).toBe('Alle Filter des Reiters zurücksetzen (Gruppierung bleibt)');
   });
 });
 
@@ -118,5 +121,18 @@ describe('search and status commands', () => {
       expect(attention.unavailable?.({ state: withRow(kind), readOnly: false })).toBe('Dieser Reiter hat keinen Chip „Auffällig“.');
     }
     expect(commandForKey('F')!.unavailable).toBeUndefined();
+  });
+});
+
+describe('commandDescription', () => {
+  it('has a catalog text for every command in both languages', async () => {
+    try {
+      for (const language of ['de-DE', 'en-US']) {
+        await i18n.changeLanguage(language);
+        for (const command of KUBE_COMMANDS) expect(commandDescription(command)).not.toMatch(/^kubeActions:/);
+      }
+      await i18n.changeLanguage('en-US');
+      expect(commandDescription(KUBE_COMMANDS.find(c => c.id === 'down')!)).toBe('Move down one row');
+    } finally { await i18n.changeLanguage('de-DE'); }
   });
 });

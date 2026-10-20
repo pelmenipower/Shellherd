@@ -1,3 +1,4 @@
+import type { CodedError } from '../../shared/errors';
 import type { KubeKind, KubeRef, KubeSelector, KubeTerminalTarget } from '../../shared/kubernetes';
 
 /** The slice of the Kubernetes API the cluster tab needs; client-api.ts implements it, tests use fakes. */
@@ -10,10 +11,15 @@ export interface ListResult { items: KubeObject[]; resourceVersion: string }
 /** ERROR carries a Status object ({ kind: 'Status', code, … }) inside an otherwise healthy stream. */
 export type WatchType = 'ADDED' | 'MODIFIED' | 'DELETED' | 'BOOKMARK' | 'ERROR';
 export interface WatchHandle { stop(): void }
-/** code: HTTP status when there is one (401, 403, 404, 410 …). Message is safe to show. */
-export class KubeApiError extends Error { constructor(message: string, readonly code?: number) { super(message); } }
+/**
+ * code: HTTP status when there is one (401, 403, 404, 410 …). Message is English, technical and safe to pass on as a detail;
+ * `coded` is what the user sees.
+ */
+export class KubeApiError extends Error {
+  constructor(message: string, readonly code?: number, readonly coded: CodedError = { code: 'kubernetes.apiError' }) { super(message); }
+}
 export interface MetricsSample { namespace?: string; name: string; cpuMilli: number; memoryBytes: number }
-export interface TerminalIo { data(chunk: Buffer): void; end(code: number | null, message?: string): void }
+export interface TerminalIo { data(chunk: Buffer): void; end(code: number | null, error?: CodedError): void }
 export interface KubeStream { write(data: string): void; resize(cols: number, rows: number): void; pause(): void; resume(): void; close(): void }
 export interface KubeApi {
   list(kind: KubeKind, namespace: string | null, selector?: KubeSelector): Promise<ListResult>;

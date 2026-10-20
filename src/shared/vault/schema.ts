@@ -87,7 +87,7 @@ export const AiCliConnectionNodeSchema = z.object({
     tool: z.enum(['claude', 'codex', 'gemini', 'custom']),
     command: z.string().max(1000).refine(command => !/[\r\n]/.test(command)).optional(),
     workingDirectory: z.string().optional(),
-}).refine(node => node.tool !== 'custom' || Boolean(node.command?.trim()), { message: 'Bitte gib den Befehl an.', path: ['command'] });
+}).refine(node => node.tool !== 'custom' || Boolean(node.command?.trim()), { message: 'commandRequired', path: ['command'] });
 
 export const KubernetesConnectionNodeSchema = z.object({
     ...connectionBase,
@@ -200,7 +200,7 @@ export const AiSettingsSchema = z.object({
 export const WorkflowSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(120),
-  command: z.string().min(1).max(4000).refine(command => !/[\r\n]/.test(command), 'Ein Workflow ist eine Zeile.'),
+  command: z.string().min(1).max(4000).refine(command => !/[\r\n]/.test(command), 'singleLine'),
   description: z.string().max(2000).optional(),
   tags: z.array(z.string().min(1).max(40)).max(20),
   shell: z.enum(['ssh', 'powershell', 'cmd']).optional(),

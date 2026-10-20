@@ -157,7 +157,7 @@ describe('sudoSetting', () => {
   });
   it.each(['a\nb', 'a\rb'])('refuses a password with a line break (%j)', password => {
     expect(() => sudoSetting({ ...base, containers: { sudo: true }, authentication: { method: 'password', password } }))
-      .toThrow(new ContainerInputError('Das Passwort enthält einen Zeilenumbruch und kann nicht für sudo verwendet werden.'));
+      .toThrow(expect.objectContaining({ code: 'containers.passwordLineBreak' }));
   });
 });
 
@@ -206,23 +206,23 @@ describe('inventory commands', () => {
         expect(got).toEqual(want);
         for (const token of forbidden) expect(got).not.toContain(token);
       } else {
-        expect(() => inventoryActionArgv({ kind, runtime: rt, ref }, action)).toThrow('Diese Aktion ist hier nicht möglich.');
+        expect(() => inventoryActionArgv({ kind, runtime: rt, ref }, action)).toThrow(expect.objectContaining({ code: 'containers.actionUnavailable' }));
       }
     }
     for (const rt of runtimes) for (const kind of INVENTORY_KINDS) for (const token of forbidden) expect(inventoryArgv(rt, kind)).not.toContain(token);
   });
   it('rejects invalid refs and runtimes', () => {
     for (const ref of ['; rm', '$()', '<none>:<none>', 'a b', '-x', '']) {
-      expect(() => inspectArgv({ kind: 'containers', runtime: 'docker', ref })).toThrow('Ungültige Container-Angabe.');
-      expect(() => inventoryActionArgv({ kind: 'containers', runtime: 'docker', ref }, 'remove')).toThrow('Ungültige Container-Angabe.');
-      expect(() => inventoryActionArgv({ kind: 'images', runtime: 'docker', ref }, 'remove')).toThrow('Ungültige Container-Angabe.');
+      expect(() => inspectArgv({ kind: 'containers', runtime: 'docker', ref })).toThrow(expect.objectContaining({ code: 'containers.invalidTarget' }));
+      expect(() => inventoryActionArgv({ kind: 'containers', runtime: 'docker', ref }, 'remove')).toThrow(expect.objectContaining({ code: 'containers.invalidTarget' }));
+      expect(() => inventoryActionArgv({ kind: 'images', runtime: 'docker', ref }, 'remove')).toThrow(expect.objectContaining({ code: 'containers.invalidTarget' }));
     }
-    expect(() => inspectArgv({ kind: 'containers', runtime: 'lxc' as never, ref: 'a' })).toThrow('Ungültige Container-Angabe.');
-    expect(() => inventoryActionArgv({ kind: 'containers', runtime: 'lxc' as never, ref: 'a' }, 'start')).toThrow('Ungültige Container-Angabe.');
-    expect(() => inventoryArgv('lxc' as never, 'containers')).toThrow('Ungültige Container-Angabe.');
+    expect(() => inspectArgv({ kind: 'containers', runtime: 'lxc' as never, ref: 'a' })).toThrow(expect.objectContaining({ code: 'containers.invalidTarget' }));
+    expect(() => inventoryActionArgv({ kind: 'containers', runtime: 'lxc' as never, ref: 'a' }, 'start')).toThrow(expect.objectContaining({ code: 'containers.invalidTarget' }));
+    expect(() => inventoryArgv('lxc' as never, 'containers')).toThrow(expect.objectContaining({ code: 'containers.invalidTarget' }));
   });
   it('checks the action before the runtime and ref', () => {
-    expect(() => inventoryActionArgv({ kind: 'networks', runtime: 'x' as never, ref: ';' }, 'remove')).toThrow('Diese Aktion ist hier nicht möglich.');
+    expect(() => inventoryActionArgv({ kind: 'networks', runtime: 'x' as never, ref: ';' }, 'remove')).toThrow(expect.objectContaining({ code: 'containers.actionUnavailable' }));
   });
   it('quotes the JSON format in the remote command', () => {
     expect(remoteCommand(inventoryArgv('docker', 'containers'), { kind: 'none' })).toContain("--format '{{json .}}'");

@@ -7,7 +7,8 @@ export const MAX_SEARCH_LENGTH = 200;
 
 export interface QualifierDef {
   name: string;                         // lowercase, e.g. 'ns', 'node'
-  description: string;                  // German, for the help
+  /** Catalog key (kubernetes:qualifiers.*) of the help text; shared holds no display text. */
+  descriptionKey: string;
   /** true: whole value must equal (owner:); false: substring. */
   exact?: boolean;
   values: (row: KubeRow) => string[];   // raw values; matching lowercases both sides
@@ -17,28 +18,28 @@ const one = (value: string | undefined): string[] => (value ? [value] : []);
 const cell = (row: KubeRow, key: string): string[] => one(row.cells[key] === undefined ? undefined : String(row.cells[key]));
 const imageCells = (row: KubeRow): string[] =>
   Object.keys(row.cells).filter(key => key.startsWith('image:')).flatMap(key => cell(row, key));
-const ns: QualifierDef = { name: 'ns', description: 'Namespace', values: row => one(row.ref.namespace) };
-const q = (name: string, description: string, values: (row: KubeRow) => string[], exact?: boolean): QualifierDef =>
-  ({ name, description, values, ...(exact ? { exact } : {}) });
-const owner = q('owner', 'Besitzer (ganzer Name)', row => one(row.owner?.name), true);
+const ns: QualifierDef = { name: 'ns', descriptionKey: 'kubernetes:qualifiers.namespace', values: row => one(row.ref.namespace) };
+const q = (name: string, descriptionKey: string, values: (row: KubeRow) => string[], exact?: boolean): QualifierDef =>
+  ({ name, descriptionKey, values, ...(exact ? { exact } : {}) });
+const owner = q('owner', 'kubernetes:qualifiers.owner', row => one(row.owner?.name), true);
 
 export const QUALIFIERS: Record<KubeKind, QualifierDef[]> = {
-  pods: [ns, q('node', 'Node', row => one(row.node)), q('status', 'Status', row => cell(row, 'status')),
-    q('image', 'Image eines Containers', imageCells), owner, q('ip', 'Pod-IP', row => one(row.ip)),
-    q('container', 'Container-Name', row => row.containers ?? [])],
-  deployments: [ns, q('image', 'Image', row => cell(row, 'image'))],
-  statefulsets: [ns, q('image', 'Image', row => cell(row, 'image'))],
-  daemonsets: [ns, q('image', 'Image', row => cell(row, 'image'))],
-  jobs: [ns, q('status', 'Status', row => cell(row, 'status')), owner],
-  cronjobs: [ns, q('schedule', 'Zeitplan', row => cell(row, 'schedule'))],
-  services: [ns, q('type', 'Typ', row => cell(row, 'type')), q('ip', 'Cluster-IP', row => cell(row, 'clusterIp')),
-    q('port', 'Port', row => cell(row, 'ports'))],
-  ingresses: [ns, q('host', 'Host', row => cell(row, 'hosts')), q('address', 'Adresse', row => cell(row, 'address'))],
-  nodes: [q('role', 'Rolle', row => cell(row, 'roles')), q('ip', 'Interne IP', row => one(row.ip)),
-    q('version', 'Kubelet-Version', row => cell(row, 'version'))],
-  events: [ns, q('reason', 'Grund', row => cell(row, 'reason')), q('object', 'Objekt (Kind/Name)', row => cell(row, 'object')),
-    q('type', 'Typ (Normal, Warning)', row => cell(row, 'type')),
-    q('kind', 'Kind des Objekts', row => {
+  pods: [ns, q('node', 'kubernetes:qualifiers.node', row => one(row.node)), q('status', 'kubernetes:qualifiers.status', row => cell(row, 'status')),
+    q('image', 'kubernetes:qualifiers.containerImage', imageCells), owner, q('ip', 'kubernetes:qualifiers.podIp', row => one(row.ip)),
+    q('container', 'kubernetes:qualifiers.containerName', row => row.containers ?? [])],
+  deployments: [ns, q('image', 'kubernetes:qualifiers.image', row => cell(row, 'image'))],
+  statefulsets: [ns, q('image', 'kubernetes:qualifiers.image', row => cell(row, 'image'))],
+  daemonsets: [ns, q('image', 'kubernetes:qualifiers.image', row => cell(row, 'image'))],
+  jobs: [ns, q('status', 'kubernetes:qualifiers.status', row => cell(row, 'status')), owner],
+  cronjobs: [ns, q('schedule', 'kubernetes:qualifiers.schedule', row => cell(row, 'schedule'))],
+  services: [ns, q('type', 'kubernetes:qualifiers.type', row => cell(row, 'type')), q('ip', 'kubernetes:qualifiers.clusterIp', row => cell(row, 'clusterIp')),
+    q('port', 'kubernetes:qualifiers.port', row => cell(row, 'ports'))],
+  ingresses: [ns, q('host', 'kubernetes:qualifiers.host', row => cell(row, 'hosts')), q('address', 'kubernetes:qualifiers.address', row => cell(row, 'address'))],
+  nodes: [q('role', 'kubernetes:qualifiers.role', row => cell(row, 'roles')), q('ip', 'kubernetes:qualifiers.internalIp', row => one(row.ip)),
+    q('version', 'kubernetes:qualifiers.kubeletVersion', row => cell(row, 'version'))],
+  events: [ns, q('reason', 'kubernetes:qualifiers.reason', row => cell(row, 'reason')), q('object', 'kubernetes:qualifiers.object', row => cell(row, 'object')),
+    q('type', 'kubernetes:qualifiers.eventType', row => cell(row, 'type')),
+    q('kind', 'kubernetes:qualifiers.objectKind', row => {
       if (row.involved?.kind) return [row.involved.kind];
       const object = String(row.cells.object ?? '');
       const slash = object.indexOf('/');
@@ -170,32 +171,33 @@ export function compileSearch(kind: KubeKind, text: string): (row: KubeRow) => b
   return predicate;
 }
 
-export interface SearchForm { form: string; description: string; example: string }
+/** Help structure of the search field; every text is a catalog key (kubernetes:search.*, kubernetes:qualifiers.*), `example` is literal search syntax. */
+export interface SearchForm { formKey: string; descriptionKey: string; example: string }
 export interface SearchHelp {
-  syntax: string;
+  syntaxKey: string;
   forms: SearchForm[];
-  note: string;
-  qualifiers: Record<KubeKind, { name: string; description: string }[]>;   // derived from QUALIFIERS
+  noteKey: string;
+  qualifiers: Record<KubeKind, { name: string; descriptionKey: string }[]>;   // derived from QUALIFIERS
   numeric: Partial<Record<KubeKind, string[]>>;                            // = NUMERIC_FIELDS
 }
 
 const helpQualifiers = Object.fromEntries(
-  (Object.keys(QUALIFIERS) as KubeKind[]).map(kind => [kind, QUALIFIERS[kind].map(({ name, description }) => ({ name, description }))]),
+  (Object.keys(QUALIFIERS) as KubeKind[]).map(kind => [kind, QUALIFIERS[kind].map(({ name, descriptionKey }) => ({ name, descriptionKey }))]),
 ) as SearchHelp['qualifiers'];
 
 export const SEARCH_HELP: SearchHelp = {
-  syntax: 'term  "ein satz"  !term  key=value  key!=value  feld:wert  !feld:wert  restarts>3  count>=5',
+  syntaxKey: 'kubernetes:search.syntax',
   forms: [
-    { form: 'term', description: 'Teilstring in einem Suchfeld des Reiters; mehrere Begriffe müssen alle passen', example: 'api' },
-    { form: '"ein satz"', description: 'Begriff mit Leerzeichen', example: '"back-off restarting"' },
-    { form: '!term', description: 'Kein Suchfeld enthält den Begriff', example: '!kube-system' },
-    { form: 'key=value', description: 'Label hat genau diesen Wert', example: 'app=api' },
-    { form: 'key!=value', description: 'Label fehlt oder hat einen anderen Wert', example: 'tier!=web' },
-    { form: 'feld:wert', description: 'Teilstring in einem Feld (Qualifier des Reiters unten)', example: 'node:worker2' },
-    { form: '!feld:wert', description: 'Feld enthält den Wert nicht', example: '!status:running' },
-    { form: 'restarts>3', description: 'Zahlenvergleich mit > >= < <= = (Pods: restarts, Events: count)', example: 'count>=5' },
+    { formKey: 'kubernetes:search.forms.term.form', descriptionKey: 'kubernetes:search.forms.term.description', example: 'api' },
+    { formKey: 'kubernetes:search.forms.phrase.form', descriptionKey: 'kubernetes:search.forms.phrase.description', example: '"back-off restarting"' },
+    { formKey: 'kubernetes:search.forms.not.form', descriptionKey: 'kubernetes:search.forms.not.description', example: '!kube-system' },
+    { formKey: 'kubernetes:search.forms.label.form', descriptionKey: 'kubernetes:search.forms.label.description', example: 'app=api' },
+    { formKey: 'kubernetes:search.forms.labelNot.form', descriptionKey: 'kubernetes:search.forms.labelNot.description', example: 'tier!=web' },
+    { formKey: 'kubernetes:search.forms.field.form', descriptionKey: 'kubernetes:search.forms.field.description', example: 'node:worker2' },
+    { formKey: 'kubernetes:search.forms.fieldNot.form', descriptionKey: 'kubernetes:search.forms.fieldNot.description', example: '!status:running' },
+    { formKey: 'kubernetes:search.forms.number.form', descriptionKey: 'kubernetes:search.forms.number.description', example: 'count>=5' },
   ],
-  note: 'Groß- und Kleinschreibung zählen nicht. Unbekannte Qualifier gelten als Text.',
+  noteKey: 'kubernetes:search.note',
   qualifiers: helpQualifiers,
   numeric: NUMERIC_FIELDS,
 };

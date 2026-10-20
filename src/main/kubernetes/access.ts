@@ -1,3 +1,5 @@
+import { AppError } from '../../shared/errors';
+import type { CodedError } from '../../shared/errors';
 import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import { ContainerInputError, shellJoin } from '../containers/commands';
 import { SUDO_REJECTED } from '../containers/parsers';
@@ -28,13 +30,15 @@ export interface AccessDependencies {
 
 export interface ClusterAccess { host: RemoteHost; connection: SshConnectionNode; kubeconfig: string; source: string }
 
-/** Why a command failed, for the user; the sudo cases match the container tabs. */
-function runFailure(result: RunResult): string {
-  if (result.sudoRejected) return SUDO_REJECTED;
-  if (result.sudoBusy) return 'Ein anderer Tab meldet sich gerade per sudo an. Bitte später erneut versuchen.';
-  if (result.timedOut) return 'Der Host hat nicht rechtzeitig geantwortet.';
+/** Why a command failed, for the user; the sudo cases match the container tabs. The last stderr line is only a detail. */
+function runFailure(result: RunResult): HostAccessError {
+  if (result.sudoRejected) return new HostAccessError(SUDO_REJECTED);
+  if (result.sudoBusy) return new HostAccessError('kubernetes.sudoBusy');
+  if (result.timedOut) return new HostAccessError('kubernetes.hostTimeout');
   const last = result.stderr.split(/\r?\n/).map(line => line.trim()).filter(Boolean).pop();
-  return last ? last.slice(0, 200) : `Befehl fehlgeschlagen (Exit-Code ${result.code ?? '?'}).`;
+  return last
+    ? new HostAccessError('kubernetes.hostCommandFailed', undefined, last.slice(0, 200))
+    : new HostAccessError('kubernetes.hostCommandExit', { exit: result.code ?? '?' });
 }
 
 /** Reads the kubeconfig from the access host: auto-detected, or the configured path (`~/` means the home directory). */
@@ -46,31 +50,33 @@ export async function readKubeconfig(host: RemoteHost, connection: SshConnection
       ? shellJoin(['sh', '-c', `cat -- "$HOME"/${shellJoin([path.slice(2)])}`])
       : shellJoin(['cat', '--', path]);
     const result = await host.run(command, READ_TIMEOUT);
-    if (result.code !== 0) throw new HostAccessError(`Die kubeconfig „${path}“ auf ${connection.name} konnte nicht gelesen werden.`);
+    if (result.code !== 0) throw new HostAccessError('kubernetes.kubeconfigPathUnreadable', { path, host: connection.name });
     return { text: result.stdout, source: path };
   }
 
   const probe = await host.run(shellJoin(['sh', '-lc', AUTO_SCRIPT]), READ_TIMEOUT);
-  if (probe.timedOut || probe.code !== 0) throw new HostAccessError(runFailure(probe));
-  const newline = probe.stdout.indexOf('\n');
-  const header = (newline === -1 ? probe.stdout : probe.stdout.slice(0, newline)).replace(/\r$/, '');
-  const body = newline === -1 ? '' : probe.stdout.slice(newline + 1);
+  if (probe.timedOut || probe.code !== 0) throw runFailure(probe);
+  // Login profiles may print a banner before the header line.
+  const lines = probe.stdout.split('\n');
+  const index = lines.findIndex(line => line.startsWith('src:'));
+  const header = index === -1 ? '' : lines[index].replace(/\r$/, '');
+  const body = index === -1 ? '' : lines.slice(index + 1).join('\n');
   if (header === 'src:none') {
-    throw new HostAccessError(`Keine kubeconfig auf ${connection.name} gefunden (geprüft: $KUBECONFIG, ~/.kube/config, /etc/kubernetes/admin.conf).`);
+    throw new HostAccessError('kubernetes.kubeconfigNotFound', { host: connection.name });
   }
   if (header === 'src:sudo') {
     // admin.conf uses the SSH connection's own login for sudo (stored password, else sudo -n), independent of the container sudo flag.
     const login = { ...connection, containers: { ...connection.containers, sudo: true } };
     const result = await runWithSudo(host, login, ['cat', '--', ADMIN_CONF], READ_TIMEOUT, rejections);
     if (result.code !== 0 && /a password is required/i.test(result.stderr)) {
-      throw new KubeInputError(`${ADMIN_CONF} braucht sudo, und sudo verlangt ein Passwort. Speichere das Passwort an der SSH-Verbindung, richte NOPASSWD ein oder lege die kubeconfig unter ~/.kube/config ab.`);
+      throw new KubeInputError('kubernetes.adminConfNeedsPassword');
     }
     if (result.code !== 0 || result.timedOut || result.sudoRejected || result.sudoBusy) {
-      throw new HostAccessError(runFailure(result));
+      throw runFailure(result);
     }
     return { text: result.stdout, source: `${ADMIN_CONF} (sudo)` };
   }
-  if (!header.startsWith('src:')) throw new HostAccessError(`Die kubeconfig auf ${connection.name} konnte nicht gesucht werden.`);
+  if (!header.startsWith('src:')) throw new HostAccessError('kubernetes.kubeconfigSearchFailed', { host: connection.name });
   return { text: body, source: header.slice('src:'.length) };
 }
 
@@ -81,7 +87,7 @@ export async function readKubeconfig(host: RemoteHost, connection: SshConnection
  */
 export async function openAccess(cluster: KubernetesConnectionNode, dependencies: AccessDependencies,
   onTry?: (name: string) => void): Promise<ClusterAccess> {
-  const failures: string[] = [];
+  const failures: { name: string; error: CodedError }[] = [];
   let tried = 0;
   for (const id of cluster.accessHosts) {
     const connection = dependencies.getConnection(id);
@@ -92,7 +98,7 @@ export async function openAccess(cluster: KubernetesConnectionNode, dependencies
     try {
       host = await dependencies.openRemote(connection);
     } catch (error) {
-      failures.push(`${connection.name}: ${reason(error)}`);
+      failures.push({ name: connection.name, error: publicError(error) });
       continue;
     }
     try {
@@ -101,13 +107,12 @@ export async function openAccess(cluster: KubernetesConnectionNode, dependencies
     } catch (error) {
       host.close();
       if (error instanceof KubeInputError || error instanceof ContainerInputError) throw error;
-      failures.push(`${connection.name}: ${reason(error)}`);
+      failures.push({ name: connection.name, error: publicError(error) });
     }
   }
-  if (!tried) throw new Error('Der Cluster hat keine gültige SSH-Verbindung als Zugang.');
-  throw new Error(`Keiner der Zugangs-Hosts erreichbar (${failures.join(', ')}).`);
-}
-
-function reason(error: unknown): string {
-  return error instanceof HostAccessError || error instanceof KubeInputError ? error.message : publicError(error);
+  if (!tried) throw new AppError('kubernetes.noAccessHost');
+  // One host: its own reason says it all. Several: a translated reason per host.
+  if (failures.length === 1) throw AppError.from(failures[0].error);
+  throw new AppError('kubernetes.accessHostsUnreachable', { hosts: failures.map(failure => failure.name).join(', ') }, undefined,
+    failures.map(failure => ({ label: failure.name, error: failure.error })));
 }

@@ -1,14 +1,37 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+import { decryptVault } from '../../test/vault-helpers';
 import {
   ensureVaultFileExtension,
-  loadVault,
+  readEncryptedVaultFile,
   saveVault,
 } from './storage';
 import { exampleVault } from '../../shared/vault/example';
+
+const calls: string[] = [];
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    open: (async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args);
+      const sync = handle.sync.bind(handle);
+      handle.sync = async () => {
+        calls.push('sync');
+        return sync();
+      };
+      return handle;
+    }) as typeof actual.open,
+    rename: (async (...args: Parameters<typeof actual.rename>) => {
+      calls.push('rename');
+      return actual.rename(...args);
+    }) as typeof actual.rename,
+  };
+});
 
 const createdDirectories: string[] = [];
 
@@ -31,6 +54,14 @@ afterEach(async () => {
 });
 
 describe('vault storage', () => {
+  it('reports a structurally wrong vault file as damaged', async () => {
+    const directory = await createTemporaryDirectory();
+    const filePath = join(directory, 'wrong.term');
+    await writeFile(filePath, JSON.stringify({ unexpected: true }), 'utf8');
+
+    await expect(readEncryptedVaultFile(filePath)).rejects.toThrow(expect.objectContaining({ code: 'core.vaultFileCorrupt' }));
+  });
+
   it('adds the .term extension and keeps .terminus files of earlier versions', () => {
     expect(ensureVaultFileExtension('my-vault')).toBe(
       'my-vault.term',
@@ -53,10 +84,18 @@ describe('vault storage', () => {
       password,
     );
 
-    const loadedVault = await loadVault(savedPath, password);
+    const loadedVault = await decryptVault(await readEncryptedVaultFile(savedPath), password);
 
     expect(savedPath).toBe(`${requestedPath}.term`);
     expect(loadedVault).toEqual(exampleVault);
+  });
+
+  it('flushes the temporary file to disk before renaming it', async () => {
+    calls.length = 0;
+    const directory = await createTemporaryDirectory();
+    await saveVault(join(directory, 'durable'), exampleVault, 'pw');
+
+    expect(calls).toEqual(['sync', 'rename']);
   });
 
   it('does not store connection details as plaintext', async () => {
@@ -83,8 +122,8 @@ describe('vault storage', () => {
     await writeFile(filePath, 'this is not JSON', 'utf8');
 
     await expect(
-      loadVault(filePath, 'password'),
-    ).rejects.toThrow('kein gültiges JSON');
+      readEncryptedVaultFile(filePath),
+    ).rejects.toThrow(expect.objectContaining({ code: 'core.vaultFileNotJson' }));
   });
 
   it('rejects an incorrect password', async () => {
@@ -96,7 +135,7 @@ describe('vault storage', () => {
     );
 
     await expect(
-      loadVault(savedPath, 'wrong-password'),
-    ).rejects.toThrow();
+      decryptVault(await readEncryptedVaultFile(savedPath), 'wrong-password'),
+    ).rejects.toThrow(expect.objectContaining({ code: 'core.wrongPassword' }));
   });
 });

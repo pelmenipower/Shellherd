@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { EditedFile, EditorChoice } from '../../shared/sftp';
-import { FileError, fileErrorText } from './file-system';
+import { FileError, fileError, unsafeLocalName } from './file-system';
 import type { RemoteFileSystem } from './sftp-file-system';
 
 const MAX_EDIT_SIZE = 50 * 1024 * 1024;
@@ -48,10 +48,11 @@ export class RemoteEdits {
       return { editId: existing.info.id };
     }
     const entry = await this.fs.stat(remotePath);
-    if (!entry) throw new FileError('Die Datei wurde nicht gefunden.');
-    if (entry.type === 'directory') throw new FileError('Ordner können nicht bearbeitet werden.');
-    if (entry.size > MAX_EDIT_SIZE) throw new FileError('Dateien über 50 MB werden nicht zum Bearbeiten geöffnet. Lade sie stattdessen herunter.');
+    if (!entry) throw new FileError('files.fileNotFound');
+    if (entry.type === 'directory') throw new FileError('files.directoryNotEditable');
+    if (entry.size > MAX_EDIT_SIZE) throw new FileError('files.tooLargeToEdit');
     const name = posix.basename(remotePath);
+    if (unsafeLocalName(name)) throw new FileError('files.unsafeName', { name });
     const dir = await mkdtemp(join(tmpdir(), 'shellherd-edit-'));
     const localPath = join(dir, name);
     try {
@@ -79,18 +80,18 @@ export class RemoteEdits {
     if (!edit) return;
     if (edit.uploading) { edit.pending = true; return; }
     edit.uploading = true;
-    this.update(edit, { state: 'uploading', message: undefined });
+    this.update(edit, { state: 'uploading', error: undefined });
     try {
       const remote = await this.fs.stat(edit.info.remotePath);
       if (!force && remote && Math.abs(remote.modified - edit.remoteModified) > 1000) {
-        this.update(edit, { state: 'conflict', message: 'Die Datei wurde inzwischen auf dem Server geändert.' });
+        this.update(edit, { state: 'conflict', error: { code: 'files.changedOnServer' } });
         return;
       }
-      await pipeline(createReadStream(edit.localPath), this.fs.write(edit.info.remotePath));
+      await pipeline(createReadStream(edit.localPath), this.fs.write(edit.info.remotePath, remote?.mode));
       edit.remoteModified = (await this.fs.stat(edit.info.remotePath))?.modified ?? Date.now();
       this.update(edit, { state: 'saved', savedAt: Date.now() });
     } catch (error) {
-      this.update(edit, { state: 'error', message: fileErrorText(error) });
+      this.update(edit, { state: 'error', error: fileError(error) });
     } finally {
       edit.uploading = false;
       if (edit.pending && this.edits.has(id)) { edit.pending = false; void this.upload(id, false); }
@@ -111,7 +112,7 @@ export class RemoteEdits {
 
   private get(id: string): Edit {
     const edit = this.edits.get(id);
-    if (!edit) throw new FileError('Die bearbeitete Datei ist nicht mehr geöffnet.');
+    if (!edit) throw new FileError('files.editNotOpen');
     return edit;
   }
   private update(edit: Edit, change: Partial<EditedFile>): void {

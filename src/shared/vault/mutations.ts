@@ -1,3 +1,4 @@
+import { AppError } from '../errors';
 import type {
   Vault,
   VaultNode,
@@ -59,9 +60,7 @@ export function addNode(
   });
 
   if (!parentFound) {
-    throw new Error(
-      `Der Zielordner "${parentFolderId}" wurde nicht gefunden.`,
-    );
+    throw new AppError('core.vaultFolderNotFound', { id: parentFolderId });
   }
 
   return updatedNodes;
@@ -137,9 +136,7 @@ export function updateNode(
   );
 
   if (!result.found) {
-    throw new Error(
-      `Der Knoten "${nodeId}" wurde nicht gefunden.`,
-    );
+    throw new AppError('core.vaultNodeNotFound', { id: nodeId });
   }
 
   return result.nodes;
@@ -214,9 +211,7 @@ export function removeNode(
   );
 
   if (!result.found) {
-    throw new Error(
-      `Der Knoten "${nodeId}" wurde nicht gefunden.`,
-    );
+    throw new AppError('core.vaultNodeNotFound', { id: nodeId });
   }
 
   return result.nodes;
@@ -288,9 +283,7 @@ export function removeNodeFromVault(
   const node = findNode(vault.nodes, nodeId);
 
   if (!node) {
-    throw new Error(
-      `Der Knoten "${nodeId}" wurde nicht gefunden.`,
-    );
+    throw new AppError('core.vaultNodeNotFound', { id: nodeId });
   }
 
   const removedConnectionIds = new Set<string>();
@@ -437,13 +430,13 @@ function insertNext(nodes: VaultNode[], targetId: string, node: VaultNode, after
 /** Moves a connection or folder; a folder can never move into itself or its own subfolders. */
 export function moveNode(nodes: VaultNode[], nodeId: string, target: NodeDropTarget): VaultNode[] {
   const node = findNode(nodes, nodeId);
-  if (!node) throw new Error(`Der Knoten "${nodeId}" wurde nicht gefunden.`);
+  if (!node) throw new AppError('core.vaultNodeNotFound', { id: nodeId });
   const anchor = target.kind === 'into' ? target.folderId : target.nodeId;
   if (anchor === nodeId) return nodes;
-  if (anchor && contains(node, anchor)) throw new Error('Ein Ordner kann nicht in sich selbst verschoben werden.');
+  if (anchor && contains(node, anchor)) throw new AppError('core.vaultFolderIntoItself');
   const remaining = removeNode(nodes, nodeId);
   if (target.kind === 'into') return addNode(remaining, node, target.folderId ?? undefined);
   const result = insertNext(remaining, target.nodeId, node, target.kind === 'after');
-  if (!result.found) throw new Error(`Der Knoten "${target.nodeId}" wurde nicht gefunden.`);
+  if (!result.found) throw new AppError('core.vaultNodeNotFound', { id: target.nodeId });
   return result.nodes;
 }

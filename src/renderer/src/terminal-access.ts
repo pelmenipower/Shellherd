@@ -1,9 +1,13 @@
 import type { Terminal } from '@xterm/xterm';
 
+export interface TerminalMark { line: () => number; dispose: () => void }
+
 /** Read access to a terminal for the assistant: text and cursor only, never input. */
 export interface TerminalAccess {
   /** The last lines up to the cursor, without trailing empty lines. */
   screen: (maxLines: number) => string;
+  /** Marks the cursor line; the mark follows the buffer when old lines are trimmed. */
+  mark: () => TerminalMark;
   /** Absolute buffer line of the cursor. */
   cursorLine: () => number;
   /** Text from an absolute buffer line up to the cursor. */
@@ -52,6 +56,8 @@ export function terminalAccess(term: Terminal): TerminalAccess & { dispose: () =
   return {
     screen: maxLines => read(cursorLine() - maxLines + 1, cursorLine()),
     cursorLine,
+    // marker.line is -1 once the line left the scrollback: read from the buffer start then.
+    mark: () => { const marker = term.registerMarker(0); return { line: () => Math.max(0, marker.line), dispose: () => marker.dispose() }; },
     linesFrom: (line, maxLines) => read(Math.max(line, cursorLine() - maxLines + 1), cursorLine()),
     fullscreen: () => buffer().type === 'alternate',
     lastOutput: () => last,

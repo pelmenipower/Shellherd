@@ -17,7 +17,7 @@ describe('constants', () => {
   });
   it('derives the help qualifiers from QUALIFIERS', () => {
     expect(SEARCH_HELP.qualifiers.pods.map(q => q.name)).toEqual(['ns', 'node', 'status', 'image', 'owner', 'ip', 'container']);
-    expect(SEARCH_HELP.qualifiers.ingresses).toEqual(QUALIFIERS.ingresses.map(q => ({ name: q.name, description: q.description })));
+    expect(SEARCH_HELP.qualifiers.ingresses).toEqual(QUALIFIERS.ingresses.map(q => ({ name: q.name, descriptionKey: q.descriptionKey })));
     expect(SEARCH_HELP.numeric).toBe(NUMERIC_FIELDS);
     expect(SEARCH_HELP.forms).toHaveLength(8);
     expect(QUALIFIERS.pods.find(q => q.name === 'owner')?.exact).toBe(true);

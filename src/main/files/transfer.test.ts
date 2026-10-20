@@ -30,10 +30,11 @@ function memory(files: Record<string, string | null>, modified = 1000): FileSyst
     removeFile: async path => { nodes.delete(path); },
     removeDirectory: async path => { if ([...nodes.keys()].some(other => posix.dirname(other) === path && other !== path)) throw new Error('not empty'); nodes.delete(path); },
     rename: async (from, to) => { const node = nodes.get(from); if (node) { nodes.delete(from); nodes.set(to, node); } },
+    realpath: async path => path,
   };
 }
 
-const newJob = (move = false): TransferJob => ({ id: 'job', direction: 'upload', move, label: 'x', targetDir: '/target', state: 'running',
+const newJob = (move = false): TransferJob => ({ id: 'job', direction: 'upload', move, label: 'x', entryCount: 1, targetDir: '/target', state: 'running',
   totalBytes: 0, doneBytes: 0, totalFiles: 0, doneFiles: 0, skippedFiles: 0 });
 const hooks = (conflict: TransferHooks['conflict'] = async () => ({ choice: 'overwrite', applyToAll: false })): TransferHooks => ({ progress: () => {}, conflict });
 const signal = () => new AbortController().signal;
@@ -96,11 +97,91 @@ describe('file transfer', () => {
     const target = memory({ '/target': null });
     await expect(transfer(slow, target, ['/big.bin'], newJob(), hooks(), controller.signal)).rejects.toBeInstanceOf(TransferCanceled);
     expect(target.nodes.has('/target/big.bin')).toBe(false);
+    expect(target.nodes.has('/target/big.bin.part')).toBe(false);
   });
 
   it('refuses to replace a folder with a file', async () => {
     const from = memory({ '/a': 'file' });
     const to = memory({ '/target': null, '/target/a': null });
-    await expect(transfer(from, to, ['/a'])).rejects.toThrow('als Ordner');
+    await expect(transfer(from, to, ['/a'])).rejects.toMatchObject({ code: 'files.existsAsDirectory' });
+  });
+
+  it('skips server names that are unsafe on Windows and rejects an unsafe top-level name', async () => {
+    const from = memory({ '/dir': null, '/dir/..\\evil.bat': 'x', '/dir/a:b': 'x', '/dir/trail.': 'x', '/dir/ok.txt': 'ok' });
+    const to = memory({ '/target': null });
+    const { items, skipped } = await planTransfer(from, to, ['/dir'], '/target', signal());
+    expect(items.map(item => item.target)).toEqual(['/target/dir', '/target/dir/ok.txt']);
+    expect(skipped).toBe(3);
+    await expect(planTransfer(memory({ '/src/x:y': 'x' }), to, ['/src/x:y'], '/target', signal())).rejects.toMatchObject({ code: 'files.unsafeName' });
+  });
+
+  it('keeps the existing target when reading fails and leaves no .part behind', async () => {
+    const from = memory({ '/a.txt': 'new' });
+    from.read = () => { const stream = new PassThrough(); stream.write('ne'); setTimeout(() => stream.destroy(new Error('read')), 5); return stream; };
+    const to = memory({ '/target': null, '/target/a.txt': 'old' });
+    await expect(transfer(from, to, ['/a.txt'])).rejects.toThrow('read');
+    expect(to.nodes.get('/target/a.txt')).toMatchObject({ data: 'old' });
+    expect(to.nodes.has('/target/a.txt.part')).toBe(false);
+  });
+
+  it('replaces the target on success without leaving a .part', async () => {
+    const from = memory({ '/a.txt': 'new' });
+    const to = memory({ '/target': null, '/target/a.txt': 'old' });
+    await transfer(from, to, ['/a.txt']);
+    expect(to.nodes.get('/target/a.txt')).toMatchObject({ data: 'new' });
+    expect(to.nodes.has('/target/a.txt.part')).toBe(false);
+  });
+
+  it('overwrites the real file behind a link instead of replacing the link', async () => {
+    const from = memory({ '/link': 'new' });
+    const to = memory({ '/target': null, '/target/link': 'old', '/target/real': 'old' });
+    to.realpath = async path => path === '/target/link' ? '/target/real' : path;
+    await transfer(from, to, ['/link']);
+    expect(to.nodes.get('/target/real')).toMatchObject({ data: 'new' });
+    expect(to.nodes.get('/target/link')).toMatchObject({ data: 'old' });
+    expect(to.nodes.has('/target/real.part')).toBe(false);
+  });
+
+  it('overwrites the target itself when resolving it fails', async () => {
+    const from = memory({ '/a.txt': 'new' });
+    const to = memory({ '/target': null, '/target/a.txt': 'old' });
+    to.realpath = async () => { throw new Error('EISDIR: illegal operation on a directory, realpath'); };
+    await transfer(from, to, ['/a.txt']);
+    expect(to.nodes.get('/target/a.txt')).toMatchObject({ data: 'new' });
+  });
+
+  it('passes the mode of the existing target to the writer', async () => {
+    const from = memory({ '/a.txt': 'new' });
+    const to = memory({ '/target': null, '/target/a.txt': 'old' });
+    const stat = to.stat;
+    to.stat = async path => { const entry = await stat(path); return entry && { ...entry, mode: 0o600 }; };
+    const write = vi.spyOn(to, 'write');
+    await transfer(from, to, ['/a.txt']);
+    expect(write).toHaveBeenCalledWith('/target/a.txt.part', 0o600);
+  });
+
+  describe('rename that refuses an existing target', () => {
+    const strict = () => {
+      const from = memory({ '/a.txt': 'new' });
+      const to = memory({ '/target': null, '/target/a.txt': 'old' });
+      const rename = to.rename;
+      to.rename = async (source, target) => { if (to.nodes.has(target)) throw new Error('exists'); await rename(source, target); };
+      return { from, to };
+    };
+
+    it('removes the old target and renames again', async () => {
+      const { from, to } = strict();
+      await transfer(from, to, ['/a.txt']);
+      expect(to.nodes.get('/target/a.txt')).toMatchObject({ data: 'new' });
+      expect(to.nodes.has('/target/a.txt.part')).toBe(false);
+    });
+
+    it('keeps the old target and drops the copy when the target cannot be removed', async () => {
+      const { from, to } = strict();
+      to.removeFile = async path => { if (path === '/target/a.txt') throw new Error('locked'); to.nodes.delete(path); };
+      await expect(transfer(from, to, ['/a.txt'])).rejects.toThrow('exists');
+      expect(to.nodes.get('/target/a.txt')).toMatchObject({ data: 'old' });
+      expect(to.nodes.has('/target/a.txt.part')).toBe(false);
+    });
   });
 });

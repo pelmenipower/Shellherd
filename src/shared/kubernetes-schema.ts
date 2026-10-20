@@ -24,7 +24,7 @@ const KubeFilterSnapshotSchema = z.object({
   text: z.string().max(200).optional(),
   chips: z.array(z.string().max(40)).max(16).optional(),
   columns: z.record(z.string().regex(/^[A-Za-z]{1,40}$/), z.string().max(MAX_COLUMN_FILTER_LENGTH))
-    .refine(columns => Object.keys(columns).length <= MAX_COLUMN_FILTERS, { message: 'Zu viele Spaltenfilter.' })
+    .refine(columns => Object.keys(columns).length <= MAX_COLUMN_FILTERS, { message: 'tooManyColumnFilters' })
     .optional(),
   groupBy: z.enum(GROUP_BY_IDS).optional(),
   collapsed: z.array(z.string().max(MAX_GROUP_KEY_LENGTH)).max(MAX_COLLAPSED).optional(),

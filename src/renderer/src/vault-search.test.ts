@@ -11,6 +11,11 @@ describe('vault search', () => {
     expect(searchVaultNodes(nodes, 'web.example')).toHaveLength(1);
     expect(searchVaultNodes(nodes, 'Europa missing')).toEqual([]);
   });
+  it('matches the protocol name and address case-insensitively', () => {
+    expect(searchVaultNodes(nodes, 'SSH')).toHaveLength(1);
+    expect(searchVaultNodes(nodes, 'deploy@WEB')).toHaveLength(1);
+    expect(searchVaultNodes([{ id: 'c', type: 'connection', protocol: 'cmd', name: 'Konsole', tags: [] }], 'lokal cmd')).toHaveLength(1);
+  });
   it('does not search passwords, key paths, or passphrases', () => {
     expect(searchVaultNodes(nodes, 'hidden-secret')).toEqual([]);
     const keyNode: ConnectionNode = { ...server, protocol: 'ssh', host: 'web.example.test', port: 22, authentication: { method: 'privateKey', keyPath: 'secret-path', passphrase: 'hidden-passphrase' } };

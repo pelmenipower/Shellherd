@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from 'react';
 import './editor-ui.css';
 import { BusyButton } from './BusyButton';
 import { useNativeSurfaceBlock } from '../native-surface';
+import { useT } from '../i18n';
 
 interface ConfirmDialogProps {
   title: string;
@@ -18,8 +19,9 @@ interface ConfirmDialogProps {
   instant?: boolean;
 }
 
-export function ConfirmDialog({ title, description, busy, onCancel, onConfirm, confirmLabel = 'Endgültig löschen',
-  cancelLabel = 'Abbrechen', destructive = true, alternateLabel, onAlternate, instant }: ConfirmDialogProps) {
+export function ConfirmDialog({ title, description, busy, onCancel, onConfirm, confirmLabel,
+  cancelLabel, destructive = true, alternateLabel, onAlternate, instant }: ConfirmDialogProps) {
+  const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -39,8 +41,8 @@ export function ConfirmDialog({ title, description, busy, onCancel, onConfirm, c
       <h2 id={`${id}-title`}>{title}</h2>
       <p id={`${id}-description`}>{description}</p>
       <div className="form-actions">
-        <button ref={cancelRef} className="secondary-button" type="button" disabled={busy} onClick={onCancel}>{cancelLabel}</button>
-        <BusyButton className={destructive ? 'danger-button' : 'primary-button'} type="button" busy={busy} idleLabel={confirmLabel} onClick={onConfirm} />
+        <button ref={cancelRef} className="secondary-button" type="button" disabled={busy} onClick={onCancel}>{cancelLabel ?? t('common:actions.cancel')}</button>
+        <BusyButton className={destructive ? 'danger-button' : 'primary-button'} type="button" busy={busy} idleLabel={confirmLabel ?? t('app:dialogs.confirmDefault')} onClick={onConfirm} />
         {alternateLabel && onAlternate && <button className="primary-button" type="button" disabled={busy} onClick={onAlternate}>{alternateLabel}</button>}
       </div>
     </dialog>

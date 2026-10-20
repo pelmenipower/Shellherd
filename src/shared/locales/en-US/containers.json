@@ -1,0 +1,262 @@
+{
+  "refresh": "Refresh",
+  "loading": "Loading…",
+  "loadFailed": "The containers could not be loaded.",
+  "actionFailed": "The action failed.",
+  "kinds": {
+    "containers": "Containers",
+    "images": "Images",
+    "volumes": "Volumes",
+    "networks": "Networks"
+  },
+  "columns": {
+    "name": "Name",
+    "status": "Status",
+    "info": "Details",
+    "image": "Image",
+    "ports": "Ports",
+    "project": "Project",
+    "pod": "Pod",
+    "networks": "Networks",
+    "created": "Created",
+    "repository": "Repository",
+    "tag": "Tag",
+    "id": "ID",
+    "size": "Size",
+    "usedBy": "Used by",
+    "driver": "Driver",
+    "mountpoint": "Mountpoint",
+    "scope": "Scope",
+    "internal": "Internal",
+    "containers": "Containers"
+  },
+  "chips": {
+    "attention": "Needs attention",
+    "running": "Running",
+    "stopped": "Stopped",
+    "paused": "Paused",
+    "compose": "Compose",
+    "dangling": "Untagged",
+    "unused": "Unused"
+  },
+  "filterHelp": {
+    "text": {
+      "form": "Text",
+      "description": "column contains the text"
+    },
+    "select": {
+      "form": "Selection",
+      "description": "exactly this value, with count"
+    },
+    "number": {
+      "form": "Number",
+      "description": "comparison with >, >=, <, <=, ="
+    },
+    "size": {
+      "form": "Size",
+      "description": "comparison in bytes, units B, kB, MB, GB, TB"
+    },
+    "age": {
+      "form": "Age",
+      "description": "newer (<) or older (>) than a time in s, m, h, d"
+    }
+  },
+  "commands": {
+    "down": "Row down",
+    "up": "Row up",
+    "tab": "Switch tab",
+    "menu": "Open the row context menu",
+    "help": "Help with all keys and filters",
+    "reload": "Reload",
+    "filter": "Filter by name (images: repository)",
+    "attention": "Toggle containers needing attention only",
+    "resetFilter": "Reset all filters of the tab (grouping stays)",
+    "logs": "Show the container logs",
+    "shell": "Shell in the container",
+    "inspect": "Show inspect",
+    "toggleDock": "Show or hide the bottom panel",
+    "popout": "Open logs or shell as its own tab",
+    "restart": "Restart the container",
+    "stop": "Stop the container",
+    "remove": "Remove the container, image or volume"
+  },
+  "reasons": {
+    "noRow": "No row selected.",
+    "onlyContainers": "Containers only.",
+    "networksReadOnly": "Networks cannot be changed here.",
+    "alreadyRunning": "The container is already running.",
+    "notRunning": "The container is not running.",
+    "stopFirst": "Stop running containers first.",
+    "imageInUse": "The image is still in use.",
+    "volumeInUse": "The volume is still in use.",
+    "noAttentionChip": "This tab has no “Needs attention” chip.",
+    "noPopout": "No tab can be opened here.",
+    "logsShellOnly": "Logs and shell only.",
+    "noTag": "The image has no tag.",
+    "invalidName": "The name contains invalid characters.",
+    "noPorts": "No ports.",
+    "noFilter": "No filter set.",
+    "noGrouping": "No grouping active.",
+    "sortHint": "Default: host order",
+    "rowBusy": "An action is already running for this row."
+  },
+  "menu": {
+    "start": "Start",
+    "stop": "Stop…",
+    "restart": "Restart…",
+    "remove": "Remove…",
+    "actions": "Actions",
+    "inspect": "Inspect",
+    "logs": "Logs",
+    "shell": "Shell",
+    "shellOpen": "Open shell",
+    "logsTab": "Open logs as tab",
+    "shellTab": "Open shell as tab",
+    "onlyProject": "Show only project “{{project}}”",
+    "onlyChip": "Show only “{{chip}}”",
+    "copyCommand": "Command",
+    "copyReference": "Reference",
+    "containersWithImage": "Show containers with this image",
+    "containersInNetwork": "Show containers in this network",
+    "restartLogs": "Restart logs",
+    "popout": "Open as tab",
+    "collapse": "Collapse panel",
+    "sortAsc": "Sort ascending",
+    "sortDesc": "Sort descending",
+    "sortClear": "Clear sorting",
+    "groupBy": "Group by {{column}}",
+    "filterClear": "Clear this column’s filter",
+    "filterReset": "Reset all filters",
+    "groupClear": "Clear grouping",
+    "help": "Help…"
+  },
+  "confirm": {
+    "thisComputer": "this computer",
+    "typeToConfirm": "Type “{{name}}” to confirm.",
+    "stop": {
+      "title": "Stop container?",
+      "body": "Container “{{name}}” on {{where}} will be stopped.",
+      "confirm": "Stop"
+    },
+    "restart": {
+      "title": "Restart container?",
+      "body": "Container “{{name}}” on {{where}} will be restarted.",
+      "confirm": "Restart"
+    },
+    "removeImage": {
+      "title": "Remove image?",
+      "body": "Image “{{name}}” on {{where}} will be removed."
+    },
+    "removeVolume": {
+      "title": "Remove volume?",
+      "body": "Volume “{{name}}” on {{where}} will be deleted. The data will be lost."
+    },
+    "removeContainer": {
+      "title": "Remove container?",
+      "body": "Container “{{name}}” on {{where}} will be removed. Anonymous volumes are kept and show up under Volumes."
+    }
+  },
+  "dock": {
+    "aria": "Details",
+    "resize": "Resize height",
+    "logs": "Logs",
+    "shell": "Shell",
+    "inspect": "Inspect",
+    "inspectFailed": "Inspect could not be loaded.",
+    "nothingToCopy": "Nothing to copy.",
+    "chooseForShell": "Select a container to open a shell.",
+    "chooseForLogs": "Select a container to see its logs.",
+    "armHint": "The shell only starts on a button click, so changing the selection never opens a connection.",
+    "chooseRow": "Select a row.",
+    "followsSelection": "follows selection",
+    "expand": "Expand panel"
+  },
+  "help": {
+    "aria": "Container view help",
+    "title": "Keys and filters",
+    "searchPlaceholder": "Search…",
+    "searchAria": "Search help",
+    "keys": "Keys",
+    "filters": "Filters",
+    "intro": "Every column header has a filter field below it. / jumps to the “{{column}}” field.",
+    "example": " · Example: ",
+    "columnFilters": "Column filters for {{kind}}",
+    "statusFilters": "Status filters for {{kind}}",
+    "noStatusFilters": "No status filters.",
+    "grouping": "Grouping for {{kind}}"
+  },
+  "table": {
+    "filterBar": "Filter",
+    "attentionTitle": "Key w",
+    "count": "{{shown}} of {{total}}",
+    "resetTitle": "Reset all filters (F)",
+    "reset": "Reset",
+    "groupBy": "Group by",
+    "noGrouping": "No grouping",
+    "noMatch": "No row matches the filters.",
+    "resetFilters": "Reset filters",
+    "filterOf": "Filter {{column}}",
+    "clearFilterOf": "Clear {{column}} filter",
+    "all": "all",
+    "placeholder": "Filter…",
+    "invalid": "Invalid, does not filter. {{hint}}",
+    "hintNumber": "Number: >3, >=3, <3, <=3, =3 or 3",
+    "hintSize": "Size: >100MB, <=1.5GB, 2048 (units B, kB, MB, GB, TB)",
+    "hintAge": "Age: <10m, >1h, <2d (units s, m, h, d)",
+    "empty": {
+      "containers": "No containers.",
+      "images": "No images.",
+      "volumes": "No volumes.",
+      "networks": "No networks."
+    }
+  },
+  "view": {
+    "loading": "loading…",
+    "copyFailed": "Copying failed.",
+    "runtime": "Runtime",
+    "resources": "Resources",
+    "helpAria": "Help",
+    "helpTitle": "Help (?)",
+    "menuLabel": "Context menu",
+    "loadedNow": "just loaded",
+    "loadedSeconds": "loaded {{seconds}} s ago",
+    "loadedMinutes": "loaded {{minutes}} min ago",
+    "unknownUser": "unknown",
+    "rootlessHint": "Rootless Podman only shows containers of user {{user}}. Enable sudo to see root containers."
+  },
+  "tree": {
+    "searching": "Looking for runtimes…",
+    "refreshing": "Refreshing…",
+    "noGuests": "No Proxmox guests found.",
+    "noRuntime": "No container runtime found.",
+    "openView": "Open {{runtime}} view",
+    "newTab": "new tab",
+    "viewName": "{{runtime}} view",
+    "actionsFor": "Actions for {{name}}",
+    "actionsForView": "Actions for {{runtime}} view",
+    "whereLocal": "on this computer",
+    "whereHost": "of {{host}}",
+    "viewTitle": "Containers, images, volumes and networks {{where}} ({{runtime}})",
+    "itemTitle": "{{kind}} {{vmid}} — {{state}}",
+    "busy": "in progress",
+    "serialConsole": "Serial console",
+    "shutdown": "Shut down",
+    "stop": "Stop",
+    "confirmPowerOff": "Power off VM “{{name}}” immediately? Unsaved data in the VM will be lost.",
+    "state": {
+      "running": "running",
+      "paused": "paused",
+      "stopped": "stopped"
+    }
+  },
+  "local": {
+    "aria": "Containers on this computer",
+    "openView": "Open local container view"
+  },
+  "busy": {
+    "start": "starting",
+    "stop": "stopping",
+    "restart": "restarting",
+    "remove": "being removed"
+  }
+}

@@ -1,15 +1,17 @@
 import { execFile } from 'node:child_process';
 import { Client } from 'ssh2';
 import type { Duplex } from 'node:stream';
+import { AppError } from '../../shared/errors';
 import type { SshConnectionNode } from '../../shared/vault/types';
 import { sshConnectConfig } from '../ssh/client-config';
+import { BATCH_TOO_LARGE } from './parsers';
 import type { RunResult } from './parsers';
 import { SudoWatcher } from './sudo';
 
 const OUTPUT_LIMIT = 1024 * 1024;
 
 /** Errors whose message is meant for the user. */
-export class HostAccessError extends Error {}
+export class HostAccessError extends AppError {}
 
 export type VerifyHost = (host: string, port: number, key: Buffer, isActive: () => boolean) => Promise<boolean>;
 
@@ -38,7 +40,7 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
   try {
     await new Promise<void>((resolve, reject) => {
       client.once('ready', resolve);
-      client.once('error', error => reject(rejectedKey ? new HostAccessError('Der Server-Schlüssel wurde nicht bestätigt.') : error));
+      client.once('error', error => reject(rejectedKey ? new HostAccessError('containers.hostKeyRejected') : error));
       client.connect(config);
     });
   } catch (error) { closed = true; client.destroy(); throw error; }
@@ -51,7 +53,7 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
     forward(host, port) {
       return new Promise((resolve, reject) => {
         client.forwardOut('127.0.0.1', 0, host, port, (error, channel) => {
-          if (error) reject(new HostAccessError(`Der API-Server ist vom Zugangs-Host aus nicht erreichbar (${host}:${port}).`));
+          if (error) reject(new HostAccessError('containers.apiUnreachable', { host, port }));
           else resolve(channel);
         });
       });
@@ -112,7 +114,7 @@ export function runLocal(file: string, args: string[], timeoutMs: number, exec: 
     exec(file, args, { timeout: timeoutMs, maxBuffer: 4 * OUTPUT_LIMIT, windowsHide: true, encoding: 'utf8' }, (error, stdout, stderr) => {
       const failure = error as (NodeJS.ErrnoException & { killed?: boolean; code?: string | number }) | null;
       if (failure?.code === 'ENOENT') { resolve({ code: null, stdout: '', stderr: '', notFound: true }); return; }
-      if (failure?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') { resolve({ code: null, stdout: String(stdout), stderr: 'Die Ausgabe ist zu groß.' }); return; }
+      if (failure?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') { resolve({ code: null, stdout: String(stdout), stderr: BATCH_TOO_LARGE }); return; }
       if (failure?.killed) { resolve({ code: null, stdout: String(stdout), stderr: String(stderr), timedOut: true }); return; }
       resolve({ code: failure ? (typeof failure.code === 'number' ? failure.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) });
     });

@@ -1,3 +1,4 @@
+import type { CodedError } from './errors';
 import type { ConnectionErrorCode } from './connection-errors';
 import type { TerminalTarget } from './containers';
 import type { KubeTerminalTarget } from './kubernetes';
@@ -16,8 +17,8 @@ export type SshStep = 'reach' | 'hostkey' | 'auth' | 'shell';
 export type SshEvent =
   | { type: 'data'; sessionId: string; sequence: number; data: Uint8Array }
   | { type: 'step'; sessionId: string; step: SshStep }
-  | { type: 'status'; sessionId: string; status: SshStatus; message?: string;
-      /** Only with status 'error', or 'closed-by-server' with status 'closed'. */
-      code?: ConnectionErrorCode;
-      /** Raw error text, at most 500 characters; never a stack, a config or key material. */
-      detail?: string };
+  | { type: 'status'; sessionId: string; status: SshStatus;
+      /** Translated by the renderer; detail = raw library text (at most 500 characters, never a stack, a config or key material). */
+      error?: CodedError;
+      /** Card classification; only with status 'error', or 'closed-by-server' with status 'closed'. */
+      code?: ConnectionErrorCode };

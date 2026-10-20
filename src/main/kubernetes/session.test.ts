@@ -2,7 +2,6 @@ import { describe as suite, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import type { KubeConfig } from '@kubernetes/client-node';
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
-import { READ_ONLY_MESSAGE } from '../../shared/kubernetes';
 import type { KubeEvent, KubeKind, KubeQuery, KubeRef, KubeTerminalTarget } from '../../shared/kubernetes';
 import { HostAccessError } from '../containers/runner';
 import { KubeApiError } from './api';
@@ -10,12 +9,13 @@ import type { KubeApi, KubeObject, KubeStream, ListResult, MetricsSample, Termin
 import type { ClusterAccess } from './access';
 import { describe as describeText, toYaml } from './describe';
 import { toRow } from './rows';
-import { KubeSessions, HEALTH_MS } from './session';
+import { KubeSessions, HEALTH_MS, userError } from './session';
 import type { KubeSessionDependencies } from './session';
 
 const POD_QUERY: KubeQuery = { kind: 'pods', namespace: 'shop' };
 const NODE_QUERY: KubeQuery = { kind: 'nodes', namespace: null };
-const NOT_AVAILABLE = 'Die Cluster-Ansicht ist nicht verfügbar.';
+const NOT_AVAILABLE = 'kubernetes.viewUnavailable';
+const codeOf = (code: string) => expect.objectContaining({ code });
 const KUBECONFIG = `apiVersion: v1
 kind: Config
 clusters:
@@ -287,7 +287,7 @@ suite('KubeSessions', () => {
 
     const first = eventsOf(world, 'trouble', view);
     expect(first).toHaveLength(1);
-    expect(first[0].message).toContain('Keine Berechtigung');
+    expect(first[0].error).toEqual({ code: 'kubernetes.forbidden' });
     expect(JSON.stringify(first)).not.toContain('secret');
     // 403 is retried slowly.
     expect(world.clock.delays()).toContain(30_000);
@@ -305,7 +305,8 @@ suite('KubeSessions', () => {
     await settle();
     const services = eventsOf(world, 'trouble', view).filter(event => event.query.kind === 'services');
     expect(services).toHaveLength(1);
-    expect(services[0].message).not.toContain('boom');
+    expect(services[0].error).toEqual({ code: 'kubernetes.liveUpdateFailed' });
+    expect(JSON.stringify(services)).not.toContain('boom');
   });
 
   it('lets a terminal wait for a reconnect and gives up after 30 s', async () => {
@@ -329,7 +330,7 @@ suite('KubeSessions', () => {
     world.accesses[1].drop();
     world.clock.run(HEALTH_MS);
     const giveUp = world.sessions.openTerminal('c1', logs, { cols: 80, rows: 24 }, terminalIo());
-    const outcome = expect(giveUp).rejects.toThrow('wiederhergestellt');
+    const outcome = expect(giveUp).rejects.toMatchObject({ code: 'kubernetes.reconnecting' });
     world.clock.run(30_000);
     await outcome;
   });
@@ -337,9 +338,9 @@ suite('KubeSessions', () => {
   it('refuses disabled clusters and counts open views per window', async () => {
     const world = setup();
     world.cluster.disabled = true;
-    expect(() => world.sessions.open(1, 'c1')).toThrow('deaktiviert');
+    expect(() => world.sessions.open(1, 'c1')).toThrowError(codeOf('kubernetes.disabled'));
     await expect(world.sessions.openTerminal('c1', { namespace: 'shop', pod: 'p1', container: 'app', mode: 'logs' }, { cols: 80, rows: 24 }, terminalIo()))
-      .rejects.toThrow('deaktiviert');
+      .rejects.toMatchObject({ code: 'kubernetes.disabled' });
 
     world.cluster.disabled = false;
     expect(world.sessions.hasOwner(1)).toBe(false);
@@ -428,8 +429,8 @@ suite('KubeSessions', () => {
     await settle();
     world.sessions.closeOwner(1);
 
-    expect(() => world.sessions.subscribe(1, own, POD_QUERY)).toThrow(NOT_AVAILABLE);
-    expect(() => world.sessions.subscribe(1, secondView, POD_QUERY)).toThrow(NOT_AVAILABLE);
+    expect(() => world.sessions.subscribe(1, own, POD_QUERY)).toThrowError(codeOf(NOT_AVAILABLE));
+    expect(() => world.sessions.subscribe(1, secondView, POD_QUERY)).toThrowError(codeOf(NOT_AVAILABLE));
     expect(() => world.sessions.subscribe(2, kept, POD_QUERY)).not.toThrow();
     await settle();
     expect(world.accesses[0].closeHost).not.toHaveBeenCalled();
@@ -540,7 +541,7 @@ suite('KubeSessions', () => {
     const request = { ref: { kind: 'deployments' as const, namespace: 'shop', name: 'api' }, action: 'restart' as const };
 
     world.cluster.readOnly = true;
-    await expect(world.sessions.action(1, view, request)).rejects.toThrow(READ_ONLY_MESSAGE);
+    await expect(world.sessions.action(1, view, request)).rejects.toMatchObject({ code: 'kubernetes.readOnly' });
     expect(world.api.patches).toEqual([]);
 
     world.cluster.readOnly = false;
@@ -553,7 +554,7 @@ suite('KubeSessions', () => {
     world.cluster.readOnly = true;
     const shell: KubeTerminalTarget = { namespace: 'shop', pod: 'p1', container: 'app', mode: 'shell' };
     const logs: KubeTerminalTarget = { namespace: 'shop', pod: 'p1', container: 'app', mode: 'logs' };
-    await expect(world.sessions.openTerminal('c1', shell, { cols: 80, rows: 24 }, terminalIo())).rejects.toThrow(READ_ONLY_MESSAGE);
+    await expect(world.sessions.openTerminal('c1', shell, { cols: 80, rows: 24 }, terminalIo())).rejects.toMatchObject({ code: 'kubernetes.readOnly' });
     expect(world.api.terminals).toEqual([]);
 
     world.cluster.readOnly = false;
@@ -574,15 +575,15 @@ suite('KubeSessions', () => {
     await settle();
     const ref: KubeRef = { kind: 'pods', namespace: 'shop', name: 'p1' };
 
-    expect(() => world.sessions.subscribe(2, view, POD_QUERY)).toThrow(NOT_AVAILABLE);
-    await expect(world.sessions.detail(2, view, ref, 'yaml')).rejects.toThrow(NOT_AVAILABLE);
-    await expect(world.sessions.action(2, view, { ref, action: 'delete' })).rejects.toThrow(NOT_AVAILABLE);
-    expect(() => world.sessions.close(2, view)).toThrow(NOT_AVAILABLE);
+    expect(() => world.sessions.subscribe(2, view, POD_QUERY)).toThrowError(codeOf(NOT_AVAILABLE));
+    await expect(world.sessions.detail(2, view, ref, 'yaml')).rejects.toMatchObject({ code: NOT_AVAILABLE });
+    await expect(world.sessions.action(2, view, { ref, action: 'delete' })).rejects.toMatchObject({ code: NOT_AVAILABLE });
+    expect(() => world.sessions.close(2, view)).toThrowError(codeOf(NOT_AVAILABLE));
   });
 
   it('retries with the name kubernetes once when the certificate does not match the server name', async () => {
     const world = setup();
-    world.api.listErrors = [new KubeApiError('TLS: Das Zertifikat des API-Servers passt nicht zum Namen (altname).')];
+    world.api.listErrors = [new KubeApiError('TLS: certificate does not match the server name', undefined, { code: 'kubernetes.tlsAltname' })];
     const view = world.sessions.open(1, 'c1').viewId;
     await settle();
 
@@ -595,17 +596,33 @@ suite('KubeSessions', () => {
 
   it('reports a failed first start as an error without retrying, and a new open starts afresh', async () => {
     const world = setup({
-      openAccess: vi.fn(async () => { throw new HostAccessError('Keiner der Zugangs-Hosts erreichbar (k8s-cp1: Zeitüberschreitung).'); }),
+      openAccess: vi.fn(async () => { throw new HostAccessError('kubernetes.accessHostsUnreachable', { hosts: 'k8s-cp1' }); }),
     });
     const view = world.sessions.open(1, 'c1').viewId;
     await settle();
 
-    expect(statusesOf(world, view).at(-1)).toMatchObject({ state: 'error', message: 'Keiner der Zugangs-Hosts erreichbar (k8s-cp1: Zeitüberschreitung).' });
+    expect(statusesOf(world, view).at(-1)).toMatchObject({ state: 'error', error: { code: 'kubernetes.accessHostsUnreachable', params: { hosts: 'k8s-cp1' } } });
     expect(world.clock.delays()).not.toContain(10);
     expect(world.deps.openAccess).toHaveBeenCalledTimes(1);
 
     world.sessions.open(1, 'c1');
     await settle();
     expect(world.deps.openAccess).toHaveBeenCalledTimes(2);
+  });
+});
+
+suite('userError', () => {
+  it('passes coded and API errors and hides everything else', () => {
+    expect(userError(new HostAccessError('kubernetes.hostTimeout'))).toEqual({ code: 'kubernetes.hostTimeout' });
+    expect(userError(new KubeApiError('raw', 403, { code: 'kubernetes.forbidden' }))).toEqual({ code: 'kubernetes.forbidden' });
+    expect(userError(Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:22'), { code: 'ECONNREFUSED' }))).toBeUndefined();
+    expect(userError(new Error('plain'))).toBeUndefined();
+  });
+
+  it('shows an unknown first-start failure as the generic connect error', async () => {
+    const world = setup({ openAccess: vi.fn(async () => { throw new Error('ssh2 internal text'); }) });
+    const view = world.sessions.open(1, 'c1').viewId;
+    await settle();
+    expect(statusesOf(world, view).at(-1)).toMatchObject({ state: 'error', error: { code: 'kubernetes.connectFailed' } });
   });
 });

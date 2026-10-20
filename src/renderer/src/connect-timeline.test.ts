@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SshStep } from '../../shared/ssh';
-import { SLOW_MS, STEP_LABELS, WAIT_MS, cardFooter, formatAgo, formatSeconds, stepViews } from './connect-timeline';
+import { SLOW_MS, WAIT_MS, cardFooter, formatAgo, formatSeconds, stepLabel, stepViews } from './connect-timeline';
 
 const SSH: SshStep[] = ['reach', 'hostkey', 'auth', 'shell'];
 
@@ -8,7 +8,7 @@ describe('connect-timeline', () => {
   it('exposes the thresholds and German labels', () => {
     expect(WAIT_MS).toBe(400);
     expect(SLOW_MS).toBe(1500);
-    expect(STEP_LABELS).toEqual({ reach: 'Server erreichen', hostkey: 'Server-Schlüssel prüfen', auth: 'Anmelden', shell: 'Shell öffnen' });
+    expect((['reach', 'hostkey', 'auth', 'shell'] as const).map(stepLabel)).toEqual(['Server erreichen', 'Server-Schlüssel prüfen', 'Anmelden', 'Shell öffnen']);
   });
 
   it('activates the first step since startedAt before the first mark', () => {

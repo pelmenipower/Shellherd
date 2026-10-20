@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { FileEntry } from '../../shared/sftp';
-import { formatSize, ipcErrorText, modeText, parseMode, joinPath, nameError, nextSelection, parentPath, pathSegments, sortEntries } from './file-browser';
+import { errorText } from './error-text';
+import { i18n, t } from './i18n';
+import { formatSize, modeText, parseMode, joinPath, nameError, nextSelection, parentPath, formatDate, pathSegments, sortEntries } from './file-browser';
 
 const file = (name: string, size = 0, modified = 0): FileEntry => ({ name, type: 'file', size, modified });
 const folder = (name: string): FileEntry => ({ name, type: 'directory', size: 0, modified: 0 });
@@ -46,7 +48,7 @@ describe('file browser', () => {
     expect(formatSize(512)).toBe('512 B');
     expect(formatSize(1536)).toBe('1,5 KB');
     expect(formatSize(50 * 1024 * 1024)).toBe('50 MB');
-    expect(ipcErrorText(new Error("Error invoking remote method 'sftp:list': Error: Zugriff verweigert."))).toBe('Zugriff verweigert.');
+    expect(errorText(new Error("Error invoking remote method 'sftp:list': Error: Zugriff verweigert."))).toBe('Zugriff verweigert.');
   });
 
   it('converts permission bits to and from octal text', () => {
@@ -60,5 +62,20 @@ describe('file browser', () => {
   });
   it('asks for a missing name as an imperative', () => {
     expect(nameError('remote', ' ')).toBe('Gib einen Namen ein.');
+  });
+});
+
+
+describe('file browser in en-US', () => {
+  afterEach(async () => { await i18n.changeLanguage('de-DE'); });
+
+  it('formats sizes, dates and name errors in English', async () => {
+    await i18n.changeLanguage('en-US');
+    expect(formatSize(1536)).toBe('1.5 KB');
+    expect(formatSize(512)).toBe('512 B');
+    expect(formatDate(Date.UTC(2026, 9, 19, 13, 5))).toMatch(/^\d{1,2}\/\d{1,2}\/\d{2},\s\d{1,2}:\d{2}\s?[AP]M$/u);
+    expect(formatDate(0)).toBe('');
+    expect(nameError('remote', 'a/b')).toBe('The name must not contain a slash.');
+    expect(errorText('', t('files:actionFailed'))).toBe('The file action failed.');
   });
 });

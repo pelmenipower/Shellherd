@@ -1,7 +1,7 @@
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ConflictChoice, TransferConflict, TransferJob } from '../../shared/sftp';
-import { FileError } from './file-system';
+import { FileError, unsafeLocalName } from './file-system';
 import type { FileSystem } from './file-system';
 
 const MAX_PLANNED = 100_000;
@@ -25,12 +25,13 @@ export async function planTransfer(from: FileSystem, to: FileSystem, sources: st
   const items: PlannedItem[] = [];
   let skipped = 0;
   const add = (item: PlannedItem): void => {
-    if (items.length >= MAX_PLANNED) throw new FileError(`Mehr als ${MAX_PLANNED} Dateien und Ordner auf einmal werden nicht übertragen.`);
+    if (items.length >= MAX_PLANNED) throw new FileError('files.tooManyPlanned', { max: MAX_PLANNED });
     items.push(item);
   };
   const walk = async (dir: string, target: string): Promise<void> => {
     checkAborted(signal);
     for (const entry of await from.list(dir)) {
+      if (unsafeLocalName(entry.name)) { skipped += 1; continue; }
       const source = from.join(dir, entry.name);
       const destination = to.join(target, entry.name);
       const type = entry.type === 'link' ? entry.linkTarget : entry.type;
@@ -44,8 +45,9 @@ export async function planTransfer(from: FileSystem, to: FileSystem, sources: st
   for (const source of sources) {
     checkAborted(signal);
     const entry = await from.stat(source);
-    if (!entry) throw new FileError(`„${from.basename(source)}“ wurde nicht gefunden.`);
+    if (!entry) throw new FileError('files.sourceNotFound', { name: from.basename(source) });
     const name = from.basename(source);
+    if (unsafeLocalName(name)) throw new FileError('files.unsafeName', { name });
     const target = to.join(targetDir, name);
     if (entry.type === 'directory') {
       add({ source, target, type: 'directory', size: 0, modified: entry.modified, name });
@@ -66,12 +68,12 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
     job.current = item.name;
     const existing = await to.stat(item.target);
     if (item.type === 'directory') {
-      if (existing && existing.type !== 'directory') throw new FileError(`„${item.name}“ existiert im Ziel bereits als Datei.`);
+      if (existing && existing.type !== 'directory') throw new FileError('files.existsAsFile', { name: item.name });
       if (!existing) await to.mkdir(item.target);
       continue;
     }
     if (existing) {
-      if (existing.type === 'directory') throw new FileError(`„${item.name}“ existiert im Ziel bereits als Ordner.`);
+      if (existing.type === 'directory') throw new FileError('files.existsAsDirectory', { name: item.name });
       let choice = policy;
       if (!choice) {
         const answer = await hooks.conflict({ name: item.name, source: { size: item.size, modified: item.modified },
@@ -87,8 +89,11 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
         continue;
       }
     }
-    await copyFile(job, item, from, to, hooks, signal);
-    await to.setModified(item.target, item.modified).catch(() => {});
+    // Write through links to the real file; the .part swap must not replace the link itself.
+    // Some virtual Windows drives cannot resolve paths; overwriting the path itself still works there.
+    const target = existing ? await to.realpath(item.target).catch(() => item.target) : item.target;
+    await copyFile(job, item, target, existing?.mode, from, to, hooks, signal);
+    await to.setModified(target, item.modified).catch(() => {});
     if (job.move) await from.removeFile(item.source);
     job.doneFiles += 1;
     hooks.progress(job);
@@ -100,21 +105,31 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
   job.current = undefined;
 }
 
-async function copyFile(job: TransferJob, item: PlannedItem, from: FileSystem, to: FileSystem, hooks: TransferHooks, signal: AbortSignal): Promise<void> {
+async function copyFile(job: TransferJob, item: PlannedItem, target: string, mode: number | undefined, from: FileSystem, to: FileSystem, hooks: TransferHooks, signal: AbortSignal): Promise<void> {
   const before = job.doneBytes;
   const counter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
     job.doneBytes += chunk.length;
     hooks.progress(job);
     callback(null, chunk);
   } });
+  // shortcut: a real file named x.part collides (and is removed on failure); upgrade when someone reports it.
+  const partial = `${target}.part`;
   try {
-    await pipeline(from.read(item.source), counter, to.write(item.target), { signal });
+    await pipeline(from.read(item.source), counter, to.write(partial, mode), { signal });
   } catch (error) {
-    // A broken half file is worse than none.
-    await to.removeFile(item.target).catch(() => {});
+    await to.removeFile(partial).catch(() => {});
     if (signal.aborted) throw new TransferCanceled();
     throw error;
   }
+  // Local rename replaces the target; OpenSSH SFTP refuses an existing one, so it is removed first there.
+  await to.rename(partial, target).catch(async () => {
+    await to.removeFile(target).catch(() => {});
+    await to.rename(partial, target).catch(async error => {
+      // The old file survived (e.g. locked): drop the copy. Otherwise `.part` is the only copy and stays.
+      if (await to.stat(target).catch(() => null)) await to.removeFile(partial).catch(() => {});
+      throw error;
+    });
+  });
   // Files that changed size while copying still count once.
   job.doneBytes = before + item.size;
 }

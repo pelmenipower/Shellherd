@@ -6,12 +6,12 @@ import {
 
 import { argon2id } from 'hash-wasm';
 
+import { AppError } from '../../shared/errors';
+import type { ErrorCode } from '../../shared/errors';
 import { validateVaultConsistency } from '../../shared/vault/consistency';
+import type { VaultConsistencyIssueCode } from '../../shared/vault/consistency';
 import { parseVaultDocument } from '../../shared/vault/migrations';
-import {
-  EncryptedVaultFileSchema,
-  VaultSchema,
-} from '../../shared/vault/schema';
+import { VaultSchema } from '../../shared/vault/schema';
 
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import type { Vault } from '../../shared/vault/types';
@@ -115,7 +115,7 @@ export function encryptDocumentWithKey(
   key: Uint8Array,
   kdf: EncryptedVaultFile['kdf'],
 ): EncryptedVaultFile {
-  assertLength(key, KEY_LENGTH, 'Schlüssel');
+  assertLength(key, KEY_LENGTH, 'core.vaultKeyLength');
 
   const nonce = randomBytes(NONCE_LENGTH);
   const plaintext = Buffer.from(
@@ -160,34 +160,20 @@ export function encryptDocumentWithKey(
   }
 }
 
-export async function decryptVault(
-  input: unknown,
-  password: string,
-): Promise<Vault> {
-  const unlocked = await unlockVault(input, password);
-
-  try {
-    return unlocked.vault;
-  } finally {
-    unlocked.key.fill(0);
-  }
-}
-
 /**
  * Entschlüsselt den Vault und gibt zusätzlich den abgeleiteten
  * Schlüssel zurück. Nur der Main Process darf diese Funktion
  * verwenden.
  */
 export async function unlockVault(
-  input: unknown,
+  file: EncryptedVaultFile,
   password: string,
 ): Promise<UnlockedVault> {
   assertPassword(password);
 
-  const file = EncryptedVaultFileSchema.parse(input);
   const salt = Buffer.from(file.kdf.salt, 'base64');
 
-  assertLength(salt, SALT_LENGTH, 'Salt');
+  assertLength(salt, SALT_LENGTH, 'core.vaultFileCorrupt');
 
   const key = await deriveKey(
     password,
@@ -218,7 +204,7 @@ function decryptVaultWithKey(
   file: EncryptedVaultFile,
   key: Uint8Array,
 ): ReturnType<typeof parseVaultDocument> {
-  assertLength(key, KEY_LENGTH, 'Schlüssel');
+  assertLength(key, KEY_LENGTH, 'core.vaultKeyLength');
 
   const nonce = Buffer.from(
     file.cipher.nonce,
@@ -233,11 +219,11 @@ function decryptVaultWithKey(
     'base64',
   );
 
-  assertLength(nonce, NONCE_LENGTH, 'Nonce');
+  assertLength(nonce, NONCE_LENGTH, 'core.vaultFileCorrupt');
   assertLength(
     authTag,
     AUTH_TAG_LENGTH,
-    'Authentifizierungstag',
+    'core.vaultFileCorrupt',
   );
 
   const decipher = createDecipheriv(
@@ -249,10 +235,16 @@ function decryptVaultWithKey(
   decipher.setAAD(ADDITIONAL_AUTHENTICATED_DATA);
   decipher.setAuthTag(authTag);
 
-  const plaintext = Buffer.concat([
-    decipher.update(payload),
-    decipher.final(),
-  ]);
+  let plaintext: Buffer;
+  try {
+    plaintext = Buffer.concat([
+      decipher.update(payload),
+      decipher.final(),
+    ]);
+  } catch {
+    // GCM authentication failed: wrong password or a modified file.
+    throw new AppError('core.wrongPassword');
+  }
 
   try {
     const parsed: unknown = JSON.parse(
@@ -286,9 +278,7 @@ async function deriveKey(
   });
 
   if (!(result instanceof Uint8Array)) {
-    throw new Error(
-      'Argon2id hat keinen Binärschlüssel erzeugt.',
-    );
+    throw new AppError('core.vaultKeyDerivationFailed');
   }
 
   const key = Buffer.from(result);
@@ -299,30 +289,30 @@ async function deriveKey(
 
 function assertPassword(password: string): void {
   if (password.length === 0) {
-    throw new Error(
-      'Das Vault-Passwort darf nicht leer sein.',
-    );
+    throw new AppError('core.vaultPasswordEmpty');
   }
 }
 
 function assertLength(
   value: Uint8Array,
   expectedLength: number,
-  name: string,
+  code: ErrorCode,
 ): void {
   if (value.length !== expectedLength) {
-    throw new Error(
-      `${name} muss genau ${expectedLength} Bytes lang sein.`,
-    );
+    throw new AppError(code);
   }
 }
+
+const INCONSISTENCY_ERRORS = {
+  'duplicate-node-id': 'core.vaultDuplicateNodeId',
+  'unknown-connection': 'core.vaultUnknownConnection',
+  'invalid-active-connection': 'core.vaultInvalidActiveConnection',
+} as const satisfies Record<VaultConsistencyIssueCode, ErrorCode>;
 
 function assertConsistent(vault: Vault): void {
   const issues = validateVaultConsistency(vault);
 
   if (issues.length > 0) {
-    throw new Error(
-      `Der Vault ist inkonsistent: ${issues[0].message}`,
-    );
+    throw new AppError(INCONSISTENCY_ERRORS[issues[0].code], { id: issues[0].id });
   }
 }

@@ -2,7 +2,8 @@ import type { ConnectionNode } from '../../shared/vault/types';
 import type { TabConnection, TransferSession } from '../../shared/windows';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import type { SshStatus } from '../../shared/ssh';
-import { connectionAddress } from '../../shared/vault/connections';
+import { connectionAddress } from './connection-labels';
+import { t } from './i18n';
 import { LOCAL_CONTAINER_HOST, containerViewTabName, targetKey } from '../../shared/containers';
 import type { ContainerRuntime, TerminalTarget } from '../../shared/containers';
 import type { AiTerminalContext } from '../../shared/ai';
@@ -16,7 +17,7 @@ export interface AdoptedSession { session?: TransferSession; snapshot?: string }
 
 /** `asFiles` opens an SSH connection as file browser (SFTP over the same login). */
 export function toTerminalConnection(node: ConnectionNode, asFiles = false): TerminalConnection {
-  if (asFiles && node.protocol === 'ssh') return { id: node.id, name: `${node.name} · Dateien`, protocol: 'sftp', address: connectionAddress(node), view: 'files' };
+  if (asFiles && node.protocol === 'ssh') return { id: node.id, name: t('terminal:tabs.files', { name: node.name }), protocol: 'sftp', address: connectionAddress(node), view: 'files' };
   return { id: node.id, name: node.name, protocol: node.protocol, address: connectionAddress(node) };
 }
 
@@ -24,7 +25,7 @@ export function toTerminalConnection(node: ConnectionNode, asFiles = false): Ter
 export function containerTabName(target: TerminalTarget, hostName: string): string {
   const item = target.item;
   const label = item.kind === 'container' ? item.name : `${item.kind === 'lxc' ? 'CT' : 'VM'} ${item.vmid} ${item.name}`;
-  return `${target.mode === 'logs' ? 'Logs: ' : ''}${label} @ ${hostName}`;
+  return `${target.mode === 'logs' ? t('terminal:tabs.logs', { label }) : label} @ ${hostName}`;
 }
 
 /** Tab for a container or guest; `hostId` is the SSH connection or LOCAL_CONTAINER_HOST. */
@@ -39,8 +40,9 @@ export function containerViewConnection(hostId: string, hostName: string, addres
 
 /** Tab for a pod's logs, previous logs or shell; the cluster name keeps it apart from other clusters. */
 export function kubeTabName(target: KubeTerminalTarget, clusterName: string): string {
-  const prefix = target.mode === 'logs' ? 'Logs: ' : target.mode === 'previous' ? 'Vorherige Logs: ' : '';
-  return `${prefix}${target.pod} @ ${clusterName}`;
+  const name = target.mode === 'logs' ? t('terminal:tabs.logs', { label: target.pod })
+    : target.mode === 'previous' ? t('terminal:tabs.previousLogs', { label: target.pod }) : target.pod;
+  return `${name} @ ${clusterName}`;
 }
 
 /**

@@ -5,6 +5,8 @@ import type { RequestOptions } from 'node:https';
 import { PassThrough, Writable } from 'node:stream';
 import { Exec, KubernetesObjectApi, Metrics, PatchStrategy, Watch } from '@kubernetes/client-node';
 import type { KubeConfig, KubernetesObject } from '@kubernetes/client-node';
+import { AppError } from '../../shared/errors';
+import type { CodedError, ErrorCode } from '../../shared/errors';
 import { KIND_INFO } from '../../shared/kubernetes';
 import type { KubeKind, KubeRef, KubeSelector, KubeTerminalTarget } from '../../shared/kubernetes';
 import { SHELL_CHOICE } from '../containers/commands';
@@ -32,19 +34,16 @@ export function selectorQuery(selector?: KubeSelector): { labelSelector?: string
   return query;
 }
 
-/** Message prefix of the one TLS error the tunnel fallback (tls-server-name) can fix. */
-export const TLS_ALTNAME_PREFIX = 'TLS: Das Zertifikat des API-Servers passt nicht zum Namen';
-
-const TLS_MESSAGES: Record<string, string> = {
-  ERR_TLS_CERT_ALTNAME_INVALID: TLS_ALTNAME_PREFIX,
-  UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'TLS: Das Zertifikat des API-Servers ist nicht vertrauenswürdig',
-  SELF_SIGNED_CERT_IN_CHAIN: 'TLS: Das Zertifikat des API-Servers ist nicht vertrauenswürdig',
-  DEPTH_ZERO_SELF_SIGNED_CERT: 'TLS: Das Zertifikat des API-Servers ist nicht vertrauenswürdig',
+const TLS_ERRORS: Record<string, { code: ErrorCode; message: string }> = {
+  ERR_TLS_CERT_ALTNAME_INVALID: { code: 'kubernetes.tlsAltname', message: 'TLS: certificate does not match the server name' },
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: { code: 'kubernetes.tlsUntrusted', message: 'TLS: certificate is not trusted' },
+  SELF_SIGNED_CERT_IN_CHAIN: { code: 'kubernetes.tlsUntrusted', message: 'TLS: certificate is not trusted' },
+  DEPTH_ZERO_SELF_SIGNED_CERT: { code: 'kubernetes.tlsUntrusted', message: 'TLS: certificate is not trusted' },
 };
 
 /** True only for the certificate-name mismatch that the tls-server-name fallback fixes. */
 export function isAltnameError(error: KubeApiError): boolean {
-  return error.message.startsWith(TLS_ALTNAME_PREFIX);
+  return error.coded.code === 'kubernetes.tlsAltname';
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -76,7 +75,7 @@ function statusOf(error: unknown): number | undefined {
 }
 
 /**
- * Maps client errors to messages that are safe to show. Raw response bodies, headers and
+ * Maps client errors to codes and English messages that are safe to show. Raw response bodies, headers and
  * ApiException.message (which contains both) are never used.
  */
 export function toApiError(error: unknown): KubeApiError {
@@ -84,27 +83,30 @@ export function toApiError(error: unknown): KubeApiError {
   const e = asRecord(error);
   const cause = asRecord(e.cause);
   const status = statusOf(error);
-  if (status === 401) return new KubeApiError('Nicht angemeldet. Die Zugangsdaten der kubeconfig wurden abgelehnt.', 401);
-  if (status === 403) return new KubeApiError(forbiddenMessage(asRecord(e.body).message), 403);
-  if (status === 404) return new KubeApiError('Die Ressource gibt es nicht (mehr).', 404);
-  if (status === 410) return new KubeApiError('Watch veraltet.', 410);
+  if (status === 401) return new KubeApiError('Unauthorized: the kubeconfig credentials were rejected', 401, { code: 'kubernetes.unauthorized' });
+  if (status === 403) return forbiddenError(asRecord(e.body).message);
+  if (status === 404) return new KubeApiError('Not found', 404, { code: 'kubernetes.notFound' });
+  if (status === 410) return new KubeApiError('Watch expired', 410, { code: 'kubernetes.watchExpired' });
   // undici wraps TLS failures in TypeError('fetch failed'); the code lives on the cause.
-  const tlsCode = [e.code, cause.code].find((code): code is string => typeof code === 'string' && code in TLS_MESSAGES);
+  const tlsCode = [e.code, cause.code].find((code): code is string => typeof code === 'string' && code in TLS_ERRORS);
   if (tlsCode) {
     const reason = typeof cause.reason === 'string' ? cause.reason : typeof e.reason === 'string' ? e.reason : undefined;
-    return new KubeApiError(`${TLS_MESSAGES[tlsCode]}${reason ? ` (${reason})` : ''}.`);
+    const tls = TLS_ERRORS[tlsCode];
+    return new KubeApiError(tls.message, undefined, { code: tls.code, ...(reason ? { detail: reason } : {}) });
   }
   if (e.code === 'ECONNRESET' || cause.code === 'ECONNRESET' || e.message === 'socket hang up') {
-    return new KubeApiError('Die Verbindung zum API-Server ist abgebrochen.');
+    return new KubeApiError('Connection to the API server was reset', undefined, { code: 'kubernetes.connectionReset' });
   }
-  return new KubeApiError('Die Kubernetes-API hat einen Fehler gemeldet.', status);
+  return new KubeApiError('The Kubernetes API reported an error', status, { code: 'kubernetes.apiError' });
 }
 
-function forbiddenMessage(serverMessage: unknown): string {
+function forbiddenError(serverMessage: unknown): KubeApiError {
   const match = typeof serverMessage === 'string'
     ? /cannot (\w+) resource "([^"]+)".*namespace "([^"]+)"/.exec(serverMessage)
     : null;
-  return match ? `Keine Berechtigung: ${match[2]}/${match[1]} in ${match[3]}` : 'Keine Berechtigung.';
+  if (!match) return new KubeApiError('Forbidden', 403, { code: 'kubernetes.forbidden' });
+  return new KubeApiError(`Forbidden: ${match[2]}/${match[1]} in ${match[3]}`, 403,
+    { code: 'kubernetes.forbiddenResource', params: { resource: match[2], verb: match[1], namespace: match[3] } });
 }
 
 /** Runs one client call and rethrows its failure as a KubeApiError with a safe message. */
@@ -130,7 +132,7 @@ function headerOf(ref: KubeRef) {
 export function manualJobBody(cron: KubeObject, jobName: string): KubeObject {
   const meta = cron.metadata;
   const jobTemplate = asRecord(asRecord(cron.spec).jobTemplate);
-  if (!meta?.uid || !meta.name || !jobTemplate.spec) throw new KubeApiError('Der CronJob ist unvollständig.');
+  if (!meta?.uid || !meta.name || !jobTemplate.spec) throw new KubeApiError('The CronJob is incomplete', undefined, { code: 'kubernetes.cronJobIncomplete' });
   const template = asRecord(jobTemplate.metadata) as { labels?: Record<string, string>; annotations?: Record<string, string> };
   return {
     apiVersion: 'batch/v1',
@@ -191,7 +193,7 @@ export function logUrl(server: string, target: KubeTerminalTarget): string {
 }
 
 function logStatusError(status: number, mode: KubeTerminalTarget['mode']): KubeApiError {
-  if (mode === 'previous' && status === 400) return new KubeApiError('Kein vorheriger Container vorhanden.', 400);
+  if (mode === 'previous' && status === 400) return new KubeApiError('No previous container', 400, { code: 'kubernetes.noPreviousContainer' });
   return toApiError({ code: status });
 }
 
@@ -203,16 +205,16 @@ function logStatusError(status: number, mode: KubeTerminalTarget['mode']): KubeA
 export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: TerminalIo, sendRequest: LogRequest = requestLogs): KubeStream {
   const controller = new AbortController();
   let finished = false;
-  const finish = (code: number | null, message?: string) => {
+  const finish = (code: number | null, error?: CodedError) => {
     if (finished) return;
     finished = true;
-    io.end(code, message);
+    io.end(code, error);
   };
   const formatter = new LogFormatter(target.format ?? 'compact');
 
   const run = async () => {
     const cluster = config.getCurrentCluster();
-    if (!cluster) throw new Error('No currently active cluster');
+    if (!cluster) throw new AppError('kubernetes.apiError');
     const url = new URL(logUrl(cluster.server, target));
     // Same auth path as client-node's own requests: TLS agent, CA, client cert and token come from the kubeconfig.
     const options: RequestOptions = { method: 'GET', headers: {}, signal: controller.signal };
@@ -240,7 +242,7 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
       const rest = formatter.flush();
       if (rest) io.data(Buffer.from(rest));
     }
-    finish(null, toApiError(error).message);
+    finish(null, toApiError(error).coded);
   });
 
   return {
@@ -259,10 +261,10 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
 
 async function openShell(config: KubeConfig, target: KubeTerminalTarget, size: { cols: number; rows: number }, io: TerminalIo): Promise<KubeStream> {
   let finished = false;
-  const finish = (code: number | null, message?: string) => {
+  const finish = (code: number | null, error?: CodedError) => {
     if (finished) return;
     finished = true;
-    io.end(code, message);
+    io.end(code, error);
   };
   const stdin = new PassThrough();
   const stdout = terminalOutput(io, size);
@@ -274,15 +276,15 @@ async function openShell(config: KubeConfig, target: KubeTerminalTarget, size: {
       const exitCause = status.details?.causes?.find(cause => cause.reason === 'ExitCode');
       if (status.status === 'Success') finish(0);
       else if (exitCause) finish(Number(exitCause.message));
-      else if (status.message?.includes('executable file not found')) finish(127, 'Im Container gibt es weder bash noch sh.');
-      else finish(null, 'Die Verbindung zum Container ist fehlgeschlagen.');
+      else if (status.message?.includes('executable file not found')) finish(127, { code: 'kubernetes.noShell' });
+      else finish(null, { code: 'kubernetes.containerConnectionFailed' });
     })
     .then(created => {
       socket = created;
       created.on('close', () => finish(null));
       if (closed) created.close();
     })
-    .catch((error: unknown) => finish(null, toApiError(error).message));
+    .catch((error: unknown) => finish(null, toApiError(error).coded));
 
   return {
     write(data) {
@@ -364,7 +366,7 @@ export function createKubeApi(config: KubeConfig): KubeApi {
 
     async eventsFor(ref) {
       return call(async () => {
-        const involved = `involvedObject.name=${ref.name}${ref.namespace ? `,involvedObject.namespace=${ref.namespace}` : ''}`;
+        const involved = `involvedObject.kind=${KIND_INFO[ref.kind].kind},involvedObject.name=${ref.name}${ref.namespace ? `,involvedObject.namespace=${ref.namespace}` : ''}`;
         const list = await objects().list('v1', 'Event', ref.namespace ?? undefined, undefined, undefined, undefined, involved);
         return list.items as KubeObject[];
       });
