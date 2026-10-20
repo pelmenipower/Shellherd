@@ -1,5 +1,6 @@
 import { DEFAULT_EXCLUDES, excludePatternError } from '../../shared/exclude-glob';
 import { AUTO_UPLOAD_LOCAL_PATH } from '../../shared/vault/schema';
+import type { AutoUploadStatus } from '../../shared/sftp';
 import type { AutoUploadBinding } from '../../shared/vault/types';
 import { t } from './i18n';
 
@@ -65,4 +66,11 @@ export function autoUploadErrors(binding: AutoUploadBinding, others: AutoUploadB
   else if (bad || excludes.length > MAX_PATTERNS || excludes.some(pattern => pattern.length > MAX_PATTERN_LENGTH))
     errors.excludes = t('files:sync.errors.patternChars');
   return errors;
+}
+
+/** True when the binding uploaded something new and the visible server folder lies in its target. */
+// shortcut: compares with the stored remote path, not the server's resolved one; a symlinked target is not refreshed, upgrade when reported.
+export function syncTouchesFolder(remoteDir: string | undefined, sync: Pick<AutoUploadStatus, 'remotePath' | 'synced'>, previousSynced = 0): boolean {
+  const root = sync.remotePath.replace(/\/+$/, '');
+  return !!remoteDir && sync.synced > previousSynced && (remoteDir === root || remoteDir.startsWith(`${root}/`));
 }

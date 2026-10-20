@@ -80,6 +80,7 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 | Name | Rolle | Wert | Beispiel |
 |---|---|---|---|
 | `--size-dot` | das eine Statuspunkt-Maß | `8px` | `.toast-dot`, `.connect-error-dot`, `.kube-dot`, Terminal-Tab-Punkt |
+| `--toast-text-min` | Mindestbreite des Meldungstexts, bevor die Knöpfe in eine zweite Zeile rücken | `200px` | `.toast-text` |
 | `--notice-ttl-info` | Anzeigedauer einer Info-Meldung (Ablaufbalken) | `5000ms` | `.toast[data-tone='info'] .toast-bar` |
 | `--notice-ttl-ok` | Anzeigedauer einer Erfolgs-Meldung | `3000ms` | `.toast[data-tone='ok'] .toast-bar` |
 

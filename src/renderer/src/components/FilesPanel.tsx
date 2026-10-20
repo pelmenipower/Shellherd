@@ -12,7 +12,7 @@ import { errorText, IPC_PREFIX } from '../error-text';
 import { formatDate, formatSize, isFinished, jobPercent, joinPath } from '../file-browser';
 import { formatDateTime } from '../../../shared/format';
 import type { AutoUploadBinding } from '../../../shared/vault/types';
-import { bindingName, newAutoUpload } from '../auto-upload-form';
+import { bindingName, newAutoUpload, syncTouchesFolder } from '../auto-upload-form';
 import { notify } from '../notice-store';
 import { useT } from '../i18n';
 import { liveSessions } from '../session-registry';
@@ -59,6 +59,8 @@ const EDIT_STATE_KEYS = {
   conflict: 'files:edit.state.conflict', error: 'files:edit.state.error',
 } as const satisfies Record<EditedFile['state'], string>;
 
+const SYNC_REFRESH_MS = 1000;
+
 /** A rejected open as coded error; foreign text stays raw detail for the card. */
 function codedFailure(error: Error): CodedError {
   return decodeError(error.message) ?? { code: 'core.unknown', detail: truncateDetail(error.message.replace(IPC_PREFIX, '')) };
@@ -90,7 +92,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const [syncDialog, setSyncDialog] = useState<{ binding: AutoUploadBinding; isNew: boolean } | null>(null);
   const [savingSync, setSavingSync] = useState(false);
   // Last seen state per binding, for toasts on transitions only (not on adoption).
-  const syncSeen = useRef(new Map<string, { error: boolean; skipped: number }>());
+  const syncSeen = useRef(new Map<string, { error: boolean; skipped: number; synced: number }>());
   const [pendingPermissions, setPendingPermissions] = useState<{ paths: string[]; entries: FileEntry[] } | null>(null);
   const [conflict, setConflict] = useState<TransferConflict | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ side: FileSide; paths: string[]; names: string[] } | null>(null);
@@ -134,6 +136,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   useEffect(() => {
     let disposed = false;
     let id: string | null = null;
+    let syncRefresh: ReturnType<typeof setTimeout> | undefined;
     const report = (next: SftpStatus, error?: CodedError, code?: ConnectionErrorCode): void => {
       if (disposed) return;
       if (next === 'closed' || next === 'error') setEndedAt(Date.now());
@@ -162,13 +165,16 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
         const seen = syncSeen.current.get(sync.bindingId);
         if (closed) syncSeen.current.delete(sync.bindingId);
         else {
-          syncSeen.current.set(sync.bindingId, { error: sync.state === 'error', skipped: sync.skipped.length });
+          syncSeen.current.set(sync.bindingId, { error: sync.state === 'error', skipped: sync.skipped.length, synced: sync.synced });
+          // Throttled: one listing per second at most, after the uploads it covers.
+          if (!syncRefresh && syncTouchesFolder(paths.current.remote, sync, seen?.synced))
+            syncRefresh = setTimeout(() => { syncRefresh = undefined; refresh('remote'); }, SYNC_REFRESH_MS);
           if (sync.state === 'error' && !seen?.error)
             notify.error(tRef.current('files:sync.failedTitle', { name: bindingName(sync) }), { body: sync.error ? errorText(sync.error) : undefined });
           if (sync.skipped.length > 0 && !seen?.skipped)
             notify.info(tRef.current('files:sync.skippedTitle', { count: sync.skipped.length + sync.skippedMore }), {
               body: tRef.current('files:sync.skippedBody', { names: sync.skipped.slice(0, 5).join(', ') }),
-              action: { label: tRef.current('files:sync.force'), run: () => void window.desktopApi.sftpSyncForce({ sessionId: id!, bindingId: sync.bindingId }).catch(() => {}) },
+              action: { label: tRef.current('files:sync.force'), run: () => void window.desktopApi.sftpSyncForce({ sessionId: id!, bindingId: sync.bindingId }).catch(error => setActionError(errorText(error, tRef.current('files:actionFailed')))) },
             });
         }
         setSyncs(current => closed ? current.filter(item => item.bindingId !== sync.bindingId)
@@ -201,7 +207,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
           setJobs(state.jobs);
           setEdits(state.edits);
           const adoptedSyncs = state.syncs ?? [];
-          syncSeen.current = new Map(adoptedSyncs.map(sync => [sync.bindingId, { error: sync.state === 'error', skipped: sync.skipped.length }]));
+          syncSeen.current = new Map(adoptedSyncs.map(sync => [sync.bindingId, { error: sync.state === 'error', skipped: sync.skipped.length, synced: sync.synced }]));
           setSyncs(adoptedSyncs);
           setConflict(state.conflict ?? null);
           if (state.status === 'connected') connected(); else report(state.status);
@@ -219,6 +225,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     return () => {
       disposed = true;
       clearTimeout(timer);
+      clearTimeout(syncRefresh);
       unsubscribe();
       sessionRef.current = null;
       liveSessions.delete(tabId);

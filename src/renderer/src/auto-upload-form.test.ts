@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_EXCLUDES } from '../../shared/exclude-glob';
 import { t } from './i18n';
-import { autoUploadErrors, bindingFromDraft, bindingName, draftOf, newAutoUpload } from './auto-upload-form';
+import { autoUploadErrors, bindingFromDraft, bindingName, draftOf, newAutoUpload, syncTouchesFolder } from './auto-upload-form';
 import type { AutoUploadBinding } from '../../shared/vault/types';
 
 const make = (localPath: string, remotePath = '/srv/app', excludes: string[] = [], id = 'x'): AutoUploadBinding =>
@@ -87,5 +87,24 @@ describe('autoUploadErrors', () => {
   });
   it('ignores itself by id (editing)', () => {
     expect(errors(make('C:\\a', '/s', [], 'same'), [make('C:\\a', '/s', [], 'same')]).localPath).toBeUndefined();
+  });
+});
+
+describe('syncTouchesFolder', () => {
+  const sync = (remotePath: string, synced: number) => ({ remotePath, synced });
+  it('is true for the target folder and its subfolders', () => {
+    expect(syncTouchesFolder('/srv/app', sync('/srv/app', 1))).toBe(true);
+    expect(syncTouchesFolder('/srv/app/sub', sync('/srv/app', 1))).toBe(true);
+  });
+  it('is false for sibling prefixes and parent folders', () => {
+    expect(syncTouchesFolder('/srv/app2', sync('/srv/app', 1))).toBe(false);
+    expect(syncTouchesFolder('/srv', sync('/srv/app', 1))).toBe(false);
+  });
+  it('is false without new uploads or without a visible folder', () => {
+    expect(syncTouchesFolder('/srv/app', sync('/srv/app', 2), 2)).toBe(false);
+    expect(syncTouchesFolder(undefined, sync('/srv/app', 1))).toBe(false);
+  });
+  it('ignores a trailing slash on the target', () => {
+    expect(syncTouchesFolder('/srv/app', sync('/srv/app/', 1))).toBe(true);
   });
 });
