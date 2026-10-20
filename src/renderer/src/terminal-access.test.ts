@@ -1,5 +1,21 @@
-import { describe, expect, it } from 'vitest';
-import { bufferText } from './terminal-access';
+import { describe, expect, it, vi } from 'vitest';
+import type { Terminal } from '@xterm/xterm';
+import { bufferText, terminalAccess } from './terminal-access';
+
+describe('mark', () => {
+  it('follows the marker, clamps trimmed lines to 0 and disposes it', () => {
+    const marker = { line: 5, dispose: vi.fn() };
+    const term = { onWriteParsed: () => ({ dispose() {} }), buffer: { active: {} }, registerMarker: vi.fn(() => marker) } as unknown as Terminal;
+    const mark = terminalAccess(term).mark();
+    expect(mark.line()).toBe(5);
+    marker.line = 2;
+    expect(mark.line()).toBe(2);
+    marker.line = -1;
+    expect(mark.line()).toBe(0);
+    mark.dispose();
+    expect(marker.dispose).toHaveBeenCalled();
+  });
+});
 
 const lines = (...entries: Array<[string, boolean?]>) => ({
   length: entries.length,

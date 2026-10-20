@@ -111,7 +111,7 @@ describe('assistant service', () => {
     expect(prompt).toContain('Schritt für Schritt');
     expect(prompt).toContain('nur, wenn der Nutzer ausdrücklich danach fragt');
     expect(prompt).toContain('<command>');
-    expect(prompt).toContain('der Nutzer führt ihn selbst aus');
+    expect(prompt).toContain('der Nutzer tippt ihn selbst ein und führt ihn aus');
     expect(prompt).toContain('Windows PowerShell 5.1, lokal (Lokal · PowerShell)');
     expect(prompt.length).toBeLessThan(1200);
   });
