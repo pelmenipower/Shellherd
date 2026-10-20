@@ -49,19 +49,17 @@ async function closeTabs() {
   }
 }
 
-// Local pane target: a synthetic folder, but only if the path shows no user name; otherwise the drive root.
+// Local pane target: a synthetic folder whose path shows no user name (outside the home directory), else the block fails.
 function localTarget() {
-  const dir = path.join(RUN_DIR, 'local');
-  if (!RUN_DIR.toLowerCase().includes(os.userInfo().username.toLowerCase())) {
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'readme.txt'), 'Demo files\nfor the local pane\n');
-    fs.writeFileSync(path.join(dir, 'deploy.sh'), '#!/bin/sh\necho deploy\n');
-    fs.writeFileSync(path.join(dir, 'notes.md'), '# Notes\n\n- synthetic\n- demo\n');
-    return { target: dir, segment: 'local' };
-  }
-  const root = path.parse(RUN_DIR).root;
-  console.log('Hinweis: SHELLHERD_RUN_DIR ohne Benutzernamen setzen (z. B. C:\\shellherd-run), dann zeigt die lokale Spalte synthetische Dateien.');
-  return { target: root, segment: root.replace(/[\\/]+$/, '') };
+  const inside = p => { const rel = path.relative(os.homedir(), p); return !rel.startsWith('..') && !path.isAbsolute(rel); };
+  const candidates = [path.join(RUN_DIR, 'local'), process.env.PUBLIC && path.join(process.env.PUBLIC, 'shellherd-demo-local')].filter(Boolean);
+  const dir = candidates.find(p => !inside(p));
+  if (!dir) throw new Error('Kein Ort für die lokale Spalte ohne Benutzernamen: SHELLHERD_RUN_DIR außerhalb des Benutzerordners setzen (z. B. C:\shellherd-run).');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'readme.txt'), 'Demo files\nfor the local pane\n');
+  fs.writeFileSync(path.join(dir, 'deploy.sh'), '#!/bin/sh\necho deploy\n');
+  fs.writeFileSync(path.join(dir, 'notes.md'), '# Notes\n\n- synthetic\n- demo\n');
+  return { target: dir, segment: path.basename(dir) };
 }
 
 const shots = [];
