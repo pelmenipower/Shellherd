@@ -100,7 +100,8 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
       updateEntry(tabId, entryId, { inserted: result.typed, note: undefined });
       const access = liveSessions.get(tabId)?.terminal;
       // The echo of the typed command arrives first; output after Enter starts below it.
-      if (access) setTimeout(() => update(tabId, current => ({ ...clearAwaiting(current), output: undefined, awaiting: { mark: access.mark(), command: result.typed } })), 400);
+      // The mark is created outside the updater: StrictMode runs updaters twice and would leak one.
+      if (access) setTimeout(() => { const mark = access.mark(); update(tabId, current => ({ ...clearAwaiting(current), output: undefined, awaiting: { mark, command: result.typed } })); }, 400);
     });
   }, [update, updateEntry]);
 

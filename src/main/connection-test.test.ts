@@ -53,7 +53,7 @@ describe('connection test (dry run)', () => {
   });
 
   it('does not count the host key dialog against the timeout', async () => {
-    const slow = { ...trust, timeout: 300, verifyHost: () => new Promise<boolean>(resolve => setTimeout(() => resolve(true), 600)) };
+    const slow = { ...trust, timeout: 1_000, verifyHost: () => new Promise<boolean>(resolve => setTimeout(() => resolve(true), 2_000)) };
     const result = await testConnection(node('ssh', 'synthetic-secret'), slow);
     expect(result.steps.map(step => [step.step, step.ok])).toEqual([['nameResolved', true], ['portReachable', true], ['hostKey', true], ['login', true]]);
   });

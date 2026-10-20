@@ -22,9 +22,15 @@ describe('moveSession', () => {
   });
 
   it('turns a vanished session into a closed tab and keeps the snapshot', () => {
-    const gone = owner(() => { throw new Error('ssh.notAvailable'); });
+    const gone = { transferOwner: () => 'connected', owns: () => false };
     const owners = { ssh: gone, rdp: gone, sftp: gone };
     const tab: TransferTab = { connection, status: 'connected', session, snapshot: 'abc' };
     expect(moveSession(owners as never, 1, tab, target)).toEqual({ connection, status: 'closed', snapshot: 'abc' });
+  });
+
+  it('does not swallow errors from the transfer itself', () => {
+    const broken = owner(() => { throw new Error('boom'); });
+    const owners = { ssh: broken, rdp: broken, sftp: broken };
+    expect(() => moveSession(owners as never, 1, { connection, status: 'connected', session }, target)).toThrow('boom');
   });
 });

@@ -67,16 +67,14 @@ export type TransferTab = z.infer<z.ZodObject<typeof tabFields>>;
 /** Hands a session to the target window; a session that vanished meanwhile travels on as a closed tab. */
 export function moveSession(owners: Pick<WindowIpcDependencies, 'ssh' | 'rdp' | 'sftp'>, from: number, tab: TransferTab, target: BrowserWindow):
   { connection: TransferTab['connection']; status: TransferTab['status']; session?: TransferTab['session']; snapshot?: string } {
-  try {
-    const to = target.webContents.id;
-    let status = tab.status;
-    if (tab.session?.kind === 'terminal') status = owners.ssh.transferOwner(from, tab.session.sessionId, to);
-    if (tab.session?.kind === 'rdp') status = owners.rdp.transferOwner(from, tab.session.sessionId, to, target);
-    if (tab.session?.kind === 'sftp') status = owners.sftp.transferOwner(from, tab.session.sessionId, to);
-    return { connection: tab.connection, status, ...(tab.session ? { session: tab.session } : {}), ...(tab.snapshot ? { snapshot: tab.snapshot } : {}) };
-  } catch {
+  if (tab.session && !{ terminal: owners.ssh, rdp: owners.rdp, sftp: owners.sftp }[tab.session.kind].owns(from, tab.session.sessionId))
     return { connection: tab.connection, status: 'closed', ...(tab.snapshot ? { snapshot: tab.snapshot } : {}) };
-  }
+  const to = target.webContents.id;
+  let status = tab.status;
+  if (tab.session?.kind === 'terminal') status = owners.ssh.transferOwner(from, tab.session.sessionId, to);
+  if (tab.session?.kind === 'rdp') status = owners.rdp.transferOwner(from, tab.session.sessionId, to, target);
+  if (tab.session?.kind === 'sftp') status = owners.sftp.transferOwner(from, tab.session.sessionId, to);
+  return { connection: tab.connection, status, ...(tab.session ? { session: tab.session } : {}), ...(tab.snapshot ? { snapshot: tab.snapshot } : {}) };
 }
 
 export function catalog(): ConnectionCatalog {
