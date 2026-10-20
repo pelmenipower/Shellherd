@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
@@ -60,6 +60,78 @@ function startServer(root: string): Promise<{ server: Server; port: number }> {
   });
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve({ server, port: (server.address() as AddressInfo).port })));
 }
+
+describe.runIf(process.platform === 'win32')('SFTP auto-upload over a real SSH connection', () => {
+  const base = mkdtempSync(join(tmpdir(), 'terminus-sync-'));
+  const remoteRoot = join(base, 'server');
+  const bound = join(base, 'bound');
+  const bindingId = '8f14e45f-ceea-4b67-a1b0-5d6a4f2b9c01';
+  const events: SftpEvent[] = [];
+  let server: Server;
+  let manager: SftpSessionManager;
+
+  const waitFor = async (check: () => boolean): Promise<void> => {
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      if (check()) return;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    throw new Error('timeout');
+  };
+  const onServer = (name: string) => join(remoteRoot, 'mirror', name);
+  const status = (id: string) => manager.state(1, id).syncs?.find(sync => sync.bindingId === bindingId);
+  const connected = (id: string) => waitFor(() => events.some(event => event.type === 'status' && event.sessionId === id && event.status === 'connected'));
+
+  beforeAll(async () => {
+    mkdirSync(join(remoteRoot, 'mirror'), { recursive: true }); mkdirSync(bound, { recursive: true });
+    writeFileSync(join(bound, 'a.txt'), 'first');
+    const started = await startServer(remoteRoot);
+    server = started.server;
+    const node: ConnectionNode = { id: 'files', type: 'connection', protocol: 'sftp', name: 'Loopback', host: '127.0.0.1', port: started.port,
+      username: 'synthetic-user', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [],
+      autoUpload: [{ id: bindingId, localPath: bound, remotePath: '/mirror', excludes: ['node_modules/'], enabled: true }] };
+    manager = new SftpSessionManager({ getConnection: () => node, verifyHost: async () => true, emit: (_owner, event) => events.push(event), local: localFileSystem,
+      openFile: async () => {} });
+  });
+  afterAll(() => { manager?.closeAll(); server?.close(); rmSync(base, { recursive: true, force: true }); });
+
+  it('mirrors a bound folder, skips newer server files until forced, never uploads excluded folders, and reports a second view', async () => {
+    const first = manager.open(1, 'files').sessionId;
+    await connected(first);
+    await waitFor(() => status(first)?.state === 'watching' && status(first)?.synced === 1);
+    expect(readFileSync(onServer('a.txt'), 'utf8')).toBe('first');
+
+    writeFileSync(join(bound, 'b.txt'), 'one');
+    await waitFor(() => existsSync(onServer('b.txt')));
+    await waitFor(() => readFileSync(onServer('b.txt'), 'utf8') === 'one');
+
+    // Someone else wrote a newer copy: the local change is skipped, not overwritten.
+    utimesSync(onServer('b.txt'), 2_000_000_000, 2_000_000_000);
+    writeFileSync(join(bound, 'b.txt'), 'two');
+    await waitFor(() => status(first)?.skipped.includes('b.txt') === true);
+    expect(readFileSync(onServer('b.txt'), 'utf8')).toBe('one');
+    manager.syncForce(1, first, bindingId);
+    await waitFor(() => readFileSync(onServer('b.txt'), 'utf8') === 'two');
+    await waitFor(() => status(first)?.skipped.length === 0);
+
+    mkdirSync(join(bound, 'node_modules'));
+    writeFileSync(join(bound, 'node_modules', 'x.js'), 'x');
+    writeFileSync(join(bound, 'c.txt'), 'marker');
+    await waitFor(() => existsSync(onServer('c.txt')));
+    expect(existsSync(onServer('node_modules'))).toBe(false);
+
+    // The same binding in a second file view of the connection is refused.
+    const second = manager.open(1, 'files').sessionId;
+    await connected(second);
+    await waitFor(() => status(second)?.state === 'error');
+    expect(status(second)?.error?.code).toBe('files.syncElsewhere');
+    await manager.syncStart(1, second, bindingId);
+    expect(status(second)?.error?.code).toBe('files.syncElsewhere');
+    manager.close(1, second);
+
+    manager.close(1, first);
+    expect(events.some(event => event.type === 'sync' && event.sessionId === first && event.closed === true)).toBe(true);
+  });
+});
 
 describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', () => {
   const base = mkdtempSync(join(tmpdir(), 'terminus-sftp-'));

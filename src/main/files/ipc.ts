@@ -38,6 +38,7 @@ const editor = z.enum(['default', 'notepad']);
 const EditFileSchema = z.object({ ...session, path: remotePath, editor }).strict();
 const LocalOpenSchema = z.object({ path: localPath, editor }).strict();
 const EditSchema = z.object({ ...session, editId: z.string().uuid() }).strict();
+const SyncSchema = z.object({ ...session, bindingId: z.string().uuid() }).strict();
 const ChmodSchema = z.object({ ...session, paths: z.array(remotePath).min(1).max(1000), mode: z.number().int().min(0).max(0o7777), recursive: z.boolean() }).strict();
 
 // Only types whose Windows association is a viewer or editor, never an interpreter. Everything else opens in Notepad.
@@ -99,6 +100,9 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
   handle(IPC_CHANNELS.sftpEditOpen, EditSchema, (ownerId, request) => manager.editOpen(ownerId, request.sessionId, request.editId));
   handle(IPC_CHANNELS.sftpEditUpload, EditSchema, (ownerId, request) => manager.editUpload(ownerId, request.sessionId, request.editId));
   handle(IPC_CHANNELS.sftpEditClose, EditSchema, (ownerId, request) => manager.editClose(ownerId, request.sessionId, request.editId));
+  handle(IPC_CHANNELS.sftpSyncStart, SyncSchema, (ownerId, request) => manager.syncStart(ownerId, request.sessionId, request.bindingId));
+  handle(IPC_CHANNELS.sftpSyncStop, SyncSchema, (ownerId, request) => manager.syncStop(ownerId, request.sessionId, request.bindingId));
+  handle(IPC_CHANNELS.sftpSyncForce, SyncSchema, (ownerId, request) => manager.syncForce(ownerId, request.sessionId, request.bindingId));
   handle(IPC_CHANNELS.sftpClose, SessionSchema, (ownerId, request) => manager.close(ownerId, request.sessionId));
 
   handle(IPC_CHANNELS.localPlaces, z.undefined(), () => localPlaces());
