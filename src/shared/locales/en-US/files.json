@@ -98,6 +98,50 @@
     "openEditor": "Open in editor",
     "closeTitle": "Stop watching; the local copy will be deleted"
   },
+  "sync": {
+    "title": "Auto-upload",
+    "hint": "Changes in the local folder are uploaded automatically. Nothing is ever deleted on the server.",
+    "target": "{{local}} → {{remote}}",
+    "state": {
+      "disabled": "Paused",
+      "offline": "Paused, connection lost",
+      "idle": "Not started",
+      "syncing": "Syncing… {{count}} uploaded",
+      "watching": "Watching",
+      "error": "Error"
+    },
+    "last": "last {{name}} at {{time}}",
+    "skipped_one": "{{count}} skipped, newer on the server",
+    "skipped_other": "{{count}} skipped, newer on the server",
+    "failed_one": "{{count}} not uploaded",
+    "failed_other": "{{count}} not uploaded",
+    "force": "Overwrite anyway",
+    "forceTitle": "The server copies are replaced by your local files",
+    "edit": "Edit…",
+    "pause": "Pause",
+    "resume": "Resume",
+    "remove": "Remove",
+    "removeTitle": "Only the binding is removed, no files",
+    "mainWindowOnly": "Main window only",
+    "dialog": {
+      "titleNew": "Set up auto-upload",
+      "titleEdit": "Edit auto-upload",
+      "local": "Local folder",
+      "remote": "Server folder",
+      "excludes": "Excludes (one pattern per line)",
+      "excludesHint": "Without / a pattern applies at every level, with a leading / only from the bound folder, with a trailing / only to folders.  counts as /.",
+      "start": "Start auto-upload",
+      "apply": "Apply"
+    },
+    "errors": {
+      "localAbsolute": "Enter a full Windows path, e.g. C:Projectsapp.",
+      "remoteAbsolute": "Enter an absolute server path starting with /.",
+      "remoteRoot": "The root folder / is not allowed as target.",
+      "negation": "Exceptions with ! are not supported.",
+      "patternChars": "The pattern contains invalid characters.",
+      "overlap": "This folder overlaps with the binding “{{name}}”."
+    }
+  },
   "conflict": {
     "title": "“{{name}}” already exists",
     "newFile": "New file",
