@@ -58,12 +58,13 @@ interface Bound {
   checkingRoot: boolean;
   closed: boolean;
   retries: number;
-  current?: Promise<void>;
 }
 
 /** Local folders mirrored into server folders: one way, never deletes (uploads always run with `move: false`). */
 export class AutoUploads {
   private bound = new Map<string, Bound>();
+  /** Latest upload run per binding id; outlives stop() so a restart waits until the aborted run has removed its .part. */
+  private runs = new Map<string, Promise<void>>();
   private readonly settleMs: number;
   private readonly maxWaitMs: number;
   constructor(private readonly remote: RemoteFileSystem, private readonly deps: AutoUploadDependencies) {
@@ -73,7 +74,7 @@ export class AutoUploads {
 
   /** Registers and reports the binding synchronously, then checks folders and starts the watcher; the first full comparison runs in the background. Never rejects for binding problems: they end as state 'error'. A running binding with the same id is stopped first. */
   async start(binding: AutoUploadBinding): Promise<void> {
-    const previous = this.bound.get(binding.id)?.current;
+    const previous = this.runs.get(binding.id);
     this.stop(binding.id);
     const b: Bound = { status: { bindingId: binding.id, localPath: binding.localPath, remotePath: binding.remotePath, state: 'syncing', synced: 0, failed: [] },
       matcher: compileExcludes(binding.excludes), key: pathKey(binding.localPath), root: '', remoteRoot: '', known: new Map(), sent: new Map(), skipped: new Set(),
@@ -166,8 +167,10 @@ export class AutoUploads {
   private async flush(b: Bound): Promise<void> {
     if (b.closed || b.status.state === 'error') return;
     if (b.running) { b.again = true; return; }
-    b.current = this.drain(b);
-    return b.current;
+    const id = b.status.bindingId;
+    const run = this.drain(b).finally(() => { if (this.runs.get(id) === run) this.runs.delete(id); });
+    this.runs.set(id, run);
+    return run;
   }
 
   /** Never rejects. */

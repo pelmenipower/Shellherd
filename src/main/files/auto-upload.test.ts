@@ -13,7 +13,7 @@ interface Node { type: 'file' | 'directory'; data: Buffer; modified: number }
 const dir = (): Node => ({ type: 'directory', data: Buffer.alloc(0), modified: 0 });
 const file = (text: string, modified: number): Node => ({ type: 'file', data: Buffer.from(text), modified });
 
-function fakeRemote(options: { keepUploadTime?: boolean; failOn?: string; missingOn?: string; writeDelayMs?: number } = {}) {
+function fakeRemote(options: { keepUploadTime?: boolean; failOn?: string; missingOn?: string; writeDelayMs?: number; removeDelayMs?: number } = {}) {
   const nodes = new Map<string, Node>([['/', dir()], ['/srv', dir()]]);
   const log: string[] = [];
   const calls = { removeFile: 0, removeDirectory: 0, stat: [] as string[] };
@@ -33,7 +33,11 @@ function fakeRemote(options: { keepUploadTime?: boolean; failOn?: string; missin
         } });
     },
     setModified: async (path: string, modified: number) => { const node = nodes.get(path); if (node && !options.keepUploadTime) node.modified = modified; },
-    removeFile: async (path: string) => { log.push(`removeFile:${path}`); calls.removeFile += 1; nodes.delete(path); },
+    removeFile: async (path: string) => {
+      // Delayed so an unguarded restart opens the same .part before the aborted run removes it.
+      if (options.removeDelayMs && path.endsWith('.part')) await pause(options.removeDelayMs);
+      log.push(`removeFile:${path}`); calls.removeFile += 1; nodes.delete(path);
+    },
     removeDirectory: async (path: string) => { calls.removeDirectory += 1; nodes.delete(path); },
     rename: async (from: string, to: string) => { nodes.set(to, nodes.get(from)!); nodes.delete(from); },
   } as unknown as RemoteFileSystem;
@@ -228,7 +232,7 @@ describe('AutoUploads', () => {
   });
 
   it('a restarted binding waits for the aborted run before touching the same .part', async () => {
-    const s = setup({ writeDelayMs: 300 });
+    const s = setup({ writeDelayMs: 300, removeDelayMs: 300 });
     await s.auto.start(s.binding());
     await s.ready();
     s.write('big.txt', 'content', Date.now());
