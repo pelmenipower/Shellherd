@@ -90,6 +90,8 @@ const blocks = {
     // BusyButton carries hidden placeholder labels, so match by class: the dialog has one primary button.
     await click('dialog.file-sync-dialog[open] .primary-button');
     await waitFor('Zeile Überwacht', `[...document.querySelectorAll('.file-sync-list .transfer-job')].some(j => j.textContent.includes('Überwacht'))`);
+    // The server column refreshes throttled after uploads; show the uploaded file.
+    await waitFor('hochgeladene Datei', `!!document.querySelector('.file-pane-remote [role=row][data-name="readme.txt"]')`);
     await pause(300);
     await shot('sftp-auto-upload');
     await removeBinding();
