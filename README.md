@@ -87,17 +87,18 @@ npm run dev
 | `npm test` | Run the test suite (Vitest) |
 | `npm run dist` | Build installer and portable exe into `dist/` |
 | `npm run drive` | Start the app under Playwright for automated clicking and screenshots |
-| `npm run drive:sshd` | Local SSH test server with synthetic credentials for `drive` |
+| `npm run drive:sshd` | Local SSH/SFTP test server plus Kubernetes API and AI fakes, all synthetic, for `drive` |
 
 ### Driving the app (screenshots, UI checks)
 
-[`.claude/skills/run-app/`](.claude/skills/run-app/SKILL.md) runs the built app under Playwright with an isolated profile, a synthetic demo vault and a local SSH test server. Native dialogs are stubbed, and real vaults and `%APPDATA%\Shellherd` are never touched. A small HTTP driver on `127.0.0.1:9333` accepts clicks, typing and screenshots. It writes a new token to `%TEMP%\shellherd-run\token` on every start and rejects requests without it, or from a browser, with 403:
+[`.claude/skills/run-app/`](.claude/skills/run-app/SKILL.md) runs the built app under Playwright with an isolated profile, a synthetic demo vault and a local SSH test server, plus local fakes for SFTP, Docker, Kubernetes and the AI assistant. Native dialogs are stubbed, and real vaults and `%APPDATA%\Shellherd` are never touched. A small HTTP driver on `127.0.0.1:9333` accepts clicks, typing and screenshots. It writes a new token to `%TEMP%\shellherd-run\token` on every start and rejects requests without it, or from a browser, with 403:
 
 ```powershell
 npx electron-vite build
 npm run drive:sshd                              # second terminal
 npm run drive                                   # third terminal
-node .claude/skills/run-app/demo-setup.mjs      # demo vault with web-01, db-main, legacy-app
+node .claude/skills/run-app/demo-setup.mjs      # demo vault with web-01, files-01, prod-k8s, Demo-KI, …
+node .claude/skills/run-app/screens.mjs         # SFTP, containers, Kubernetes, settings and assistant screenshots
 $token = Get-Content "$env:TEMP\shellherd-run\token"
 curl.exe -H "x-driver-token: $token" "http://127.0.0.1:9333/ss?name=start&crop=status"
 ```
