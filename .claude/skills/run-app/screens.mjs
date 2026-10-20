@@ -93,7 +93,11 @@ const blocks = {
     await shot('containers');
   },
   async kubernetes() {
-    if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) { console.log('Kubernetes übersprungen: prod-k8s fehlt im Baum (Testserver ohne Kubernetes?).'); return; }
+    if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) {
+      // A skipped block would leave an outdated README image in place.
+      if (readme) throw new Error('prod-k8s fehlt im Baum – ohne Cluster kein README-Bild (Testserver ohne Kubernetes?).');
+      console.log('Kubernetes übersprungen: prod-k8s fehlt im Baum (Testserver ohne Kubernetes?).'); return;
+    }
     await click('text=prod-k8s >> nth=0');
     await key('Enter');
     await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
