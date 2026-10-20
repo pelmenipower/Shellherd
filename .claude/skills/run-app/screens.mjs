@@ -54,7 +54,7 @@ function localTarget() {
   const inside = p => { const rel = path.relative(os.homedir(), p); return !rel.startsWith('..') && !path.isAbsolute(rel); };
   const candidates = [path.join(RUN_DIR, 'local'), process.env.PUBLIC && path.join(process.env.PUBLIC, 'shellherd-demo-local')].filter(Boolean);
   const dir = candidates.find(p => !inside(p));
-  if (!dir) throw new Error('Kein Ort für die lokale Spalte ohne Benutzernamen: SHELLHERD_RUN_DIR außerhalb des Benutzerordners setzen (z. B. C:\shellherd-run).');
+  if (!dir) throw new Error('Kein Ort für die lokale Spalte ohne Benutzernamen: SHELLHERD_RUN_DIR außerhalb des Benutzerordners setzen (z. B. C:\\shellherd-run).');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'readme.txt'), 'Demo files\nfor the local pane\n');
   fs.writeFileSync(path.join(dir, 'deploy.sh'), '#!/bin/sh\necho deploy\n');
