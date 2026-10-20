@@ -98,5 +98,6 @@ Häufige Wege:
 - **Host-Schlüssel** liegt in `shellherd-run\sshd-host-key`. Nach einem neuen Schlüssel `profile\Shellherd\known-hosts.json` löschen (und `demo.term`, s. o.), sonst lehnt die App den Server als „Schlüssel geändert“ ab.
 - **openssl fehlt:** Der Kubernetes-Fake wird übersprungen (kein `prod-k8s`). Gesucht wird `$OPENSSL`, `openssl` im PATH, dann `C:\Program Files\Git\mingw64\bin` und `C:\Program Files\Git\usr\bin`.
 - **„Dieser Computer“** erscheint in der Seitenleiste, wenn Docker lokal installiert ist.
-- **Lokale SFTP-Spalte** zeigt sonst den Windows-Benutzernamen im Pfad: `SHELLHERD_RUN_DIR` ohne Benutzernamen setzen (z. B. `C:\shellherd-run`), dann zeigt `screens.mjs` synthetische Dateien.
+- **Lokale SFTP-Spalte:** Liegt der Run-Ordner außerhalb des Benutzerprofils, nutzt `screens.mjs` `<RUN_DIR>\local`. Sonst weicht es auf `%PUBLIC%\shellherd-demo-local` aus (drei kleine Dateien bleiben dort liegen). Geht auch das nicht, bricht der sftp-Block ab, statt echte Ordner zu fotografieren. Tipp: `SHELLHERD_RUN_DIR` außerhalb des Profils setzen (z. B. `C:\shellherd-run`).
+- **Testserver hängt:** Der npm-Wrapper endet, der Node-Kindprozess kann weiterlaufen und die Ports 2222/9334/9335 belegen. Beenden: `Get-CimInstance Win32_Process | ? CommandLine -like '*run-app*sshd.mjs*' | % { Stop-Process -Id $_.ProcessId }`, danach mit `Get-NetTCPConnection -LocalPort 2222,9334,9335 -ErrorAction SilentlyContinue` prüfen, dass die Ports frei sind.
 - RDP und lokale Container brauchen echte Gegenstellen und sind mit dem Testserver nicht abgedeckt.
