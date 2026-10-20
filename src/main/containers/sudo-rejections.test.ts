@@ -63,9 +63,6 @@ describe('SudoRejections', () => {
     expect(rejections.isRejected('h1', 'b')).toBe(false);
     expect(rejections.isRejected('h2', 'a')).toBe(false);
     rejections.markRejected('h2', 'a');
-    rejections.clear('h1');
-    expect(rejections.isRejected('h1', 'a')).toBe(false);
-    expect(rejections.isRejected('h2', 'a')).toBe(true);
     rejections.clearAll();
     expect(rejections.isRejected('h2', 'a')).toBe(false);
   });

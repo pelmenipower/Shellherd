@@ -3,6 +3,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { spawn } from 'node:child_process';
 import { extname, win32 } from 'node:path';
 import { z } from 'zod';
+import { parseRequest } from '../ssh/validation';
 import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import type { EditorChoice } from '../../shared/sftp';
@@ -55,18 +56,12 @@ export async function openForEditing(path: string, editor: EditorChoice = 'defau
   if (editorFor(path, editor) === 'notepad' || await shell.openPath(path)) openInNotepad(path);
 }
 
-function parse<T>(schema: z.ZodType<T>, request: unknown): T {
-  const result = schema.safeParse(request);
-  if (!result.success) throw new AppError('files.invalidRequest');
-  return result.data;
-}
-
 /** Registers a handler whose errors reach the window as readable text, never as internal details. */
 function handle<T>(channel: string, schema: z.ZodType<T>, run: (ownerId: number, request: T) => unknown): void {
   ipcMain.handle(channel, async (event: IpcMainInvokeEvent, request: unknown) => {
     const ownerId = requireSshSender(event);
     vaultSessionManager.getSnapshot();
-    const parsed = parse(schema, request);
+    const parsed = parseRequest(schema, request, 'files.invalidRequest');
     try { return await run(ownerId, parsed); } catch (error) { throw AppError.from(fileError(error)); }
   });
 }

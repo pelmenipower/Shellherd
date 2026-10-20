@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import type { BrowserWindow, Rectangle } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { parseRequest } from './ssh/validation';
 import { IPC_CHANNELS } from '../shared/ipc';
 import { AppError } from '../shared/errors';
 import { WorkspaceLayoutSchema, WorkspaceViewsSchema } from '../shared/vault/schema';
@@ -51,12 +52,6 @@ const BoundsSchema = z.object({ x: z.number().int(), y: z.number().int(), width:
 const SavedSchema = { layout: WorkspaceLayoutSchema, views: WorkspaceViewsSchema.optional() };
 const WindowsSchema = z.array(z.object({ bounds: BoundsSchema, ...SavedSchema }).strict()).max(8);
 const ReportSchema = z.object({ requestId: z.string().uuid(), report: z.object(SavedSchema).strict().nullable() }).strict();
-
-function parse<T>(schema: z.ZodType<T>, value: unknown): T {
-  const result = schema.safeParse(value);
-  if (!result.success) throw new AppError('core.invalidWindowRequest');
-  return result.data;
-}
 
 export interface WindowIpcDependencies {
   registry: WindowRegistry;
@@ -135,7 +130,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSeco
 
   ipcMain.handle(IPC_CHANNELS.tabTransfer, async (event, request: unknown) => {
     const from = requireSshSender(event);
-    const parsed = parse(TransferSchema, request);
+    const parsed = parseRequest(TransferSchema, request, 'core.invalidWindowRequest');
     vaultSessionManager.getSnapshot();
     clearHover(from);
     if (parsed.session && !{ terminal: ssh, rdp, sftp }[parsed.session.kind].owns(from, parsed.session.sessionId)) throw new AppError('core.viewSessionUnavailable');
@@ -147,7 +142,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSeco
 
   ipcMain.handle(IPC_CHANNELS.viewTransfer, async (event, request: unknown) => {
     const from = requireSshSender(event);
-    const parsed = parse(ViewTransferSchema, request);
+    const parsed = parseRequest(ViewTransferSchema, request, 'core.invalidWindowRequest');
     vaultSessionManager.getSnapshot();
     clearHover(from);
     if (parsed.tabs.reduce((total, tab) => total + (tab.snapshot?.length ?? 0), 0) > 32 * 1024 * 1024) throw new AppError('core.viewTooLarge');
@@ -165,7 +160,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSeco
   ipcMain.on(IPC_CHANNELS.tabDragMove, (event, value: unknown) => {
     let from: number;
     let point: z.infer<typeof DragSchema>;
-    try { from = requireSshSender(event as never); point = parse(DragSchema, value); } catch { return; }
+    try { from = requireSshSender(event as never); point = parseRequest(DragSchema, value, 'core.invalidWindowRequest'); } catch { return; }
     if (!point) { clearHover(from); return; }
     const target = registry.windowAt(point, from);
     const previous = hovered.get(from);
@@ -203,7 +198,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSeco
 
   ipcMain.handle(IPC_CHANNELS.workspaceReport, (event, value: unknown) => {
     requireSshSender(event);
-    const parsed = parse(ReportSchema, value);
+    const parsed = parseRequest(ReportSchema, value, 'core.invalidWindowRequest');
     reports.get(parsed.requestId)?.(parsed.report);
     reports.delete(parsed.requestId);
   });
@@ -211,7 +206,7 @@ export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSeco
   ipcMain.handle(IPC_CHANNELS.workspaceOpenWindows, async (event, value: unknown) => {
     registry.requireMain(event);
     vaultSessionManager.getSnapshot();
-    for (const item of parse(WindowsSchema, value)) {
+    for (const item of parseRequest(WindowsSchema, value, 'core.invalidWindowRequest')) {
       const window = createSecondary(visibleBounds(item.bounds));
       await registry.whenReady(window.webContents.id);
       send(window, IPC_CHANNELS.workspaceRestore, { layout: item.layout, ...(item.views ? { views: item.views } : {}) });

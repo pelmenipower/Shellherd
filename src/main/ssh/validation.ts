@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AppError } from '../../shared/errors';
+import { AppError, type ErrorCode } from '../../shared/errors';
 import { TerminalTargetSchema } from '../../shared/containers-schema';
 import { KubeTerminalTargetSchema } from '../../shared/kubernetes-schema';
 
@@ -11,8 +11,8 @@ export const InputSchema = z.object({ ...session, data: z.string().max(16_384) }
 export const ResizeSchema = z.object({ ...session, ...size }).strict();
 export const AckSchema = z.object({ ...session, sequence: z.number().int().positive() }).strict();
 
-export function parseRequest<T>(schema: z.ZodType<T>, request: unknown): T {
+export function parseRequest<T>(schema: z.ZodType<T>, request: unknown, code: ErrorCode = 'ssh.invalidRequest'): T {
   const result = schema.safeParse(request);
-  if (!result.success) throw new AppError('ssh.invalidRequest');
+  if (!result.success) throw new AppError(code);
   return result.data;
 }

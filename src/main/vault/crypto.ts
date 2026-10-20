@@ -11,10 +11,7 @@ import type { ErrorCode } from '../../shared/errors';
 import { validateVaultConsistency } from '../../shared/vault/consistency';
 import type { VaultConsistencyIssueCode } from '../../shared/vault/consistency';
 import { parseVaultDocument } from '../../shared/vault/migrations';
-import {
-  EncryptedVaultFileSchema,
-  VaultSchema,
-} from '../../shared/vault/schema';
+import { VaultSchema } from '../../shared/vault/schema';
 
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import type { Vault } from '../../shared/vault/types';
@@ -160,25 +157,6 @@ export function encryptDocumentWithKey(
     };
   } finally {
     plaintext.fill(0);
-  }
-}
-
-export async function decryptVault(
-  input: unknown,
-  password: string,
-): Promise<Vault> {
-  const parsedFile = EncryptedVaultFileSchema.safeParse(input);
-
-  if (!parsedFile.success) {
-    throw new AppError('core.vaultFileCorrupt');
-  }
-
-  const unlocked = await unlockVault(parsedFile.data, password);
-
-  try {
-    return unlocked.vault;
-  } finally {
-    unlocked.key.fill(0);
   }
 }
 

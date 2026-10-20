@@ -4,8 +4,8 @@ import {
   it,
 } from 'vitest';
 
+import { decryptVault } from '../../test/vault-helpers';
 import {
-  decryptVault,
   encryptVault,
   encryptVaultWithKey,
   unlockVault,

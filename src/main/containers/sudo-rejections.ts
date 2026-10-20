@@ -48,6 +48,5 @@ export class SudoRejections {
 
   isRejected(connectionId: string, fingerprint: string): boolean { return this.rejected.get(connectionId) === fingerprint; }
   markRejected(connectionId: string, fingerprint: string): void { this.rejected.set(connectionId, fingerprint); }
-  clear(connectionId: string): void { this.rejected.delete(connectionId); }
   clearAll(): void { this.rejected.clear(); }
 }

@@ -1,7 +1,8 @@
 import { useCallback, useReducer, useRef } from 'react';
 import { itemKey, toTarget } from '../../../shared/containers';
 import type { ContainerAction, DiscoveredItem } from '../../../shared/containers';
-import { containerTreeReducer, ipcMessage } from '../container-tree';
+import { containerTreeReducer } from '../container-tree';
+import { errorText } from '../error-text';
 import { t } from '../i18n';
 
 export function useContainerDiscovery() {
@@ -17,7 +18,7 @@ export function useContainerDiscovery() {
       const result = await window.desktopApi.containersList({ hostId });
       if (isLatest()) dispatch({ type: 'loaded', hostId, result });
     } catch (error) {
-      if (isLatest()) dispatch({ type: 'failed', hostId, message: ipcMessage(error, t('containers:loadFailed')) });
+      if (isLatest()) dispatch({ type: 'failed', hostId, message: errorText(error, t('containers:loadFailed')) });
     }
   }, []);
   /** Reloads the host afterwards; on failure the item keeps showing the message through the reload. */
@@ -29,7 +30,7 @@ export function useContainerDiscovery() {
       dispatch({ type: 'busy', hostId, key, busy: false });
     } catch (error) {
       dispatch({ type: 'busy', hostId, key, busy: false });
-      dispatch({ type: 'notice', hostId, key, message: ipcMessage(error, t('containers:actionFailed')) });
+      dispatch({ type: 'notice', hostId, key, message: errorText(error, t('containers:actionFailed')) });
     }
     await load(hostId);
   }, [load]);

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { exampleVault } from '../../shared/vault/example';
-import { decryptVault, encryptVault } from './crypto';
+import { encryptVault } from './crypto';
+import { decryptVault } from '../../test/vault-helpers';
 
 const TEST_OPTIONS = {
   memoryKiB: 16_384,

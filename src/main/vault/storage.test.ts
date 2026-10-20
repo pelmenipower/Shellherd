@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { decryptVault } from './crypto';
+import { decryptVault } from '../../test/vault-helpers';
 import {
   ensureVaultFileExtension,
   readEncryptedVaultFile,

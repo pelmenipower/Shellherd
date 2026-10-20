@@ -13,10 +13,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  decryptVault,
-  encryptVault,
-} from './crypto';
+import { encryptVault } from './crypto';
+import { decryptVault } from '../../test/vault-helpers';
 import {
   readEncryptedVaultFile,
   writeEncryptedVaultFile,
