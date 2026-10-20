@@ -97,6 +97,13 @@ function remoteTarget(fields: ConnectionFields): { host: string; port: number; u
   return { host: fields.host.trim(), port, ...(fields.username.trim() ? { username: fields.username.trim() } : {}) };
 }
 
+/** Bindings are edited in the file view, never in the form: saving the form keeps the stored list. */
+export function keepAutoUpload(updated: ConnectionNode, existing: VaultNode | undefined): ConnectionNode {
+  if ((updated.protocol !== 'ssh' && updated.protocol !== 'sftp') || existing?.type !== 'connection'
+    || existing.protocol !== updated.protocol || !existing.autoUpload?.length) return updated;
+  return { ...updated, autoUpload: existing.autoUpload };
+}
+
 export function connectionFromFields(id: string, fields: ConnectionFields, protocol: ConnectionProtocol = 'ssh'): ConnectionNode {
   if (!fields.name.trim()) throw new ConnectionFieldError('name', t('connection:validation.nameMissing'));
   const base = {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folderOptions, parentFolderId } from './connection-form';
+import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folderOptions, keepAutoUpload, parentFolderId } from './connection-form';
 import { redactSecrets } from '../../shared/vault/connections';
 import type { ConnectionFields } from './connection-form';
 import type { VaultNode } from '../../shared/vault/types';
@@ -151,5 +151,26 @@ describe('disabled connections in the editor', () => {
     expect(message({ accessHosts: ['a'], namespace: 'Bad Name' }, 'kubernetes')).toBe('Gib einen gültigen Namespace ein, z. B. default.');
     expect(message({ color: 'red' })).toBe('Gib die Farbe als #RRGGBB an.');
     expect(message({ icon: 'nope' as ConnectionFields['icon'] })).toBe('Wähle ein verfügbares Symbol.');
+  });
+});
+
+describe('keepAutoUpload', () => {
+  const list = [{ id: 'b1', localPath: 'C:\\x', remotePath: '/x', excludes: [], enabled: true }];
+  const existing = (protocol: 'ssh' | 'sftp'): VaultNode => ({ ...connectionFromFields('id', fields, protocol), autoUpload: list } as VaultNode);
+
+  it('keeps the stored list on a freshly built SSH or SFTP node', () => {
+    for (const protocol of ['ssh', 'sftp'] as const) {
+      expect(keepAutoUpload(connectionFromFields('id', fields, protocol), existing(protocol))).toMatchObject({ autoUpload: list });
+    }
+  });
+
+  it('returns the node unchanged without a stored list or for another protocol', () => {
+    const updated = connectionFromFields('id', fields);
+    expect(keepAutoUpload(updated, undefined)).toBe(updated);
+    expect(keepAutoUpload(updated, connectionFromFields('id', fields))).toBe(updated);
+    expect(keepAutoUpload(updated, { ...existing('ssh'), autoUpload: [] } as VaultNode)).toBe(updated);
+    expect(keepAutoUpload(updated, existing('sftp'))).toBe(updated);
+    const rdp = connectionFromFields('id', fields, 'rdp');
+    expect(keepAutoUpload(rdp, existing('ssh'))).toBe(rdp);
   });
 });

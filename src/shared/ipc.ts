@@ -7,7 +7,7 @@ import type {
   ContainerAction, ContainerHostId, ContainerInventory, ContainerRuntime, ContainerTarget, DiscoveryResult, InventoryAction, InventoryRef,
 } from './containers';
 import type { ConnectionCatalog, ExternalDragHover, IncomingTab, IncomingView, TabTransferRequest, ViewTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
-import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditRequest } from './sftp';
+import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditRequest, SftpSyncRequest } from './sftp';
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
@@ -58,6 +58,9 @@ export const IPC_CHANNELS = {
   sftpEditOpen: 'sftp:edit-open',
   sftpEditUpload: 'sftp:edit-upload',
   sftpEditClose: 'sftp:edit-close',
+  sftpSyncStart: 'sftp:sync-start',
+  sftpSyncStop: 'sftp:sync-stop',
+  sftpSyncForce: 'sftp:sync-force',
   sftpEvent: 'sftp:event',
   localPlaces: 'local:places',
   localList: 'local:list',
@@ -201,6 +204,9 @@ export interface DesktopApi {
   sftpEditOpen: (request: SftpEditRequest) => Promise<void>;
   sftpEditUpload: (request: SftpEditRequest) => Promise<void>;
   sftpEditClose: (request: SftpEditRequest) => Promise<void>;
+  sftpSyncStart: (request: SftpSyncRequest) => Promise<void>;
+  sftpSyncStop: (request: SftpSyncRequest) => Promise<void>;
+  sftpSyncForce: (request: SftpSyncRequest) => Promise<void>;
   onSftpEvent: (listener: (event: SftpEvent) => void) => () => void;
   localPlaces: () => Promise<LocalPlaces>;
   localList: (request: LocalPathRequest) => Promise<DirectoryListing>;

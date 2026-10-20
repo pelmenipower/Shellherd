@@ -142,7 +142,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
           : current.some(item => item.id === edit.id) ? current.map(item => item.id === edit.id ? edit : item) : [...current, edit]);
         if (edit.state === 'saved') refresh('remote');
       }
-      else {
+      else if (event.type === 'transfer') {
         setJobs(current => current.some(job => job.id === event.job.id)
           ? current.map(job => job.id === event.job.id ? event.job : job) : [...current, event.job]);
         if (isFinished(event.job)) {
