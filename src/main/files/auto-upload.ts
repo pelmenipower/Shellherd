@@ -39,6 +39,8 @@ interface Bound {
   remoteRoot: string;
   /** Server time after our last upload, per relative path: a different time means someone else wrote the file. */
   known: Map<string, number>;
+  /** Local modification time of our last upload, per relative path. */
+  sent: Map<string, number>;
   /** Uncapped; the status shows the first 100. */
   skipped: Set<string>;
   forced: Set<string>;
@@ -55,6 +57,8 @@ interface Bound {
   full: boolean;
   checkingRoot: boolean;
   closed: boolean;
+  retries: number;
+  current?: Promise<void>;
 }
 
 /** Local folders mirrored into server folders: one way, never deletes (uploads always run with `move: false`). */
@@ -69,10 +73,11 @@ export class AutoUploads {
 
   /** Registers and reports the binding synchronously, then checks folders and starts the watcher; the first full comparison runs in the background. Never rejects for binding problems: they end as state 'error'. A running binding with the same id is stopped first. */
   async start(binding: AutoUploadBinding): Promise<void> {
+    const previous = this.bound.get(binding.id)?.current;
     this.stop(binding.id);
     const b: Bound = { status: { bindingId: binding.id, localPath: binding.localPath, remotePath: binding.remotePath, state: 'syncing', synced: 0, failed: [] },
-      matcher: compileExcludes(binding.excludes), key: pathKey(binding.localPath), root: '', remoteRoot: '', known: new Map(), skipped: new Set(),
-      forced: new Set(), pending: new Map(), controller: new AbortController(), running: false, again: false, full: false, checkingRoot: false, closed: false,
+      matcher: compileExcludes(binding.excludes), key: pathKey(binding.localPath), root: '', remoteRoot: '', known: new Map(), sent: new Map(), skipped: new Set(),
+      forced: new Set(), pending: new Map(), controller: new AbortController(), running: false, again: false, full: false, checkingRoot: false, closed: false, retries: 0,
       job: { id: binding.id, direction: 'upload', move: false, label: '', entryCount: 0, targetDir: '', state: 'running', totalBytes: 0, doneBytes: 0,
         totalFiles: 0, doneFiles: 0, skippedFiles: 0 } };
     this.bound.set(binding.id, b);
@@ -82,6 +87,8 @@ export class AutoUploads {
       for (const other of this.bound.values()) {
         if (other !== b && (other.key.startsWith(b.key) || b.key.startsWith(other.key))) throw new FileError('files.syncOverlap');
       }
+      await previous;
+      if (b.closed) return;
       const info = await lstat(binding.localPath).catch(() => null);
       if (!info || !info.isDirectory() && !info.isSymbolicLink()) throw new FileError('files.syncLocalMissing');
       if (info.isSymbolicLink()) throw new FileError('files.syncLocalLink');
@@ -159,6 +166,12 @@ export class AutoUploads {
   private async flush(b: Bound): Promise<void> {
     if (b.closed || b.status.state === 'error') return;
     if (b.running) { b.again = true; return; }
+    b.current = this.drain(b);
+    return b.current;
+  }
+
+  /** Never rejects. */
+  private async drain(b: Bound): Promise<void> {
     b.running = true;
     b.firstAt = undefined;
     try {
@@ -192,7 +205,15 @@ export class AutoUploads {
     const children = (await this.deps.local.list(b.root))
       .filter(entry => !unsafeLocalName(entry.name) && !skip(win32.join(b.root, entry.name), entry))
       .map(entry => win32.join(b.root, entry.name));
-    const { items } = await planTransfer(this.deps.local, this.remote, children, b.remoteRoot, b.controller.signal, skip);
+    let items: PlannedItem[];
+    try { ({ items } = await planTransfer(this.deps.local, this.remote, children, b.remoteRoot, b.controller.signal, skip)); }
+    catch (error) {
+      const code = fileError(error).code;
+      // Files vanish while a checkout or build runs: compare again once it settles, a few times at most.
+      if ((code === 'files.sourceNotFound' || code === 'files.notFound') && b.retries < 3) { b.retries += 1; b.full = true; this.schedule(b); return; }
+      throw error;
+    }
+    b.retries = 0;
     for (const item of items) await this.upload(b, item, false);
   }
 
@@ -237,7 +258,7 @@ export class AutoUploads {
       }
       const { items } = await planTransfer(this.deps.local, this.remote, [abs], parent, b.controller.signal, this.skipFor(b));
       for (const item of items) await this.upload(b, item, overwrite);
-    } catch (error) { this.itemFailed(b, rel, error); }
+    } catch (error) { await this.itemFailed(b, rel, abs, error); }
   }
 
   private async upload(b: Bound, item: PlannedItem, overwrite: boolean): Promise<void> {
@@ -246,15 +267,19 @@ export class AutoUploads {
     try {
       await runTransfer(b.job, [item], this.deps.local, this.remote, { progress: () => {}, conflict: async ({ source, target }) => {
         const known = b.known.get(rel);
-        const newer = (known !== undefined && Math.abs(target.modified - known) > 1000) || target.modified > source.modified + 1000;
+        const sent = b.sent.get(rel);
+        // Rule 1: the server copy changed since our upload; rule 2 only without our own upload in this session.
+        const newer = known !== undefined ? Math.abs(target.modified - known) > 1000 : target.modified > source.modified + 1000;
         if (newer && !overwrite) b.skipped.add(rel);
-        const unchanged = Math.abs(target.modified - source.modified) <= 1000 && target.size === source.size;
+        // Our own upload: exact local time; otherwise the size and ±1 s comparison of the start.
+        const unchanged = target.size === source.size && (sent !== undefined ? source.modified === sent : Math.abs(target.modified - source.modified) <= 1000);
         return { choice: overwrite || (!newer && !unchanged) ? 'overwrite' : 'skip', applyToAll: false };
       } }, b.controller.signal);
-    } catch (error) { this.itemFailed(b, rel, error); return; }
+    } catch (error) { await this.itemFailed(b, rel, item.source, error); return; }
     if (b.job.doneFiles > before) {
       // The server may refuse our modification time, so read back what it keeps.
       b.known.set(rel, (await this.remote.stat(item.target).catch(() => null))?.modified ?? item.modified);
+      b.sent.set(rel, item.modified);
       b.skipped.delete(rel);
       b.status.synced += 1;
       b.status.last = { name: item.name, at: Date.now() };
@@ -264,11 +289,11 @@ export class AutoUploads {
     this.publish(b);
   }
 
-  private itemFailed(b: Bound, rel: string, error: unknown): void {
+  private async itemFailed(b: Bound, rel: string, source: string, error: unknown): Promise<void> {
     if (error instanceof TransferCanceled || b.controller.signal.aborted) throw new TransferCanceled();
     const coded = fileError(error);
-    // Deleted locally in the meantime.
-    if (coded.code === 'files.sourceNotFound' || coded.code === 'files.notFound') return;
+    // Only a local deletion is ignored; a missing server folder has the same code and must show as a failure.
+    if ((coded.code === 'files.sourceNotFound' || coded.code === 'files.notFound') && !(await lstat(source).catch(() => null))) return;
     if (!b.status.failed.includes(rel) && b.status.failed.length < MAX_LISTED) b.status.failed.push(rel);
     b.status.error = coded;
     this.publish(b);
@@ -284,6 +309,7 @@ export class AutoUploads {
   }
 
   private setState(b: Bound, state: 'syncing' | 'watching'): void {
+    if (b.closed || b.status.state === 'error') return;
     b.status.state = state;
     this.publish(b, true);
   }

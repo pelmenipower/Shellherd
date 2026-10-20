@@ -13,8 +13,9 @@ interface Node { type: 'file' | 'directory'; data: Buffer; modified: number }
 const dir = (): Node => ({ type: 'directory', data: Buffer.alloc(0), modified: 0 });
 const file = (text: string, modified: number): Node => ({ type: 'file', data: Buffer.from(text), modified });
 
-function fakeRemote(options: { keepUploadTime?: boolean; failOn?: string } = {}) {
+function fakeRemote(options: { keepUploadTime?: boolean; failOn?: string; missingOn?: string; writeDelayMs?: number } = {}) {
   const nodes = new Map<string, Node>([['/', dir()], ['/srv', dir()]]);
+  const log: string[] = [];
   const calls = { removeFile: 0, removeDirectory: 0, stat: [] as string[] };
   const entry = (path: string, node: Node) => ({ name: posix.basename(path), type: node.type, size: node.data.length, modified: node.modified, mode: 0o644 });
   const stat = async (path: string) => { calls.stat.push(path); const node = nodes.get(path); return node ? entry(path, node) : null; };
@@ -22,20 +23,21 @@ function fakeRemote(options: { keepUploadTime?: boolean; failOn?: string } = {})
     realpath: async (path: string) => { if (!nodes.has(path)) throw Object.assign(new Error('missing'), { code: 2 }); return path; },
     mkdir: async (path: string) => { nodes.set(path, dir()); },
     write: (path: string) => {
+      log.push(`write:${path}`);
       const chunks: Buffer[] = [];
       return new Writable({ write(chunk: Buffer, _encoding, callback) { chunks.push(chunk); callback(); },
         final(callback) {
           if (options.failOn && path.includes(options.failOn)) return callback(new Error('boom'));
-          nodes.set(path, { type: 'file', data: Buffer.concat(chunks), modified: Date.now() });
-          callback();
+          if (options.missingOn && path.includes(options.missingOn)) return callback(Object.assign(new Error('no such file'), { code: 2 }));
+          setTimeout(() => { nodes.set(path, { type: 'file', data: Buffer.concat(chunks), modified: Date.now() }); callback(); }, options.writeDelayMs ?? 0);
         } });
     },
     setModified: async (path: string, modified: number) => { const node = nodes.get(path); if (node && !options.keepUploadTime) node.modified = modified; },
-    removeFile: async (path: string) => { calls.removeFile += 1; nodes.delete(path); },
+    removeFile: async (path: string) => { log.push(`removeFile:${path}`); calls.removeFile += 1; nodes.delete(path); },
     removeDirectory: async (path: string) => { calls.removeDirectory += 1; nodes.delete(path); },
     rename: async (from: string, to: string) => { nodes.set(to, nodes.get(from)!); nodes.delete(from); },
   } as unknown as RemoteFileSystem;
-  return { remote, nodes, calls };
+  return { remote, nodes, calls, log };
 }
 
 const roots: string[] = [];
@@ -163,6 +165,81 @@ describe('AutoUploads', () => {
     s.auto.handleEvent(s.binding().id, 'change', 'a.txt');
     await waitFor(() => text(s.nodes, '/srv/a.txt') === 'second version');
     expect(s.status().skipped).toEqual([]);
+  });
+
+  it('uploads a same-size change within a second of the previous upload', async () => {
+    const s = setup();
+    const T = Date.now() - 5000;
+    s.write('a.txt', 'aaa', T);
+    await s.auto.start(s.binding());
+    await s.ready();
+    expect(text(s.nodes, '/srv/a.txt')).toBe('aaa');
+    s.write('a.txt', 'bbb', T + 500);
+    s.auto.handleEvent(s.binding().id, 'change', 'a.txt');
+    await waitFor(() => text(s.nodes, '/srv/a.txt') === 'bbb');
+    expect(s.status().skipped).toEqual([]);
+  });
+
+  it('uploads a same-size change within a second when the server keeps its own time', async () => {
+    const s = setup({ keepUploadTime: true });
+    s.write('a.txt', 'aaa', Date.now() - 5000);
+    await s.auto.start(s.binding());
+    await s.ready();
+    s.write('a.txt', 'bbb', Date.now());
+    s.auto.handleEvent(s.binding().id, 'change', 'a.txt');
+    await waitFor(() => text(s.nodes, '/srv/a.txt') === 'bbb');
+    expect(s.status().skipped).toEqual([]);
+  });
+
+  it('compares again when a file vanishes during the full comparison', async () => {
+    const s = setup();
+    s.write('gone.txt', 'g');
+    s.write('other.txt', 'o');
+    let calls = 0;
+    const stat: typeof localFileSystem.stat = async path => (path.endsWith('gone.txt') && calls++ === 0 ? null : localFileSystem.stat(path));
+    const auto = new AutoUploads(s.remote, { local: { ...localFileSystem, stat }, settleMs: 30, maxWaitMs: 250, emit: () => {} });
+    active.push(auto);
+    await auto.start(s.binding());
+    await waitFor(() => text(s.nodes, '/srv/other.txt') === 'o' && text(s.nodes, '/srv/gone.txt') === 'g');
+    await waitFor(() => auto.list()[0]?.state === 'watching');
+    expect(auto.list()[0].error).toBeUndefined();
+  });
+
+  it('ends in error when a file keeps vanishing during the full comparison', async () => {
+    const s = setup();
+    s.write('gone.txt', 'g');
+    const stat: typeof localFileSystem.stat = async path => (path.endsWith('gone.txt') ? null : localFileSystem.stat(path));
+    const auto = new AutoUploads(s.remote, { local: { ...localFileSystem, stat }, settleMs: 30, maxWaitMs: 250, emit: () => {} });
+    active.push(auto);
+    await auto.start(s.binding());
+    await waitFor(() => auto.list()[0]?.state === 'error', 4000);
+    expect(auto.list()[0].error?.code).toBe('files.sourceNotFound');
+  });
+
+  it('reports a missing server folder as failed instead of ignoring it', async () => {
+    const s = setup({ missingOn: 'x.txt' });
+    await s.auto.start(s.binding());
+    await s.ready();
+    s.write('x.txt', 'x', Date.now());
+    s.auto.handleEvent(s.binding().id, 'rename', 'x.txt');
+    await waitFor(() => s.status().failed.length === 1);
+    expect(s.status().failed).toEqual(['x.txt']);
+    expect(s.status().error?.code).toBe('files.notFound');
+  });
+
+  it('a restarted binding waits for the aborted run before touching the same .part', async () => {
+    const s = setup({ writeDelayMs: 300 });
+    await s.auto.start(s.binding());
+    await s.ready();
+    s.write('big.txt', 'content', Date.now());
+    s.auto.handleEvent(s.binding().id, 'rename', 'big.txt');
+    await waitFor(() => s.log.includes('write:/srv/big.txt.part'));
+    s.auto.stop(s.binding().id);
+    await s.auto.start(s.binding());
+    await waitFor(() => text(s.nodes, '/srv/big.txt') === 'content', 6000);
+    const writes = s.log.flatMap((entry, index) => entry === 'write:/srv/big.txt.part' ? [index] : []);
+    expect(s.log.indexOf('removeFile:/srv/big.txt.part')).toBeLessThan(writes[1]);
+    expect(s.nodes.has('/srv/big.txt')).toBe(true);
   });
 
   it('does not compare a folder on a plain change event', async () => {

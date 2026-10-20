@@ -101,8 +101,9 @@ describe.runIf(process.platform === 'win32')('SFTP auto-upload over a real SSH c
     expect(readFileSync(onServer('a.txt'), 'utf8')).toBe('first');
 
     writeFileSync(join(bound, 'b.txt'), 'one');
-    await waitFor(() => existsSync(onServer('b.txt')));
-    await waitFor(() => readFileSync(onServer('b.txt'), 'utf8') === 'one');
+    // Wait until the upload is booked (known server time recorded), not just until the file is there.
+    await waitFor(() => status(first)?.synced === 2);
+    expect(readFileSync(onServer('b.txt'), 'utf8')).toBe('one');
 
     // Someone else wrote a newer copy: the local change is skipped, not overwritten.
     utimesSync(onServer('b.txt'), 2_000_000_000, 2_000_000_000);
@@ -130,7 +131,7 @@ describe.runIf(process.platform === 'win32')('SFTP auto-upload over a real SSH c
 
     manager.close(1, first);
     expect(events.some(event => event.type === 'sync' && event.sessionId === first && event.closed === true)).toBe(true);
-  });
+  }, 30_000);
 });
 
 describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', () => {
