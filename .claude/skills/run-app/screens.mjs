@@ -74,20 +74,21 @@ const blocks = {
     await fill('.file-pane-local input[aria-label="Pfad"]', target);
     await key('Enter');
     await waitFor('lokale Spalte', `document.querySelector('.file-pane-local nav[aria-label="Pfad"]')?.textContent.includes(${JSON.stringify(segment)})`);
-    await pause(300);
-    await shot('sftp');
     // The demo vault survives runs, so a leftover binding (aborted run) is removed first and the block ends by removing its own.
     const removeBinding = async () => {
       await evaluate(`[...document.querySelectorAll('.file-sync-list .transfer-job button')].find(b => b.textContent.trim() === 'Entfernen')?.click()`);
       await waitFor('Bindung entfernen', `!document.querySelector('.file-sync-list .transfer-job')`);
     };
     if (await evaluate(`!!document.querySelector('.file-sync-list .transfer-job')`)) await removeBinding();
+    await pause(300);
+    await shot('sftp');
     await rclick('.file-pane-local .file-list');
     await menuItem('Auto-Upload einrichten …');
     await waitFor('Auto-Upload-Dialog', `document.querySelector('dialog.file-sync-dialog[open]')`);
     await pause(300);
     await shot('sftp-auto-upload-dialog');
-    await evaluate(`[...document.querySelectorAll('dialog.file-sync-dialog[open] .primary-button')].find(b => b.textContent.trim() === 'Auto-Upload starten')?.click()`);
+    // BusyButton carries hidden placeholder labels, so match by class: the dialog has one primary button.
+    await click('dialog.file-sync-dialog[open] .primary-button');
     await waitFor('Zeile Überwacht', `[...document.querySelectorAll('.file-sync-list .transfer-job')].some(j => j.textContent.includes('Überwacht'))`);
     await pause(300);
     await shot('sftp-auto-upload');
