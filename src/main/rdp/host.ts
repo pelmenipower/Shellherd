@@ -207,8 +207,16 @@ export class RdpSessionManager {
     if (debug) console.log(`[rdp ${timestamp()}] <-`, line);
     let message: { type?: string; sessionId?: string; status?: string; message?: string; active?: boolean; dynamicResolution?: boolean };
     try { message = JSON.parse(line); } catch { return; }
-    if (message.type === 'error') { console.warn('RDP-Helfer:', message.message); return; }
     const session = message.sessionId ? this.sessions.get(message.sessionId) : undefined;
+    if (message.type === 'error') {
+      // Only a failed open carries a sessionId; the helper never created a surface for it.
+      if (!session) { console.warn('RDP-Helfer:', message.message); return; }
+      session.failed = true;
+      session.status = 'error';
+      this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status: 'error', error: rdpStatusError('error', message.message) });
+      this.sessions.delete(session.id);
+      return;
+    }
     if (!session) return;
     if (message.type === 'capability' && message.dynamicResolution === false) { this.staticResolution.add(session.connectionId); return; }
     if (message.type === 'resizing') {

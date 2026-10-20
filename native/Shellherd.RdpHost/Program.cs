@@ -100,10 +100,11 @@ namespace Shellherd.RdpHost
         private void Handle(Dictionary<string, object> message)
         {
             string requestId = null;
+            string type = null;
             try
             {
                 requestId = Protocol.String(message, "requestId", false);
-                string type = Protocol.String(message, "type", true);
+                type = Protocol.String(message, "type", true);
                 switch (type)
                 {
                     case "open": Open(message, requestId); break;
@@ -117,7 +118,12 @@ namespace Shellherd.RdpHost
                     default: throw new FormatException("Unbekannter Nachrichtentyp: " + type);
                 }
             }
-            catch (Exception error) { SendError(requestId, error.Message); }
+            catch (Exception error)
+            {
+                // Only a failed open ends a session in the main process; errors on live sessions must not.
+                object id = null;
+                SendError(requestId, error.Message, type == "open" && message.TryGetValue("sessionId", out id) ? id as string : null);
+            }
         }
 
         private void Open(Dictionary<string, object> message, string requestId)
@@ -217,10 +223,11 @@ namespace Shellherd.RdpHost
             Protocol.Send(reply);
         }
 
-        private static void SendError(string requestId, string message)
+        private static void SendError(string requestId, string message, string sessionId = null)
         {
             var error = Protocol.Message("error");
             if (requestId != null) error["requestId"] = requestId;
+            if (sessionId != null) error["sessionId"] = sessionId;
             error["message"] = message;
             Protocol.Send(error);
         }
