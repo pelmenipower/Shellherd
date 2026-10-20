@@ -22,7 +22,8 @@ import type { ViewControls } from '../terminal-views';
 import { RDP_ACTIONS } from '../../../shared/rdp';
 import { TerminalTabs } from './TerminalTabs';
 import { ConnectionPicker } from './ConnectionPicker';
-import type { VaultNode } from '../../../shared/vault/types';
+import type { AutoUploadBinding, VaultNode } from '../../../shared/vault/types';
+import { findNode } from '../vault-selection';
 import { MAX_SSH_SESSIONS } from '../../../shared/ssh';
 import { searchVaultNodes } from '../vault-search';
 import '../terminal-ui.css';
@@ -47,7 +48,14 @@ interface Props {
   onPopout?: (connection: TerminalConnection) => void;
   /** Current view of a cluster tab, saved with the workspace; omitted windows do not save it. */
   onSnapshot?: (tabId: string, snapshot: KubeViewSnapshot) => void;
+  /** Persists the auto-upload bindings of a connection; omitted windows (secondary) cannot edit them. */
+  onSaveAutoUpload?: (connectionId: string, bindings: AutoUploadBinding[]) => Promise<boolean>;
 }
+const NO_BINDINGS: AutoUploadBinding[] = [];
+const bindingsOf = (nodes: VaultNode[], id: string): AutoUploadBinding[] => {
+  const node = findNode(nodes, id);
+  return node?.type === 'connection' && (node.protocol === 'ssh' || node.protocol === 'sftp') ? node.autoUpload ?? NO_BINDINGS : NO_BINDINGS;
+};
 /** Preview area of a dock zone inside a pane region (percent of the stage). */
 function zoneRect(region: { left: number; top: number; width: number; height: number }, zone: DockZone) {
   if (zone === 'left' || zone === 'right') return { ...region, width: region.width / 2, left: zone === 'left' ? region.left : region.left + region.width / 2 };
@@ -63,7 +71,7 @@ interface DockTarget {
   marker?: { left: number; top: number };
 }
 export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, focused, busy, onLayout, onFocus, onSelect, onStatus, onClose, draggedTabId, onDrag, visible = true,
-  externalHover = null, pendingDock = null, onDockHandled, onTearOff, viewControls, onPopout, onSnapshot }: Props) {
+  externalHover = null, pendingDock = null, onDockHandled, onTearOff, viewControls, onPopout, onSnapshot, onSaveAutoUpload }: Props) {
   const { t } = useT();
   const [viewDrop, setViewDrop] = useState<string | null>(null);
   const viewDropRef = useRef<string | null>(null);
@@ -405,7 +413,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           adopt: tab.adopt, initialStatus: tab.status };
         if (tab.connection.view === 'containers') return <ContainerView key={tab.id} tabId={tab.id} connection={tab.connection} visible={panel.visible}
           focused={panel.focused} style={panel.style} onFocus={panel.onFocus} onStatusChange={onStatus} onPopout={onPopout} />;
-        if (tab.connection.protocol === 'sftp') return <FilesPanel key={tab.id} {...panel} />;
+        if (tab.connection.protocol === 'sftp') return <FilesPanel key={tab.id} {...panel} bindings={bindingsOf(nodes, tab.connection.id)}
+          onSaveAutoUpload={onSaveAutoUpload ? list => onSaveAutoUpload(tab.connection.id, list) : undefined} />;
         if (tab.connection.protocol === 'kubernetes' && !tab.connection.kube) {
           return <ClusterView key={tab.id} tabId={tab.id} connection={tab.connection} visible={panel.visible} focused={panel.focused} style={panel.style}
             onFocus={panel.onFocus} onStatusChange={onStatus} onPopout={onPopout} initialView={tab.kubeView} onSnapshot={onSnapshot}

@@ -50,7 +50,8 @@
     "uploadButton": "Hochladen →",
     "downloadButton": "← Herunterladen",
     "renameTitle": "Umbenennen (F2)",
-    "deleteTitle": "Löschen (Entf)"
+    "deleteTitle": "Löschen (Entf)",
+    "autoUpload": "Auto-Upload einrichten …"
   },
   "panel": {
     "openFolderFailed": "Der Ordner konnte nicht geöffnet werden.",
@@ -123,18 +124,24 @@
     "remove": "Entfernen",
     "removeTitle": "Nur die Merkung wird entfernt, keine Dateien",
     "mainWindowOnly": "Nur im Hauptfenster",
+    "notConnected": "Nur mit Verbindung zum Server",
+    "skippedTitle_one": "Auto-Upload: {{count}} Datei übersprungen",
+    "skippedTitle_other": "Auto-Upload: {{count}} Dateien übersprungen",
+    "skippedBody": "Auf dem Server neuer: {{names}}",
+    "failedTitle": "Auto-Upload „{{name}}“ gestoppt",
+    "notSaved": "Auto-Upload nicht gespeichert",
     "dialog": {
       "titleNew": "Auto-Upload einrichten",
       "titleEdit": "Auto-Upload bearbeiten",
       "local": "Lokaler Ordner",
       "remote": "Server-Ordner",
       "excludes": "Ausschlüsse (eine Zeile je Muster)",
-      "excludesHint": "Ohne / gilt ein Muster auf jeder Ebene, mit führendem / nur ab dem gebundenen Ordner, mit abschließendem / nur für Ordner.  zählt wie /.",
+      "excludesHint": "Ohne / gilt ein Muster auf jeder Ebene, mit führendem / nur ab dem gebundenen Ordner, mit abschließendem / nur für Ordner. \\ zählt wie /.",
       "start": "Auto-Upload starten",
       "apply": "Übernehmen"
     },
     "errors": {
-      "localAbsolute": "Gib einen vollständigen Windows-Pfad an, z. B. C:Projekteapp.",
+      "localAbsolute": "Gib einen vollständigen Windows-Pfad an, z. B. C:\\Projekte\\app.",
       "remoteAbsolute": "Gib einen absoluten Server-Pfad an, der mit / beginnt.",
       "remoteRoot": "Das Wurzelverzeichnis / ist als Ziel nicht erlaubt.",
       "negation": "Ausnahmen mit ! werden nicht unterstützt.",

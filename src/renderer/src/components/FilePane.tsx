@@ -39,6 +39,10 @@ interface FilePaneProps {
   onPermissions?: (paths: string[], entries: FileEntry[]) => void;
   /** Files dragged in: from the other side or, for the server side, from Explorer. */
   onDrop: (drag: FileDrag | { external: string[] }, targetDir: string, move: boolean) => void;
+  /** Local side: set up auto-upload for a folder. */
+  onAutoUpload?: (localDir: string) => void;
+  /** Set: the menu entry is disabled and shows this text. */
+  autoUploadHint?: string;
 }
 
 type Prompt = { kind: 'mkdir'; value: string; error?: string } | { kind: 'file'; value: string; error?: string } | { kind: 'rename'; original: string; value: string; error?: string };
@@ -49,7 +53,7 @@ const COLUMN_KEYS = {
 } as const satisfies Record<SortKey, string>;
 
 export function FilePane({ tabId, side, title, listing, active, disabled, notice, home, drives, onActivate, onNavigate, onRefresh,
-  onMkdir, onRename, onDelete, onCopy, onDrop, onEdit, onCreateFile, onPermissions }: FilePaneProps) {
+  onMkdir, onRename, onDelete, onCopy, onDrop, onEdit, onCreateFile, onPermissions, onAutoUpload, autoUploadHint }: FilePaneProps) {
   const { t, i18n } = useT();
   const [sort, setSort] = useState<SortOrder>({ key: 'name', ascending: true });
   const [selected, setSelected] = useState<string[]>([]);
@@ -283,6 +287,11 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
         { kind: 'item', label: t('files:pane.newFolder'), hint: 'F7', onSelect: () => setPrompt({ kind: 'mkdir', value: '' }) },
         { kind: 'item', label: t('files:pane.refresh'), hint: `${t('common:keys.ctrl')}+R`, onSelect: onRefresh },
         { kind: 'item', label: t('files:pane.copyPath'), onSelect: () => { void window.desktopApi.writeClipboardText(menuTargets.length === 1 ? fullPaths(menuTargets)[0] : path ?? '').catch(() => {}); } },
+        ...(side === 'local' && onAutoUpload && path ? [
+          { kind: 'separator' as const },
+          { kind: 'item' as const, label: t('files:pane.autoUpload'), disabled: !!autoUploadHint, hint: autoUploadHint,
+            onSelect: () => onAutoUpload(menuFolder ? fullPaths([menuFolder.name])[0] : path) },
+        ] : []),
       ]} />}
       <footer className="file-pane-footer">
         <span>{selected.length ? (selectedBytes ? t('files:pane.selectedSize', { selected: selected.length, total: entries.length, size: formatSize(selectedBytes) })

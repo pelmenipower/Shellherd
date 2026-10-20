@@ -50,7 +50,8 @@
     "uploadButton": "Upload →",
     "downloadButton": "← Download",
     "renameTitle": "Rename (F2)",
-    "deleteTitle": "Delete (Del)"
+    "deleteTitle": "Delete (Del)",
+    "autoUpload": "Set up auto-upload…"
   },
   "panel": {
     "openFolderFailed": "The folder could not be opened.",
@@ -123,18 +124,24 @@
     "remove": "Remove",
     "removeTitle": "Only the binding is removed, no files",
     "mainWindowOnly": "Main window only",
+    "notConnected": "Only while connected to the server",
+    "skippedTitle_one": "Auto-upload: {{count}} file skipped",
+    "skippedTitle_other": "Auto-upload: {{count}} files skipped",
+    "skippedBody": "Newer on the server: {{names}}",
+    "failedTitle": "Auto-upload “{{name}}” stopped",
+    "notSaved": "Auto-upload not saved",
     "dialog": {
       "titleNew": "Set up auto-upload",
       "titleEdit": "Edit auto-upload",
       "local": "Local folder",
       "remote": "Server folder",
       "excludes": "Excludes (one pattern per line)",
-      "excludesHint": "Without / a pattern applies at every level, with a leading / only from the bound folder, with a trailing / only to folders.  counts as /.",
+      "excludesHint": "Without / a pattern applies at every level, with a leading / only from the bound folder, with a trailing / only to folders. \\ counts as /.",
       "start": "Start auto-upload",
       "apply": "Apply"
     },
     "errors": {
-      "localAbsolute": "Enter a full Windows path, e.g. C:Projectsapp.",
+      "localAbsolute": "Enter a full Windows path, e.g. C:\\Projects\\app.",
       "remoteAbsolute": "Enter an absolute server path starting with /.",
       "remoteRoot": "The root folder / is not allowed as target.",
       "negation": "Exceptions with ! are not supported.",
