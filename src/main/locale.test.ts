@@ -44,6 +44,16 @@ describe('LocaleStore', () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
+  it('throws and keeps the old state when saving fails', () => {
+    const store = new LocaleStore();
+    store.init({ settingsFile: join(dir, 'missing', 'settings.json'), systemLanguages: () => ['de-DE'] });
+    const listener = vi.fn();
+    store.subscribe(listener);
+    expect(() => store.set('en-US')).toThrowError(expect.objectContaining({ code: 'core.settingsWriteFailed' }));
+    expect(store.get().setting).toBe('system');
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('notifies when only the setting changes', () => {
     const store = new LocaleStore();
     store.init({ settingsFile: file, systemLanguages: () => ['de-DE'] });

@@ -52,6 +52,12 @@ describe('connection test (dry run)', () => {
     expect(distrusted.steps.at(-1)).toMatchObject({ step: 'hostKey', ok: false, note: { code: 'core.testHostKeyRejected' } });
   });
 
+  it('does not count the host key dialog against the timeout', async () => {
+    const slow = { ...trust, timeout: 300, verifyHost: () => new Promise<boolean>(resolve => setTimeout(() => resolve(true), 600)) };
+    const result = await testConnection(node('ssh', 'synthetic-secret'), slow);
+    expect(result.steps.map(step => [step.step, step.ok])).toEqual([['nameResolved', true], ['portReachable', true], ['hostKey', true], ['login', true]]);
+  });
+
   it('checks RDP reachability and local shells without connecting', async () => {
     const rdp: ConnectionNode = { id: 'r', type: 'connection', protocol: 'rdp', name: 'R', host: 'desk.test', port: 3389, rdp: { clipboard: true }, tags: [] };
     const reachable = await testConnection(rdp, { ...trust, probePort: async () => {} });

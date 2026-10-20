@@ -21,6 +21,8 @@ export interface ConnectionTestDependencies {
   resolve?: (host: string) => Promise<string>;
   probePort?: (host: string, port: number) => Promise<void>;
   locate?: (command: string) => Promise<string | null>;
+  /** SSH step timeout in ms; paused while the host key dialog is open. */
+  timeout?: number;
 }
 
 function probe(host: string, port: number): Promise<void> {
@@ -102,7 +104,9 @@ function testSsh(node: SshConnectionNode | SftpConnectionNode, dependencies: Con
       else if (!keyChecked) finish({ step: 'hostKey', note: publicError(error) });
       else finish({ step: 'login', note: publicError(error) });
     };
-    const timer = setTimeout(() => fail(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT', level: 'client-timeout' })), TIMEOUT);
+    const timeout = dependencies.timeout ?? TIMEOUT;
+    const startTimer = (): NodeJS.Timeout => setTimeout(() => fail(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT', level: 'client-timeout' })), timeout);
+    let timer = startTimer();
     client.on('connect', () => { reached = true; steps.push({ step: 'portReachable', params: { port: node.port }, ok: true }); });
     client.on('error', fail);
     client.on('close', () => finish());
@@ -117,16 +121,19 @@ function testSsh(node: SshConnectionNode | SftpConnectionNode, dependencies: Con
       });
     });
     void sshConnectConfig(node, (hostKey, callback) => {
+      clearTimeout(timer); // the user may take as long as needed in the dialog
+      const resume = (): void => { if (!finished) timer = startTimer(); };
       void dependencies.verifyHost(node.host, node.port, hostKey, () => !finished).then(valid => {
+        resume();
         keyChecked = valid;
         if (valid) steps.push({ step: 'hostKey', ok: true });
         else finish({ step: 'hostKey', note: { code: 'core.testHostKeyRejected' } });
         callback(valid && !finished);
-      }).catch(error => { finish({ step: 'hostKey', note: publicError(error) }); callback(false); });
+      }).catch(error => { resume(); finish({ step: 'hostKey', note: publicError(error) }); callback(false); });
     }).then(({ config, key: privateKey }) => {
       key = privateKey;
       if (finished) { key?.fill(0); return; }
-      client.connect({ ...config, readyTimeout: TIMEOUT, keepaliveInterval: 0 });
+      client.connect({ ...config, readyTimeout: 120_000, /* our timer governs; ssh2's would fire during the host key dialog */ keepaliveInterval: 0 });
     }).catch(error => finish({ step: 'credentials', note: publicError(error) }));
   });
 }
