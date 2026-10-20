@@ -561,6 +561,8 @@ describe('Kubernetes pod terminals', () => {
     const coded = await attempt();
     expect(coded).toMatchObject({ code: 'kubernetes.unauthorized' });
     expect((coded as { detail?: string }).detail).toBeUndefined();
+    failure = new AppError('kubernetes.readOnly');
+    expect(await attempt()).toMatchObject({ code: 'kubernetes.readOnly' });
     failure = new Error('boom');
     const generic = await attempt();
     expect(generic).toMatchObject({ code: 'ssh.podTerminalFailed' });

@@ -366,7 +366,7 @@ export function createKubeApi(config: KubeConfig): KubeApi {
 
     async eventsFor(ref) {
       return call(async () => {
-        const involved = `involvedObject.name=${ref.name}${ref.namespace ? `,involvedObject.namespace=${ref.namespace}` : ''}`;
+        const involved = `involvedObject.kind=${KIND_INFO[ref.kind].kind},involvedObject.name=${ref.name}${ref.namespace ? `,involvedObject.namespace=${ref.namespace}` : ''}`;
         const list = await objects().list('v1', 'Event', ref.namespace ?? undefined, undefined, undefined, undefined, involved);
         return list.items as KubeObject[];
       });

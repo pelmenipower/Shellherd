@@ -56,9 +56,11 @@ export async function readKubeconfig(host: RemoteHost, connection: SshConnection
 
   const probe = await host.run(shellJoin(['sh', '-lc', AUTO_SCRIPT]), READ_TIMEOUT);
   if (probe.timedOut || probe.code !== 0) throw runFailure(probe);
-  const newline = probe.stdout.indexOf('\n');
-  const header = (newline === -1 ? probe.stdout : probe.stdout.slice(0, newline)).replace(/\r$/, '');
-  const body = newline === -1 ? '' : probe.stdout.slice(newline + 1);
+  // Login profiles may print a banner before the header line.
+  const lines = probe.stdout.split('\n');
+  const index = lines.findIndex(line => line.startsWith('src:'));
+  const header = index === -1 ? '' : lines[index].replace(/\r$/, '');
+  const body = index === -1 ? '' : lines.slice(index + 1).join('\n');
   if (header === 'src:none') {
     throw new HostAccessError('kubernetes.kubeconfigNotFound', { host: connection.name });
   }

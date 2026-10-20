@@ -38,6 +38,14 @@ describe('readKubeconfig auto', () => {
     expect(result).toEqual({ text: CONFIG_YAML, source: '/home/admin/.kube/config' });
   });
 
+  it('skips login banner lines before the src header', async () => {
+    const host = fakeHost({ [AUTO_SCRIPT]: ok(`Welcome to Ubuntu
+src:/home/admin/.kube/config
+${CONFIG_YAML}`) });
+    const result = await readKubeconfig(host, ssh('cp1'), { source: 'auto' }, new SudoRejections());
+    expect(result).toEqual({ text: CONFIG_YAML, source: '/home/admin/.kube/config' });
+  });
+
   it('explains the options when sudo -n needs a password', async () => {
     const host = fakeHost({ [AUTO_SCRIPT]: ok('src:sudo\n'), 'sudo -n cat': { code: 1, stdout: '', stderr: 'sudo: a password is required' } });
     await expect(readKubeconfig(host, ssh('cp1'), { source: 'auto' }, new SudoRejections())).rejects.toMatchObject({ code: 'kubernetes.adminConfNeedsPassword' });

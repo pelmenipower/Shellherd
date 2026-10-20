@@ -425,7 +425,7 @@ export class SshSessionManager {
     };
     let stream: KubeStream;
     try { stream = await open(session.connectionId, target, session.size, io); }
-    catch (error) { throw error instanceof KubeApiError ? AppError.from(error.coded) : new LocalShellError('ssh.podTerminalFailed'); }
+    catch (error) { throw error instanceof AppError ? error : error instanceof KubeApiError ? AppError.from(error.coded) : new LocalShellError('ssh.podTerminalFailed'); }
     if (!this.active(session)) { stream.close(); return; }
     session.kubeStream = stream;
     session.phase = 'connected';
