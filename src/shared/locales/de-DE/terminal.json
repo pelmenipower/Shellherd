@@ -83,6 +83,11 @@
     "toOwnView": "Als eigene Ansicht öffnen",
     "resizeHint": "Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben. Tabs auf eine Ansicht oben ziehen, um sie dorthin zu verschieben."
   },
+  "tabMenu": {
+    "label": "Aktionen für {{name}}",
+    "withoutLogin": "Ohne Startbefehle verbinden",
+    "endsSession": "Beendet die laufende Sitzung"
+  },
   "viewMenu": {
     "label": "Aktionen für {{name}}",
     "moveToWindow": "In neues Fenster verschieben",

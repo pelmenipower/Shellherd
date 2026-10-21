@@ -83,6 +83,11 @@
     "toOwnView": "Open as its own view",
     "resizeHint": "Drag the dividers, or focus them and move them with the arrow keys. Drag tabs onto a view above to move them there."
   },
+  "tabMenu": {
+    "label": "Actions for {{name}}",
+    "withoutLogin": "Connect without start commands",
+    "endsSession": "Ends the running session"
+  },
   "viewMenu": {
     "label": "Actions for {{name}}",
     "moveToWindow": "Move to new window",
