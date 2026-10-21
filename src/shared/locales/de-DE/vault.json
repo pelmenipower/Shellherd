@@ -126,6 +126,7 @@
     "searchAria": "Verbindung für neuen Tab suchen",
     "searchPlaceholder": "Name, Host oder Ordner …",
     "noMatch": "Keine passende Verbindung.",
-    "noneSaved": "Noch keine Verbindung gespeichert. Lege über „Neu“ eine Verbindung an."
+    "noneSaved": "Noch keine Verbindung gespeichert. Lege über „Neu“ eine Verbindung an.",
+    "welcome": "Willkommensseite"
   }
 }

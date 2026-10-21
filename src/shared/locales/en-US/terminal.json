@@ -19,6 +19,7 @@
     "tooManySessions": "A workspace can start at most {{max}} sessions."
   },
   "tabs": {
+    "welcome": "Welcome",
     "label": "SSH sessions",
     "editor": "Editor",
     "closeAria": "Close tab {{label}}",
@@ -57,7 +58,7 @@
   "area": {
     "label": "Terminal panes",
     "emptyTitle": "Empty pane",
-    "emptyHint": "Open a connection from the list or drop a tab here.",
+    "emptyHint": "Open a connection from the list, drop a tab here or show the welcome page via +.",
     "connectHere": "Connect here",
     "sessionsLabel": "Sessions in pane {{number}}",
     "openFilesAria": "Open files of this SSH connection in pane {{number}}",

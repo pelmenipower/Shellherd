@@ -126,6 +126,7 @@
     "searchAria": "Search connection for new tab",
     "searchPlaceholder": "Name, host or folder…",
     "noMatch": "No matching connection.",
-    "noneSaved": "No connection saved yet. Create one via “New”."
+    "noneSaved": "No connection saved yet. Create one via “New”.",
+    "welcome": "Welcome page"
   }
 }

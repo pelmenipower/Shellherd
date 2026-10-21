@@ -234,3 +234,13 @@ describe('workspaces with container views', () => {
     expect(both.tabs[0].connection.view).toBeUndefined();
   });
 });
+
+describe('welcome tab in workspaces', () => {
+  it('is never saved', () => {
+    const tabs = [
+      { id: 'a', connection: { id: 'h1', name: 'server01', protocol: 'ssh' as const, address: 'admin@server01' }, ordinal: 1, status: 'connected' as const },
+      { id: 'w', connection: { id: 'welcome', name: 'x', protocol: 'cmd' as const, address: '', view: 'welcome' as const }, ordinal: 1, status: 'closed' as const },
+    ];
+    expect(savedLayout({ type: 'pane', id: 'p', tabIds: ['a', 'w'], activeTabId: 'w' }, tabs)).toEqual({ type: 'pane', connectionIds: ['h1'] });
+  });
+});

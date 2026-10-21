@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { PointerEvent } from 'react';
 import type { TerminalTab } from '../terminal-tabs';
-import { tabLabel } from '../terminal-tabs';
+import { isWelcomeTab, tabLabel } from '../terminal-tabs';
 import { statusWord } from '../status-words';
 import { ConnectionIcon } from './ConnectionIcon';
 import type { ConnectionNode } from '../../../shared/vault/types';
@@ -46,14 +46,16 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
         {t('terminal:tabs.editor')}
       </button>}
       {tabs.map(tab => {
-        const label = tabLabel(tab, allTabs);
+        const welcome = isWelcomeTab(tab);
+        const label = welcome ? t('terminal:tabs.welcome') : tabLabel(tab, allTabs);
         return <div className="terminal-tab-item" data-active={activeTabId === tab.id} key={tab.id}>
           <button className="terminal-tab" id={`tab-${tab.id}`} type="button" role="tab" data-tab-id={tab.id}
             draggable={false} onPointerDown={event => onTabPointerDown(tab.id, event)}
             aria-controls={`terminal-${tab.id}`} aria-selected={activeTabId === tab.id}
-            tabIndex={activeTabId === tab.id ? 0 : -1} disabled={disabled} onClick={() => onSelect(tab.id)} title={`${label} · ${connectionAddress(tab)} · ${statusWord(tab.status, 'short')}`}>
-            <span className={`tab-status tab-status-${tab.status}`} aria-label={statusWord(tab.status, 'short')} />
-            <ConnectionIcon {...appearance.get(tab.connection.id)} />
+            tabIndex={activeTabId === tab.id ? 0 : -1} disabled={disabled} onClick={() => onSelect(tab.id)} data-fixed={welcome || undefined}
+            title={welcome ? label : `${label} · ${connectionAddress(tab)} · ${statusWord(tab.status, 'short')}`}>
+            {!welcome && <span className={`tab-status tab-status-${tab.status}`} aria-label={statusWord(tab.status, 'short')} />}
+            {!welcome && <ConnectionIcon {...appearance.get(tab.connection.id)} />}
             <span className="tab-name">{label}</span>
           </button>
           <button className="terminal-tab-close" type="button" disabled={disabled} aria-label={t('terminal:tabs.closeAria', { label })} title={t('terminal:tabs.closeTitle', { label })}
