@@ -46,6 +46,47 @@ async function transfer(from: FileSystem, to: FileSystem, sources: string[], job
 }
 
 describe('file transfer', () => {
+  describe('rate', () => {
+    const threeChunks = (fs: FileSystem): void => { fs.read = () => Readable.from([Buffer.alloc(1024), Buffer.alloc(1024), Buffer.alloc(1024)]); };
+
+    it('reports a rate once the window spans a second', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        const from = memory({ '/a.txt': 'x'.repeat(3072) });
+        threeChunks(from);
+        const seen: (number | undefined)[] = [];
+        const progress = (job: TransferJob): void => { seen.push(job.bytesPerSecond); vi.setSystemTime(Date.now() + 600); };
+        await transfer(from, memory({ '/target': null }), ['/a.txt'], newJob(), { ...hooks(), progress });
+        expect(seen).toHaveLength(5);
+        expect(seen.slice(0, 3)).toEqual([undefined, undefined, undefined]);
+        expect(seen[3]).toBeCloseTo(2048 / 1.2, 3);
+        expect(seen[4]).toBeCloseTo(2048 / 1.2, 3);
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('clears the rate during a conflict question and restarts the window', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        const from = memory({ '/a.txt': 'x'.repeat(3072), '/b.txt': 'x'.repeat(3072) });
+        threeChunks(from);
+        const to = memory({ '/target': null, '/target/b.txt': 'old' });
+        const seen: (number | undefined)[] = [];
+        let atConflict: number | undefined = -1;
+        let asked = -1;
+        const progress = (job: TransferJob): void => { seen.push(job.bytesPerSecond); vi.setSystemTime(Date.now() + 600); };
+        const conflict: TransferHooks['conflict'] = async () => {
+          atConflict = newestJob?.bytesPerSecond; asked = seen.length;
+          return { choice: 'overwrite', applyToAll: false };
+        };
+        const newestJob = newJob();
+        await transfer(from, to, ['/a.txt', '/b.txt'], newestJob, { progress, conflict });
+        expect(seen.slice(0, asked).some(value => typeof value === 'number')).toBe(true);
+        expect(atConflict).toBeUndefined();
+        expect(seen[asked]).toBeUndefined();
+      } finally { vi.useRealTimers(); }
+    });
+  });
+
   it('copies folders recursively, keeping times and creating folders before their files', async () => {
     const from = memory({ '/src': null, '/src/a.txt': 'alpha', '/src/sub': null, '/src/sub/b.txt': 'beta' }, 5000);
     const to = memory({ '/target': null });

@@ -29,6 +29,8 @@ export function formatSize(bytes: number): string {
   return `${unit === 0 ? value : formatNumber(value, { maximumFractionDigits: value < 10 ? 1 : 0 })} ${units[unit]}`;
 }
 
+export function formatRate(bytesPerSecond: number): string { return `${formatSize(Math.round(bytesPerSecond))}/s`; }
+
 export function formatDate(modified: number): string { return modified > 0 ? formatDateTime(modified, 'short') : ''; }
 
 export function joinPath(side: FileSide, dir: string, name: string): string {
