@@ -23,9 +23,8 @@
     "refresh": "Aktualisieren",
     "refreshTitle": "Aktualisieren (Strg+R)",
     "newFile": "Neue Datei",
-    "newFileTitle": "Neue Datei (Umschalt+F4)",
     "newFolder": "Neuer Ordner",
-    "newFolderTitle": "Neuer Ordner (F7)",
+    "folderMenu": "Aktionen für diesen Ordner",
     "path": "Pfad",
     "pathHint": "Doppelklick: Pfad eingeben",
     "newFileRemote": "Neue Datei (öffnet sich danach im Editor, Speichern lädt hoch)",
@@ -50,7 +49,8 @@
     "uploadButton": "Hochladen →",
     "downloadButton": "← Herunterladen",
     "renameTitle": "Umbenennen (F2)",
-    "deleteTitle": "Löschen (Entf)"
+    "deleteTitle": "Löschen (Entf)",
+    "autoUpload": "Auto-Upload"
   },
   "panel": {
     "openFolderFailed": "Der Ordner konnte nicht geöffnet werden.",
@@ -97,6 +97,56 @@
     "retry": "Erneut hochladen",
     "openEditor": "Im Editor öffnen",
     "closeTitle": "Nicht mehr überwachen; die lokale Kopie wird gelöscht"
+  },
+  "sync": {
+    "title": "Auto-Upload",
+    "hint": "Änderungen im lokalen Ordner werden automatisch hochgeladen. Auf dem Server wird nie gelöscht.",
+    "target": "{{local}} → {{remote}}",
+    "state": {
+      "disabled": "Angehalten",
+      "offline": "Pausiert, Verbindung getrennt",
+      "idle": "Nicht gestartet",
+      "syncing": "Gleicht ab … {{count}} hochgeladen",
+      "watching": "Überwacht",
+      "error": "Fehler"
+    },
+    "last": "zuletzt {{name}} um {{time}}",
+    "skipped_one": "{{count}} übersprungen, auf dem Server neuer",
+    "skipped_other": "{{count}} übersprungen, auf dem Server neuer",
+    "failed_one": "{{count}} nicht hochgeladen",
+    "failed_other": "{{count}} nicht hochgeladen",
+    "force": "Trotzdem überschreiben",
+    "forceTitle": "Die Serverfassungen werden durch deine lokalen Dateien ersetzt",
+    "edit": "Bearbeiten …",
+    "pause": "Anhalten",
+    "resume": "Fortsetzen",
+    "remove": "Entfernen",
+    "removeTitle": "Nur die Merkung wird entfernt, keine Dateien",
+    "mainWindowOnly": "Nur im Hauptfenster",
+    "notConnected": "Nur mit Verbindung zum Server",
+    "skippedTitle_one": "Auto-Upload: {{count}} Datei übersprungen",
+    "skippedTitle_other": "Auto-Upload: {{count}} Dateien übersprungen",
+    "skippedBody": "Auf dem Server neuer: {{names}}",
+    "failedTitle": "Auto-Upload „{{name}}“ gestoppt",
+    "notSaved": "Auto-Upload nicht gespeichert",
+    "dialog": {
+      "titleNew": "Auto-Upload einrichten",
+      "titleEdit": "Auto-Upload bearbeiten",
+      "local": "Lokaler Ordner",
+      "remote": "Server-Ordner",
+      "excludes": "Ausschlüsse (eine Zeile je Muster)",
+      "excludesHint": "Ohne / gilt ein Muster auf jeder Ebene, mit führendem / nur ab dem gebundenen Ordner, mit abschließendem / nur für Ordner. \\ zählt wie /.",
+      "start": "Auto-Upload starten",
+      "apply": "Übernehmen"
+    },
+    "errors": {
+      "localAbsolute": "Gib einen vollständigen Windows-Pfad an, z. B. C:\\Projekte\\app.",
+      "remoteAbsolute": "Gib einen absoluten Server-Pfad an, der mit / beginnt.",
+      "remoteRoot": "Das Wurzelverzeichnis / ist als Ziel nicht erlaubt.",
+      "negation": "Ausnahmen mit ! werden nicht unterstützt.",
+      "patternChars": "Das Muster enthält ungültige Zeichen.",
+      "overlap": "Dieser Ordner überschneidet sich mit der Bindung „{{name}}“."
+    }
   },
   "conflict": {
     "title": "„{{name}}“ existiert bereits",

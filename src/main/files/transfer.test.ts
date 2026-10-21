@@ -115,6 +115,18 @@ describe('file transfer', () => {
     await expect(planTransfer(memory({ '/src/x:y': 'x' }), to, ['/src/x:y'], '/target', signal())).rejects.toMatchObject({ code: 'files.unsafeName' });
   });
 
+  it('skip hook prunes folders, counts as skipped and gets the full source path', async () => {
+    const from = memory({ '/dir': null, '/dir/node_modules': null, '/dir/node_modules/x.js': 'x', '/dir/ok.txt': 'ok' });
+    const to = memory({ '/target': null });
+    const list = vi.spyOn(from, 'list');
+    const seen: string[] = [];
+    const { items, skipped } = await planTransfer(from, to, ['/dir'], '/target', signal(), (source, entry) => { seen.push(source); return entry.name === 'node_modules'; });
+    expect(items.map(item => item.target)).toEqual(['/target/dir', '/target/dir/ok.txt']);
+    expect(skipped).toBe(1);
+    expect(seen).toContain('/dir/node_modules');
+    expect(list.mock.calls.map(call => call[0])).toEqual(['/dir']);
+  });
+
   it('keeps the existing target when reading fails and leaves no .part behind', async () => {
     const from = memory({ '/a.txt': 'new' });
     from.read = () => { const stream = new PassThrough(); stream.write('ne'); setTimeout(() => stream.destroy(new Error('read')), 5); return stream; };

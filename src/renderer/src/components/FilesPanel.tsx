@@ -6,11 +6,14 @@ import { decodeError, truncateDetail } from '../../../shared/errors';
 import type { CodedError } from '../../../shared/errors';
 import type { ConnectionErrorCode } from '../../../shared/connection-errors';
 import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
-import type { ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob, TransferState } from '../../../shared/sftp';
+import type { AutoUploadStatus, ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob, TransferState } from '../../../shared/sftp';
 import type { FileSide } from '../file-browser';
 import { errorText, IPC_PREFIX } from '../error-text';
 import { formatDate, formatSize, isFinished, jobPercent, joinPath } from '../file-browser';
 import { formatDateTime } from '../../../shared/format';
+import type { AutoUploadBinding } from '../../../shared/vault/types';
+import { bindingName, newAutoUpload, syncTouchesFolder } from '../auto-upload-form';
+import { notify } from '../notice-store';
 import { useT } from '../i18n';
 import { liveSessions } from '../session-registry';
 import { useNativeSurfaceBlock } from '../native-surface';
@@ -19,6 +22,8 @@ import { ConnectionErrorCard } from './ConnectionErrorCard';
 import { DisconnectedBar } from './DisconnectedBar';
 import { ConfirmDialog } from './ConfirmDialog';
 import { PermissionsDialog } from './PermissionsDialog';
+import { AutoUploadDialog } from './AutoUploadDialog';
+import { AutoUploadList } from './AutoUploadList';
 import { FilePane } from './FilePane';
 import type { FileListing } from './FilePane';
 import '../files-ui.css';
@@ -34,7 +39,12 @@ interface FilesPanelProps {
   /** Session moved here from another window; no new connection is opened. */
   adopt?: AdoptedSession;
   initialStatus?: SshStatus;
+  /** Auto-upload bindings of this connection (from the vault). */
+  bindings?: AutoUploadBinding[];
+  /** Persists the list; omitted in secondary windows. Resolves false when the vault was not saved. */
+  onSaveAutoUpload?: (bindings: AutoUploadBinding[]) => Promise<boolean>;
 }
+const NO_BINDINGS: AutoUploadBinding[] = [];
 
 /** Folders of both sides; travels with the tab to another window. */
 interface FilesSnapshot { local?: string; remote?: string }
@@ -49,6 +59,8 @@ const EDIT_STATE_KEYS = {
   conflict: 'files:edit.state.conflict', error: 'files:edit.state.error',
 } as const satisfies Record<EditedFile['state'], string>;
 
+const SYNC_REFRESH_MS = 1000;
+
 /** A rejected open as coded error; foreign text stays raw detail for the card. */
 function codedFailure(error: Error): CodedError {
   return decodeError(error.message) ?? { code: 'core.unknown', detail: truncateDetail(error.message.replace(IPC_PREFIX, '')) };
@@ -59,7 +71,7 @@ function readSnapshot(adopt?: AdoptedSession): FilesSnapshot {
 }
 
 /** WinSCP-style commander: this computer on the left, the server on the right, transfers below. */
-export function FilesPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus }: FilesPanelProps) {
+export function FilesPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus, bindings = NO_BINDINGS, onSaveAutoUpload }: FilesPanelProps) {
   const { t } = useT();
   // load() must keep a stable identity or the connection effect would reconnect on a language change.
   const tRef = useRef(t);
@@ -76,6 +88,11 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const [activeSide, setActiveSide] = useState<FileSide>('remote');
   const [jobs, setJobs] = useState<TransferJob[]>([]);
   const [edits, setEdits] = useState<EditedFile[]>([]);
+  const [syncs, setSyncs] = useState<AutoUploadStatus[]>([]);
+  const [syncDialog, setSyncDialog] = useState<{ binding: AutoUploadBinding; isNew: boolean } | null>(null);
+  const [savingSync, setSavingSync] = useState(false);
+  // Last seen state per binding, for toasts on transitions only (not on adoption).
+  const syncSeen = useRef(new Map<string, { error: boolean; skipped: number; synced: number }>());
   const [pendingPermissions, setPendingPermissions] = useState<{ paths: string[]; entries: FileEntry[] } | null>(null);
   const [conflict, setConflict] = useState<TransferConflict | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ side: FileSide; paths: string[]; names: string[] } | null>(null);
@@ -119,6 +136,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   useEffect(() => {
     let disposed = false;
     let id: string | null = null;
+    let syncRefresh: ReturnType<typeof setTimeout> | undefined;
     const report = (next: SftpStatus, error?: CodedError, code?: ConnectionErrorCode): void => {
       if (disposed) return;
       if (next === 'closed' || next === 'error') setEndedAt(Date.now());
@@ -142,7 +160,27 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
           : current.some(item => item.id === edit.id) ? current.map(item => item.id === edit.id ? edit : item) : [...current, edit]);
         if (edit.state === 'saved') refresh('remote');
       }
-      else {
+      else if (event.type === 'sync') {
+        const { sync, closed } = event;
+        const seen = syncSeen.current.get(sync.bindingId);
+        if (closed) syncSeen.current.delete(sync.bindingId);
+        else {
+          syncSeen.current.set(sync.bindingId, { error: sync.state === 'error', skipped: sync.skipped.length, synced: sync.synced });
+          // Throttled: one listing per second at most, after the uploads it covers.
+          if (!syncRefresh && syncTouchesFolder(paths.current.remote, sync, seen?.synced))
+            syncRefresh = setTimeout(() => { syncRefresh = undefined; refresh('remote'); }, SYNC_REFRESH_MS);
+          if (sync.state === 'error' && !seen?.error)
+            notify.error(tRef.current('files:sync.failedTitle', { name: bindingName(sync) }), { body: sync.error ? errorText(sync.error) : undefined });
+          if (sync.skipped.length > 0 && !seen?.skipped)
+            notify.info(tRef.current('files:sync.skippedTitle', { count: sync.skipped.length + sync.skippedMore }), {
+              body: tRef.current('files:sync.skippedBody', { names: sync.skipped.slice(0, 5).join(', ') }),
+              action: { label: tRef.current('files:sync.force'), run: () => void window.desktopApi.sftpSyncForce({ sessionId: id!, bindingId: sync.bindingId }).catch(error => setActionError(errorText(error, tRef.current('files:actionFailed')))) },
+            });
+        }
+        setSyncs(current => closed ? current.filter(item => item.bindingId !== sync.bindingId)
+          : current.some(item => item.bindingId === sync.bindingId) ? current.map(item => item.bindingId === sync.bindingId ? sync : item) : [...current, sync]);
+      }
+      else if (event.type === 'transfer') {
         setJobs(current => current.some(job => job.id === event.job.id)
           ? current.map(job => job.id === event.job.id ? event.job : job) : [...current, event.job]);
         if (isFinished(event.job)) {
@@ -168,6 +206,9 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
           if (disposed) return;
           setJobs(state.jobs);
           setEdits(state.edits);
+          const adoptedSyncs = state.syncs ?? [];
+          syncSeen.current = new Map(adoptedSyncs.map(sync => [sync.bindingId, { error: sync.state === 'error', skipped: sync.skipped.length, synced: sync.synced }]));
+          setSyncs(adoptedSyncs);
           setConflict(state.conflict ?? null);
           if (state.status === 'connected') connected(); else report(state.status);
         }).catch((error: Error) => report('error', codedFailure(error)));
@@ -184,6 +225,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     return () => {
       disposed = true;
       clearTimeout(timer);
+      clearTimeout(syncRefresh);
       unsubscribe();
       sessionRef.current = null;
       liveSessions.delete(tabId);
@@ -210,7 +252,33 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const remoteReady = status === 'connected' && !!sessionId;
   const remoteNotice = status === 'connected' ? undefined
     : { text: statusWord(status, 'long', { name: connection.name }) };
-  const reconnect = (): void => { setJobs([]); setConflict(null); adoptRef.current = undefined; setAttempt(value => value + 1); };
+  const reconnect = (): void => { setJobs([]); setSyncs([]); syncSeen.current.clear(); setConflict(null); adoptRef.current = undefined; setAttempt(value => value + 1); };
+  // Vault first, then the session; the dialog stays open when the vault was not saved.
+  const saveSync = async (next: AutoUploadBinding[], apply: () => Promise<unknown>): Promise<boolean> => {
+    if (!onSaveAutoUpload) return false;
+    setSavingSync(true); setActionError(null);
+    try {
+      if (!await onSaveAutoUpload(next)) return false;
+      if (remoteReady) await apply();
+      return true;
+    } catch (error) { setActionError(fail(error)); return true; }
+    finally { setSavingSync(false); }
+  };
+  const syncRequest = (binding: AutoUploadBinding) => ({ sessionId: sessionId!, bindingId: binding.id });
+  const saveBinding = (binding: AutoUploadBinding, isNew: boolean): void => {
+    void saveSync(isNew ? [...bindings, binding] : bindings.map(item => item.id === binding.id ? binding : item), async () => {
+      if (!isNew) await window.desktopApi.sftpSyncStop(syncRequest(binding));
+      if (isNew || binding.enabled) await window.desktopApi.sftpSyncStart(syncRequest(binding));
+    }).then(saved => { if (saved) setSyncDialog(null); });
+  };
+  const toggleBinding = (binding: AutoUploadBinding): void => {
+    const next = { ...binding, enabled: !binding.enabled };
+    void saveSync(bindings.map(item => item.id === binding.id ? next : item),
+      () => next.enabled ? window.desktopApi.sftpSyncStart(syncRequest(next)) : window.desktopApi.sftpSyncStop(syncRequest(next)));
+  };
+  const removeBinding = (binding: AutoUploadBinding): void => {
+    void saveSync(bindings.filter(item => item.id !== binding.id), () => window.desktopApi.sftpSyncStop(syncRequest(binding)));
+  };
   const cardActive = focused && visible;
   const remote = connection.id !== LOCAL_CONTAINER_HOST;
   const active = jobs.filter(job => !isFinished(job));
@@ -230,6 +298,8 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
       await window.desktopApi.sftpEdit({ sessionId: sessionId!, path, editor: 'default' });
     }, side)}
     onPermissions={side === 'remote' ? (paths, entries) => setPendingPermissions({ paths, entries }) : undefined}
+    onAutoUpload={side === 'local' && remote ? localDir => setSyncDialog({ binding: newAutoUpload(localDir, paths.current.remote ?? ''), isNew: true }) : undefined}
+    autoUploadHint={!onSaveAutoUpload ? t('files:sync.mainWindowOnly') : !remoteReady ? t('files:sync.notConnected') : undefined}
     onCopy={(sources, move) => { if (remoteReady) transfer(side, sources, move); }}
     onDrop={(drag, targetDir, move) => {
       if (!remoteReady) return;
@@ -255,6 +325,11 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
         onOpen={editId => void window.desktopApi.sftpEditOpen({ sessionId, editId }).catch(error => setActionError(fail(error)))}
         onUpload={editId => void window.desktopApi.sftpEditUpload({ sessionId, editId }).catch(error => setActionError(fail(error)))}
         onClose={editId => void window.desktopApi.sftpEditClose({ sessionId, editId }).catch(error => setActionError(fail(error)))} />}
+      <AutoUploadList bindings={bindings} syncs={syncs} status={status} canEdit={!!onSaveAutoUpload}
+        onEdit={binding => setSyncDialog({ binding, isNew: false })} onToggle={toggleBinding} onRemove={removeBinding}
+        onForce={bindingId => sessionId && void window.desktopApi.sftpSyncForce({ sessionId, bindingId }).catch(error => setActionError(fail(error)))} />
+      {syncDialog && visible && <AutoUploadDialog binding={syncDialog.binding} others={bindings.filter(item => item.id !== syncDialog.binding.id)}
+        isNew={syncDialog.isNew} busy={savingSync} onCancel={() => setSyncDialog(null)} onSave={binding => saveBinding(binding, syncDialog.isNew)} />}
       {pendingPermissions && <PermissionsDialog entries={pendingPermissions.entries} busy={busy} onCancel={() => setPendingPermissions(null)}
         onApply={(mode, recursive) => void run(() => window.desktopApi.sftpChmod({ sessionId: sessionId!, paths: pendingPermissions.paths, mode, recursive }), 'remote')
           .then(done => { if (done) setPendingPermissions(null); })} />}

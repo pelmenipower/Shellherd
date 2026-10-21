@@ -43,6 +43,21 @@ const connectionBase = {
     disabled: z.boolean().optional(),
 };
 
+/** Drive path (`C:\…`) or UNC share (`\\server\share…`); device paths (`\\?\`, `\\.\`) are refused. */
+export const AUTO_UPLOAD_LOCAL_PATH = /^(?:[A-Za-z]:\\|\\\\(?![?.]\\))/;
+const noLineBreak = (value: string) => !/[\0\r\n]/.test(value);
+
+export const AutoUploadBindingSchema = z.object({
+    id: z.string().uuid(),
+    localPath: z.string().min(1).max(32_767).regex(AUTO_UPLOAD_LOCAL_PATH).refine(noLineBreak),
+    remotePath: z.string().min(2).max(4096).refine(path => path.startsWith('/')).refine(noLineBreak),
+    excludes: z.array(z.string().min(1).max(256).refine(pattern => !/[\x00-\x1f\x7f]/.test(pattern))).max(200),
+    enabled: z.boolean(),
+}); // not .strict(): an older version must still open a vault a newer one extended
+
+const autoUpload = z.array(AutoUploadBindingSchema).max(16)
+    .refine(list => new Set(list.map(binding => binding.id)).size === list.length).optional();
+
 const remoteTarget = {
     host: z.string(),
     port: z.number().int().min(1).max(65_535),
@@ -55,6 +70,7 @@ export const SshConnectionNodeSchema = z.object({
     ...remoteTarget,
     authentication: AuthenticationSchema,
     containers: z.object({ sudo: z.boolean().optional() }).optional(),
+    autoUpload,
 });
 
 export const SftpConnectionNodeSchema = z.object({
@@ -62,6 +78,7 @@ export const SftpConnectionNodeSchema = z.object({
     protocol: z.literal('sftp'),
     ...remoteTarget,
     authentication: AuthenticationSchema,
+    autoUpload,
 });
 
 export const RdpConnectionNodeSchema = z.object({

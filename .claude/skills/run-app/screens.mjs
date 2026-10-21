@@ -82,8 +82,28 @@ const blocks = {
     await fill('.file-pane-local input[aria-label="Pfad"]', target);
     await key('Enter');
     await waitFor('lokale Spalte', `document.querySelector('.file-pane-local nav[aria-label="Pfad"]')?.textContent.includes(${JSON.stringify(segment)})`);
+    // The demo vault survives runs, so a leftover binding (aborted run) is removed first and the block ends by removing its own.
+    const removeBinding = async () => {
+      await evaluate(`[...document.querySelectorAll('.file-sync-list .transfer-job button')].find(b => b.textContent.trim() === 'Entfernen')?.click()`);
+      await waitFor('Bindung entfernen', `!document.querySelector('.file-sync-list .transfer-job')`);
+    };
+    if (await evaluate(`!!document.querySelector('.file-sync-list .transfer-job')`)) await removeBinding();
     await pause(300);
     await shot('sftp');
+    // Gear menu in the local pane header: binds the folder shown there.
+    await click('.file-pane-local button[aria-haspopup="menu"]');
+    await menuItem('Auto-Upload');
+    await waitFor('Auto-Upload-Dialog', `document.querySelector('dialog.file-sync-dialog[open]')`);
+    await pause(300);
+    await shot('sftp-auto-upload-dialog');
+    // BusyButton carries hidden placeholder labels, so match by class: the dialog has one primary button.
+    await click('dialog.file-sync-dialog[open] .primary-button');
+    await waitFor('Zeile Überwacht', `[...document.querySelectorAll('.file-sync-list .transfer-job')].some(j => j.textContent.includes('Überwacht'))`);
+    // The server column refreshes throttled after uploads; show the uploaded file.
+    await waitFor('hochgeladene Datei', `!!document.querySelector('.file-pane-remote [role=row][data-name="readme.txt"]')`);
+    await pause(300);
+    await shot('sftp-auto-upload');
+    await removeBinding();
   },
   async containers() {
     await rclick('text=web-01 >> nth=0');

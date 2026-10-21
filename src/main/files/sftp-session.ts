@@ -18,6 +18,7 @@ import { removeRemote, sftpFileSystem } from './sftp-file-system';
 import type { RemoteFileSystem } from './sftp-file-system';
 import { planTransfer, runTransfer, TransferCanceled } from './transfer';
 import { RemoteEdits } from './remote-edit';
+import { AutoUploads } from './auto-upload';
 
 const PROGRESS_INTERVAL = 200;
 const KEPT_FINISHED_JOBS = 20;
@@ -49,6 +50,7 @@ interface Session {
   client: Client;
   fs?: RemoteFileSystem;
   edits?: RemoteEdits;
+  syncs?: AutoUploads;
   status: SftpStatus;
   jobs: Job[];
   running?: Job;
@@ -96,8 +98,13 @@ export class SftpSessionManager {
           session.fs = sftpFileSystem(sftp);
           session.edits = new RemoteEdits(session.fs, { openFile: this.dependencies.openFile, pollInterval: this.dependencies.editPollInterval,
             emit: (edit, closed) => { if (this.active(session)) this.emit(session, { type: 'edit', sessionId: session.id, edit, ...(closed ? { closed } : {}) }); } });
+          session.syncs = new AutoUploads(session.fs, { local: this.dependencies.local,
+            emit: (sync, closed) => { if (this.active(session)) this.emit(session, { type: 'sync', sessionId: session.id, sync, ...(closed ? { closed } : {}) }); },
+            // One binding id runs in one file view only: two would write the same server files at once.
+            inUseElsewhere: bindingId => [...this.sessions.values()].some(other => other !== session && other.syncs?.running(bindingId) === true) });
           session.status = 'connected';
           this.emit(session, { type: 'status', sessionId: session.id, status: 'connected' });
+          for (const binding of connection.autoUpload ?? []) if (binding.enabled) void session.syncs.start(binding);
         });
       });
       session.client.connect(config);
@@ -162,6 +169,22 @@ export class SftpSessionManager {
   }
   /** Downloads a server file into a temporary folder, opens it and uploads every saved change. */
   edit(ownerId: number, id: string, path: string, editor: EditorChoice = 'default'): Promise<{ editId: string }> { return this.editor(ownerId, id).open(path, editor); }
+
+  /** Starts a stored binding; the paths come from the vault, never from the caller. `enabled` only steers the automatic start. */
+  async syncStart(ownerId: number, id: string, bindingId: string): Promise<void> {
+    const session = this.owned(ownerId, id);
+    const connection = this.dependencies.getConnection(session.connectionId);
+    const binding = (connection.protocol === 'ssh' || connection.protocol === 'sftp' ? connection.autoUpload : undefined)?.find(item => item.id === bindingId);
+    if (!binding) throw new FileError('files.syncNotFound');
+    if (!session.syncs) throw new FileError('files.sessionNotReady');
+    await session.syncs.start(binding);
+  }
+  syncStop(ownerId: number, id: string, bindingId: string): void { this.owned(ownerId, id).syncs?.stop(bindingId); }
+  syncForce(ownerId: number, id: string, bindingId: string): void {
+    const syncs = this.owned(ownerId, id).syncs;
+    if (!syncs) throw new FileError('files.sessionNotReady');
+    syncs.force(bindingId);
+  }
 
   /** Creates an empty file; an existing file is never replaced. */
   async createFile(ownerId: number, id: string, path: string): Promise<void> {
@@ -263,7 +286,7 @@ export class SftpSessionManager {
 
   state(ownerId: number, id: string): SftpSessionState {
     const session = this.owned(ownerId, id);
-    return { status: session.status, jobs: session.jobs.map(item => ({ ...item.job })), edits: session.edits?.list() ?? [],
+    return { status: session.status, jobs: session.jobs.map(item => ({ ...item.job })), edits: session.edits?.list() ?? [], syncs: session.syncs?.list() ?? [],
       ...(session.conflict ? { conflict: session.conflict.conflict } : {}) };
   }
 
@@ -290,6 +313,8 @@ export class SftpSessionManager {
 
   private finish(session: Session, status: 'closed' | 'error', error?: CodedError, code?: ConnectionErrorCode): void {
     if (!this.active(session)) return;
+    // Before the session leaves the map: the emit guard drops events of inactive sessions.
+    session.syncs?.closeAll();
     this.sessions.delete(session.id);
     this.clearKey(session);
     for (const entry of session.jobs) entry.controller.abort();

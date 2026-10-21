@@ -34,7 +34,7 @@ import { containerConnection, containerViewConnection, isRunning, planContainerV
 import type { TerminalConnection, TerminalTab } from './terminal-tabs';
 import { newClusterFromSsh } from './cluster-form';
 import type { KubeProbeResult, KubeViewSnapshot } from '../../shared/kubernetes';
-import type { KubernetesConnectionNode } from '../../shared/vault/types';
+import type { AutoUploadBinding, KubernetesConnectionNode } from '../../shared/vault/types';
 import { connectionsIn, NEW_CONNECTION_KINDS } from '../../shared/vault/connections';
 import { connectionAddress, protocolLabel } from './connection-labels';
 import { disabledNotice, disabledTitle, sessionLimitNotice, sessionLimitText, skippedNotice } from './vault-notices';
@@ -60,7 +60,7 @@ import { WorkflowPalette } from './components/WorkflowPalette';
 import { WorkflowsDialog } from './components/WorkflowsDialog';
 import type { Workflow } from '../../shared/vault/types';
 import { ConnectionForm } from './components/ConnectionForm';
-import { parentFolderId } from './connection-form';
+import { keepAutoUpload, parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
 import { errorText } from './error-text';
 import { useT } from './i18n';
@@ -486,9 +486,17 @@ export default function App() {
     return saved;
   }
 
+  const saveAutoUpload = (connectionId: string, bindings: AutoUploadBinding[]): Promise<boolean> => !vault ? Promise.resolve(false)
+    : persistVault({ ...vault, nodes: updateNode(vault.nodes, connectionId, node => {
+      if (node.type !== 'connection' || (node.protocol !== 'ssh' && node.protocol !== 'sftp')) return node;
+      const { autoUpload: _old, ...rest } = node;
+      return bindings.length ? { ...rest, autoUpload: bindings } : rest;
+    }) }, t('files:sync.notSaved'));
+
   async function saveConnection(connection: ConnectionNode, parentId: string): Promise<boolean> {
     if (!vault || busy) return false;
     const existing = findNode(vault.nodes, connection.id);
+    connection = keepAutoUpload(connection, existing);
     const nodes = existing
       ? parentFolderId(vault.nodes, connection.id) === parentId
         ? updateNode(vault.nodes, connection.id, () => connection)
@@ -840,7 +848,7 @@ export default function App() {
               focused={terminalLayout.focused} busy={busy} onLayout={terminalLayout.setLayout} onFocus={terminalLayout.setFocused}
               onSelect={terminals.select} onStatus={terminals.updateStatus} onClose={requestCloseTab}
               externalHover={transfer.externalHover} pendingDock={transfer.pendingDock} onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff}
-              viewControls={viewControls} onPopout={openPopout} onSnapshot={saveKubeView} />
+              viewControls={viewControls} onPopout={openPopout} onSnapshot={saveKubeView} onSaveAutoUpload={saveAutoUpload} />
           </div>
           {!terminals.tabs.length && !editorOpen && !transfer.externalHover && <WelcomePage vaultName={vault.name} version={version} onShowReleaseNotes={() => setShowReleaseNotes(true)} connectionCount={connectionCount}
             workspaces={vault.workspaces} busy={busy} onNewConnection={protocol => newConnection(protocol)}

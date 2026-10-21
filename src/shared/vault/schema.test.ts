@@ -164,3 +164,37 @@ describe('WorkspacePaneSchema containerViews', () => {
     expect(ok([{ index: 0, extra: 1 }])).toBe(false);
   });
 });
+
+describe('autoUpload bindings', () => {
+    const id = '3f2b1c4e-5a6d-4e7f-8a9b-0c1d2e3f4a5b';
+    const binding = { id, localPath: 'C:\\Projekte\\app', remotePath: '/srv/app', excludes: ['.git'], enabled: true };
+    const host = { id: 'c', type: 'connection', name: 'S', tags: [], host: 'h', port: 22, authentication: { method: 'agent' } };
+    const ssh = (autoUpload?: unknown) => ConnectionNodeSchema.safeParse({ ...host, protocol: 'ssh', ...(autoUpload === undefined ? {} : { autoUpload }) });
+    const sftp = (autoUpload?: unknown) => ConnectionNodeSchema.safeParse({ ...host, protocol: 'sftp', autoUpload });
+
+    it('keeps vaults without bindings valid and accepts a binding on SSH and SFTP', () => {
+        expect(ssh().success).toBe(true);
+        expect(ssh([binding]).success).toBe(true);
+        expect(sftp([binding]).success).toBe(true);
+        expect(ssh([{ ...binding, localPath: '\\\\server\\share\\x' }]).success).toBe(true);
+    });
+
+    it('rejects unusable bindings', () => {
+        for (const bad of [
+            { ...binding, localPath: 'app' },
+            { ...binding, localPath: '\\\\?\\C:\\x' },
+            { ...binding, localPath: '\\\\.\\C:\\x' },
+            { ...binding, remotePath: 'srv/app' },
+            { ...binding, excludes: ['a\tb'] },
+        ]) expect(ssh([bad]).success).toBe(false);
+        expect(ssh([binding, { ...binding }]).success).toBe(false);
+        const many = Array.from({ length: 17 }, (_, index) => ({ ...binding, id: `3f2b1c4e-5a6d-4e7f-8a9b-0c1d2e3f4a${String(index).padStart(2, '0')}` }));
+        expect(ssh(many).success).toBe(false);
+        expect(ssh(many.slice(0, 16)).success).toBe(true);
+    });
+
+    it('strips unknown binding fields instead of rejecting them', () => {
+        const parsed = ssh([{ ...binding, future: 1 }]);
+        expect(parsed.success && parsed.data.protocol === 'ssh' ? parsed.data.autoUpload?.[0] : undefined).toEqual(binding);
+    });
+});

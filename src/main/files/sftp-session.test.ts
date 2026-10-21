@@ -62,6 +62,23 @@ describe('SFTP sessions', () => {
     manager.closeAll();
   });
 
+  it('reports no auto-uploads in the state and looks up the binding before checking readiness', async () => {
+    const { manager } = setup();
+    const { sessionId } = manager.open(1, 'files');
+    expect(manager.state(1, sessionId).syncs).toEqual([]);
+    const binding = { id: '5b1d6f0e-3c1a-4c53-9f0e-0a6f4a1d9b11', localPath: 'C:\\x', remotePath: '/x', excludes: [], enabled: true };
+    nodes.synced = { ...nodes.files, id: 'synced', autoUpload: [binding] } as ConnectionNode;
+    const synced = manager.open(1, 'synced').sessionId;
+    // Unknown binding wins over "not ready"; a known one reaches the readiness check.
+    await expect(manager.syncStart(1, synced, '00000000-0000-4000-8000-000000000000')).rejects.toMatchObject({ code: 'files.syncNotFound' });
+    await expect(manager.syncStart(1, synced, binding.id)).rejects.toMatchObject({ code: 'files.sessionNotReady' });
+    expect(() => manager.syncForce(1, synced, binding.id)).toThrow(expect.objectContaining({ code: 'files.sessionNotReady' }));
+    expect(() => manager.syncStop(1, synced, binding.id)).not.toThrow();
+    expect(() => manager.syncStop(2, synced, binding.id)).toThrow(expect.objectContaining({ code: 'files.sessionUnavailable' }));
+    delete nodes.synced;
+    manager.closeAll();
+  });
+
   it('reads remote types, sizes and permissions', () => {
     expect(permissionText(0o100644)).toBe('-rw-r--r--');
     expect(permissionText(0o040755)).toBe('drwxr-xr-x');

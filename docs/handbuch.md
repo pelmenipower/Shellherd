@@ -264,6 +264,41 @@ Die kubeconfig liegt nur im Speicher des Hauptprozesses und wird nicht auf die
 Festplatte geschrieben. Der Tunnel zum API-Server lauscht nur auf `127.0.0.1`.
 Secret-Daten sind in der YAML-Ansicht maskiert.
 
+## Dateiansicht: Auto-Upload
+
+Auto-Upload spiegelt einen lokalen Ordner in einen Server-Ordner, solange die Dateiansicht der Verbindung offen ist. Eingerichtet wird es im lokalen Bereich: Das Zahnrad ⚙ in der Kopfzeile öffnet `Neue Datei`, `Neuer Ordner` und `Auto-Upload` für den gerade angezeigten Ordner. Alternativ geht es per Rechtsklick auf einen Ordner. Der Dialog fragt den lokalen Ordner, den Server-Ordner (vorbelegt mit dem aktuellen Server-Ordner) und die Ausschlüsse ab. Mit `Auto-Upload starten` beginnt der Abgleich; darunter zeigt eine Liste je Bindung „Überwacht“, „Gleicht ab …“ oder den Fehler. Die Bindung wird im Vault gemerkt und startet beim nächsten Öffnen der Dateiansicht von selbst.
+
+**Regeln:**
+
+- **Nur lokal → Server.** Es wird nichts heruntergeladen, Änderungen auf dem Server holt Shellherd nie zurück.
+- **Nie löschen.** Löschst oder benennst du lokal eine Datei um, bleibt die alte auf dem Server liegen (auch bei `Foo` → `foo`: der Server hat danach beide).
+- **Beim Start** werden Größe und Änderungszeit verglichen: Fehlende und lokal neuere Dateien gehen einmal hoch, danach nur noch Änderungen.
+- **Server neuer:** Eine Datei, die auf dem Server neuer ist oder dort von jemand anderem geändert wurde, wird übersprungen. Die Zeile nennt die Zahl („2 übersprungen, auf dem Server neuer“), eine Meldung die Namen. `Trotzdem überschreiben` ersetzt alle übersprungenen Dateien durch die lokalen.
+- **Anhalten, Fortsetzen, Bearbeiten, Entfernen** stehen an der Zeile. `Entfernen` löscht nur die Bindung, keine Dateien.
+- **Verbindungsabbruch:** Die Bindung pausiert mit der Verbindung. Nach `Neu verbinden` startet sie neu und holt alles Verpasste nach.
+
+**Ausschlüsse** sind eine Liste von Mustern, eines je Zeile, wie bei `.gitignore`. Vorbelegt sind `.git`, `node_modules/`, `~$*`, `*.swp`, `*.tmp` und `.DS_Store`.
+
+| Muster | Wirkt auf |
+|---|---|
+| `.git` | jede Datei oder jeden Ordner `.git` auf jeder Ebene, samt Inhalt |
+| `node_modules/` | nur Ordner dieses Namens (mit `/` am Ende) |
+| `*.log` | alle Dateien mit Endung `.log`, auch versteckte |
+| `/build/` | nur den Ordner `build` direkt im gebundenen Ordner, nicht `src/build` |
+| `secrets/**/*.pem` | `.pem`-Dateien unter `secrets` in beliebiger Tiefe, nur ab dem gebundenen Ordner |
+
+Ohne `/` gilt ein Muster auf jeder Ebene, mit führendem oder innerem `/` nur ab dem gebundenen Ordner, mit abschließendem `/` nur für Ordner. `\` zählt wie `/`. Groß- und Kleinschreibung ist egal (`Build/` schließt auch `build` aus). Ausnahmen mit `!` gibt es nicht. Ausgeschlossene Ordner werden nicht durchlaufen.
+
+**Gut zu wissen:**
+
+- **Geheimnisse ausschließen:** Die Vorgaben schließen `.env`, Schlüssel und Zugangsdateien nicht aus. Schließe sie selbst aus (etwa `.env` und `*.pem`), sonst landen sie auf dem Server, neue Dateien mit den Rechten 0644.
+- **Ordner umbenennen:** Solange die Dateiansicht mit aktiver Bindung offen ist, lässt Windows den übergeordneten Ordner nicht umbenennen oder verschieben. Hilfe: Bindung anhalten oder die Dateiansicht schließen.
+- **Nicht lesbare Unterordner:** Kann Shellherd einen lokalen Unterordner nicht lesen, bricht der Abgleich ab und die Bindung steht auf Fehler. Schließe den Ordner mit einem Muster aus.
+- **Zwei Bindungen, ein Server-Ordner:** Das ist erlaubt. Sie überschreiben einander nicht still, sondern überspringen mit Hinweis.
+- **Pfade sind rechnerspezifisch:** Der lokale Pfad gilt nur auf dem Computer, der die Bindung angelegt hat. Auf einem anderen Rechner meldet die Zeile, dass der Ordner fehlt; dort kannst du sie bearbeiten oder entfernen.
+- **Nur im Hauptfenster einrichten:** Einrichten, Bearbeiten, Anhalten und Entfernen gehen nur im Hauptfenster. In einem anderen Fenster laufen Bindungen weiter, und `Trotzdem überschreiben` geht überall.
+- **Netzlaufwerke:** Über Freigaben werden Änderungen unzuverlässig gemeldet; Verpasstes holt erst der nächste Start nach.
+
 ## Meldungen und Verbindungszustand
 
 Shellherd zeigt Probleme dort, wo sie entstehen.

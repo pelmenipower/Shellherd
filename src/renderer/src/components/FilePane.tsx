@@ -39,6 +39,10 @@ interface FilePaneProps {
   onPermissions?: (paths: string[], entries: FileEntry[]) => void;
   /** Files dragged in: from the other side or, for the server side, from Explorer. */
   onDrop: (drag: FileDrag | { external: string[] }, targetDir: string, move: boolean) => void;
+  /** Local side: set up auto-upload for a folder. */
+  onAutoUpload?: (localDir: string) => void;
+  /** Set: the menu entry is disabled and shows this text. */
+  autoUploadHint?: string;
 }
 
 type Prompt = { kind: 'mkdir'; value: string; error?: string } | { kind: 'file'; value: string; error?: string } | { kind: 'rename'; original: string; value: string; error?: string };
@@ -49,7 +53,7 @@ const COLUMN_KEYS = {
 } as const satisfies Record<SortKey, string>;
 
 export function FilePane({ tabId, side, title, listing, active, disabled, notice, home, drives, onActivate, onNavigate, onRefresh,
-  onMkdir, onRename, onDelete, onCopy, onDrop, onEdit, onCreateFile, onPermissions }: FilePaneProps) {
+  onMkdir, onRename, onDelete, onCopy, onDrop, onEdit, onCreateFile, onPermissions, onAutoUpload, autoUploadHint }: FilePaneProps) {
   const { t, i18n } = useT();
   const [sort, setSort] = useState<SortOrder>({ key: 'name', ascending: true });
   const [selected, setSelected] = useState<string[]>([]);
@@ -59,6 +63,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [toolsMenu, setToolsMenu] = useState<{ x: number; y: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const entries = useMemo(() => sortEntries(listing.entries, sort), [listing.entries, sort, i18n.language]);
   const names = useMemo(() => entries.map(entry => entry.name), [entries]);
@@ -202,8 +207,8 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
           <button type="button" title={t('files:pane.upTitle')} aria-label={t('files:pane.up')} disabled={disabled || !parent} onClick={() => parent && onNavigate(parent)}>↑</button>
           <button type="button" title={t('files:pane.home')} aria-label={t('files:pane.home')} disabled={disabled || !home} onClick={() => home && onNavigate(home)}>⌂</button>
           <button type="button" title={t('files:pane.refreshTitle')} aria-label={t('files:pane.refresh')} disabled={disabled || !path} onClick={onRefresh}>⟳</button>
-          <button type="button" title={t('files:pane.newFileTitle')} disabled={disabled || !path} onClick={() => setPrompt({ kind: 'file', value: '' })}>{t('files:pane.newFile')}</button>
-          <button type="button" title={t('files:pane.newFolderTitle')} disabled={disabled || !path} onClick={() => setPrompt({ kind: 'mkdir', value: '' })}>{t('files:pane.newFolder')}</button>
+          <button type="button" title={t('files:pane.folderMenu')} aria-label={t('files:pane.folderMenu')} aria-haspopup="menu" disabled={disabled || !path}
+            onClick={event => { const box = event.currentTarget.getBoundingClientRect(); setToolsMenu({ x: box.left, y: box.bottom }); }}>⚙</button>
         </div>
       </header>
       <div className="file-path">
@@ -283,6 +288,20 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
         { kind: 'item', label: t('files:pane.newFolder'), hint: 'F7', onSelect: () => setPrompt({ kind: 'mkdir', value: '' }) },
         { kind: 'item', label: t('files:pane.refresh'), hint: `${t('common:keys.ctrl')}+R`, onSelect: onRefresh },
         { kind: 'item', label: t('files:pane.copyPath'), onSelect: () => { void window.desktopApi.writeClipboardText(menuTargets.length === 1 ? fullPaths(menuTargets)[0] : path ?? '').catch(() => {}); } },
+        ...(side === 'local' && onAutoUpload && path ? [
+          { kind: 'separator' as const },
+          { kind: 'item' as const, label: t('files:pane.autoUpload'), disabled: !!autoUploadHint, hint: autoUploadHint,
+            onSelect: () => onAutoUpload(menuFolder ? fullPaths([menuFolder.name])[0] : path) },
+        ] : []),
+      ]} />}
+      {toolsMenu && <ContextMenu x={toolsMenu.x} y={toolsMenu.y} label={t('files:pane.folderMenu')} onClose={() => setToolsMenu(null)} entries={[
+        { kind: 'item', label: t('files:pane.newFile'), hint: `${t('common:keys.shift')}+F4`, onSelect: () => setPrompt({ kind: 'file', value: '' }) },
+        { kind: 'item', label: t('files:pane.newFolder'), hint: 'F7', onSelect: () => setPrompt({ kind: 'mkdir', value: '' }) },
+        ...(side === 'local' && onAutoUpload && path ? [
+          { kind: 'separator' as const },
+          // Always the folder shown in this pane, regardless of the selection.
+          { kind: 'item' as const, label: t('files:pane.autoUpload'), disabled: !!autoUploadHint, hint: autoUploadHint, onSelect: () => onAutoUpload(path) },
+        ] : []),
       ]} />}
       <footer className="file-pane-footer">
         <span>{selected.length ? (selectedBytes ? t('files:pane.selectedSize', { selected: selected.length, total: entries.length, size: formatSize(selectedBytes) })

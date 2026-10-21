@@ -112,3 +112,10 @@
 .permissions-dialog .editor-hint { margin: 0 0 var(--space-10); }
 .permissions-dialog .field-error { margin: -4px 0 var(--space-12); }
 .permissions-grid .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.file-sync-list { max-height: 26%; }
+.file-sync-list header span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-sync-list .transfer-job.is-sync-watching small { color: var(--color-ok); }
+.file-sync-list .transfer-job.is-sync-error small { color: var(--color-danger); }
+.file-sync-dialog label { display: grid; gap: var(--space-4); }
+.file-sync-dialog textarea { min-height: calc(var(--control-lg) * 3); font-family: var(--font-mono); font-size: var(--fs-sm); }

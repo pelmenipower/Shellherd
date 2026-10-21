@@ -71,7 +71,29 @@ export type SftpEvent =
   | { type: 'status'; sessionId: string; status: SftpStatus; error?: CodedError; code?: ConnectionErrorCode }
   | { type: 'edit'; sessionId: string; edit: EditedFile; closed?: boolean }
   | { type: 'transfer'; sessionId: string; job: TransferJob }
-  | { type: 'conflict'; sessionId: string; conflict: TransferConflict };
+  | { type: 'conflict'; sessionId: string; conflict: TransferConflict }
+  | { type: 'sync'; sessionId: string; sync: AutoUploadStatus; closed?: boolean };
+
+export type AutoUploadState = 'syncing' | 'watching' | 'error';
+export interface AutoUploadStatus {
+  bindingId: string;
+  /** As stored in the binding (display only). */
+  localPath: string;
+  remotePath: string;
+  /** `syncing` only during a full comparison (start, storm, overflow); single uploads keep `watching`. */
+  state: AutoUploadState;
+  /** Files uploaded since the binding started. */
+  synced: number;
+  /** Relative POSIX paths skipped because the server copy is newer or was changed by someone else; max 100. */
+  skipped: string[];
+  /** Skipped beyond the first 100. */
+  skippedMore: number;
+  /** Relative POSIX paths whose upload failed; max 100; removed again after a later successful upload. */
+  failed: string[];
+  last?: { name: string; at: number };
+  /** With state 'error': why the binding stopped. Otherwise: cause of the latest entry in `failed`. */
+  error?: CodedError;
+}
 
 export interface SftpOpenRequest { connectionId: string }
 export interface SftpSessionRequest { sessionId: string }
@@ -88,10 +110,11 @@ export interface SftpTransferRequest extends SftpSessionRequest {
 export interface SftpJobRequest extends SftpSessionRequest { jobId: string }
 export interface SftpConflictAnswer extends SftpSessionRequest { conflictId: string; choice: ConflictChoice; applyToAll: boolean }
 /** Running and finished jobs plus an open question; used when a tab is opened in another window. */
-export interface SftpSessionState { status: SftpStatus; jobs: TransferJob[]; conflict?: TransferConflict; edits: EditedFile[] }
+export interface SftpSessionState { status: SftpStatus; jobs: TransferJob[]; conflict?: TransferConflict; edits: EditedFile[]; syncs?: AutoUploadStatus[] }
 /** `default`: the program Windows associates with the file; `notepad`: always the built-in Notepad. */
 export type EditorChoice = 'default' | 'notepad';
 export interface SftpEditRequest extends SftpSessionRequest { editId: string }
+export interface SftpSyncRequest extends SftpSessionRequest { bindingId: string }
 export interface SftpEditFileRequest extends SftpPathRequest { editor: EditorChoice }
 export interface LocalOpenRequest extends LocalPathRequest { editor: EditorChoice }
 export interface SftpChmodRequest extends SftpSessionRequest { paths: string[]; mode: number; recursive: boolean }

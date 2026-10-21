@@ -33,6 +33,20 @@ interface ConnectionBase {
   disabled?: boolean;
 }
 
+/** A local folder mirrored into a server folder while its file view is open; one way, never deletes. */
+export interface AutoUploadBinding {
+  /** crypto.randomUUID(); unique within the connection. */
+  id: string;
+  /** Windows path on the computer that created the binding; may not exist elsewhere. */
+  localPath: string;
+  /** Absolute POSIX path on the server, never `/`. */
+  remotePath: string;
+  /** gitignore-style patterns, see src/shared/exclude-glob.ts. */
+  excludes: string[];
+  /** Off: kept, but not started with the session. */
+  enabled: boolean;
+}
+
 export interface SshConnectionNode extends ConnectionBase {
   protocol: 'ssh';
   host: string;
@@ -41,6 +55,8 @@ export interface SshConnectionNode extends ConnectionBase {
   authentication: Authentication;
   /** Container discovery and tabs; see docs/superpowers/specs/2026-10-14-container-integration-design.md. */
   containers?: { sudo?: boolean };
+  /** Auto-upload bindings; see docs/superpowers/specs/2026-10-20-sftp-auto-upload-design.md. */
+  autoUpload?: AutoUploadBinding[];
 }
 
 /** File transfer over SSH; same target and authentication as an SSH connection. */
@@ -50,6 +66,8 @@ export interface SftpConnectionNode extends ConnectionBase {
   port: number;
   username?: string;
   authentication: Authentication;
+  /** Auto-upload bindings; see docs/superpowers/specs/2026-10-20-sftp-auto-upload-design.md. */
+  autoUpload?: AutoUploadBinding[];
 }
 
 export interface RdpOptions {
