@@ -164,6 +164,20 @@
     "submit": "Vault öffnen",
     "submitting": "Vault wird entschlüsselt …"
   },
+  "lock": {
+    "title": "Vault „{{name}}“ gesperrt",
+    "titlePlain": "Vault gesperrt",
+    "autoLocked_one": "Automatisch gesperrt nach {{count}} Minute ohne Eingabe.",
+    "autoLocked_other": "Automatisch gesperrt nach {{count}} Minuten ohne Eingabe.",
+    "sessions_one": "{{count}} Sitzung läuft weiter.",
+    "sessions_other": "{{count}} Sitzungen laufen weiter.",
+    "unlock": "Entsperren",
+    "switch": "Andere Vault-Datei",
+    "switchTitle": "Andere Vault-Datei öffnen?",
+    "switchDescription": "Alle Verbindungen in allen Fenstern werden getrennt. Danach wählst du die Datei aus und gibst ihr Passwort ein.",
+    "switchConfirm": "Trennen und wechseln",
+    "secondary": "Entsperre den Vault im Hauptfenster."
+  },
   "toast": {
     "closeAria": "Meldung schließen"
   },
@@ -214,7 +228,7 @@
     "autoLock": {
       "label": "Automatisch sperren nach",
       "unit": "Minuten ohne Eingabe (0: nie)",
-      "hint": "Trennt alle Sitzungen und sperrt den Vault, wenn in keinem Shellherd-Fenster Maus oder Tastatur benutzt wurde. Ungespeicherte Eingaben gehen dabei verloren."
+      "hint": "Sperrt den Vault, wenn in keinem Shellherd-Fenster Maus oder Tastatur benutzt wurde. Offene Sitzungen und Tabs bleiben erhalten."
     },
     "timeouts": {
       "idle": {
