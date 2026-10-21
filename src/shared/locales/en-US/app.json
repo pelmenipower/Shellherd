@@ -87,7 +87,6 @@
       "description": "Your input has not been saved yet. Return to the editor to save it, or discard it and continue.",
       "confirm": "Discard and continue"
     },
-    "lockVault": "Lock vault?",
     "replaceWorkspace": "Replace the active workspace?",
     "closeWorkspace": "Close workspace?",
     "closeTab": {
@@ -97,7 +96,6 @@
     },
     "endConnections_one": "{{count}} active connection will be ended. Programs running in the sessions may be terminated.",
     "endConnections_other": "{{count}} active connections will be ended. Programs running in the sessions may be terminated.",
-    "confirmLock": "Disconnect and lock",
     "confirmReplace": "Replace and open",
     "confirmDisconnect": "Disconnect",
     "confirmDefault": "Delete permanently"
@@ -137,9 +135,7 @@
     "create": "Create new vault",
     "open": "Open vault",
     "crypto": "Argon2id and AES-256-GCM active",
-    "settings": "Settings",
-    "autoLocked_one": "Locked automatically after {{count}} minute without input. All sessions were disconnected.",
-    "autoLocked_other": "Locked automatically after {{count}} minutes without input. All sessions were disconnected."
+    "settings": "Settings"
   },
   "create": {
     "title": "Create vault",
