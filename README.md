@@ -35,6 +35,7 @@ Shellherd keeps all your servers, desktops and clusters in one window. Connectio
 ## Features
 
 - **SSH terminals** – up to 16 sessions as tabs, password, private key (with passphrase) or SSH agent, verified host keys.
+- **Root shell and start commands** – per SSH connection, become root with `sudo -i` after login and type start commands, one line each; a tab menu entry connects without them.
 - **Split views and workspaces** – drag tabs into up to four panes and save the layout as a named workspace.
 - **Remote Desktop (RDP)** – embedded in a tab, no extra install, including shortcuts like Ctrl+Alt+Del.
 - **SFTP file browser** – two-pane, WinSCP style, with a transfer queue and edit-and-upload for remote files. Text, configuration and source files open in their default program, everything else in Notepad, so a remote script never runs by accident.
