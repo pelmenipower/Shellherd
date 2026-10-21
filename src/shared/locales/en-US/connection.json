@@ -57,7 +57,11 @@
       "targetFolder": "Target folder",
       "comment": "Comment",
       "tags": "Tags (comma-separated)",
-      "color": "Color (optional, #RRGGBB)"
+      "color": "Color (optional, #RRGGBB)",
+      "idleMinutes": "Idle disconnect (min)",
+      "keepaliveSeconds": "Keepalive (s)",
+      "keepaliveCount": "Keepalive misses",
+      "connectSeconds": "Connection timeout (s)"
     },
     "appearance": {
       "legend": "Icon and color",
@@ -88,6 +92,9 @@
       "privateKey": "Private key"
     },
     "containerSudo": "Run container commands with sudo",
+    "timeouts": {
+      "hint": "Empty: default from the settings."
+    },
     "details": {
       "summary": "More options",
       "vaultRoot": "Vault level"
@@ -121,6 +128,7 @@
     "hostMissing": "Enter a host or IP address.",
     "portInteger": "The port must be a whole number between 1 and 65535.",
     "portRange": "The port must be between 1 and 65535.",
+    "timeoutRange": "Enter a whole number from {{min}} to {{max}} or leave the field empty.",
     "keyPathMissing": "Enter the path to the private key.",
     "domainTwice": "Give the domain either here or in the username (DOMAIN\\user or user@domain), not both.",
     "commandMissing": "Enter the command, e.g. aider --model sonnet.",

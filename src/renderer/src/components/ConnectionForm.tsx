@@ -15,6 +15,8 @@ import { errorText } from '../error-text';
 import { Trans, useT } from '../i18n';
 import { protocolShort } from '../connection-labels';
 
+const NUMERIC_FIELDS = new Set<ConnectionTextField>(['port', 'idleMinutes', 'keepaliveSeconds', 'keepaliveCount', 'connectSeconds']);
+
 const STEP_LABEL_KEYS = {
   clusterTest: 'connection:test.steps.clusterTest', startFolder: 'connection:test.steps.startFolder', command: 'connection:test.steps.command',
   toolFound: 'connection:test.steps.toolFound', programFound: 'connection:test.steps.programFound', hostGiven: 'connection:test.steps.hostGiven',
@@ -109,7 +111,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
       const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
       setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : t('connection:form.saveFailed') });
       if (field) {
-        if ((field === 'color' || field === 'workingDirectory') && detailsRef.current) detailsRef.current.open = true;
+        if ((field === 'color' || field === 'workingDirectory' || field === 'idleMinutes' || field === 'keepaliveSeconds' || field === 'keepaliveCount' || field === 'connectSeconds') && detailsRef.current) detailsRef.current.open = true;
         requestAnimationFrame(() => document.getElementById(`${prefix}-${field}`)?.focus());
       }
     } finally { submittingRef.current = false; }
@@ -119,7 +121,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
       <label htmlFor={`${prefix}-${field}`}>{label}</label>
       <div className="editor-input-group">
         <input id={`${prefix}-${field}`} type={secret && !visibleSecret ? 'password' : 'text'} value={fields[field]} disabled={busy}
-          inputMode={field === 'port' ? 'numeric' : undefined}
+          inputMode={NUMERIC_FIELDS.has(field) ? 'numeric' : undefined}
           autoComplete={secret ? 'new-password' : 'off'} spellCheck={false}
           aria-invalid={error?.field === field || undefined}
           aria-describedby={error?.field === field ? `${prefix}-${field}-error` : undefined}
@@ -206,6 +208,11 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
             <label>{t('connection:form.fields.comment')}<textarea value={fields.comment} disabled={busy} rows={2} onChange={event => setField('comment', event.target.value)} /></label>
             {textField(t('connection:form.fields.tags'), 'tags')}
             {textField(t('connection:form.fields.color'), 'color')}
+            {sshAuth && <>
+              <div className="editor-auth-row">{textField(t('connection:form.fields.idleMinutes'), 'idleMinutes')}{textField(t('connection:form.fields.connectSeconds'), 'connectSeconds')}</div>
+              <div className="editor-auth-row">{textField(t('connection:form.fields.keepaliveSeconds'), 'keepaliveSeconds')}{textField(t('connection:form.fields.keepaliveCount'), 'keepaliveCount')}</div>
+              <p className="editor-hint">{t('connection:form.timeouts.hint')}</p>
+            </>}
           </div>
         </details>
         {error && !error.field && <p className="field-error" role="alert">{error.message}</p>}

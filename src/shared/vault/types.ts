@@ -20,6 +20,18 @@ export type Authentication =
 export type ConnectionProtocol = 'ssh' | 'sftp' | 'rdp' | 'powershell' | 'cmd' | 'aicli' | 'kubernetes';
 export type LocalShellProtocol = 'powershell' | 'cmd';
 
+/** Timeouts of SSH-backed sessions; see docs/superpowers/specs/2026-10-21-connection-timeouts-design.md. */
+export interface ConnectionTimeouts {
+  /** Minutes without input or output before the session is closed; 0 = never. */
+  idleMinutes: number;
+  /** Seconds between ssh2 keepalive probes. */
+  keepaliveSeconds: number;
+  /** Unanswered probes before the connection counts as dead. */
+  keepaliveCount: number;
+  /** Seconds the SSH handshake may take, including an open host-key prompt. */
+  connectSeconds: number;
+}
+
 interface ConnectionBase {
   id: string;
   type: 'connection';
@@ -57,6 +69,8 @@ export interface SshConnectionNode extends ConnectionBase {
   containers?: { sudo?: boolean };
   /** Auto-upload bindings; see docs/superpowers/specs/2026-10-20-sftp-auto-upload-design.md. */
   autoUpload?: AutoUploadBinding[];
+  /** Per-connection override; absent keys fall back to the vault setting. */
+  timeouts?: Partial<ConnectionTimeouts>;
 }
 
 /** File transfer over SSH; same target and authentication as an SSH connection. */
@@ -68,6 +82,8 @@ export interface SftpConnectionNode extends ConnectionBase {
   authentication: Authentication;
   /** Auto-upload bindings; see docs/superpowers/specs/2026-10-20-sftp-auto-upload-design.md. */
   autoUpload?: AutoUploadBinding[];
+  /** Per-connection override; absent keys fall back to the vault setting. */
+  timeouts?: Partial<ConnectionTimeouts>;
 }
 
 export interface RdpOptions {
@@ -249,4 +265,6 @@ export interface VaultSettings {
   theme: 'dark' | 'light' | 'system';
   autoLockMinutes: number;
   confirmBeforeClosingSession: boolean;
+  /** Absent in older vaults: DEFAULT_TIMEOUTS apply. */
+  timeouts?: ConnectionTimeouts;
 }

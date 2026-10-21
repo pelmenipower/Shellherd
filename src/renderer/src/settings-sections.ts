@@ -1,10 +1,11 @@
-import type { AiSettings, Vault, VaultSettings } from '../../shared/vault/types';
+import type { AiSettings, ConnectionTimeouts, Vault, VaultSettings } from '../../shared/vault/types';
+import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { t } from './i18n';
 
-export const SETTINGS_SECTIONS = ['general', 'vault', 'assistant'] as const;
+export const SETTINGS_SECTIONS = ['general', 'vault', 'connections', 'assistant'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
-/** ['general'] without a vault, all three with one. */
+/** ['general'] without a vault, all four with one. */
 export function settingsSections(vault: Vault | null): readonly SettingsSection[] {
   return vault ? SETTINGS_SECTIONS : ['general'];
 }
@@ -20,4 +21,14 @@ export function aiProviderSummary(ai: AiSettings | undefined): string {
 /** New object; only confirmBeforeClosingSession changes. */
 export function withConfirmBeforeClosing(settings: VaultSettings, value: boolean): VaultSettings {
   return { ...settings, confirmBeforeClosingSession: value };
+}
+
+/** New object; only autoLockMinutes changes. */
+export function withAutoLockMinutes(settings: VaultSettings, minutes: number): VaultSettings {
+  return { ...settings, autoLockMinutes: minutes };
+}
+
+/** Stores the full object, based on effectiveTimeouts(settings). */
+export function withTimeouts(settings: VaultSettings, patch: Partial<ConnectionTimeouts>): VaultSettings {
+  return { ...settings, timeouts: { ...effectiveTimeouts(settings), ...patch } };
 }

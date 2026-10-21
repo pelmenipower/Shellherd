@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CONNECTION_ICONS } from './appearance';
+import { TIMEOUT_LIMITS } from './timeouts';
 import type {
   FolderNode,
   Vault,
@@ -55,6 +56,13 @@ export const AutoUploadBindingSchema = z.object({
     enabled: z.boolean(),
 }); // not .strict(): an older version must still open a vault a newer one extended
 
+export const ConnectionTimeoutsSchema = z.object({
+    idleMinutes: z.number().int().min(TIMEOUT_LIMITS.idleMinutes[0]).max(TIMEOUT_LIMITS.idleMinutes[1]),
+    keepaliveSeconds: z.number().int().min(TIMEOUT_LIMITS.keepaliveSeconds[0]).max(TIMEOUT_LIMITS.keepaliveSeconds[1]),
+    keepaliveCount: z.number().int().min(TIMEOUT_LIMITS.keepaliveCount[0]).max(TIMEOUT_LIMITS.keepaliveCount[1]),
+    connectSeconds: z.number().int().min(TIMEOUT_LIMITS.connectSeconds[0]).max(TIMEOUT_LIMITS.connectSeconds[1]),
+}); // not .strict(), like AutoUploadBindingSchema
+
 const autoUpload = z.array(AutoUploadBindingSchema).max(16)
     .refine(list => new Set(list.map(binding => binding.id)).size === list.length).optional();
 
@@ -71,6 +79,7 @@ export const SshConnectionNodeSchema = z.object({
     authentication: AuthenticationSchema,
     containers: z.object({ sudo: z.boolean().optional() }).optional(),
     autoUpload,
+    timeouts: ConnectionTimeoutsSchema.partial().optional(),
 });
 
 export const SftpConnectionNodeSchema = z.object({
@@ -79,6 +88,7 @@ export const SftpConnectionNodeSchema = z.object({
     ...remoteTarget,
     authentication: AuthenticationSchema,
     autoUpload,
+    timeouts: ConnectionTimeoutsSchema.partial().optional(),
 });
 
 export const RdpConnectionNodeSchema = z.object({
@@ -197,6 +207,7 @@ export const VaultSettingsSchema: z.ZodType<VaultSettings> = z.object({
     autoLockMinutes: z.number().int().min(0).max(1_440),
 
     confirmBeforeClosingSession: z.boolean(),
+    timeouts: ConnectionTimeoutsSchema.optional(),
 });
 
 export const AiProviderSchema = z.object({

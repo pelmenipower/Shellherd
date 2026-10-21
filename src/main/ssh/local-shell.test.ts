@@ -29,6 +29,25 @@ function setup(connection: ConnectionNode) {
 const powershell: ConnectionNode = { id: 'ps', type: 'connection', protocol: 'powershell', name: 'PS', tags: [], workingDirectory: tmpdir() };
 
 describe('local shell sessions', () => {
+  it.runIf(process.platform === 'win32')('never reads the idle timeout and is not closed for idleness', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const getTimeouts = vi.fn(() => ({ idleMinutes: 1, keepaliveSeconds: 15, keepaliveCount: 3, connectSeconds: 120 }));
+      const events: SshEvent[] = [];
+      const shell = fakePty();
+      const manager = new SshSessionManager({ getConnection: () => powershell, spawnShell: () => shell.pty, getTimeouts,
+        verifyHost: async () => true, emit: (_owner, event) => events.push(event) });
+      const { sessionId } = manager.prepare(1, { connectionId: 'ps', cols: 80, rows: 24 });
+      await manager.connect(1, sessionId);
+      const timers = vi.getTimerCount();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(events.some(event => event.type === 'status' && event.status === 'closed')).toBe(false);
+      expect(getTimeouts).not.toHaveBeenCalled();
+      expect(timers).toBe(0);
+      manager.close(1, sessionId);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('uses fixed system paths instead of PATH lookups', () => {
     expect(localShellCommand('powershell', 'C:\\Windows')).toEqual({ file: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', args: ['-NoLogo'] });
     expect(localShellCommand('cmd', 'C:\\Windows')).toEqual({ file: 'C:\\Windows\\System32\\cmd.exe', args: [] });

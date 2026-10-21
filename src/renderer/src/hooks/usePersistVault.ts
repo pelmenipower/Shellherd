@@ -11,6 +11,8 @@ export interface PersistDeps {
   setVaultPath: (path: string) => void;
   setBusy: (busy: boolean) => void;
   setSaved: (saved: boolean) => void;
+  /** Increases when the vault is locked; a save that settles under another epoch changes nothing. */
+  epoch: () => number;
   save: (vault: Vault) => Promise<VaultSessionResult>;
 }
 
@@ -22,13 +24,16 @@ export async function persistVaultWith(deps: PersistDeps, inProgress: { current:
   deps.setSaved(false);
   deps.setBusy(true);
   deps.setVault(updatedVault);
+  const epoch = deps.epoch();
   try {
     const result = await deps.save(updatedVault);
+    if (deps.epoch() !== epoch) return false;
     deps.setVault(result.vault);
     deps.setVaultPath(result.filePath);
     deps.setSaved(true);
     return true;
   } catch (caughtError) {
+    if (deps.epoch() !== epoch) return false;
     deps.setVault(previousVault);
     notify.error(failureTitle ?? t('app:notices.vaultNotSaved'), {
       body: errorText(caughtError, t('app:errors.vaultFailed')),
@@ -49,13 +54,13 @@ export async function persistVaultWith(deps: PersistDeps, inProgress: { current:
   }
 }
 
-export function usePersistVault(vault: Vault | null, setters: Pick<PersistDeps, 'setVault' | 'setVaultPath' | 'setBusy' | 'setSaved'>):
+export function usePersistVault(vault: Vault | null, setters: Pick<PersistDeps, 'setVault' | 'setVaultPath' | 'setBusy' | 'setSaved' | 'epoch'>):
   (updatedVault: Vault, failureTitle?: string) => Promise<boolean> {
   const vaultRef = useRef(vault);
   vaultRef.current = vault;
   const inProgress = useRef(false);
-  const { setVault, setVaultPath, setBusy, setSaved } = setters;
+  const { setVault, setVaultPath, setBusy, setSaved, epoch } = setters;
   return useCallback((updatedVault, failureTitle) => persistVaultWith(
-    { vault: () => vaultRef.current, setVault, setVaultPath, setBusy, setSaved, save: next => window.desktopApi.saveCurrentVault({ vault: next }) },
-    inProgress, updatedVault, failureTitle), [setVault, setVaultPath, setBusy, setSaved]);
+    { vault: () => vaultRef.current, setVault, setVaultPath, setBusy, setSaved, epoch, save: next => window.desktopApi.saveCurrentVault({ vault: next }) },
+    inProgress, updatedVault, failureTitle), [setVault, setVaultPath, setBusy, setSaved, epoch]);
 }

@@ -12,6 +12,7 @@ import type { KnownHosts } from '../ssh/known-hosts';
 import { requireSshSender } from '../ssh/ipc';
 import { findConnection } from '../ssh/session';
 import { vaultSessionManager } from '../vault/ipc';
+import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { FileError, fileError, localFileSystem, localPlaces } from './file-system';
 import { SftpSessionManager } from './sftp-session';
 
@@ -74,6 +75,7 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
       if (!connection) throw new FileError('files.connectionNotFound');
       return connection;
     },
+    getTimeouts: connection => effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, connection),
     verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);

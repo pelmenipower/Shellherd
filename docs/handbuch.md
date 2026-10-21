@@ -88,6 +88,30 @@ Fehlermeldungen, Dialoge und Fenstertitel folgen der Sprache, ebenso Datum, Zahl
 
 `Vor dem Trennen laufender Sitzungen nachfragen` (Standard: an) fragt nach, bevor das Schließen eines Tabs oder Fensters, das Sperren oder ein Workspace-Wechsel laufende Sitzungen beendet. Die Einstellung gehört zum Vault und wird verschlüsselt mit ihm gespeichert; sie erscheint erst nach dem Entsperren.
 
+`Automatisch sperren nach … Minuten ohne Eingabe (0: nie)` trennt alle Sitzungen und sperrt den Vault, wenn in keinem Shellherd-Fenster Maus oder Tastatur benutzt wurde (Bereich 0 bis 1.440, Standard 15). Der Wert wird bei Blur oder `Enter` übernommen und gilt sofort.
+
+- **Was zählt:** Nur Maus und Tastatur in Shellherd-Fenstern. Terminal-Ausgabe zählt nicht: Wer nur einen langen Lauf beobachtet, wird gesperrt. Arbeit in anderen Programmen zählt ebenfalls nicht.
+- **RDP:** Solange eine RDP-Sitzung verbunden ist, zählt zusätzlich jede Eingabe am Rechner, denn Maus und Tastatur im RDP-Fenster gehen an Shellherd vorbei.
+- **Nichts wird gefragt:** Die Sperre arbeitet wie das manuelle Sperren, aber ohne Rückfrage. Ungespeicherte Eingaben im Verbindungsformular gehen verloren. Nebenfenster werden geschlossen. Nach der Sperre nennt die Startkarte den Grund.
+- **Ungenauigkeit:** Die Sperre kommt bis zu 10 Sekunden früher oder bis zu 30 Sekunden später als eingestellt; nach dem Aufwachen aus dem Ruhezustand sperrt Shellherd sofort, wenn die Zeit abgelaufen ist.
+- **Bestehende Vaults:** Jeder Vault trägt den Wert 15. Sie sperren sich daher ab dieser Version nach 15 Minuten; `0` schaltet die Sperre ab.
+
+### Verbindungen
+
+Unter Einstellungen → Verbindungen (erst nach dem Entsperren) stehen vier Werte für SSH und SFTP dieses Vaults. Sie gelten auch für Container- und Cluster-Zugriffe über SSH und werden mit dem Vault gespeichert. Jedes Feld übernimmt seinen Wert bei Blur oder `Enter`; eine Zahl außerhalb der Grenzen steht als Fehler unter dem Feld.
+
+| Wert | Standard | Grenzen |
+|---|---|---|
+| `Leerlauf-Trennung nach … Minuten ohne Ein- und Ausgabe (0: nie)` | 0 | 0 bis 1.440 |
+| `Keepalive alle … Sekunden` | 15 | 5 bis 300 |
+| `Trennen nach … unbeantworteten Keepalives` | 3 | 1 bis 10 |
+| `Verbindungs-Timeout … Sekunden` | 120 | 5 bis 300 |
+
+- **Gilt ab der nächsten Verbindung.** Offene Sitzungen behalten ihre Werte; `Neu verbinden` übernimmt die neuen.
+- **Leerlauf:** Eingabe oder Ausgabe setzt die Zeit zurück. Danach zeigt die Leiste „wegen Leerlauf getrennt“ und `Neu verbinden` (`Enter`). Das gilt für SSH-Terminals, Container-Tabs, Pod-Terminals und die Dateiansicht. Lokale Shells, RDP und Cluster-Ansichten haben keinen Leerlauf. Eine Dateiansicht mit laufendem Transfer, aktivem Auto-Upload oder offener Bearbeitung trennt sich nicht durch Leerlauf.
+- **Pro Verbindung:** Unter `Weitere Angaben` einer SSH- oder SFTP-Verbindung lassen sich die vier Werte einzeln überschreiben (`Leerlauf-Trennung (min)`, `Keepalive (s)`, `Keepalive-Fehlversuche`, `Verbindungs-Timeout (s)`). Leer heißt: Vorgabe aus den Einstellungen. Container und Cluster erben die Werte des genutzten SSH-Knotens.
+- **Kurzer Verbindungs-Timeout:** Er läuft auch, solange die Rückfrage zum Server-Schlüssel offen ist. Bei sehr kurzem Wert scheitert das Annehmen eines neuen Schlüssels, wenn du länger liest. Nimm neue Schlüssel dann über `Verbindung testen` an (dessen Zeitmesser pausiert in der Rückfrage) oder stelle einen größeren Wert ein.
+
 ### KI-Anbieter
 
 Unter Einstellungen → KI-Assistent stehen Zahl und Standard der eingerichteten Anbieter. `Anbieter verwalten` öffnet die Anbieterliste, `Fertig` führt zurück in die Einstellungen. Dieselbe Liste öffnet auch das Zahnrad im Assistenten-Panel; die Schlüssel liegen verschlüsselt im Vault.
@@ -311,7 +335,7 @@ Shellherd zeigt Probleme dort, wo sie entstehen.
 
 **Fehler:** Scheitert die Verbindung, nennt die Karte die Ursache (etwa „Anmeldung abgelehnt“, „Server antwortet nicht“, „Server-Schlüssel hat sich geändert“) und den nächsten Schritt. Je nach Fall stehen `Verbindung bearbeiten`, `Erneut verbinden` oder `Fingerprint kopieren` zur Wahl; `Details` zeigt den Rohtext des Servers.
 
-**Getrennt:** Beendet der Server die Sitzung oder bricht sie ab, bleibt die Ausgabe sichtbar. Eine Leiste am unteren Rand sagt, wie lange das her ist, und bietet `Neu verbinden` (`Enter`). Das gilt auch für RDP und die Dateiansicht.
+**Getrennt:** Beendet der Server die Sitzung oder bricht sie ab, bleibt die Ausgabe sichtbar. Eine Leiste am unteren Rand sagt, wie lange das her ist, und bietet `Neu verbinden` (`Enter`). Das gilt auch für RDP und die Dateiansicht. Hat Shellherd die Sitzung wegen der eingestellten Leerlaufzeit beendet (siehe Einstellungen → Verbindungen), nennt die Leiste den Grund „wegen Leerlauf getrennt“.
 
 **Speichern:** Knöpfe zeigen „Speichert …“ und danach kurz „Gespeichert“, ohne ihre Breite zu ändern. Scheitert das Speichern der Vault-Datei, nennt die Meldung den Grund (schreibgeschützt, von einem anderen Programm gesperrt, Ordner fehlt, Laufwerk voll). Bei Container-Aktionen steht in der Status-Spalte der Zielzustand („stoppt“, „startet neu“), bis die Liste aktualisiert ist.
 
@@ -336,7 +360,7 @@ werden; eine Oberfläche zur gezielten Verwaltung vertrauter Hosts folgt später
 - SSH-Anfragen verwenden gespeicherte Connection-IDs und besitzgebundene Session-IDs.
 - Ausgabe pausiert bei ausstehenden xterm-Bestätigungen; Eingaben und Scrollback
   sind begrenzt. Terminalausgabe wird nicht auf Platte protokolliert.
-- Trennen, Vault-Sperre, Fensterende und Renderer-Ausfall beenden die SSH-Session.
+- Trennen, Vault-Sperre (manuell oder automatisch), Leerlauf-Trennung, Fensterende und Renderer-Ausfall beenden die SSH-Session.
   Bei aktiven Sessions wird das Schließen entsprechend der Vault-Einstellung bestätigt.
 
 Die SSH-Tests betreiben einen lokalen `ssh2`-Server mit zur Laufzeit erzeugten

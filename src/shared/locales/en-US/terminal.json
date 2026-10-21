@@ -146,6 +146,7 @@
     "reconnect": "Reconnect",
     "reasons": {
       "server": "the server ended it",
+      "idle": "idle timeout",
       "session": "the session ended",
       "cancel": "cancelled"
     }
@@ -218,6 +219,11 @@
       "title": "Connection ended",
       "body": "The server ended the connection.",
       "next": "Reconnect when you want to keep working."
+    },
+    "idle": {
+      "title": "Disconnected while idle",
+      "body": "Shellherd ended the connection after the configured idle time.",
+      "next": "Reconnect or change the idle disconnect in the settings."
     },
     "unknown": {
       "title": "Connection failed",

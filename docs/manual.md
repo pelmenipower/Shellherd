@@ -87,6 +87,30 @@ The AI assistant answers in the selected language. kubectl-like output and raw s
 
 `Ask before disconnecting running sessions` (default: on) asks before closing a tab or window, locking or switching workspaces ends running sessions. The setting belongs to the vault and is saved encrypted with it; it appears only after unlocking.
 
+`Lock automatically after … minutes without input (0: never)` disconnects all sessions and locks the vault when neither mouse nor keyboard was used in any Shellherd window (range 0 to 1,440, default 15). The value is taken over on blur or `Enter` and applies immediately.
+
+- **What counts:** Only mouse and keyboard in Shellherd windows. Terminal output does not count: if you only watch a long run, the vault locks. Work in other programs does not count either.
+- **RDP:** While an RDP session is connected, any input on the computer counts as well, because mouse and keyboard in the RDP window bypass Shellherd.
+- **Nothing is asked:** The lock works like manual locking, but without a confirmation. Unsaved input in the connection form is lost. Detached windows are closed. After the lock, the start card names the reason.
+- **Imprecision:** The lock comes up to 10 seconds earlier or up to 30 seconds later than set; after waking from sleep, Shellherd locks immediately if the time has run out.
+- **Existing vaults:** Every vault carries the value 15, so from this version on they lock after 15 minutes; `0` turns the lock off.
+
+### Connections
+
+Settings → Connections (after unlocking only) holds four values for SSH and SFTP of this vault. They also apply to container and cluster access over SSH and are saved with the vault. Each field takes its value on blur or `Enter`; a number outside the limits appears as an error below the field.
+
+| Value | Default | Limits |
+|---|---|---|
+| `Disconnect when idle after … minutes without input or output (0: never)` | 0 | 0 to 1,440 |
+| `Keepalive every … seconds` | 15 | 5 to 300 |
+| `Disconnect after … unanswered keepalives` | 3 | 1 to 10 |
+| `Connection timeout … seconds` | 120 | 5 to 300 |
+
+- **Applies from the next connection.** Open sessions keep their values; `Reconnect` picks up the new ones.
+- **Idle:** Input or output resets the time. Afterwards the bar shows “idle timeout” and `Reconnect` (`Enter`). This applies to SSH terminals, container tabs, pod terminals and the file view. Local shells, RDP and cluster views have no idle limit. A file view with a running transfer, active auto-upload or an open edit does not disconnect when idle.
+- **Per connection:** Under `More options` of an SSH or SFTP connection, the four values can be overridden one by one (`Idle disconnect (min)`, `Keepalive (s)`, `Keepalive misses`, `Connection timeout (s)`). Empty means: default from the settings. Containers and clusters inherit the values of the SSH node they use.
+- **Short connection timeout:** It keeps running while the host key prompt is open. With a very short value, accepting a new key fails if you read for longer. Accept new keys through `Test connection` (its timer pauses in the prompt) or set a larger value.
+
 ### AI providers
 
 Settings → AI assistant shows the number and the default of the configured providers. `Manage providers` opens the provider list, `Done` returns to the settings. The gear in the assistant panel opens the same list; keys are stored encrypted in the vault.
@@ -309,7 +333,7 @@ Shellherd shows problems where they occur.
 
 **Errors:** If the connection fails, the card names the cause (for example “Sign-in rejected”, “Server not responding”, “Server key has changed”) and the next step. Depending on the case, `Edit connection`, `Reconnect` or `Copy fingerprint` are offered; `Details` shows the server's raw text.
 
-**Disconnected:** If the server ends the session or it drops, the output stays visible. A bar at the bottom says how long ago that was and offers `Reconnect` (`Enter`). This also applies to RDP and the file view.
+**Disconnected:** If the server ends the session or it drops, the output stays visible. A bar at the bottom says how long ago that was and offers `Reconnect` (`Enter`). This also applies to RDP and the file view. If Shellherd ended the session because of the configured idle time (see Settings → Connections), the bar names the reason “idle timeout”.
 
 **Saving:** Buttons show “Saving…” and then briefly “Saved” without changing their width. If saving the vault file fails, the notice names the reason (read-only, locked by another program, folder missing, drive full). For container actions, the status column shows the target state (“stopping”, “restarting”) until the list has refreshed.
 
@@ -334,7 +358,7 @@ a user interface for managing trusted hosts will follow later.
 - SSH requests use saved connection IDs and ownership-bound session IDs.
 - Output pauses while xterm acknowledgements are pending; input and scrollback
   are limited. Terminal output is not logged to disk.
-- Disconnecting, locking the vault, closing the window and a renderer crash end the SSH session.
+- Disconnecting, locking the vault (manual or automatic), idle disconnect, closing the window and a renderer crash end the SSH session.
   With active sessions, closing is confirmed according to the vault setting.
 
 The SSH tests run a local `ssh2` server with test keys generated at runtime

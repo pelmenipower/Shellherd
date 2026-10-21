@@ -1,6 +1,7 @@
 import { ConnectionNodeSchema } from '../../shared/vault/schema';
 import { CONNECTION_ICONS } from '../../shared/vault/appearance';
 import { PROTOCOLS } from '../../shared/vault/connections';
+import { TIMEOUT_LIMITS, parseBounded } from '../../shared/vault/timeouts';
 import { KUBE_NAME } from '../../shared/kubernetes';
 import type { Authentication, ConnectionNode, ConnectionProtocol, VaultNode } from '../../shared/vault/types';
 import { kubeconfigPathError, noAccessMessage } from './cluster-form';
@@ -38,7 +39,14 @@ export interface ConnectionFields {
   namespace: string;
   production: 'on' | 'off';
   readOnly: 'on' | 'off';
+  /** SSH/SFTP only: per-connection overrides; empty = inherit from the vault settings. */
+  idleMinutes: string;
+  keepaliveSeconds: string;
+  keepaliveCount: string;
+  connectSeconds: string;
 }
+
+const TIMEOUT_KEYS = ['idleMinutes', 'keepaliveSeconds', 'keepaliveCount', 'connectSeconds'] as const;
 
 /** Form fields that hold plain text and can be shown in a text input. */
 export type ConnectionTextField = { [K in keyof ConnectionFields]: ConnectionFields[K] extends string ? K : never }[keyof ConnectionFields];
@@ -61,6 +69,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     containerSudo: 'off',
     disabled: connection?.disabled ? 'on' : 'off',
     accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
+    idleMinutes: '', keepaliveSeconds: '', keepaliveCount: '', connectSeconds: '',
   };
   if (connection?.protocol === 'ssh' || connection?.protocol === 'sftp' || connection?.protocol === 'rdp') {
     Object.assign(fields, { host: connection.host, port: String(connection.port), username: connection.username ?? '' });
@@ -72,6 +81,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
       password: auth.method === 'password' ? auth.password : '',
       keyPath: auth.method === 'privateKey' ? auth.keyPath : '',
       passphrase: auth.method === 'privateKey' ? auth.passphrase ?? '' : '',
+      ...Object.fromEntries(TIMEOUT_KEYS.map(key => [key, String(connection.timeouts?.[key] ?? '')])),
     });
   }
   if (connection?.protocol === 'ssh') fields.containerSudo = connection.containers?.sudo ? 'on' : 'off';
@@ -121,7 +131,14 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
     const authentication: Authentication = fields.method === 'agent' ? { method: 'agent' }
       : fields.method === 'password' ? { method: 'password', password: fields.password }
       : { method: 'privateKey', keyPath: fields.keyPath.trim(), ...(fields.passphrase ? { passphrase: fields.passphrase } : {}) };
-    node = { ...base, protocol, ...target, authentication, ...(protocol === 'ssh' && fields.containerSudo === 'on' ? { containers: { sudo: true } } : {}) };
+    const timeouts: Partial<Record<(typeof TIMEOUT_KEYS)[number], number>> = {};
+    for (const key of TIMEOUT_KEYS) {
+      if (!fields[key].trim()) continue;
+      const value = parseBounded(fields[key], TIMEOUT_LIMITS[key]);
+      if (value === null) throw new ConnectionFieldError(key, t('connection:validation.timeoutRange', { min: TIMEOUT_LIMITS[key][0], max: TIMEOUT_LIMITS[key][1] }));
+      timeouts[key] = value;
+    }
+    node = { ...base, protocol, ...target, authentication, ...(Object.keys(timeouts).length ? { timeouts } : {}), ...(protocol === 'ssh' && fields.containerSudo === 'on' ? { containers: { sudo: true } } : {}) };
   } else if (protocol === 'rdp') {
     const target = remoteTarget(fields);
     const domain = fields.domain.trim();
