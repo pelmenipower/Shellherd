@@ -337,6 +337,12 @@ The kubeconfig lives only in the main process's memory and is not written to
 disk. The tunnel to the API server listens only on `127.0.0.1`.
 Secret data is masked in the YAML view.
 
+## File view: keyboard and transfers
+
+Typing in the file list jumps to the next entry whose name starts that way. The search follows the order shown, folders first. When you type quickly, Shellherd searches for the whole prefix (`no` finds `notes.md`); the same letter repeated moves to the next match each time. After a one-second pause the search starts over. Upper and lower case do not matter. This works on the local and the server side. The space bar, combinations with `Ctrl` or `Alt` and characters that need `AltGr` (such as `@`) do not jump.
+
+Running transfers show their speed next to the progress after the first second (`12 MB/s`), smoothed over the last few seconds. While the question about an existing file is open and on finished transfers no speed is shown. Auto-upload shows none.
+
 ## File view: auto-upload
 
 Auto-upload mirrors a local folder into a server folder while the connection's file view is open. You set it up in the local pane: the gear ⚙ in the pane header offers `New file`, `New folder` and `Auto-upload` for the folder shown. Right-clicking a folder works too. The dialog asks for the local folder, the server folder (prefilled with the current server folder) and the excludes. `Start auto-upload` begins the comparison; a list below shows each binding as “Watching”, “Syncing…” or the error. The binding is stored in the vault and starts by itself the next time the file view opens.

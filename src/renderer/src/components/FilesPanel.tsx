@@ -9,7 +9,7 @@ import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
 import type { AutoUploadStatus, ConflictChoice, EditedFile, FileEntry, SftpStatus, TransferConflict, TransferJob, TransferState } from '../../../shared/sftp';
 import type { FileSide } from '../file-browser';
 import { errorText, IPC_PREFIX } from '../error-text';
-import { formatDate, formatSize, isFinished, jobPercent, joinPath } from '../file-browser';
+import { formatDate, formatRate, formatSize, isFinished, jobPercent, joinPath } from '../file-browser';
 import { formatDateTime } from '../../../shared/format';
 import type { AutoUploadBinding } from '../../../shared/vault/types';
 import { bindingName, newAutoUpload, syncTouchesFolder } from '../auto-upload-form';
@@ -366,6 +366,7 @@ function TransferQueue({ jobs, activeCount, onCancel, onClear }: { jobs: Transfe
             <small>{t(QUEUE_STATE_KEYS[job.state])}
               {job.totalFiles > 0 && ` · ${t('files:queue.files', { done: job.doneFiles, count: job.totalFiles })}`}
               {job.totalBytes > 0 && ` · ${t('files:queue.bytes', { done: formatSize(job.doneBytes), total: formatSize(job.totalBytes) })}`}
+              {!!job.bytesPerSecond && ` · ${formatRate(job.bytesPerSecond)}`}
               {job.skippedFiles > 0 && ` · ${t('files:queue.skipped', { count: job.skippedFiles })}`}
               {job.current && ` · ${job.current}`}
               {job.error && ` · ${errorText(job.error)}`}</small>

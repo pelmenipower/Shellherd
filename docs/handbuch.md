@@ -341,6 +341,12 @@ Die kubeconfig liegt nur im Speicher des Hauptprozesses und wird nicht auf die
 Festplatte geschrieben. Der Tunnel zum API-Server lauscht nur auf `127.0.0.1`.
 Secret-Daten sind in der YAML-Ansicht maskiert.
 
+## Dateiansicht: Tastatur und Übertragungen
+
+Tippen in der Dateiliste springt zum nächsten Eintrag, dessen Name so beginnt. Gesucht wird in der angezeigten Reihenfolge, Ordner zuerst. Schnell weitergetippt sucht Shellherd nach dem ganzen Anfang (`no` findet `notes.md`); derselbe Buchstabe mehrmals geht zum jeweils nächsten Treffer. Nach einer Sekunde Pause beginnt die Suche neu. Groß- und Kleinschreibung spielt keine Rolle. Das gilt für die lokale und die Server-Seite. Die Leertaste, Kombinationen mit `Strg` oder `Alt` und Zeichen, die nur mit `AltGr` entstehen (etwa `@`), springen nicht.
+
+Laufende Übertragungen zeigen nach der ersten Sekunde ihre Geschwindigkeit hinter dem Fortschritt (`12 MB/s`), geglättet über die letzten Sekunden. Solange die Frage nach einer vorhandenen Datei offen ist und bei fertigen Übertragungen steht keine Geschwindigkeit. Auto-Upload zeigt keine.
+
 ## Dateiansicht: Auto-Upload
 
 Auto-Upload spiegelt einen lokalen Ordner in einen Server-Ordner, solange die Dateiansicht der Verbindung offen ist. Eingerichtet wird es im lokalen Bereich: Das Zahnrad ⚙ in der Kopfzeile öffnet `Neue Datei`, `Neuer Ordner` und `Auto-Upload` für den gerade angezeigten Ordner. Alternativ geht es per Rechtsklick auf einen Ordner. Der Dialog fragt den lokalen Ordner, den Server-Ordner (vorbelegt mit dem aktuellen Server-Ordner) und die Ausschlüsse ab. Mit `Auto-Upload starten` beginnt der Abgleich; darunter zeigt eine Liste je Bindung „Überwacht“, „Gleicht ab …“ oder den Fehler. Die Bindung wird im Vault gemerkt und startet beim nächsten Öffnen der Dateiansicht von selbst.

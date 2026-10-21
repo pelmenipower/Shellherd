@@ -44,6 +44,8 @@ export interface TransferJob {
   doneFiles: number;
   skippedFiles: number;
   current?: string;
+  /** Smoothed rate of the running copy; absent in the first second, while a conflict question is open and after the end. */
+  bytesPerSecond?: number;
   error?: CodedError;
 }
 

@@ -275,6 +275,7 @@ export class SftpSessionManager {
       if (job.state === 'error') job.error = fileError(error);
     } finally {
       job.current = undefined;
+      job.bytesPerSecond = undefined;
       session.running = undefined;
       session.lastIo = Date.now();
       this.emitJob(session, entry, true);

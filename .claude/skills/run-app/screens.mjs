@@ -64,6 +64,8 @@ function localTarget() {
   const dir = candidates.find(p => !inside(p));
   if (!dir) throw new Error('Kein Ort für die lokale Spalte ohne Benutzernamen: SHELLHERD_RUN_DIR außerhalb des Benutzerordners setzen (z. B. C:\\shellherd-run).');
   fs.mkdirSync(dir, { recursive: true });
+  // Leftover of an aborted run; auto-upload would otherwise upload it.
+  fs.rmSync(path.join(dir, 'big.bin'), { force: true });
   fs.writeFileSync(path.join(dir, 'readme.txt'), 'Demo files\nfor the local pane\n');
   fs.writeFileSync(path.join(dir, 'deploy.sh'), '#!/bin/sh\necho deploy\n');
   fs.writeFileSync(path.join(dir, 'notes.md'), '# Notes\n\n- synthetic\n- demo\n');
@@ -92,6 +94,33 @@ const blocks = {
     if (await evaluate(`!!document.querySelector('.file-sync-list .transfer-job')`)) await removeBinding();
     await pause(300);
     await shot('sftp');
+    // Type-to-jump: a click on a fixed row focuses the list, then "n" must land on notes.md.
+    await click('.file-pane-remote [role=row][data-name="backups"]');
+    await key('n');
+    await waitFor('Typeahead', `!!document.querySelector('.file-pane-remote .file-row.is-cursor[data-name="notes.md"]')`);
+    await shot('sftp-typeahead');
+    // Transfer rate: a large upload; the rate vanishes at the end, so the shot follows the wait at once.
+    const queue = '.transfer-queue:not(.file-sync-list):not(.edit-list)';
+    const bigLocal = path.join(target, 'big.bin');
+    const bigServer = path.join(RUN_DIR, 'sftp', 'home', 'demo', 'big.bin');
+    try {
+      fs.writeFileSync(bigLocal, Buffer.alloc(256 * 1024 * 1024));
+      // The local pane has no watcher: refresh before the row exists.
+      await click('.file-pane-local button[aria-label="Aktualisieren"]');
+      await waitFor('große Datei lokal', `!!document.querySelector('.file-pane-local [role=row][data-name="big.bin"]')`);
+      await click('.file-pane-local [role=row][data-name="big.bin"]');
+      await click('.file-pane-local .file-pane-actions button:first-child');
+      await waitFor('Rate', `/\\d\\s?[KMG]B\\/s/.test(document.querySelector('${queue}')?.innerText ?? '')`, { timeout: 60000, every: 100 });
+      await shot('sftp-transfer');
+      await waitFor('Upload fertig', `[...document.querySelectorAll('${queue} .transfer-job.is-done')].some(j => j.textContent.includes('big.bin'))`, { timeout: 180000 });
+    } finally {
+      // Only our own test file, no recursion.
+      for (const file of [bigLocal, bigServer, `${bigServer}.part`]) fs.rmSync(file, { force: true });
+    }
+    await click('.file-pane-local button[aria-label="Aktualisieren"]');
+    await click('.file-pane-remote button[aria-label="Aktualisieren"]');
+    await waitFor('große Datei entfernt', `!document.querySelector('[role=row][data-name="big.bin"]')`);
+    await click(`${queue} header button`);
     // Gear menu in the local pane header: binds the folder shown there.
     await click('.file-pane-local button[aria-haspopup="menu"]');
     await menuItem('Auto-Upload');

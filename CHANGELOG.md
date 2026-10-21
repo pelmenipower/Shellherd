@@ -4,6 +4,11 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.17.0] – 2026-10-21
+
+- Neu: In der Dateiansicht springt ein getippter Buchstabe zum nächsten Eintrag mit diesem Anfang. Schnell weitergetippt wird daraus ein Namensanfang, derselbe Buchstabe mehrmals geht zum nächsten Treffer. Das gilt für die lokale und die Server-Seite.
+- Neu: Übertragungen zeigen nach der ersten Sekunde ihre Geschwindigkeit (etwa 12 MB/s) hinter dem Fortschritt.
+
 ## [0.16.0] – 2026-10-21
 
 - Neu: SSH-Verbindungen können nach dem Anmelden root werden (sudo -i). Bei Passwort-Anmeldung beantwortet Shellherd die sudo-Abfrage einmal mit dem gespeicherten Passwort; bei Schlüssel oder Agent fragt sudo im Terminal, falls kein NOPASSWD eingerichtet ist.

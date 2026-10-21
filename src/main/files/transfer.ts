@@ -2,6 +2,8 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ConflictChoice, FileEntry, TransferConflict, TransferJob } from '../../shared/sftp';
 import { FileError, unsafeLocalName } from './file-system';
+import { rateMeter } from './transfer-rate';
+import type { RateMeter } from './transfer-rate';
 import type { FileSystem } from './file-system';
 
 const MAX_PLANNED = 100_000;
@@ -60,6 +62,7 @@ export async function planTransfer(from: FileSystem, to: FileSystem, sources: st
 
 /** Copies (or moves) planned items; asks about existing files unless a previous answer applies to all. */
 export async function runTransfer(job: TransferJob, items: PlannedItem[], from: FileSystem, to: FileSystem, hooks: TransferHooks, signal: AbortSignal): Promise<void> {
+  const rate = rateMeter();
   let policy: ConflictChoice | undefined;
   job.totalFiles = items.filter(item => item.type === 'file').length;
   job.totalBytes = items.reduce((total, item) => total + item.size, 0);
@@ -77,6 +80,7 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
       if (existing.type === 'directory') throw new FileError('files.existsAsDirectory', { name: item.name });
       let choice = policy;
       if (!choice) {
+        job.bytesPerSecond = undefined; rate.reset();
         const answer = await hooks.conflict({ name: item.name, source: { size: item.size, modified: item.modified },
           target: { size: existing.size, modified: existing.modified } });
         choice = answer.choice;
@@ -93,7 +97,7 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
     // Write through links to the real file; the .part swap must not replace the link itself.
     // Some virtual Windows drives cannot resolve paths; overwriting the path itself still works there.
     const target = existing ? await to.realpath(item.target).catch(() => item.target) : item.target;
-    await copyFile(job, item, target, existing?.mode, from, to, hooks, signal);
+    await copyFile(job, item, target, existing?.mode, from, to, hooks, rate, signal);
     await to.setModified(target, item.modified).catch(() => {});
     if (job.move) await from.removeFile(item.source);
     job.doneFiles += 1;
@@ -106,10 +110,12 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
   job.current = undefined;
 }
 
-async function copyFile(job: TransferJob, item: PlannedItem, target: string, mode: number | undefined, from: FileSystem, to: FileSystem, hooks: TransferHooks, signal: AbortSignal): Promise<void> {
+async function copyFile(job: TransferJob, item: PlannedItem, target: string, mode: number | undefined, from: FileSystem, to: FileSystem, hooks: TransferHooks, rate: RateMeter, signal: AbortSignal): Promise<void> {
   const before = job.doneBytes;
   const counter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
     job.doneBytes += chunk.length;
+    // shortcut: a stalled stream keeps the last rate until the next chunk; add a timer if users report it.
+    job.bytesPerSecond = rate.add(chunk.length);
     hooks.progress(job);
     callback(null, chunk);
   } });

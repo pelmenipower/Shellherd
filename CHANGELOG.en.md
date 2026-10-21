@@ -4,6 +4,11 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.17.0] – 2026-10-21
+
+- New: In the file view, typing a letter jumps to the next entry that starts with it. Typing quickly builds a name prefix; the same letter again moves to the next match. This works on the local and the server side.
+- New: Transfers show their speed (e.g. 12 MB/s) next to the progress after the first second.
+
 ## [0.16.0] – 2026-10-21
 
 - New: SSH connections can become root after login (sudo -i). With password login, Shellherd answers the sudo prompt once with the stored password; with a key or agent, sudo asks in the terminal if NOPASSWD is not set up.
