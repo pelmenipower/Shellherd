@@ -27,6 +27,7 @@ const KEYS = {
   agent: { title: 'terminal:connectionError.agent.title', body: 'terminal:connectionError.agent.body', next: 'terminal:connectionError.agent.next' },
   limit: { title: 'terminal:connectionError.limit.title', body: 'terminal:connectionError.limit.body', next: 'terminal:connectionError.limit.next' },
   'closed-by-server': { title: 'terminal:connectionError.closed-by-server.title', body: 'terminal:connectionError.closed-by-server.body', next: 'terminal:connectionError.closed-by-server.next' },
+  idle: { title: 'terminal:connectionError.idle.title', body: 'terminal:connectionError.idle.body', next: 'terminal:connectionError.idle.next' },
   unknown: { title: 'terminal:connectionError.unknown.title', body: 'terminal:connectionError.unknown.body', next: 'terminal:connectionError.unknown.next' },
 } as const;
 const ACTION_KEYS = {
@@ -71,6 +72,7 @@ export function connectionError(code: ConnectionErrorCode, context: ConnectionEr
     case 'limit':
       return { title: title({ max: MAX_SSH_SESSIONS }), body: body(), next: next(), primary: 'retry' };
     case 'closed-by-server':
+    case 'idle':
       return { title: title(), body: body(), next: next(), primary: 'retry' };
     default:
       return { title: title(), body: bodyOf(context.error, body()), ...(context.remote ? { next: next() } : {}), primary: 'retry', secondary: 'edit' };

@@ -1,7 +1,8 @@
 import { open } from 'node:fs/promises';
 import type { ConnectConfig } from 'ssh2';
 import { AppError } from '../../shared/errors';
-import type { SftpConnectionNode, SshConnectionNode } from '../../shared/vault/types';
+import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
+import type { ConnectionTimeouts, SftpConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 
 /** No SSH agent is available; classified as code 'agent'. */
 export class AgentError extends AppError {}
@@ -26,10 +27,11 @@ async function readPrivateKey(path: string): Promise<Buffer> {
  * the caller, which must zero it once the handshake is done.
  */
 export async function sshConnectConfig(connection: SshConnectionNode | SftpConnectionNode,
-  hostVerifier: (key: Buffer, callback: (valid: boolean) => void) => void): Promise<{ config: ConnectConfig; key?: Buffer }> {
+  hostVerifier: (key: Buffer, callback: (valid: boolean) => void) => void,
+  timeouts: ConnectionTimeouts = DEFAULT_TIMEOUTS): Promise<{ config: ConnectConfig; key?: Buffer }> {
   const config: ConnectConfig = { host: connection.host, port: connection.port,
-    username: connection.username, readyTimeout: 120_000, keepaliveInterval: 15_000,
-    keepaliveCountMax: 3, agentForward: false, tryKeyboard: false,
+    username: connection.username, readyTimeout: timeouts.connectSeconds * 1000,
+    keepaliveInterval: timeouts.keepaliveSeconds * 1000, keepaliveCountMax: timeouts.keepaliveCount, agentForward: false, tryKeyboard: false,
     hostVerifier: hostVerifier as ConnectConfig['hostVerifier'] };
   const auth = connection.authentication;
   if (auth.method === 'password') config.password = auth.password;

@@ -4,7 +4,7 @@ import { actionLabel, connectionError } from './connection-error-text';
 import { i18n } from './i18n';
 
 const codes: ConnectionErrorCode[] = ['auth', 'timeout', 'hostkey-changed', 'hostkey-rejected', 'hostkey-store',
-  'refused', 'not-found', 'key-file', 'agent', 'limit', 'closed-by-server', 'unknown'];
+  'refused', 'not-found', 'key-file', 'agent', 'limit', 'closed-by-server', 'idle', 'unknown'];
 const ctx = { address: 'deploy@10.0.4.21:22', remote: true };
 
 describe('connectionError', () => {
@@ -56,5 +56,17 @@ describe('connectionError', () => {
       expect(connectionError('timeout', ctx).title).toBe('Server not responding');
       expect(actionLabel('retry')).toBe('Reconnect');
     } finally { await i18n.changeLanguage('de-DE'); }
+  });
+});
+
+describe('connectionError idle', () => {
+  it('offers a plain reconnect like closed-by-server', () => {
+    expect(connectionError('idle', ctx)).toMatchObject({ title: 'Wegen Leerlauf getrennt', primary: 'retry' });
+  });
+});
+
+describe('connectionError idle', () => {
+  it('offers a plain reconnect like closed-by-server', () => {
+    expect(connectionError('idle', ctx)).toMatchObject({ title: 'Wegen Leerlauf getrennt', primary: 'retry' });
   });
 });

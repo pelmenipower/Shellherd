@@ -146,6 +146,7 @@
     "reconnect": "Neu verbinden",
     "reasons": {
       "server": "der Server hat sie beendet",
+      "idle": "wegen Leerlauf",
       "session": "die Sitzung wurde beendet",
       "cancel": "abgebrochen"
     }
@@ -218,6 +219,11 @@
       "title": "Verbindung beendet",
       "body": "Der Server hat die Verbindung beendet.",
       "next": "Verbinde neu, wenn du weiterarbeiten willst."
+    },
+    "idle": {
+      "title": "Wegen Leerlauf getrennt",
+      "body": "Shellherd hat die Verbindung nach der eingestellten Leerlaufzeit beendet.",
+      "next": "Verbinde neu oder passe die Leerlauf-Trennung in den Einstellungen an."
     },
     "unknown": {
       "title": "Verbindung fehlgeschlagen",

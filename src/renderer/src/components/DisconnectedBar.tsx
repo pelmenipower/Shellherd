@@ -5,9 +5,11 @@ import { formatAgo } from '../connect-timeline';
 import { focusIfAllowed } from '../focus-guard';
 import './connection-ui.css';
 
+export type DisconnectReason = 'server' | 'idle' | 'session' | 'cancel';
+
 export interface DisconnectedBarProps {
-  /** 'server' animates in; 'session' (own exit) and 'cancel' (Abbrechen/Esc) appear at once. */
-  reason: 'server' | 'session' | 'cancel';
+  /** 'server' and 'idle' animate in; 'session' (own exit) and 'cancel' (Abbrechen/Esc) appear at once. */
+  reason: DisconnectReason;
   endedAt: number;
   /** Button takes focus, so Enter reconnects. */
   active: boolean;
@@ -17,8 +19,8 @@ export interface DisconnectedBarProps {
 }
 
 const REASON_KEYS = {
-  server: 'terminal:disconnected.reasons.server', session: 'terminal:disconnected.reasons.session', cancel: 'terminal:disconnected.reasons.cancel',
-} as const satisfies Record<DisconnectedBarProps['reason'], string>;
+  server: 'terminal:disconnected.reasons.server', idle: 'terminal:disconnected.reasons.idle', session: 'terminal:disconnected.reasons.session', cancel: 'terminal:disconnected.reasons.cancel',
+} as const satisfies Record<DisconnectReason, string>;
 
 /** Bar below the output of a finished session; it sits in the flow, so it covers nothing. */
 export function DisconnectedBar({ reason, endedAt, active, ticking = true, onReconnect }: DisconnectedBarProps) {
@@ -37,7 +39,7 @@ export function DisconnectedBar({ reason, endedAt, active, ticking = true, onRec
     if (event.key === 'Escape' || event.key === 'Enter') event.stopPropagation();
   };
   return (
-    <div ref={root} className="connect-closed" data-instant={reason === 'server' ? undefined : ''} onKeyDown={onKeyDown}>
+    <div ref={root} className="connect-closed" data-instant={reason === 'server' || reason === 'idle' ? undefined : ''} onKeyDown={onKeyDown}>
       <span className="connect-closed-dot" aria-hidden="true" />
       <span className="connect-closed-text">{t('terminal:disconnected.title')} <span className="connect-closed-age">{t('terminal:disconnected.detail', { age: formatAgo(now - endedAt), reason: t(REASON_KEYS[reason]) })}</span></span>
       <button ref={button} type="button" className="primary-button connect-reconnect" onClick={onReconnect}>{t('terminal:disconnected.reconnect')} <kbd>Enter</kbd></button>

@@ -1,7 +1,7 @@
 import { MAX_DETAIL } from './errors';
 
 export type ConnectionErrorCode = 'auth' | 'timeout' | 'hostkey-changed' | 'hostkey-rejected' | 'hostkey-store'
-  | 'refused' | 'not-found' | 'key-file' | 'agent' | 'limit' | 'closed-by-server' | 'unknown';
+  | 'refused' | 'not-found' | 'key-file' | 'agent' | 'limit' | 'closed-by-server' | 'idle' | 'unknown';
 export type ConnectionAction = 'retry' | 'edit' | 'copy';
 export const DETAIL_LIMIT = MAX_DETAIL;
 

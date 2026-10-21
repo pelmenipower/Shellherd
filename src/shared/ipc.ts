@@ -13,6 +13,9 @@ import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlace
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
 
+/** Sent to the main window when the vault locked itself after inactivity. */
+export interface VaultLockedInfo { minutes: number }
+
 export const IPC_CHANNELS = {
   getVersion: 'app:get-version',
   readClipboardText: 'clipboard:read-text',
@@ -23,6 +26,8 @@ export const IPC_CHANNELS = {
   unlockVault: 'vault:unlock',
   saveCurrentVault: 'vault:save-current',
   lockVault: 'vault:lock',
+  vaultActivity: 'vault:activity',
+  vaultLocked: 'vault:locked',
   sshPrepare: 'ssh:prepare',
   sshConnect: 'ssh:connect',
   sshInput: 'ssh:input',
@@ -283,4 +288,7 @@ export interface DesktopApi {
   ) => Promise<VaultSessionResult>;
 
   lockVault: () => Promise<void>;
+  /** Reports mouse or keyboard use to the auto-lock; fire-and-forget. */
+  vaultActivity: () => void;
+  onVaultLocked: (listener: (info: VaultLockedInfo) => void) => () => void;
 }
