@@ -1,5 +1,6 @@
 // Local SSH test server with synthetic credentials: user `demo`, password `synthetic-demo`, 127.0.0.1:2222.
 // Shell: a few canned commands; `exit` ends the session, `sudo reboot` simulates a server-side close.
+// Root shell: the exec of `sudo -n -i` with a pty asks for the password (`synthetic-demo`, else a second prompt), prints READY and serves `root@web-01:~# `.
 // Also serves SFTP (tree under sftpRoot), a fixed set of exec commands (never executed, only matched) and one tcpip target.
 import { chmodSync, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs';
 import net from 'node:net';
@@ -98,6 +99,61 @@ function sftpHandler(sftp, root) {
   }));
 }
 
+/** Echoing shell emulation; pending = bytes that arrived with the previous step and belong to this shell. */
+function serveShell(stream, { prompt, banner }, pending = '') {
+  let line = '';
+  const feed = data => {
+    for (const char of data.toString()) {
+      if (char === '\r') {
+        const command = line.trim();
+        line = '';
+        stream.write('\r\n');
+        if (command === 'exit' || command === 'sudo reboot') {
+          if (command === 'sudo reboot') stream.write('Connection to 127.0.0.1 closed by remote host.\r\n');
+          stream.exit(0);
+          stream.end();
+          return;
+        }
+        // cd prints nothing in a real shell; the fake keeps its prompt.
+        if (command && !/^cd(\s|$)/.test(command)) stream.write(`${outputs[command] ?? `${command.split(' ')[0]}: command not found`}\r\n`);
+        stream.write(prompt);
+      } else if (char === '\x7f') {
+        if (line) { line = line.slice(0, -1); stream.write('\b \b'); }
+      } else {
+        line += char;
+        stream.write(char);
+      }
+    }
+  };
+  stream.write(banner + prompt);
+  stream.on('data', feed);
+  if (pending) feed(pending);
+}
+
+/** Root shell of the exec `sh -c '… sudo -p MARKER -v … printf %s READY … sudo -n -i'`: marker prompt (no echo), then READY and a root shell. */
+function serveRootShell(stream, command) {
+  const marker = /\[terminus-sudo-[0-9a-f]{16}\]/.exec(command)[0];
+  const ready = /\[terminus-ready-[0-9a-f]{16}\]/.exec(command)[0];
+  // Two writes, so the app has to detect the marker across chunks.
+  const ask = () => { stream.write(marker.slice(0, 9)); stream.write(marker.slice(9)); };
+  let buffer = '';
+  const onData = data => {
+    buffer += data.toString();
+    const end = buffer.indexOf('\n');
+    if (end === -1) return;
+    const attempt = buffer.slice(0, end).replace(/\r$/, '');
+    const rest = buffer.slice(end + 1);
+    buffer = '';
+    if (attempt !== 'synthetic-demo') { stream.write('\r\nSorry, try again.\r\n'); ask(); return; }
+    stream.off('data', onData);
+    stream.write('\r\n');
+    stream.write(ready);
+    serveShell(stream, { prompt: 'root@web-01:~# ', banner: '' }, rest);
+  };
+  stream.on('data', onData);
+  ask();
+}
+
 /** Host key persists in the run folder, otherwise known-hosts.json in the profile rejects every restart. */
 function loadHostKey(dir) {
   const file = path.join(dir, 'sshd-host-key');
@@ -143,39 +199,14 @@ export async function startSshd({ port = 2222, dir = RUN_DIR, sftpRoot = path.jo
       session.on('sftp', acceptSftp => sftpHandler(acceptSftp(), sftpRoot));
       session.on('exec', (acceptExec, _reject, { command }) => {
         const stream = acceptExec();
+        if (/\[terminus-sudo-[0-9a-f]{16}\]/.test(command) && /\[terminus-ready-[0-9a-f]{16}\]/.test(command) && command.includes('sudo -n -i')) { serveRootShell(stream, command); return; }
         const { out, err, code } = execReply(command, kubeconfig);
         if (out) stream.write(out);
         if (err) stream.stderr.write(err);
         stream.exit(code);
         stream.end();
       });
-      session.on('shell', acceptShell => {
-        const stream = acceptShell();
-        let line = '';
-        stream.write(motd + prompt);
-        stream.on('data', data => {
-          for (const char of data.toString()) {
-            if (char === '\r') {
-              const command = line.trim();
-              line = '';
-              stream.write('\r\n');
-              if (command === 'exit' || command === 'sudo reboot') {
-                if (command === 'sudo reboot') stream.write('Connection to 127.0.0.1 closed by remote host.\r\n');
-                stream.exit(0);
-                stream.end();
-                return;
-              }
-              if (command) stream.write(`${outputs[command] ?? `${command.split(' ')[0]}: command not found`}\r\n`);
-              stream.write(prompt);
-            } else if (char === '\x7f') {
-              if (line) { line = line.slice(0, -1); stream.write('\b \b'); }
-            } else {
-              line += char;
-              stream.write(char);
-            }
-          }
-        });
-      });
+      session.on('shell', acceptShell => serveShell(acceptShell(), { prompt, banner: motd }));
     })).on('error', () => {});
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });

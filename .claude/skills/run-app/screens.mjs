@@ -1,5 +1,5 @@
-// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, welcome tab) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|welcome …]   (no argument = all)
+// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab) through the running driver.
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome …]   (no argument = all)
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -237,6 +237,25 @@ const blocks = {
       for (const end = Date.now() + 10000; (await call('windows')).length > 1 && Date.now() < end; await pause(250));
       await use(0);
     }
+  },
+  // ops-01: root shell (sudo -i) with start commands; then "Ohne Startbefehle verbinden" gives the plain user prompt without typed commands.
+  async 'login-commands'() {
+    const screen = `(document.querySelector('.terminal-panel:not([hidden]) .xterm-rows')?.textContent ?? '')`;
+    await click('text=ops-01 >> nth=0');
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('Root-Prompt und Startbefehle', `${screen}.includes('root@web-01') && ${screen}.includes('load average')`, { timeout: 30000 });
+    await pause(500);
+    const uptimes = () => evaluate(`${screen}.split('load average').length - 1`);
+    const before = await uptimes();
+    await shot('login-commands');
+    await rclick('.terminal-tab:not([data-fixed])');
+    await menuItem('Ohne Startbefehle verbinden');
+    // The root screen has no demo@ prompt, so this only matches the new session.
+    await waitFor('Benutzer-Prompt', `${screen}.includes('demo@web-01')`, { timeout: 30000 });
+    await pause(500);
+    if (await uptimes() > before) throw new Error('Startbefehle wurden trotz „Ohne Startbefehle“ ausgeführt');
+    await shot('login-plain');
   },
   async welcome() {
     await click('.terminal-tab-add');
