@@ -1,5 +1,5 @@
-// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant …] [--readme]   (no argument = all)
+// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, welcome tab) through the running driver.
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|welcome …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -21,7 +21,7 @@ async function call(route, body, query = '') {
 const click = selector => call('click', selector);
 const rclick = selector => call('rclick', selector);
 const fill = (selector, value) => call('fill', `${selector}\n${value}`);
-const key = name => call('key', undefined, `?k=${name}`);
+const key = name => call('key', undefined, `?k=${encodeURIComponent(name)}`);
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 // Menu entries carry hints in child spans, so they are matched by their leading text.
 const menuItem = label => call('eval', `const item = [...document.querySelectorAll('[role=menuitem]')].find(i => i.textContent.trim().startsWith(${JSON.stringify(label)}) && !i.disabled);
@@ -71,6 +71,8 @@ function localTarget() {
 }
 
 const shots = [];
+// The web-01 tab (not the fixed welcome tab) is connected; proves a session is alive.
+const connectedTab = `[...document.querySelectorAll('.terminal-tab:not([data-fixed])')].some(b => b.querySelector('.tab-name')?.textContent === 'web-01' && b.querySelector('.tab-status-connected'))`;
 const blocks = {
   async sftp() {
     const { target, segment } = localTarget();
@@ -155,6 +157,105 @@ const blocks = {
     await waitFor('KI-Antwort', `!document.querySelector('.assistant-typing') && [...document.querySelectorAll('.assistant-message.is-assistant .assistant-command code')].some(c => c.textContent.includes('du -xh'))`);
     await pause(300);
     await shot('assistant');
+  },
+  async lock() {
+    await click('text=web-01 >> nth=0');
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener web-01-Tab', connectedTab);
+    // Marks the visible terminal node: if it survives the lock, it was not remounted.
+    await evaluate(`(document.querySelector('.terminal-panel:not([hidden]) .xterm').dataset.lockProbe = '1')`);
+    await pause(1000);
+    await click('.lock-button');
+    await waitFor('Sperrbildschirm', `document.querySelector('dialog.lock-screen[open]')`);
+    if (!await evaluate(`document.querySelector('.vault-shell').inert === true`)) throw new Error('Shell ist nicht inert');
+    // Escape must not close the lock screen.
+    await key('Escape'); await pause(300); await key('Escape'); await pause(300);
+    if (!await evaluate(`!!document.querySelector('dialog.lock-screen[open]')`)) throw new Error('Escape schließt den Sperrbildschirm');
+    // A modal opened later must not cover the lock screen: it raises itself again.
+    await evaluate(`(() => { const d = document.createElement('dialog'); d.id = 'lock-probe'; document.body.appendChild(d); d.showModal(); })()`);
+    await pause(300);
+    const onTop = await evaluate(`!!document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('dialog.lock-screen')`);
+    await evaluate(`document.getElementById('lock-probe')?.remove()`);
+    if (!onTop) throw new Error('Sperrbildschirm liegt nicht oben (Neuanhebung)');
+    // The switch confirmation is a child of the lock screen; raising the lock screen must close it, or the next click would do nothing.
+    await click('.lock-screen .secondary-button');
+    await waitFor('Wechsel-Rückfrage', `document.querySelector('.lock-screen dialog[open]')`);
+    await evaluate(`(() => { const d = document.createElement('dialog'); d.id = 'lock-probe'; document.body.appendChild(d); d.showModal(); })()`);
+    await pause(300);
+    const confirmClosed = await evaluate(`!document.querySelector('.lock-screen dialog[open]')`);
+    if (!confirmClosed) { await evaluate(`document.getElementById('lock-probe')?.remove()`); throw new Error('Wechsel-Rückfrage bleibt nach der Neuanhebung offen'); }
+    await click('.lock-screen .secondary-button');
+    const confirmReopened = await evaluate(`!!document.querySelector('.lock-screen dialog[open]')`);
+    await key('Escape'); await pause(300);
+    await evaluate(`document.getElementById('lock-probe')?.remove()`);
+    if (!confirmReopened) throw new Error('Wechsel-Rückfrage öffnet nach der Neuanhebung nicht erneut');
+    await pause(300);
+    await shot('lock-screen');
+    await fill('.lock-screen input[type=password]', 'falsches-passwort');
+    await click('.lock-screen .primary-button');
+    await waitFor('Fehlermeldung', `document.querySelector('.lock-screen .error-message')?.offsetParent`);
+    // After a failed attempt the field is empty and keeps the focus, so typing can continue at once.
+    if (!await evaluate(`document.activeElement === document.querySelector('.lock-screen input[type=password]') && document.querySelector('.lock-screen input[type=password]').value === ''`)) throw new Error('Passwortfeld nach Fehlversuch nicht leer oder ohne Fokus');
+    await fill('.lock-screen input[type=password]', 'synthetic-vault-demo');
+    await click('.lock-screen .primary-button');
+    await waitFor('Entsperren', `!document.querySelector('dialog.lock-screen[open]') && document.querySelector('.xterm[data-lock-probe]') && ${connectedTab}`, { timeout: 30000 });
+    if (!await evaluate(`document.querySelector('.vault-shell').inert === false`)) throw new Error('Shell bleibt nach dem Entsperren inert');
+  },
+  // Detached window: locks with the main window, shows a form-less lock screen, and is usable again after unlocking in the main window.
+  async 'lock-secondary'() {
+    await click('.view-add');
+    await click('text=web-01 >> nth=0');
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener web-01-Tab', connectedTab);
+    await rclick('.view-tab.is-active');
+    await menuItem('In neues Fenster verschieben');
+    let main = 0, secondary = -1;
+    for (const end = Date.now() + 20000; secondary < 0; await pause(250)) {
+      const urls = await call('windows');
+      secondary = urls.findIndex(url => url.includes('role=secondary'));
+      main = urls.findIndex(url => !url.includes('role=secondary'));
+      if (secondary < 0 && Date.now() > end) throw new Error('Nebenfenster (Timeout nach 20 s)');
+    }
+    const use = index => call('use', undefined, `?i=${index}`);
+    try {
+      await use(secondary);
+      await waitFor('Terminal im Nebenfenster', `document.querySelector('.xterm')`);
+      await waitFor('verbundener web-01-Tab im Nebenfenster', connectedTab);
+      await click('.xterm-helper-textarea >> nth=0');
+      await evaluate(`(document.querySelector('.terminal-panel:not([hidden]) .xterm').dataset.lockProbe = '1')`);
+      await use(main);
+      await click('.lock-button');
+      await use(secondary);
+      await waitFor('Sperrbildschirm im Nebenfenster', `document.querySelector('dialog.lock-screen[open]')`);
+      if (!await evaluate(`document.querySelector('.vault-shell').inert === true`)) throw new Error('Nebenfenster ist nicht inert');
+      if (!await evaluate(`!document.querySelector('.lock-screen form')`)) throw new Error('Sperrbildschirm im Nebenfenster zeigt ein Formular');
+      await key('Control+Shift+Space'); await pause(500);
+      if (!await evaluate(`!document.querySelector('dialog.workflow-palette[open]') && document.querySelectorAll('dialog[open]').length === 1`)) throw new Error('Workflow-Palette öffnet sich im gesperrten Nebenfenster');
+      await call('ss', undefined, '?name=lock-secondary'); shots.push(path.join(SHOTS, 'lock-secondary.png'));
+      await use(main);
+      await waitFor('Sperrbildschirm im Hauptfenster', `document.querySelector('dialog.lock-screen[open]')`);
+      await fill('.lock-screen input[type=password]', 'synthetic-vault-demo');
+      await click('.lock-screen .primary-button');
+      await waitFor('Entsperren', `!document.querySelector('dialog.lock-screen[open]')`, { timeout: 30000 });
+      await use(secondary);
+      await waitFor('Nebenfenster entsperrt', `!document.querySelector('dialog.lock-screen[open]') && document.querySelector('.xterm[data-lock-probe]') && ${connectedTab}`, { timeout: 30000 });
+      if (!await evaluate(`document.querySelector('.vault-shell').inert === false`)) throw new Error('Nebenfenster bleibt nach dem Entsperren inert');
+      await waitFor('Fokus im Nebenfenster-Terminal', `document.activeElement?.classList.contains('xterm-helper-textarea')`, { timeout: 5000 });
+    } finally {
+      // Closing the last tab closes the window, so the page may vanish mid-cleanup.
+      try { await use(secondary); await closeTabs(); } catch { /* window already closed */ }
+      for (const end = Date.now() + 10000; (await call('windows')).length > 1 && Date.now() < end; await pause(250));
+      await use(0);
+    }
+  },
+  async welcome() {
+    await click('.terminal-tab-add');
+    await click('.connection-picker-welcome');
+    await waitFor('Willkommensseite', `document.querySelector('.welcome-page')`);
+    await pause(300);
+    await shot('welcome');
   },
 };
 

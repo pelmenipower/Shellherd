@@ -262,21 +262,21 @@ app.whenReady().then(() => {
     registry: windowRegistry, ssh: sshSessionManager, rdp: rdpSessionManager, sftp: sftpSessionManager, closeOwnerSessions,
     createSecondary: bounds => createWindow('secondary', bounds),
   });
+  // Lock and unlock reach every window; the main window learns its own unlock from the IPC result.
+  const announce = (channel: string, payload?: unknown): void => {
+    for (const target of [windowRegistry.main(), ...windowRegistry.secondaries()])
+      if (target && !target.isDestroyed() && !target.webContents.isDestroyed()) target.webContents.send(channel, payload);
+  };
   registerVaultIpcHandlers({
-    onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); autoLock?.touch(); },
+    onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); },
+    onLock: () => announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo),
+    onUnlock: () => { autoLock?.touch(); announce(IPC_CHANNELS.vaultUnlocked); },
     onVaultChange: () => { broadcastCatalog(); ai.broadcast(); rdpSessionManager.prewarm(); },
     guard: event => windowRegistry.requireMain(event),
   });
-  // Same path as the manual lock (sessions, secondary windows, key); only the notice to the main window is new.
-  const lockNow = (): void => { try { closeAllSessions(); closeSecondaryWindows(); } finally { vaultSessionManager.lock(); } };
   autoLock = new AutoLock({
     minutes: () => vaultSessionManager.isUnlocked() ? vaultSessionManager.getSnapshot().vault.settings.autoLockMinutes : 0,
-    lock: minutes => {
-      try { lockNow(); } finally {
-        const main = windowRegistry.main();
-        if (main && !main.isDestroyed()) main.webContents.send(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo);
-      }
-    },
+    lock: minutes => { try { vaultSessionManager.lock(); } finally { announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
     systemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
     rdpConnected: () => rdpSessionManager.hasConnected(),
   });

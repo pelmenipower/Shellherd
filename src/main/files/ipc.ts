@@ -62,7 +62,8 @@ export async function openForEditing(path: string, editor: EditorChoice = 'defau
 function handle<T>(channel: string, schema: z.ZodType<T>, run: (ownerId: number, request: T) => unknown): void {
   ipcMain.handle(channel, async (event: IpcMainInvokeEvent, request: unknown) => {
     const ownerId = requireSshSender(event);
-    vaultSessionManager.getSnapshot();
+    // Session-bound channels are guarded by ownership: the session only exists if the vault was unlocked when it opened.
+    if (!(channel.startsWith('sftp:') && channel !== IPC_CHANNELS.sftpOpen)) vaultSessionManager.getSnapshot();
     const parsed = parseRequest(schema, request, 'files.invalidRequest');
     try { return await run(ownerId, parsed); } catch (error) { throw AppError.from(fileError(error)); }
   });

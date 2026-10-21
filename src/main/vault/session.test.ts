@@ -19,7 +19,7 @@ import {
   readEncryptedVaultFile,
   writeEncryptedVaultFile,
 } from './storage';
-import { VaultSessionManager } from './session';
+import { VaultSessionManager, resumesLocked } from './session';
 import { addNode, updateNode, removeNodeFromVault } from '../../shared/vault/mutations';
 import { validateVaultConsistency } from '../../shared/vault/consistency';
 import { exampleVault } from '../../shared/vault/example';
@@ -100,6 +100,21 @@ describe('VaultSessionManager', () => {
     expect(snapshot.vault).toEqual(exampleVault);
     expect(snapshot).not.toHaveProperty('key');
 
+    manager.lock();
+  });
+
+  it('remembers the locked vault until the next successful unlock', async () => {
+    const { filePath, password } = await createTestVault();
+    const manager = new VaultSessionManager();
+    expect(manager.lockedVault()).toBeUndefined();
+    const snapshot = await manager.unlock(filePath, password);
+    expect(manager.lockedVault()).toBeUndefined();
+    manager.lock();
+    expect(manager.lockedVault()).toEqual({ filePath, vaultId: snapshot.vault.id });
+    await expect(manager.unlock(filePath, 'wrong-password')).rejects.toThrow();
+    expect(manager.lockedVault()).toEqual({ filePath, vaultId: snapshot.vault.id });
+    await manager.unlock(filePath, password);
+    expect(manager.lockedVault()).toBeUndefined();
     manager.lock();
   });
 
@@ -210,5 +225,14 @@ describe('VaultSessionManager', () => {
       manager.save(snapshot.vault),
     ).rejects.toThrow(expect.objectContaining({ code: 'core.vaultLocked' })
     );
+  });
+});
+describe('resumesLocked', () => {
+  const previous = { filePath: 'a.term', vaultId: 'v1' };
+  it('resumes only for the same file and the same vault id', () => {
+    expect(resumesLocked(previous, { filePath: 'a.term', vault: { id: 'v1' } })).toBe(true);
+    expect(resumesLocked(previous, { filePath: 'a.term', vault: { id: 'v2' } })).toBe(false);
+    expect(resumesLocked(previous, { filePath: 'b.term', vault: { id: 'v1' } })).toBe(false);
+    expect(resumesLocked(undefined, { filePath: 'a.term', vault: { id: 'v1' } })).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import type { ConnectionIconName } from './appearance';
-import type { ConnectionNode, ConnectionProtocol, RemoteConnectionNode, VaultNode } from './types';
+import type { ConnectionNode, ConnectionProtocol, RemoteConnectionNode, Vault, VaultNode } from './types';
 
 /** Protocol data only; display texts live in the `vault` catalog (see `connection-labels.ts`). */
 export interface ProtocolInfo {
@@ -37,6 +37,12 @@ export function redactSecrets(nodes: VaultNode[]): VaultNode[] {
     if (node.protocol === 'rdp') { const { password: _password, ...rest } = node; return rest; }
     return node;
   });
+}
+
+/** Copy without secrets for the locked renderer: SSH/SFTP auth → agent, RDP password and AI settings removed. */
+export function redactVault(vault: Vault): Vault {
+  const { ai: _ai, ...rest } = vault;
+  return { ...rest, nodes: redactSecrets(vault.nodes) };
 }
 
 /** Connections of a folder tree that may be opened, plus how many were skipped as disabled. */

@@ -87,7 +87,6 @@
       "description": "Your input has not been saved yet. Return to the editor to save it, or discard it and continue.",
       "confirm": "Discard and continue"
     },
-    "lockVault": "Lock vault?",
     "replaceWorkspace": "Replace the active workspace?",
     "closeWorkspace": "Close workspace?",
     "closeTab": {
@@ -97,7 +96,6 @@
     },
     "endConnections_one": "{{count}} active connection will be ended. Programs running in the sessions may be terminated.",
     "endConnections_other": "{{count}} active connections will be ended. Programs running in the sessions may be terminated.",
-    "confirmLock": "Disconnect and lock",
     "confirmReplace": "Replace and open",
     "confirmDisconnect": "Disconnect",
     "confirmDefault": "Delete permanently"
@@ -137,9 +135,7 @@
     "create": "Create new vault",
     "open": "Open vault",
     "crypto": "Argon2id and AES-256-GCM active",
-    "settings": "Settings",
-    "autoLocked_one": "Locked automatically after {{count}} minute without input. All sessions were disconnected.",
-    "autoLocked_other": "Locked automatically after {{count}} minutes without input. All sessions were disconnected."
+    "settings": "Settings"
   },
   "create": {
     "title": "Create vault",
@@ -163,6 +159,20 @@
     "showPassword": "Show password",
     "submit": "Open vault",
     "submitting": "Decrypting vault…"
+  },
+  "lock": {
+    "title": "Vault “{{name}}” locked",
+    "titlePlain": "Vault locked",
+    "autoLocked_one": "Locked automatically after {{count}} minute without input.",
+    "autoLocked_other": "Locked automatically after {{count}} minutes without input.",
+    "sessions_one": "{{count}} session keeps running.",
+    "sessions_other": "{{count}} sessions keep running.",
+    "unlock": "Unlock",
+    "switch": "Other vault file",
+    "switchTitle": "Open another vault file?",
+    "switchDescription": "All connections in all windows will be disconnected. Then you choose the file and enter its password.",
+    "switchConfirm": "Disconnect and switch",
+    "secondary": "Unlock the vault in the main window."
   },
   "toast": {
     "closeAria": "Dismiss notice"
@@ -214,7 +224,7 @@
     "autoLock": {
       "label": "Lock automatically after",
       "unit": "minutes without input (0: never)",
-      "hint": "Disconnects all sessions and locks the vault when neither mouse nor keyboard was used in any Shellherd window. Unsaved input is lost."
+      "hint": "Locks the vault when neither mouse nor keyboard was used in any Shellherd window. Open sessions and tabs are kept."
     },
     "timeouts": {
       "idle": {

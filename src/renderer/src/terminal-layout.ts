@@ -156,9 +156,9 @@ export function resizeBounds(split: LiveSplit, pixels: number): { min: number; m
 }
 export function savedLayout(layout: LiveLayout, tabs: TerminalTab[]): WorkspaceLayout {
   if (layout.type === 'split') return { type: 'split', direction: layout.direction, ratio: layout.ratio, first: savedLayout(layout.first, tabs), second: savedLayout(layout.second, tabs) };
-  // Local container tabs have no vault connection to come back to; pod logs and shells are not restored.
+  // Local container tabs have no vault connection to come back to; pod logs, shells and the welcome tab are not restored.
   const saved = layout.tabIds.flatMap(id => tabs.find(tab => tab.id === id) ?? [])
-    .filter(tab => tab.connection.id !== LOCAL_CONTAINER_HOST && !tab.connection.kube);
+    .filter(tab => tab.connection.id !== LOCAL_CONTAINER_HOST && !tab.connection.kube && tab.connection.view !== 'welcome');
   const active = layout.activeTabId ? saved.find(tab => tab.id === layout.activeTabId)?.connection.id : undefined;
   const fileBrowsers = saved.flatMap((tab, index) => tab.connection.view === 'files' ? [index] : []);
   const containerViews: (number | WorkspaceContainerView)[] = saved.flatMap((tab, index) =>

@@ -19,6 +19,7 @@
     "tooManySessions": "Ein Workspace darf höchstens {{max}} Sessions starten."
   },
   "tabs": {
+    "welcome": "Willkommen",
     "label": "SSH-Sessions",
     "editor": "Editor",
     "closeAria": "Tab {{label}} schließen",
@@ -57,7 +58,7 @@
   "area": {
     "label": "Terminalbereiche",
     "emptyTitle": "Leerer Bereich",
-    "emptyHint": "Verbindung aus der Liste öffnen oder einen Tab hier ablegen.",
+    "emptyHint": "Verbindung aus der Liste öffnen, einen Tab hier ablegen oder über + die Willkommensseite zeigen.",
     "connectHere": "Hier verbinden",
     "sessionsLabel": "Sessions in Bereich {{number}}",
     "openFilesAria": "Dateien dieser SSH-Verbindung in Bereich {{number}} öffnen",

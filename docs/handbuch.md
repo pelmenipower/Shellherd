@@ -58,8 +58,18 @@ erhalten. Bereits laufende Tabs bleiben offen. `Aktivieren` gibt sie wieder frei
 Hintergrund-Tabs bleiben verbunden und
 verarbeiten ihre Ausgabe weiter. Im Tabstreifen wechseln Pfeiltasten sowie
 Home/End zwischen Tabs. Das Schließen eines Tabs beendet nur seine Session.
-Die Vault-Sperre beendet alle Sessions. Gespeicherte Workspaces lassen sich nach
+Sperren trennt nicht: Die Sitzungen laufen im Hintergrund weiter, und nach dem Entsperren sind alle Tabs wieder da. Neue Verbindungen und `Neu verbinden` gehen erst nach dem Entsperren. `Andere Vault-Datei` im Sperrbildschirm fragt immer nach und trennt alles. Gespeicherte Workspaces lassen sich nach
 dem Entsperren gezielt öffnen; dabei starten neue SSH-Sessions.
+
+### Sperren und Willkommens-Tab
+
+Der Sperrknopf in der Kopfzeile sperrt ohne Rückfrage. Ein undurchsichtiger Sperrbildschirm deckt das Fenster ab; die Tastatur erreicht nichts dahinter. Nebenfenster werden mitgesperrt und zeigen ihren eigenen Sperrbildschirm (ohne Passwortfeld); entsperrt wird im Hauptfenster.
+
+- **Zugangsdaten im Speicher:** Die Zugangsdaten offener Sitzungen bleiben während der Sperre im Speicher von Shellherd. Ein geänderter, ungespeicherter Verbindungseditor behält seinen Inhalt, auch das gespeicherte Passwort der Verbindung; ein unveränderter Editor schließt beim Sperren. Gegen das Auslesen des Arbeitsspeichers schützt die Sperre nicht.
+- **Leerlauf-Trennung:** Sie läuft während der Sperre weiter. Eine lange Sperre kann Sitzungen trennen; die Getrennt-Leiste wartet dann nach dem Entsperren.
+- **Assistent:** Automatische Rückfragen des Assistenten (gelesene Ausgabe) scheitern während der Sperre mit „Es ist kein Vault entsperrt.“
+- **Host-Schlüssel:** Eine offene Host-Schlüssel-Rückfrage kann über dem Sperrbildschirm erscheinen. Sie zeigt nur Host und Fingerabdruck.
+- **Willkommens-Tab:** Beim Öffnen eines Vaults erscheint die Willkommensseite als Tab. Du öffnest sie wieder über das `+`-Menü (`Willkommensseite`). Der Tab lässt sich nur schließen: nicht ziehen, nicht teilen, nicht in ein anderes Fenster verschieben. Er wird nicht im Workspace gespeichert und zählt zum Limit von 16 Tabs.
 
 Text im Terminal markieren kopiert die Auswahl automatisch in die Zwischenablage.
 Rechtsklick fügt den Text aus der Zwischenablage in das angeklickte Terminal ein.
@@ -86,13 +96,13 @@ Fehlermeldungen, Dialoge und Fenstertitel folgen der Sprache, ebenso Datum, Zahl
 
 ### Vault
 
-`Vor dem Trennen laufender Sitzungen nachfragen` (Standard: an) fragt nach, bevor das Schließen eines Tabs oder Fensters, das Sperren oder ein Workspace-Wechsel laufende Sitzungen beendet. Die Einstellung gehört zum Vault und wird verschlüsselt mit ihm gespeichert; sie erscheint erst nach dem Entsperren.
+`Vor dem Trennen laufender Sitzungen nachfragen` (Standard: an) fragt nach, bevor das Schließen eines Tabs oder Fensters oder ein Workspace-Wechsel laufende Sitzungen beendet. Die Einstellung gehört zum Vault und wird verschlüsselt mit ihm gespeichert; sie erscheint erst nach dem Entsperren.
 
-`Automatisch sperren nach … Minuten ohne Eingabe (0: nie)` trennt alle Sitzungen und sperrt den Vault, wenn in keinem Shellherd-Fenster Maus oder Tastatur benutzt wurde (Bereich 0 bis 1.440, Standard 15). Der Wert wird bei Blur oder `Enter` übernommen und gilt sofort.
+`Automatisch sperren nach … Minuten ohne Eingabe (0: nie)` sperrt den Vault, wenn in keinem Shellherd-Fenster Maus oder Tastatur benutzt wurde (Bereich 0 bis 1.440, Standard 15). Offene Sitzungen und Tabs bleiben erhalten. Der Wert wird bei Blur oder `Enter` übernommen und gilt sofort.
 
 - **Was zählt:** Nur Maus und Tastatur in Shellherd-Fenstern. Terminal-Ausgabe zählt nicht: Wer nur einen langen Lauf beobachtet, wird gesperrt. Arbeit in anderen Programmen zählt ebenfalls nicht.
 - **RDP:** Solange eine RDP-Sitzung verbunden ist, zählt zusätzlich jede Eingabe am Rechner, denn Maus und Tastatur im RDP-Fenster gehen an Shellherd vorbei.
-- **Nichts wird gefragt:** Die Sperre arbeitet wie das manuelle Sperren, aber ohne Rückfrage. Ungespeicherte Eingaben im Verbindungsformular gehen verloren. Nebenfenster werden geschlossen. Nach der Sperre nennt die Startkarte den Grund.
+- **Nichts wird gefragt:** Die Sperre arbeitet wie das manuelle Sperren, ohne Rückfrage. Offene Einstellungs- und Anbieter-Dialoge schließen sich. Nebenfenster werden mitgesperrt, nicht geschlossen. Nach der Sperre nennt der Sperrbildschirm den Grund.
 - **Ungenauigkeit:** Die Sperre kommt bis zu 10 Sekunden früher oder bis zu 30 Sekunden später als eingestellt; nach dem Aufwachen aus dem Ruhezustand sperrt Shellherd sofort, wenn die Zeit abgelaufen ist.
 - **Bestehende Vaults:** Jeder Vault trägt den Wert 15. Sie sperren sich daher ab dieser Version nach 15 Minuten; `0` schaltet die Sperre ab.
 
@@ -360,7 +370,7 @@ werden; eine Oberfläche zur gezielten Verwaltung vertrauter Hosts folgt später
 - SSH-Anfragen verwenden gespeicherte Connection-IDs und besitzgebundene Session-IDs.
 - Ausgabe pausiert bei ausstehenden xterm-Bestätigungen; Eingaben und Scrollback
   sind begrenzt. Terminalausgabe wird nicht auf Platte protokolliert.
-- Trennen, Vault-Sperre (manuell oder automatisch), Leerlauf-Trennung, Fensterende und Renderer-Ausfall beenden die SSH-Session.
+- Trennen, Leerlauf-Trennung, Fensterende, `Andere Vault-Datei` und Renderer-Ausfall beenden die SSH-Session. Die Vault-Sperre (manuell oder automatisch) beendet sie nicht; die Zugangsdaten offener Sitzungen bleiben dafür im Speicher.
   Bei aktiven Sessions wird das Schließen entsprechend der Vault-Einstellung bestätigt.
 
 Die SSH-Tests betreiben einen lokalen `ssh2`-Server mit zur Laufzeit erzeugten

@@ -4,6 +4,16 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.15.0] – 2026-10-21
+
+- New: Locking no longer disconnects. A lock screen covers the window; sessions and tabs keep running and are back after unlocking. New connections and Reconnect work only after unlocking. The credentials of open sessions stay in memory.
+- New: Detached windows lock too and show their own lock screen; you unlock in the main window. The automatic lock no longer closes detached windows.
+- New: On the lock screen, Other vault file switches the file after a confirmation and disconnects all sessions.
+- The lock button locks without a confirmation.
+- New: The welcome page is a tab. It appears when a vault opens, can be reopened from the + menu (Welcome page) and can only be closed.
+- Without tabs, the stage shows the empty area instead of the welcome page.
+- The local command prompt is now called cmd (local).
+
 ## [0.14.0] – 2026-10-21
 
 - New: The vault locks automatically. `Lock automatically after … minutes without input` under Settings → Vault counts mouse and keyboard in all Shellherd windows; terminal output does not count. All sessions are disconnected, detached windows closed, and the start card names the reason. Unsaved input in the connection form is lost.

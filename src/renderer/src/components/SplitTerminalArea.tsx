@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import type { TerminalConnection, TerminalTab } from '../terminal-tabs';
 import type { SshStatus } from '../../../shared/ssh';
 import type { LiveLayout, DockZone, SplitRect } from '../terminal-layout';
@@ -17,7 +17,7 @@ import { rdpActionLabel } from '../rdp-sessions';
 import { useT } from '../i18n';
 import { liveSessions } from '../session-registry';
 import type { ExternalDragHover } from '../../../shared/windows';
-import { tabLabel } from '../terminal-tabs';
+import { isWelcomeTab, tabLabel } from '../terminal-tabs';
 import type { ViewControls } from '../terminal-views';
 import { RDP_ACTIONS } from '../../../shared/rdp';
 import { TerminalTabs } from './TerminalTabs';
@@ -50,6 +50,10 @@ interface Props {
   onSnapshot?: (tabId: string, snapshot: KubeViewSnapshot) => void;
   /** Persists the auto-upload bindings of a connection; omitted windows (secondary) cannot edit them. */
   onSaveAutoUpload?: (connectionId: string, bindings: AutoUploadBinding[]) => Promise<boolean>;
+  /** Content of the welcome tab; omitted windows never show one. */
+  welcomePanel?: ReactNode;
+  /** Opens or focuses the welcome tab for this pane; omitted hides the picker entry. */
+  onWelcome?: (paneId: string) => void;
 }
 const NO_BINDINGS: AutoUploadBinding[] = [];
 const bindingsOf = (nodes: VaultNode[], id: string): AutoUploadBinding[] => {
@@ -71,7 +75,7 @@ interface DockTarget {
   marker?: { left: number; top: number };
 }
 export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, focused, busy, onLayout, onFocus, onSelect, onStatus, onClose, draggedTabId, onDrag, visible = true,
-  externalHover = null, pendingDock = null, onDockHandled, onTearOff, viewControls, onPopout, onSnapshot, onSaveAutoUpload }: Props) {
+  externalHover = null, pendingDock = null, onDockHandled, onTearOff, viewControls, onPopout, onSnapshot, onSaveAutoUpload, welcomePanel, onWelcome }: Props) {
   const { t } = useT();
   const [viewDrop, setViewDrop] = useState<string | null>(null);
   const viewDropRef = useRef<string | null>(null);
@@ -203,7 +207,10 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
   const previewRegion = previewLayout && previewLayout !== layout && draggedTabId
     ? paneRects(previewLayout).find(region => region.pane.tabIds.includes(draggedTabId)) : undefined;
   // Capture on the stable stage, not a tab that can move to another pane.
+  const welcomeActive = (pane: { activeTabId: string | null }): boolean => { const active = tabs.find(item => item.id === pane.activeTabId); return !!active && isWelcomeTab(active); };
   const beginTabDrag = (tabId: string, event: ReactPointerEvent<HTMLElement>) => {
+    // The welcome tab is fixed: no drag; the click still selects it.
+    if (tabs.some(item => item.id === tabId && isWelcomeTab(item))) return;
     if (busy || event.button !== 0 || !event.isPrimary || !stage.current) return;
     event.preventDefault(); event.stopPropagation();
     document.getElementById(`tab-${tabId}`)?.focus({ preventScroll: true });
@@ -358,7 +365,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
             onSelect={id => selectTab(region.pane.id, id)} onClose={onClose} onTabPointerDown={beginTabDrag} />
             : <span className="empty-pane-title">{t('terminal:area.emptyTitle')}</span>}
           <ConnectionPicker nodes={nodes} disabled={busy} limitReached={tabs.length >= MAX_SSH_SESSIONS} paneNumber={index + 1}
-            onConnect={id => onConnect(id, region.pane.id)} />
+            onConnect={id => onConnect(id, region.pane.id)} onWelcome={onWelcome ? () => onWelcome(region.pane.id) : undefined} />
           <span className="pane-header-spacer" />
           {/* i18n-ignore: arrow functions, not text */}{tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'ssh' && tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.view !== 'containers' && <button type="button" className="pane-action" disabled={busy || tabs.length >= MAX_SSH_SESSIONS}
             aria-label={t('terminal:area.openFilesAria', { number: index + 1 })} title={t('terminal:area.openFilesTitle')}
@@ -384,12 +391,12 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
         </div>
         {menuPane === region.pane.id && <div className="pane-layout-menu" role="group" aria-label={t('terminal:layoutMenu.label')}>
           <p>{t('terminal:layoutMenu.dragHint')}</p>
-          {(['horizontal', 'vertical'] as const).map(direction => <button key={direction} type="button" disabled={busy || paneList.length >= 4} onClick={() => {
+          {(['horizontal', 'vertical'] as const).map(direction => <button key={direction} type="button" disabled={busy || paneList.length >= 4 || welcomeActive(region.pane)} onClick={() => {
             const id = crypto.randomUUID(); onLayout(splitPane(layout, region.pane.id, direction, id)); onFocus(`${id}-pane`); setMenuPane(null); setMaximized(null);
           }}>{direction === 'horizontal' ? t('terminal:layoutMenu.splitHorizontal') : t('terminal:layoutMenu.splitVertical')}</button>)}
           {paneList.length > 1 && <>
             <button type="button" disabled={busy} onClick={() => { const next = mergePane(layout, region.pane.id); onLayout(next); onFocus(panes(next)[0].id); setMenuPane(null); setMaximized(null); }}>{t('terminal:layoutMenu.merge')}</button>
-            {region.pane.activeTabId && <label>{t('terminal:layoutMenu.moveTab')}<select aria-label={t('terminal:layoutMenu.moveTab')} value={region.pane.id} disabled={busy}
+            {region.pane.activeTabId && !welcomeActive(region.pane) && <label>{t('terminal:layoutMenu.moveTab')}<select aria-label={t('terminal:layoutMenu.moveTab')} value={region.pane.id} disabled={busy}
               onChange={event => { onLayout(moveTab(layout, region.pane.activeTabId!, event.target.value)); selectTab(event.target.value, region.pane.activeTabId); setMenuPane(null); setMaximized(null); }}>
               {paneList.map((pane, paneIndex) => <option value={pane.id} key={pane.id}>{t('terminal:layoutMenu.paneOption', { number: paneIndex + 1 })}</option>)}
             </select></label>}
@@ -411,6 +418,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           style: region ? { ...rectangle(region), top: `calc(${region.top}% + 32px)`, height: `calc(${region.height}% - 32px)` } : undefined,
           onFocus: () => { if (region) onFocus(region.pane.id); if (selected !== tab.id) onSelect(tab.id); }, onStatusChange: onStatus,
           adopt: tab.adopt, initialStatus: tab.status };
+        if (tab.connection.view === 'welcome') return <section key={tab.id} className="terminal-panel welcome-panel" id={`terminal-${tab.id}`} role="tabpanel"
+          aria-labelledby={`tab-${tab.id}`} hidden={!panel.visible} style={panel.style} onPointerDown={panel.onFocus}>{welcomePanel}</section>;
         if (tab.connection.view === 'containers') return <ContainerView key={tab.id} tabId={tab.id} connection={tab.connection} visible={panel.visible}
           focused={panel.focused} style={panel.style} onFocus={panel.onFocus} onStatusChange={onStatus} onPopout={onPopout} />;
         if (tab.connection.protocol === 'sftp') return <FilesPanel key={tab.id} {...panel} bindings={bindingsOf(nodes, tab.connection.id)}

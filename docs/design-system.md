@@ -147,6 +147,8 @@ Die Reihenfolge `header < popover < menu < modal < toast` ist verbindlich.
 | `--layer-modal` | `90` | Dialoge und Hilfe |
 | `--layer-toast` | `100` | Hinweise |
 
+Der Sperrbildschirm ist ein modaler `<dialog>` im Top-Layer und liegt über allen Ebenen, auch über `--layer-toast`. Öffnet während der Sperre ein anderer modaler Dialog, hebt der Sperrbildschirm sich sofort wieder an die Spitze des Top-Layers.
+
 Beispiel: `z-index: var(--layer-modal)` oder `z-index: calc(var(--layer-chrome) + 5)`.
 
 ### Schatten und Fokus (`--shadow-*`, `--focus-*`)
@@ -222,6 +224,8 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 | Cluster-Leiste (`.kube-connbar`) | Ereignis | nicht | Platz reserviert (`min-height: var(--control-sm)`), kein Farbübergang | – |
 | „Gespeichert“-Label (`.busy-button`) | gelegentlich | animieren, Zustand | `.busy-face.is-fresh`: `opacity .4→1`, `--dur-fade`, `--ease-out`, nur nach dem ersten Zustandswechsel; Punkt `tm-pulse` während busy | Einblenden bleibt, der Puls steht |
 | Statustext unten | häufig | nicht | Textwechsel, keine Bewegung | – | – |
+| Sperrbildschirm (`.lock-screen`) | Timer oder Klick, Entsperren per Enter | nicht | Sicherheitsfläche erscheint sofort, Tastatur schließt sie | – | – |
+| Willkommens-Tab (`.welcome-panel`) | Tab | nicht | wie Tabs | – | – |
 | Tabs: Wechsel, Hinzufügen, Schließen | 100+/Tag, Tastatur | nicht | Tastatur, Layout-Eigenschaften | – | – |
 | Tab-Drag: `.dock-preview`, `.tab-drop-marker`, `.is-dragging-tab` | Geste | nicht | folgt dem Zeiger | – | – |
 | Dock auf/zu (`.kube-dock`) | Strg+J | nicht | Tastatur, Höhe ist Layout, xterm fittet neu | – | – |

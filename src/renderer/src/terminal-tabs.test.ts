@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { i18n } from './i18n';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
-import { containerConnection, containerTabName, containerViewConnection, emptyTerminalTabs, isRunning, kubeTabName, planContainerView, reusableTab, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, containerTabName, containerViewConnection, emptyTerminalTabs, isRunning, kubeTabName, planContainerView, reusableTab, sameTarget, shellOf, tabLabel, isWelcomeTab, welcomeConnection, WELCOME_HOST, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
 import type { TerminalTab, TerminalTabsState } from './terminal-tabs';
 const connection = { id: 'ssh', name: 'Server', protocol: 'ssh' as const, address: 'synthetic@example.test:22' };
 function opened(): TerminalTabsState {
@@ -207,5 +207,25 @@ describe('terminal tab names in en-US', () => {
     const logs = { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'logs' as const };
     expect(kubeTabName({ ...logs, mode: 'previous' }, 'k8s')).toBe('Previous logs: api-1 @ k8s');
     expect(kubeTabName(logs, 'k8s')).toBe('Logs: api-1 @ k8s');
+  });
+});
+
+describe('welcome tab', () => {
+  it('opens closed, is not running, has no shell and survives retainConnections', () => {
+    const state = reduce(opened(), { type: 'open', id: 'w', connection: welcomeConnection() });
+    const tab = state.tabs.find(item => item.id === 'w')!;
+    expect(isWelcomeTab(tab)).toBe(true);
+    expect(tab.connection.id).toBe(WELCOME_HOST);
+    expect(tab.status).toBe('closed');
+    expect(isRunning(tab)).toBe(false);
+    expect(shellOf(tab)).toBeNull();
+    expect(reduce(state, { type: 'retainConnections', connectionIds: [] }).tabs.map(item => item.id)).toEqual(['w']);
+    expect(sameTarget(tab.connection, welcomeConnection())).toBe(true);
+    expect(reusableTab(state.tabs, state.activeTabId, welcomeConnection())).toBe(tab);
+  });
+  it('counts toward the tab limit', () => {
+    let state = emptyTerminalTabs;
+    for (let i = 0; i < MAX_SSH_SESSIONS; i++) state = reduce(state, { type: 'open', id: `t${i}`, connection });
+    expect(reduce(state, { type: 'open', id: 'w', connection: welcomeConnection() })).toBe(state);
   });
 });

@@ -19,7 +19,7 @@ import { visibleBounds } from './windows';
 import type { WindowRegistry } from './windows';
 
 const finite = z.number().finite().min(-1_000_000).max(1_000_000);
-const TabConnectionSchema = z.object({
+export const TabConnectionSchema = z.object({
   id: z.string().min(1).max(256), name: z.string().max(500),
   protocol: z.enum(['ssh', 'sftp', 'rdp', 'powershell', 'cmd', 'aicli']), address: z.string().max(1000), view: z.enum(['files', 'containers']).optional(),
   target: TerminalTargetSchema.optional(),

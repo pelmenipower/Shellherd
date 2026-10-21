@@ -13,9 +13,11 @@ interface Props {
   limitReached: boolean;
   paneNumber: number;
   onConnect: (id: string) => void;
+  /** Opens the welcome tab; absent (secondary windows) = no entry. */
+  onWelcome?: () => void;
 }
 
-export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, onConnect }: Props) {
+export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, onConnect, onWelcome }: Props) {
   const { t } = useT();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -92,6 +94,8 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
         </button>)}
         {!results.length && <p className="connection-picker-hint" role="status">{query.trim() ? t('vault:picker.noMatch') : t('vault:picker.noneSaved')}</p>}
       </div>
+      {onWelcome && <button className="connection-picker-option connection-picker-welcome" type="button" disabled={disabled}
+        onClick={() => { close(); onWelcome(); }}>{t('vault:picker.welcome')}</button>}
     </div>
   </>;
 }

@@ -4,6 +4,16 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.15.0] – 2026-10-21
+
+- Neu: Sperren trennt nicht mehr. Ein Sperrbildschirm deckt das Fenster ab; Sitzungen und Tabs laufen weiter und sind nach dem Entsperren wieder da. Neue Verbindungen und Neu verbinden gehen erst nach dem Entsperren. Die Zugangsdaten offener Sitzungen bleiben dabei im Speicher.
+- Neu: Nebenfenster sperren mit und zeigen einen eigenen Sperrbildschirm; entsperrt wird im Hauptfenster. Die automatische Sperre schließt keine Nebenfenster mehr.
+- Neu: Im Sperrbildschirm wechselt Andere Vault-Datei nach Rückfrage die Datei und trennt dabei alle Sitzungen.
+- Der Sperrknopf sperrt ohne Rückfrage.
+- Neu: Die Willkommensseite ist ein Tab. Sie erscheint beim Öffnen eines Vaults, ist über das +-Menü (Willkommensseite) wieder erreichbar und lässt sich nur schließen.
+- Ohne Tabs zeigt die Bühne den leeren Bereich statt der Willkommensseite.
+- Die lokale Eingabeaufforderung heißt jetzt cmd (lokal).
+
 ## [0.14.0] – 2026-10-21
 
 - Neu: Der Vault sperrt sich automatisch. `Automatisch sperren nach … Minuten ohne Eingabe` unter Einstellungen → Vault zählt Maus und Tastatur in allen Shellherd-Fenstern; Terminal-Ausgabe zählt nicht. Alle Sitzungen werden getrennt, Nebenfenster geschlossen, die Startkarte nennt den Grund. Ungespeicherte Eingaben im Verbindungsformular gehen dabei verloren.

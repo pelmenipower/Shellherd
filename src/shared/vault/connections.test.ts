@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connectionsIn, redactSecrets } from './connections';
+import { connectionsIn, redactSecrets, redactVault } from './connections';
 import { removeNodeFromVault } from './mutations';
 import { validateVaultConsistency } from './consistency';
 import { exampleVault } from './example';
@@ -21,6 +21,30 @@ describe('connection helpers', () => {
     if (folder.type !== 'folder') throw new Error('folder expected');
     expect(folder.children.map(node => node.type === 'connection' && 'host' in node ? [node.host, node.port] : null)).toEqual([['h', 22], ['h', 3389], null]);
     expect(JSON.stringify(nodes)).toContain('secret-rdp');
+  });
+});
+
+describe('redactVault', () => {
+  it('strips secrets and AI settings but keeps everything else', () => {
+    const vault: Vault = { ...exampleVault, nodes, ai: { providers: [{ id: 'p', apiKey: 'secret-ai' }] } as unknown as Vault['ai'] };
+    const before = JSON.stringify(vault);
+    const redacted = redactVault(vault);
+    const text = JSON.stringify(redacted);
+    for (const secret of ['secret-key', 'secret-pass', 'secret-rdp', 'secret-ai']) expect(text).not.toContain(secret);
+    expect(redacted).not.toHaveProperty('ai');
+    expect(redacted.id).toBe(vault.id);
+    expect(redacted.name).toBe(vault.name);
+    expect(redacted.workflows).toBe(vault.workflows);
+    expect(redacted.workspaces).toBe(vault.workspaces);
+    expect(redacted.settings).toBe(vault.settings);
+    expect(JSON.stringify(vault)).toBe(before);
+  });
+
+  it('keeps autoUpload as the same array reference', () => {
+    const autoUpload = [{ localPath: 'a' }];
+    const ssh = { id: 's', type: 'connection', protocol: 'ssh', name: 'S', host: 'h', port: 22, tags: [], authentication: { method: 'password', password: 'x' }, autoUpload } as unknown as VaultNode;
+    const redacted = redactVault({ ...exampleVault, nodes: [ssh] });
+    expect((redacted.nodes[0] as unknown as { autoUpload: unknown }).autoUpload).toBe(autoUpload);
   });
 });
 
