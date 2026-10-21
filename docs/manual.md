@@ -172,6 +172,47 @@ and contain the matching key. On Unix, `SSH_AUTH_SOCK` must be set.
 Agent forwarding is disabled. Interactive MFA / keyboard-interactive login
 will follow in a later step.
 
+### After login
+
+For each SSH connection, the form lets you define what happens after login.
+Both apply on every connect, including `Reconnect` and when a workspace is
+restored.
+
+- `Become root after login (sudo -i)` starts the shell as root. With password
+  login, Shellherd answers the sudo prompt exactly once with the stored
+  password; neither the password nor the sudo call appears in the history. With
+  a key or the SSH agent, Shellherd checks with `sudo -n true` whether sudo works
+  without a password (NOPASSWD, also next to a `%sudo` rule). If not, a note
+  appears in the terminal and sudo asks itself: you type the password once and
+  it continues. There is no separate sudo password field. If sudo refuses the
+  stored password, Shellherd tries again only after the login data changes;
+  until then `Connect without start commands` helps.
+- `Start commands` are free text, one line per command: at most 20 lines of at
+  most 500 characters, no control characters and no tab (use spaces instead).
+  Blank lines are dropped. Shellherd types them after login, as you would. They
+  are visible and end up in the shell history. Do not put passwords or tokens in
+  them.
+
+With `root`, the start commands go out only after sudo succeeded, in the root
+shell. Without `root`, they go out right after the shell starts. If the server
+asks something first (expired password, selection menu, a prompt in `.bashrc`),
+the start commands land there. A startup script on the server that discards
+input sent ahead makes the commands disappear; Shellherd does not repeat them.
+A full-screen or input program (`vim`, `top`, `ssh`) belongs on the last line
+only, otherwise it reads the following lines as key presses. Typed commands can
+appear twice, once as an echo before the prompt and once at the input line; that
+is normal for input typed ahead.
+
+The root shell starts without a greeting (no MOTD, no `Last login`), and `exit`
+in it closes the tab instead of returning to the user shell. Every sudo call
+appears in the server's auth.log; that is normal.
+
+`Connect without start commands` is the emergency brake: right-click the SSH
+tab (Shift+F10 or the menu key work too) to reconnect once without the root
+shell and without start commands. A running session ends without a
+confirmation. The next connect uses the setting again. Older Shellherd versions
+remove these settings when the connection is saved.
+
 ## Containers and VMs
 
 When you expand an SSH connection, Shellherd detects whether Docker and Podman

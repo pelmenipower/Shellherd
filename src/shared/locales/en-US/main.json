@@ -56,7 +56,9 @@
     }
   },
   "terminal": {
-    "sudoGaveUp": "[Shellherd] sudo did not respond as expected – please enter it yourself."
+    "sudoGaveUp": "[Shellherd] sudo did not respond as expected – please enter it yourself.",
+    "sudoNeedsPassword": "[Shellherd] sudo needs a password (no NOPASSWD) – please enter it.",
+    "sudoGaveUpLogin": "[Shellherd] sudo did not respond as expected – please enter it yourself. The start commands are not sent."
   },
   "fileAssociation": {
     "openVerb": "Open with Shellherd"

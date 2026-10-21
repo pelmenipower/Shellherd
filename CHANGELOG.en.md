@@ -4,6 +4,13 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.16.0] – 2026-10-21
+
+- New: SSH connections can become root after login (sudo -i). With password login, Shellherd answers the sudo prompt once with the stored password; with a key or agent, sudo asks in the terminal if NOPASSWD is not set up.
+- New: Start commands per SSH connection, one line per command. They are typed after login, visible and in the shell history.
+- New: Right-clicking an SSH tab offers Connect without start commands. This connects once without the root shell and without start commands.
+- Older Shellherd versions remove these settings when saving.
+
 ## [0.15.0] – 2026-10-21
 
 - New: Locking no longer disconnects. A lock screen covers the window; sessions and tabs keep running and are back after unlocking. New connections and Reconnect work only after unlocking. The credentials of open sessions stay in memory.

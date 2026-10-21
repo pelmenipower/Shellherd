@@ -197,7 +197,20 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
           {textField(t('connection:form.fields.passphrase'), 'passphrase', true)}
         </>}
         {protocol === 'ssh' && <label className="editor-checkbox"><input type="checkbox" checked={fields.containerSudo === 'on'} disabled={busy}
-          onChange={event => setField('containerSudo', event.target.checked ? 'on' : 'off')} />{t('connection:form.containerSudo')}</label>}</>}
+          onChange={event => setField('containerSudo', event.target.checked ? 'on' : 'off')} />{t('connection:form.containerSudo')}</label>}
+        {protocol === 'ssh' && <>
+          <label className="editor-checkbox"><input type="checkbox" checked={fields.loginSudo === 'on'} disabled={busy}
+            onChange={event => setField('loginSudo', event.target.checked ? 'on' : 'off')} />{t('connection:form.login.sudo')}</label>
+          <div className="editor-field">
+            <label htmlFor={`${prefix}-loginCommands`}>{t('connection:form.login.commands')}</label>
+            <textarea id={`${prefix}-loginCommands`} rows={3} spellCheck={false} autoComplete="off" value={fields.loginCommands} disabled={busy}
+              aria-invalid={error?.field === 'loginCommands' || undefined}
+              aria-describedby={error?.field === 'loginCommands' ? `${prefix}-loginCommands-hint ${prefix}-loginCommands-error` : `${prefix}-loginCommands-hint`}
+              onChange={event => setField('loginCommands', event.target.value)} />
+            <p className="editor-hint" id={`${prefix}-loginCommands-hint`}>{t('connection:form.login.hint')}</p>
+            {error?.field === 'loginCommands' && <p className="field-error" id={`${prefix}-loginCommands-error`} role="alert">{error.message}</p>}
+          </div>
+        </>}</>}
         <details className="editor-details" ref={detailsRef}>
           <summary>{t('connection:form.details.summary')}</summary>
           <div className="editor-details-content">

@@ -6,7 +6,11 @@ import type { KubeTerminalTarget } from './kubernetes';
 export const MAX_SSH_SESSIONS = 16;
 
 export interface TerminalSize { cols: number; rows: number }
-export interface SshPrepareRequest extends TerminalSize { connectionId: string; target?: TerminalTarget; kube?: KubeTerminalTarget }
+export interface SshPrepareRequest extends TerminalSize {
+  connectionId: string; target?: TerminalTarget; kube?: KubeTerminalTarget;
+  /** One attempt without the connection's login block (root shell and start commands); can only switch it off. */
+  skipLogin?: boolean;
+}
 export interface SshSessionRequest { sessionId: string }
 export interface SshInputRequest extends SshSessionRequest { data: string }
 export interface SshResizeRequest extends SshSessionRequest, TerminalSize {}

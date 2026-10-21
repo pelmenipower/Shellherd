@@ -18,9 +18,11 @@ interface TerminalTabsProps {
   onSelect: (id: string | null) => void;
   onClose: (id: string) => void;
   onTabPointerDown: (id: string, event: PointerEvent<HTMLElement>) => void;
+  /** Right-click, Shift+F10 or the menu key on a tab; the caller decides whether a menu opens. */
+  onTabMenu?: (id: string, x: number, y: number) => void;
 }
 
-export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect, onClose, onTabPointerDown, showEditor = true, allTabs = tabs, label: barLabel }: TerminalTabsProps) {
+export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect, onClose, onTabPointerDown, onTabMenu, showEditor = true, allTabs = tabs, label: barLabel }: TerminalTabsProps) {
   const { t } = useT();
   const barRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -51,6 +53,14 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
         return <div className="terminal-tab-item" data-active={activeTabId === tab.id} key={tab.id}>
           <button className="terminal-tab" id={`tab-${tab.id}`} type="button" role="tab" data-tab-id={tab.id}
             draggable={false} onPointerDown={event => onTabPointerDown(tab.id, event)}
+            onContextMenu={event => {
+              if (!onTabMenu || disabled) return;
+              event.preventDefault();
+              // Keyboard triggers may report no coordinates: anchor at the tab instead.
+              const rect = event.currentTarget.getBoundingClientRect();
+              const atOrigin = event.clientX === 0 && event.clientY === 0;
+              onTabMenu(tab.id, atOrigin ? rect.left : event.clientX, atOrigin ? rect.bottom : event.clientY);
+            }}
             aria-controls={`terminal-${tab.id}`} aria-selected={activeTabId === tab.id}
             tabIndex={activeTabId === tab.id ? 0 : -1} disabled={disabled} onClick={() => onSelect(tab.id)} data-fixed={welcome || undefined}
             title={welcome ? label : `${label} · ${connectionAddress(tab)} · ${statusWord(tab.status, 'short')}`}>

@@ -24,6 +24,24 @@ describe('connection helpers', () => {
   });
 });
 
+describe('login block redaction', () => {
+  const login = { sudo: true, commands: ['synthetic-command'] };
+  const ssh: VaultNode = { id: 's', type: 'connection', protocol: 'ssh', name: 'S', host: 'h', port: 22, tags: [],
+    authentication: { method: 'password', password: 'secret-pw' }, login, containers: { sudo: true }, timeouts: { idleMinutes: 5 } };
+
+  it('removes login from SSH nodes but keeps containers and timeouts', () => {
+    const [node] = redactSecrets([ssh]);
+    expect(node).not.toHaveProperty('login');
+    expect(node).toMatchObject({ containers: { sudo: true }, timeouts: { idleMinutes: 5 }, authentication: { method: 'agent' } });
+    expect(ssh).toHaveProperty('login');
+  });
+
+  it('removes login in redactVault, also inside folders', () => {
+    const redacted = redactVault({ ...exampleVault, nodes: [{ id: 'f', type: 'folder', name: 'F', children: [ssh] }] });
+    expect(JSON.stringify(redacted)).not.toContain('synthetic-command');
+  });
+});
+
 describe('redactVault', () => {
   it('strips secrets and AI settings but keeps everything else', () => {
     const vault: Vault = { ...exampleVault, nodes, ai: { providers: [{ id: 'p', apiKey: 'secret-ai' }] } as unknown as Vault['ai'] };

@@ -63,6 +63,12 @@ export const ConnectionTimeoutsSchema = z.object({
     connectSeconds: z.number().int().min(TIMEOUT_LIMITS.connectSeconds[0]).max(TIMEOUT_LIMITS.connectSeconds[1]),
 }); // not .strict(), like AutoUploadBindingSchema
 
+/** Start commands after login: at most `lines` lines of at most `length` characters. */
+export const LOGIN_LIMITS = { lines: 20, length: 500 } as const;
+/** C0, DEL and C1 controls: no extra Enter, no Tab completion, no escape sequences or terminal replies. */
+export const LOGIN_CONTROL = /[\x00-\x1f\x7f-\x9f]/;
+const LoginLineSchema = z.string().min(1).max(LOGIN_LIMITS.length).refine(line => !LOGIN_CONTROL.test(line));
+
 const autoUpload = z.array(AutoUploadBindingSchema).max(16)
     .refine(list => new Set(list.map(binding => binding.id)).size === list.length).optional();
 
@@ -80,6 +86,10 @@ export const SshConnectionNodeSchema = z.object({
     containers: z.object({ sudo: z.boolean().optional() }).optional(),
     autoUpload,
     timeouts: ConnectionTimeoutsSchema.partial().optional(),
+    login: z.object({
+        sudo: z.boolean().optional(),
+        commands: z.array(LoginLineSchema).max(LOGIN_LIMITS.lines).optional(),
+    }).optional(), // not .strict(), like AutoUploadBindingSchema
 });
 
 export const SftpConnectionNodeSchema = z.object({

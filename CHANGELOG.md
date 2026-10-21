@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.16.0] – 2026-10-21
+
+- Neu: SSH-Verbindungen können nach dem Anmelden root werden (sudo -i). Bei Passwort-Anmeldung beantwortet Shellherd die sudo-Abfrage einmal mit dem gespeicherten Passwort; bei Schlüssel oder Agent fragt sudo im Terminal, falls kein NOPASSWD eingerichtet ist.
+- Neu: Startbefehle je SSH-Verbindung, eine Zeile je Befehl. Sie werden nach dem Anmelden eingetippt, sichtbar und in der Shell-History.
+- Neu: Rechtsklick auf einen SSH-Tab bietet Ohne Startbefehle verbinden. Das verbindet einmal ohne Root-Shell und ohne Startbefehle.
+- Ältere Shellherd-Versionen entfernen diese Einstellungen beim Speichern.
+
 ## [0.15.0] – 2026-10-21
 
 - Neu: Sperren trennt nicht mehr. Ein Sperrbildschirm deckt das Fenster ab; Sitzungen und Tabs laufen weiter und sind nach dem Entsperren wieder da. Neue Verbindungen und Neu verbinden gehen erst nach dem Entsperren. Die Zugangsdaten offener Sitzungen bleiben dabei im Speicher.

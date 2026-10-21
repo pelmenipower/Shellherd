@@ -71,6 +71,8 @@ export interface SshConnectionNode extends ConnectionBase {
   autoUpload?: AutoUploadBinding[];
   /** Per-connection override; absent keys fall back to the vault setting. */
   timeouts?: Partial<ConnectionTimeouts>;
+  /** Root shell and typed start commands after login; see docs/superpowers/specs/2026-10-21-login-commands-design.md. */
+  login?: { sudo?: boolean; commands?: string[] };
 }
 
 /** File transfer over SSH; same target and authentication as an SSH connection. */
