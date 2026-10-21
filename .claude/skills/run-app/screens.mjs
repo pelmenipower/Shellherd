@@ -191,7 +191,7 @@ const blocks = {
     if (!await evaluate(`document.querySelector('.vault-shell').inert === false`)) throw new Error('Shell bleibt nach dem Entsperren inert');
   },
   // Detached window: locks with the main window, shows a form-less lock screen, and is usable again after unlocking in the main window.
-  async lockSecondary() {
+  async 'lock-secondary'() {
     await click('.view-add');
     await click('text=web-01 >> nth=0');
     await key('Enter');
