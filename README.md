@@ -35,15 +35,16 @@ Shellherd keeps all your servers, desktops and clusters in one window. Connectio
 ## Features
 
 - **SSH terminals** – up to 16 sessions as tabs, password, private key (with passphrase) or SSH agent, verified host keys.
-- **Root shell and start commands** – per SSH connection, become root with `sudo -i` after login and type start commands, one line each; a tab menu entry connects without them.
-- **Split views and workspaces** – drag tabs into up to four panes and save the layout as a named workspace.
+- **Root shell and start commands** – per SSH connection, become root with `sudo -i` after login and type start commands, one line each.
+- **Split views and workspaces** – drag tabs into up to four panes, rename tabs and views, and save the layout as a named workspace.
 - **Remote Desktop (RDP)** – embedded in a tab, no extra install, including shortcuts like Ctrl+Alt+Del.
-- **SFTP file browser** – two-pane, WinSCP style, with a transfer queue and edit-and-upload for remote files. Text, configuration and source files open in their default program, everything else in Notepad, so a remote script never runs by accident.
+- **SFTP file browser** – two-pane, WinSCP style, with a transfer queue, edit-and-upload for remote files and Auto-Upload that mirrors a local folder to the server while the view is open. Transfers keep many requests in flight, resume where they stopped and can be verified by SHA-256 checksum. Text, configuration and source files open in their default program, everything else in Notepad, so a remote script never runs by accident.
 - **Docker and Podman** – a container view per SSH host or for the local machine: containers, images, volumes and networks with filters, logs, shell and inspect.
 - **Proxmox** – LXC containers and VMs under their host, with shell, serial console and power actions.
 - **Kubernetes** – set up a cluster from an existing SSH connection; live nodes, workloads, pods and events with drill-down, logs, shell, YAML and describe. Production clusters ask you to type the resource name before any change.
 - **German and English UI** – follows the Windows language by default; switch any time without a restart. Dates, numbers and sorting follow the language too.
-- **Settings in one place** – gear in the header or `Ctrl+,`: language, `.term` file association, confirmation before disconnecting and the AI providers.
+- **Lock screen** – lock by hand or automatically after a set time without input; sessions keep running behind it and are back after unlocking. Idle disconnect, keepalive and connection timeout are set per vault and can be overridden per connection.
+- **Settings in one place** – gear in the header or `Ctrl+,`: language, `.term` file association, confirmation before disconnecting, auto-lock, connection timeouts and the AI providers.
 - **Local shells** – PowerShell and CMD tabs next to your remote sessions.
 - **AI assistant** (optional) – reads the terminal, explains output and suggests the next command. Nothing reaches the terminal until you click **Type in**, and nothing runs until you press Enter. Works with OpenAI-compatible endpoints (including Ollama and LM Studio), Azure AI Foundry, Anthropic and Google Gemini.
 
@@ -125,7 +126,7 @@ npx electron-vite build
 npm run drive:sshd                              # second terminal
 npm run drive                                   # third terminal
 node .claude/skills/run-app/demo-setup.mjs      # demo vault with web-01, files-01, prod-k8s, Demo-KI, …
-node .claude/skills/run-app/screens.mjs         # SFTP, containers, Kubernetes, settings and assistant screenshots; --readme refreshes docs/images/
+node .claude/skills/run-app/screens.mjs         # one screenshot per component (SFTP, containers, Kubernetes, settings, assistant, lock screen, start commands, …); --readme refreshes docs/images/
 $token = Get-Content "$env:TEMP\shellherd-run\token"
 curl.exe -H "x-driver-token: $token" "http://127.0.0.1:9333/ss?name=start&crop=status"
 ```
