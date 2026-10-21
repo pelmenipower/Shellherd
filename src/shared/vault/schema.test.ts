@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   ConnectionNodeSchema,
@@ -22,6 +23,11 @@ describe('ConnectionNodeSchema login block', () => {
     it('rejects Tab, ESC, DEL and C1 controls', () => {
         for (const bad of ['a\tb', 'a\x1bb', 'a\x7fb', 'a\u009b6n', 'a\nb', '']) expect(ok([bad])).toBe(false);
         expect(ok(['plain command'])).toBe(true);
+    });
+
+    it('keeps schema.ts free of raw control characters', () => {
+        const source = readFileSync(new URL('./schema.ts', import.meta.url), 'utf8');
+        expect(source).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/);
     });
 
     it('enforces the limits', () => {

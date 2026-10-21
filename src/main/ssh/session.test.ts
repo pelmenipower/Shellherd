@@ -601,6 +601,26 @@ describe('root shell and start commands after login', () => {
     expect(peers).toHaveLength(0);
   });
 
+  it('refuses a password with a line break for login.sudo before connecting', async () => {
+    connection = { ...connection, authentication: { method: 'password', password: 'synthetic\npassword' }, login: { sudo: true, commands } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: expect.objectContaining({ code: 'containers.passwordLineBreak' }) }));
+    expect(execCommands).toEqual([]);
+    expect(peers).toHaveLength(0);
+  });
+
+  it('never sends the password when sudo does not ask (cache or NOPASSWD)', async () => {
+    loginSudo = 'nopasswd';
+    connection = { ...connection, login: { sudo: true, commands } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => output().includes('df -h /'));
+    expect(sudoInput.join('')).toBe(typed);
+    expect(sudoInput.join('')).not.toContain('synthetic-password');
+    expect(output()).not.toContain('terminus-');
+    expect(JSON.stringify(events)).not.toContain('synthetic-password');
+  });
+
   it('explains a server that does not cache sudo credentials', async () => {
     loginSudo = 'nocache';
     connection = { ...connection, login: { sudo: true } };
