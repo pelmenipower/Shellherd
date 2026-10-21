@@ -12,6 +12,7 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 - Der Sperrknopf sperrt ohne Rückfrage.
 - Neu: Die Willkommensseite ist ein Tab. Sie erscheint beim Öffnen eines Vaults, ist über das +-Menü (Willkommensseite) wieder erreichbar und lässt sich nur schließen.
 - Ohne Tabs zeigt die Bühne den leeren Bereich statt der Willkommensseite.
+- Die lokale Eingabeaufforderung heißt jetzt cmd (lokal).
 
 ## [0.14.0] – 2026-10-21
 

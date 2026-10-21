@@ -59,7 +59,7 @@ kept. Tabs that are already running stay open. `Enable` releases it again.
 Background tabs stay connected and
 keep processing their output. In the tab strip, the arrow keys as well as
 Home/End switch between tabs. Closing a tab only ends its session.
-Locking does not disconnect: sessions keep running in the background, and all tabs are back after unlocking. New connections and `Reconnect` work only after unlocking. `Another vault file` on the lock screen always asks and disconnects everything. Saved workspaces can be opened selectively after
+Locking does not disconnect: sessions keep running in the background, and all tabs are back after unlocking. New connections and `Reconnect` work only after unlocking. `Other vault file` on the lock screen always asks and disconnects everything. Saved workspaces can be opened selectively after
 unlocking; this starts new SSH sessions.
 
 ### Locking and the welcome tab
@@ -368,7 +368,7 @@ a user interface for managing trusted hosts will follow later.
 - SSH requests use saved connection IDs and ownership-bound session IDs.
 - Output pauses while xterm acknowledgements are pending; input and scrollback
   are limited. Terminal output is not logged to disk.
-- Disconnecting, idle disconnect, closing the window, `Another vault file` and a renderer crash end the SSH session. Locking the vault (manual or automatic) does not; the credentials of open sessions stay in memory for that.
+- Disconnecting, idle disconnect, closing the window, `Other vault file` and a renderer crash end the SSH session. Locking the vault (manual or automatic) does not; the credentials of open sessions stay in memory for that.
   With active sessions, closing is confirmed according to the vault setting.
 
 The SSH tests run a local `ssh2` server with test keys generated at runtime
