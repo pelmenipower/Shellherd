@@ -20,7 +20,7 @@ npx electron-vite build          # out/ muss aktuell sein; nach jedem Build den 
 npm run drive:sshd               # Hintergrund: SSH/SFTP-Server, Kubernetes- und KI-Fake (drei "ready"-Zeilen)
 npm run drive                    # Hintergrund: App + Treiber, meldet "driver ready on 9333"
 node .claude/skills/run-app/demo-setup.mjs   # Demo-Vault anlegen oder entsperren
-node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome …]   # ohne Argument alle; sftp erzeugt zusätzlich sftp-typeahead.png, sftp-transfer.png, sftp-auto-upload-dialog.png und sftp-auto-upload.png, settings erzeugt settings.png und ai-settings.png
+node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome …]   # ohne Argument alle; sftp erzeugt zusätzlich sftp-typeahead.png, sftp-transfer-canceled.png, sftp-transfer.png, sftp-transfer-verified.png, sftp-auto-upload-dialog.png und sftp-auto-upload.png, settings erzeugt settings.png und ai-settings.png
 T="x-driver-token: $(cat "$TEMP/shellherd-run/token")"   # nach dem Start des Treibers
 curl -s -H "$T" "http://127.0.0.1:9333/ss?name=start&crop=status"
 curl -s -H "$T" http://127.0.0.1:9333/quit          # am Ende; Testserver-Prozess ebenfalls beenden
@@ -30,7 +30,7 @@ Bereitschaft abwarten: `for i in $(seq 1 60); do curl -sf -m 2 -H "x-driver-toke
 
 **Treiber-Token:** Der Treiber schreibt bei jedem Start ein neues Token nach `%TEMP%\shellherd-run\token`. Jede Anfrage braucht den Header `x-driver-token` (ohne Header oder mit `Origin`: 403), sonst könnte jede Website per `POST` an `127.0.0.1:9333` Code in der App ausführen. Alle `curl`-Beispiele unten verwenden `-H "$T"`.
 
-`screens.mjs` schreibt `sftp.png`, `sftp-typeahead.png`, `sftp-transfer.png`, `sftp-auto-upload-dialog.png`, `sftp-auto-upload.png`, `containers.png`, `kubernetes.png`, `settings.png`, `ai-settings.png`, `assistant.png`, `lock-screen.png`, `lock-secondary.png`, `login-commands.png`, `login-plain.png` und `welcome.png`. Endet der `lock`- oder `lock-secondary`-Block mit einem Fehler, bleibt die App gesperrt: dann `demo-setup.mjs` neu starten (die App neu starten, falls es das Passwortfeld nicht findet).
+`screens.mjs` schreibt `sftp.png`, `sftp-typeahead.png`, `sftp-transfer-canceled.png`, `sftp-transfer.png`, `sftp-transfer-verified.png`, `sftp-auto-upload-dialog.png`, `sftp-auto-upload.png`, `containers.png`, `kubernetes.png`, `settings.png`, `ai-settings.png`, `assistant.png`, `lock-screen.png`, `lock-secondary.png`, `login-commands.png`, `login-plain.png` und `welcome.png`. Endet der `lock`- oder `lock-secondary`-Block mit einem Fehler, bleibt die App gesperrt: dann `demo-setup.mjs` neu starten (die App neu starten, falls es das Passwortfeld nicht findet).
 
 Screenshots landen in `%TEMP%\shellherd-run\shots` (Override: `SCREENSHOT_DIR`). **Screenshot immer ansehen** (Read auf die PNG) – ein leeres Fenster ist ein Startfehler.
 
@@ -46,6 +46,8 @@ Alle lauschen nur auf `127.0.0.1`.
 | 9335 | OpenAI-kompatibler KI-Fake (Schlüssel `sk-synthetic-demo`) | `ai-fake.mjs` |
 
 Ports per `SSHD_PORT`, `KUBE_FAKE_PORT`, `AI_FAKE_PORT` änderbar.
+
+**Nachher-Messung (Übertragungstempo):** `SSHD_LATENCY_MS=10 npm run drive:sshd` verzögert jede READ- und WRITE-Antwort des Testservers um 10 ms. Der sftp-Block gibt dann `Rate: …` im Protokoll aus (vor und nach dem Fortsetzen). Er bricht eine 512-MiB-Zufallsdatei ab, setzt sie fort, vergleicht SHA-256 lokal gegen `RUN_DIR/sftp/home/demo/big.bin` und klickt „Prüfen“. Wird das Abbruchfenster zu knapp, die Datei in `screens.mjs` auf 1 GiB setzen.
 
 ## Demo-Vault (`demo-setup.mjs`)
 
