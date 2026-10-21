@@ -116,7 +116,8 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
   const [plainReconnect, setPlainReconnect] = useState<{ tabId: string; nonce: number } | null>(null);
   const closeTabMenu = useCallback(() => {
     setTabMenu(current => {
-      if (current) requestAnimationFrame(() => document.getElementById(`tab-${current.tabId}`)?.focus());
+      // Only restore focus if it was lost (Escape/selection), not when the user clicked elsewhere.
+      if (current) requestAnimationFrame(() => { const active = document.activeElement; if (!active || active === document.body) document.getElementById(`tab-${current.tabId}`)?.focus(); });
       return null;
     });
   }, []);

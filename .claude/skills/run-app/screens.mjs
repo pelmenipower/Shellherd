@@ -249,6 +249,15 @@ const blocks = {
     const uptimes = () => evaluate(`${screen}.split('load average').length - 1`);
     const before = await uptimes();
     await shot('login-commands');
+    // Focus return: Escape gives the focus back to the tab, a click into the terminal keeps it there.
+    await rclick('.terminal-tab:not([data-fixed])');
+    await key('Escape');
+    await pause(300);
+    if (!await evaluate(`document.activeElement?.id.startsWith('tab-')`)) throw new Error('Fokus ging nach Escape nicht auf den Tab zurück');
+    await rclick('.terminal-tab:not([data-fixed])');
+    await click('.terminal-panel:not([hidden]) .xterm');
+    await pause(300);
+    if (!await evaluate(`!!document.activeElement?.closest('.xterm')`)) throw new Error('Fokus wurde nach Klick ins Terminal dem Tab zurückgegeben');
     await rclick('.terminal-tab:not([data-fixed])');
     await menuItem('Ohne Startbefehle verbinden');
     // The root screen has no demo@ prompt, so this only matches the new session.
