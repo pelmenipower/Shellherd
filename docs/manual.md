@@ -264,7 +264,7 @@ Secret data is masked in the YAML view.
 
 ## File view: auto-upload
 
-Auto-upload mirrors a local folder into a server folder while the connection's file view is open. You set it up in the local pane: right-click a folder (or the empty area for the current folder), then `Set up auto-upload…`. The dialog asks for the local folder, the server folder (prefilled with the current server folder) and the excludes. `Start auto-upload` begins the comparison; a list below shows each binding as “Watching”, “Syncing…” or the error. The binding is stored in the vault and starts by itself the next time the file view opens.
+Auto-upload mirrors a local folder into a server folder while the connection's file view is open. You set it up in the local pane: the gear ⚙ in the pane header offers `New file`, `New folder` and `Set up auto-upload…` for the folder shown. Right-clicking a folder works too. The dialog asks for the local folder, the server folder (prefilled with the current server folder) and the excludes. `Start auto-upload` begins the comparison; a list below shows each binding as “Watching”, “Syncing…” or the error. The binding is stored in the vault and starts by itself the next time the file view opens.
 
 **Rules:**
 

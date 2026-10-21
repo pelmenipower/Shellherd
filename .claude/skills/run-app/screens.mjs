@@ -82,7 +82,8 @@ const blocks = {
     if (await evaluate(`!!document.querySelector('.file-sync-list .transfer-job')`)) await removeBinding();
     await pause(300);
     await shot('sftp');
-    await rclick('.file-pane-local .file-list');
+    // Gear menu in the local pane header: binds the folder shown there.
+    await click('.file-pane-local button[aria-haspopup="menu"]');
     await menuItem('Auto-Upload einrichten …');
     await waitFor('Auto-Upload-Dialog', `document.querySelector('dialog.file-sync-dialog[open]')`);
     await pause(300);
