@@ -7,7 +7,7 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 ## [0.14.0] – 2026-10-21
 
 - Neu: Der Vault sperrt sich automatisch. `Automatisch sperren nach … Minuten ohne Eingabe` unter Einstellungen → Vault zählt Maus und Tastatur in allen Shellherd-Fenstern; Terminal-Ausgabe zählt nicht. Alle Sitzungen werden getrennt, Nebenfenster geschlossen, die Startkarte nennt den Grund. Ungespeicherte Eingaben im Verbindungsformular gehen dabei verloren.
-- **Bestehende Vaults sperren ab jetzt nach 15 Minuten ohne Eingabe** (der Wert war schon gespeichert, wirkte aber nicht). `0` schaltet die Sperre ab.
+- Bestehende Vaults sperren ab jetzt nach 15 Minuten ohne Eingabe (der Wert war schon gespeichert, wirkte aber nicht). `0` schaltet die Sperre ab.
 - Bei verbundener RDP-Sitzung zählt jede Eingabe am Rechner, weil das RDP-Fenster an Shellherd vorbeigeht.
 - Neu: Einstellungen → Verbindungen mit Leerlauf-Trennung (Standard: nie), Keepalive-Intervall und -Fehlversuchen und Verbindungs-Timeout. Die Werte gelten für SSH und SFTP, auch für Container und Cluster über SSH, ab der nächsten Verbindung.
 - Neu: Unter `Weitere Angaben` einer SSH- oder SFTP-Verbindung lassen sich die vier Werte einzeln überschreiben.

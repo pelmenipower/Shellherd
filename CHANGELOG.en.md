@@ -7,7 +7,7 @@ Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails 
 ## [0.14.0] – 2026-10-21
 
 - New: The vault locks automatically. `Lock automatically after … minutes without input` under Settings → Vault counts mouse and keyboard in all Shellherd windows; terminal output does not count. All sessions are disconnected, detached windows closed, and the start card names the reason. Unsaved input in the connection form is lost.
-- **Existing vaults now lock after 15 minutes without input** (the value was already stored but had no effect). `0` turns the lock off.
+- Existing vaults now lock after 15 minutes without input (the value was already stored but had no effect). `0` turns the lock off.
 - With a connected RDP session, any input on the computer counts, because the RDP window bypasses Shellherd.
 - New: Settings → Connections with idle disconnect (default: never), keepalive interval and misses, and connection timeout. The values apply to SSH and SFTP, including containers and clusters over SSH, from the next connection.
 - New: Under `More options` of an SSH or SFTP connection, the four values can be overridden one by one.
