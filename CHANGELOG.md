@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.18.0] – 2026-10-21
+
+- Neu: Abgebrochene oder fehlgeschlagene Übertragungen lassen sich mit Fortsetzen an der Stelle wieder aufnehmen, an der sie stehen geblieben sind, auch nach Neu verbinden. Eine liegen gebliebene Teildatei wird beim erneuten Übertragen derselben Datei weiterverwendet, wenn sie zur Quelle passt.
+- Abbrechen behält jetzt die Teildatei, Teildatei verwerfen löscht sie (lokal in den Papierkorb). Auto-Upload räumt seine Teildateien weiterhin selbst auf.
+- Übertragungen schicken jetzt viele Anfragen gleichzeitig statt einer nach der anderen und kopieren bei Ordnern bis zu vier Dateien parallel. Über das Internet sind sie dadurch um ein Vielfaches schneller.
+- Neu: Prüfen vergleicht nach einer fortgesetzten Übertragung die SHA-256-Prüfsumme jeder Datei lokal und auf dem Server.
+
 ## [0.17.0] – 2026-10-21
 
 - Neu: In der Dateiansicht springt ein getippter Buchstabe zum nächsten Eintrag mit diesem Anfang. Schnell weitergetippt wird daraus ein Namensanfang, derselbe Buchstabe mehrmals geht zum nächsten Treffer. Das gilt für die lokale und die Server-Seite.
