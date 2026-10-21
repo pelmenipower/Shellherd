@@ -96,12 +96,15 @@ export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', o
               onChange={event => void onSaveSettings(withConfirmBeforeClosing(vault.settings, event.target.checked))} />
             {t('app:settings.confirmClose.label')}</label>
           <p className="settings-hint" id={`${id}-confirm-hint`}>{t('app:settings.confirmClose.hint')}</p>
+          <div className="settings-numbers">
           <NumberSetting id={`${id}-autolock`} label={t('app:settings.autoLock.label')} unit={t('app:settings.autoLock.unit')}
             value={vault.settings.autoLockMinutes} limits={AUTO_LOCK_LIMITS} busy={busy} hintId={`${id}-autolock-hint`}
             onCommit={minutes => void onSaveSettings(withAutoLockMinutes(vault.settings, minutes))} />
+          </div>
           <p className="settings-hint" id={`${id}-autolock-hint`}>{t('app:settings.autoLock.hint')}</p>
         </>}
         {section === 'connections' && vault && <>
+          <div className="settings-numbers">
           <NumberSetting id={`${id}-idle`} label={t('app:settings.timeouts.idle.label')} unit={t('app:settings.timeouts.idle.unit')}
             value={effectiveTimeouts(vault.settings).idleMinutes} limits={TIMEOUT_LIMITS.idleMinutes} busy={busy} hintId={`${id}-timeouts-hint`}
             onCommit={idleMinutes => void onSaveSettings(withTimeouts(vault.settings, { idleMinutes }))} />
@@ -114,6 +117,7 @@ export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', o
           <NumberSetting id={`${id}-connect`} label={t('app:settings.timeouts.connect.label')} unit={t('app:settings.timeouts.connect.unit')}
             value={effectiveTimeouts(vault.settings).connectSeconds} limits={TIMEOUT_LIMITS.connectSeconds} busy={busy} hintId={`${id}-timeouts-hint`}
             onCommit={connectSeconds => void onSaveSettings(withTimeouts(vault.settings, { connectSeconds }))} />
+          </div>
           <p className="settings-hint" id={`${id}-timeouts-hint`}>{t('app:settings.timeouts.hint')}</p>
         </>}
         {section === 'assistant' && vault && <>
