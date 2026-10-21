@@ -20,7 +20,7 @@ npx electron-vite build          # out/ muss aktuell sein; nach jedem Build den 
 npm run drive:sshd               # Hintergrund: SSH/SFTP-Server, Kubernetes- und KI-Fake (drei "ready"-Zeilen)
 npm run drive                    # Hintergrund: App + Treiber, meldet "driver ready on 9333"
 node .claude/skills/run-app/demo-setup.mjs   # Demo-Vault anlegen oder entsperren
-node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome …]   # ohne Argument alle; sftp erzeugt zusätzlich sftp-typeahead.png, sftp-transfer-canceled.png, sftp-transfer.png, sftp-transfer-verified.png, sftp-auto-upload-dialog.png und sftp-auto-upload.png, settings erzeugt settings.png und ai-settings.png
+node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome …] [--readme]   # ohne Argument alle; sftp erzeugt zusätzlich sftp-typeahead.png, sftp-transfer-canceled.png, sftp-transfer.png, sftp-transfer-verified.png, sftp-auto-upload-dialog.png und sftp-auto-upload.png, settings erzeugt settings.png und ai-settings.png
 T="x-driver-token: $(cat "$TEMP/shellherd-run/token")"   # nach dem Start des Treibers
 curl -s -H "$T" "http://127.0.0.1:9333/ss?name=start&crop=status"
 curl -s -H "$T" http://127.0.0.1:9333/quit          # am Ende; Testserver-Prozess ebenfalls beenden
@@ -30,7 +30,7 @@ Bereitschaft abwarten: `for i in $(seq 1 60); do curl -sf -m 2 -H "x-driver-toke
 
 **Treiber-Token:** Der Treiber schreibt bei jedem Start ein neues Token nach `%TEMP%\shellherd-run\token`. Jede Anfrage braucht den Header `x-driver-token` (ohne Header oder mit `Origin`: 403), sonst könnte jede Website per `POST` an `127.0.0.1:9333` Code in der App ausführen. Alle `curl`-Beispiele unten verwenden `-H "$T"`.
 
-`screens.mjs` schreibt `sftp.png`, `sftp-typeahead.png`, `sftp-transfer-canceled.png`, `sftp-transfer.png`, `sftp-transfer-verified.png`, `sftp-auto-upload-dialog.png`, `sftp-auto-upload.png`, `containers.png`, `kubernetes.png`, `settings.png`, `ai-settings.png`, `assistant.png`, `lock-screen.png`, `lock-secondary.png`, `login-commands.png`, `tab-renamed.png` und `welcome.png`. Endet der `lock`- oder `lock-secondary`-Block mit einem Fehler, bleibt die App gesperrt: dann `demo-setup.mjs` neu starten (die App neu starten, falls es das Passwortfeld nicht findet).
+`screens.mjs` schreibt `sftp.png`, `sftp-typeahead.png`, `sftp-transfer-canceled.png`, `sftp-transfer.png`, `sftp-transfer-verified.png`, `sftp-auto-upload-dialog.png`, `sftp-auto-upload.png`, `containers.png`, `kubernetes.png`, `settings.png`, `ai-settings.png`, `assistant.png`, `lock-screen.png`, `lock-secondary.png`, `login-commands.png`, `tab-renamed.png` und `welcome.png`. Mit `--readme` landen `sftp`, `containers`, `kubernetes`, `settings` und `assistant` zusätzlich als `docs/images/screenshot-<name>.png` im Repo. Die drei älteren README-Bilder (Terminals, Fehlerkarte, Hinweis) entstanden von Hand per `/ss`. Endet der `lock`- oder `lock-secondary`-Block mit einem Fehler, bleibt die App gesperrt: dann `demo-setup.mjs` neu starten (die App neu starten, falls es das Passwortfeld nicht findet).
 
 Screenshots landen in `%TEMP%\shellherd-run\shots` (Override: `SCREENSHOT_DIR`). **Screenshot immer ansehen** (Read auf die PNG) – ein leeres Fenster ist ein Startfehler.
 
@@ -96,11 +96,11 @@ Häufige Wege:
 - **BusyButtons** enthalten unsichtbare Platzhalter-Labels (`aria-hidden`); `:text-is("Speichern")` trifft sie nicht. Über die Klasse wählen, z. B. `.workspace-save`.
 - **Nach einem Build** lädt `location.reload()` nicht zuverlässig das neue Bundle. Treiber mit `/quit` beenden und neu starten.
 - **Einzelinstanz-Sperre:** Ein zweiter Treiber auf demselben Profil beendet sich sofort. Eine normal laufende Shellherd-Instanz (anderes Profil) stört nicht.
-- **README-Screenshots** immer mit `crop=status` – die Statusleiste zeigt den Vault-Pfad mit dem Windows-Benutzernamen.
+- **README-Screenshots** immer mit `crop=status` – die Statusleiste zeigt den Vault-Pfad mit dem Windows-Benutzernamen. `--readme` tut das automatisch.
 - **Neue Demo-Einträge** erscheinen nur in einem neuen Vault: `profile\demo.term` **und** `profile\Shellherd\known-hosts.json` löschen, den Treiber neu starten und `demo-setup.mjs` neu laufen lassen.
 - **Host-Schlüssel** liegt in `shellherd-run\sshd-host-key`. Nach einem neuen Schlüssel `profile\Shellherd\known-hosts.json` löschen (und `demo.term`, s. o.), sonst lehnt die App den Server als „Schlüssel geändert“ ab.
 - **openssl fehlt:** Der Kubernetes-Fake wird übersprungen (kein `prod-k8s`). Gesucht wird `$OPENSSL`, `openssl` im PATH, dann `C:\Program Files\Git\mingw64\bin` und `C:\Program Files\Git\usr\bin`.
-- **„Dieser Computer“** erscheint in der Seitenleiste, wenn Docker lokal installiert ist.
+- **„Dieser Computer“** erscheint in der Seitenleiste, wenn Docker oder Podman lokal installiert ist, und zeigt dann echte lokale Container. Mit `--readme` bricht der Block in diesem Fall ab. README-Bilder nur auf einem Rechner ohne lokale Container-CLI aufnehmen.
 - **Lokale SFTP-Spalte:** Liegt der Run-Ordner außerhalb des Benutzerprofils, nutzt `screens.mjs` `<RUN_DIR>\local`. Sonst weicht es auf `%PUBLIC%\shellherd-demo-local` aus (drei kleine Dateien bleiben dort liegen). Geht auch das nicht, bricht der sftp-Block ab, statt echte Ordner zu fotografieren. Tipp: `SHELLHERD_RUN_DIR` außerhalb des Profils setzen (z. B. `C:\shellherd-run`).
 - **Testserver hängt:** Der npm-Wrapper endet, der Node-Kindprozess kann weiterlaufen und die Ports 2222/9334/9335 belegen. Beenden: `Get-CimInstance Win32_Process | ? CommandLine -like '*run-app*sshd.mjs*' | % { Stop-Process -Id $_.ProcessId }`, danach mit `Get-NetTCPConnection -LocalPort 2222,9334,9335 -ErrorAction SilentlyContinue` prüfen, dass die Ports frei sind.
 - RDP und lokale Container brauchen echte Gegenstellen und sind mit dem Testserver nicht abgedeckt.
