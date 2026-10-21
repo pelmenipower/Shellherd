@@ -1,12 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import {
   ConnectionNodeSchema,
+  LOGIN_LIMITS,
   EncryptedVaultFileSchema,
   VaultSchema,
   WorkspacePaneSchema,
 } from './schema';
 import { exampleVault } from './example';
 
+
+describe('ConnectionNodeSchema login block', () => {
+    const ssh = { id: 'c', type: 'connection', protocol: 'ssh', name: 'S', host: 'h', port: 22, tags: [], authentication: { method: 'agent' } };
+    const ok = (commands: string[]) => ConnectionNodeSchema.safeParse({ ...ssh, login: { commands } }).success;
+
+    it('keeps login through the parse and treats it as optional', () => {
+        const login = { sudo: true, commands: ['uptime', 'df -h /'] };
+        expect(ConnectionNodeSchema.parse({ ...ssh, login })).toMatchObject({ login });
+        expect(ConnectionNodeSchema.parse(ssh)).not.toHaveProperty('login');
+    });
+
+    it('rejects Tab, ESC, DEL and C1 controls', () => {
+        for (const bad of ['a\tb', 'a\x1bb', 'a\x7fb', 'a\u009b6n', 'a\nb', '']) expect(ok([bad])).toBe(false);
+        expect(ok(['plain command'])).toBe(true);
+    });
+
+    it('enforces the limits', () => {
+        expect(ok(Array(LOGIN_LIMITS.lines).fill('x'.repeat(LOGIN_LIMITS.length)))).toBe(true);
+        expect(ok(Array(LOGIN_LIMITS.lines + 1).fill('x'))).toBe(false);
+        expect(ok(['x'.repeat(LOGIN_LIMITS.length + 1)])).toBe(false);
+    });
+});
 
 describe('ConnectionNodeSchema', () => {
     it('accepts a kubernetes connection and keeps old vaults valid', () => {
