@@ -30,12 +30,12 @@ Beim Agent-Aufruf immer `subagent_type` auf einen dieser drei setzen. Ein andere
    - Je Welle getrennte Dateien. Jeder Auftrag nennt die Spec-Pflichtpunkte, die eigenen Dateien, „kein Commit“ und eine Report-Datei.
    - **Prüfung nach jeder Welle:** `npm run typecheck` und `npx vitest run` müssen grün sein. Danach committest du pro Task.
    - Bedenken der Umsetzer kommen als Minor ins Ledger.
-6. **Doku:** Abschnitt in `docs/handbuch.md` (die README bleibt ein englischer Kurzüberblick), CHANGELOG-Eintrag und Version (`npm run version:minor`) im selben Task, sonst bricht `version.test.ts`.
+6. **Doku:** Abschnitt in `docs/handbuch.md`, CHANGELOG-Eintrag und Version (`npm run version:minor`) im selben Task, sonst bricht `version.test.ts`. Die README bleibt ein englischer Kurzüberblick: bei neuen oder sichtbar geänderten Features die Feature-Liste in `README.md` (ein Punkt je Feature) von Hand anpassen, nie generieren. Zeigt ein README-Bild die geänderte Fläche (SFTP, Container, Kubernetes, Einstellungen, Assistent), die Bilder mit `node .claude/skills/run-app/screens.mjs --readme` neu erzeugen, jedes ansehen und mitcommitten. Die drei älteren Bilder (Terminals, Fehlerkarte, Hinweis) entstehen von Hand per `/ss?…&crop=status` (Skill `run-app`).
 7. **Review** (`pruefer`) des ganzen Branches.
 8. **Fix-Welle** (`umsetzer`, ein Agent oder zwei auf getrennten Dateien). Danach eine **Nachprüfung** (`pruefer`). Es gibt keine zweite Fix-Welle, Restbefunde gehen an den Nutzer.
 9. **Abschluss:**
    - Push, dann ein PR auf GitHub (`gh pr create`) gegen `staging`. Ist der vorige Feature-Branch noch offen, ist er die Basis (gestapelt).
-   - `main` ist geschützt und bekommt nur PRs aus `staging`; nie direkt auf `main` pushen.
+   - `main` ist geschützt und bekommt nur PRs aus `staging`. Nie auf `main` pushen und nie nach `main` mergen: Das macht der Nutzer von Hand, und sein Merge löst das Release aus, sobald die Version in `package.json` noch keinen Tag hat.
    - Zum Schluss eine Zusammenfassung für den Nutzer mit allen Rulings und den offenen Punkten für den manuellen Test.
 
 ## Regeln aus Erfahrung
