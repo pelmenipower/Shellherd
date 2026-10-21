@@ -25,7 +25,7 @@
       "sftp": "Neue SFTP-Verbindung (Dateien)",
       "rdp": "Neue Remotedesktop-Verbindung (RDP)",
       "powershell": "Neue lokale PowerShell",
-      "cmd": "Neue lokale Eingabeaufforderung (CMD)",
+      "cmd": "Neue lokale cmd",
       "aicli": "Neue KI-CLI (Claude Code, Codex, Gemini)",
       "kubernetes": "Neuer Kubernetes-Cluster"
     },

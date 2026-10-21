@@ -25,7 +25,7 @@
       "sftp": "New SFTP connection (files)",
       "rdp": "New Remote Desktop connection (RDP)",
       "powershell": "New local PowerShell",
-      "cmd": "New local Command Prompt (CMD)",
+      "cmd": "New local cmd",
       "aicli": "New AI CLI (Claude Code, Codex, Gemini)",
       "kubernetes": "New Kubernetes cluster"
     },

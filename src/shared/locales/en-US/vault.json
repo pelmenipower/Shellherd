@@ -17,8 +17,8 @@
       "short": "PowerShell"
     },
     "cmd": {
-      "label": "Command Prompt (CMD, local)",
-      "short": "CMD"
+      "label": "cmd (local)",
+      "short": "cmd"
     },
     "aicli": {
       "label": "AI CLI (Claude Code, Codex, Gemini)",

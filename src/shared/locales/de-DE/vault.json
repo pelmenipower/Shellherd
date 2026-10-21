@@ -17,8 +17,8 @@
       "short": "PowerShell"
     },
     "cmd": {
-      "label": "Eingabeaufforderung CMD (lokal)",
-      "short": "CMD"
+      "label": "cmd (lokal)",
+      "short": "cmd"
     },
     "aicli": {
       "label": "KI-CLI (Claude Code, Codex, Gemini)",
