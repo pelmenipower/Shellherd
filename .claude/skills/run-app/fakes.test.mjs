@@ -1,10 +1,11 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import ssh2 from 'ssh2';
 import { openRemoteHost } from '../../../src/main/containers/runner';
-import { PROBE_COMMAND } from '../../../src/main/containers/commands';
+import { PROBE_COMMAND, shellJoin } from '../../../src/main/containers/commands';
 import { parseProbe } from '../../../src/main/containers/parsers';
 import { BATCH_OUTPUT_LIMIT, inventoryBatchCommand, splitInventoryBatch } from '../../../src/main/containers/inventory-batch';
 import { parseContainerRows } from '../../../src/main/containers/inventory-parsers';
@@ -151,5 +152,17 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     // NO_SUCH_FILE (2): neither ".." climbing nor backslashes may leave the root.
     await expect(call(done => sftp.stat('/../../x', done))).rejects.toMatchObject({ code: 2 });
     await expect(call(done => sftp.stat('/home/..\\..\\..\\x', done))).rejects.toBeDefined();
+  });
+
+  it('answers sha256sum inside the SFTP root, quoted names too, and fails for missing files', async () => {
+    const { port } = await start('sha');
+    writeFileSync(join(base, 'sha', 'sftp', 'home', 'demo', "it's here.bin"), 'payload');
+    const { host } = await connect(port);
+    const digest = createHash('sha256').update('payload').digest('hex');
+    const command = file => shellJoin(['sh', '-c', 'sha256sum -- "$1" 2>/dev/null || shasum -a 256 -- "$1"', 'sh', file]);
+    expect(await host.run(command("/home/demo/it's here.bin"), 5000)).toMatchObject({ code: 0, stdout: `${digest}  /home/demo/it's here.bin\n` });
+    expect((await host.run(command('/home/demo/notes.md'), 5000)).stdout).toMatch(/^[0-9a-f]{64} {2}\/home\/demo\/notes\.md\n$/);
+    expect((await host.run(command('/home/demo/missing.bin'), 5000)).code).toBe(1);
+    expect((await host.run(command('/../../x'), 5000)).code).toBe(1);
   });
 });
