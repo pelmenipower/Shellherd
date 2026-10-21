@@ -2,7 +2,8 @@ import { execFile } from 'node:child_process';
 import { Client } from 'ssh2';
 import type { Duplex } from 'node:stream';
 import { AppError } from '../../shared/errors';
-import type { SshConnectionNode } from '../../shared/vault/types';
+import type { ConnectionTimeouts, SshConnectionNode } from '../../shared/vault/types';
+import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
 import { sshConnectConfig } from '../ssh/client-config';
 import { BATCH_TOO_LARGE } from './parsers';
 import type { RunResult } from './parsers';
@@ -27,7 +28,8 @@ export interface RemoteHost {
   readonly closed: boolean;
 }
 
-export async function openRemoteHost(connection: SshConnectionNode, verifyHost: VerifyHost, createClient = () => new Client()): Promise<RemoteHost> {
+export async function openRemoteHost(connection: SshConnectionNode, verifyHost: VerifyHost, createClient = () => new Client(),
+  timeouts: ConnectionTimeouts = DEFAULT_TIMEOUTS): Promise<RemoteHost> {
   const client = createClient();
   let closed = false;
   let rejectedKey = false;
@@ -35,8 +37,8 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
     void verifyHost(connection.host, connection.port, hostKey, () => !closed)
       .then(valid => { rejectedKey = !valid; callback(valid); })
       .catch(() => { rejectedKey = true; callback(false); });
-  });
-  // No shorter readyTimeout: it also spans the async host-key prompt the user may still be reading.
+  }, timeouts);
+  // No shorter readyTimeout: it also spans the async host-key prompt the user may still be reading. The user's connect timeout spans the prompt too.
   try {
     await new Promise<void>((resolve, reject) => {
       client.once('ready', resolve);

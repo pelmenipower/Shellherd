@@ -113,6 +113,18 @@ describe('openRemoteHost', () => {
   });
 });
 
+describe('openRemoteHost timeouts', () => {
+  it('hands the connect and keepalive values to ssh2', async () => {
+    let config: Record<string, unknown> | undefined;
+    const fake = Object.assign(new EventEmitter(), {
+      connect: (given: Record<string, unknown>) => { config = given; queueMicrotask(() => fake.emit('ready')); },
+      destroy: () => {}, end: () => {},
+    });
+    await openRemoteHost(connection, async () => true, () => fake as unknown as Client, { idleMinutes: 0, keepaliveSeconds: 30, keepaliveCount: 5, connectSeconds: 45 });
+    expect(config).toMatchObject({ readyTimeout: 45_000, keepaliveInterval: 30_000, keepaliveCountMax: 5 });
+  });
+});
+
 describe('openRemoteHost output limit', () => {
   it('keeps at most the given limit per stream, the default 1 MiB otherwise', async () => {
     const host = await openRemoteHost(connection, async () => true);

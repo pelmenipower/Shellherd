@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,6 +17,8 @@ import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import { connectionFingerprint, SudoRejections } from '../containers/sudo-rejections';
+import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
+import type { ConnectionTimeouts } from '../../shared/vault/types';
 
 const hostKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
 let server: Server;
@@ -646,6 +648,67 @@ describe('Kubernetes pod terminals', () => {
     expect(kubeOutput(id)).toBe('before\r\nheld\r\n');
     expect(kubeEvents[kubeEvents.length - 1]).toMatchObject({ owner: 2, event: { type: 'data' } });
     expect(streamCalls).toEqual(['pause', 'resume']);
+  });
+});
+
+describe('idle disconnect', () => {
+  const minute = 60_000;
+  const cluster: KubernetesConnectionNode = { id: 'k1', type: 'connection', protocol: 'kubernetes', name: 'Synthetic cluster',
+    tags: [], accessHosts: [], kubeconfig: { source: 'auto' }, production: false, readOnly: false };
+  const stream: KubeStream = { write: () => {}, resize: () => {}, pause: () => {}, resume: () => {}, close: () => {} };
+  let idleEvents: SshEvent[];
+  let io: TerminalIo;
+  let idle: SshSessionManager;
+  let timeouts: ConnectionTimeouts;
+  const last = () => idleEvents.flatMap(event => event.type === 'status' ? [event] : []).pop();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    idleEvents = []; timeouts = { ...DEFAULT_TIMEOUTS, idleMinutes: 1 };
+    idle = new SshSessionManager({ getConnection: () => structuredClone(cluster), verifyHost: async () => true, spawnShell: noShell,
+      getTimeouts: () => timeouts, emit: (owner, event) => { idleEvents.push(event); if (event.type === 'data') idle.acknowledge(owner, event.sessionId, event.sequence); },
+      openKubeTerminal: async (_id, _target, _size, terminalIo) => { io = terminalIo; return stream; } });
+  });
+  afterEach(() => { idle.closeAll(); vi.useRealTimers(); });
+
+  async function open(): Promise<string> {
+    const id = idle.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'shell' } }).sessionId;
+    await idle.connect(1, id);
+    return id;
+  }
+
+  it('closes with code idle after a minute without input or output', async () => {
+    await open();
+    await vi.advanceTimersByTimeAsync(minute - 1);
+    expect(last()).toMatchObject({ status: 'connected' });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(last()).toMatchObject({ status: 'closed', code: 'idle' });
+    expect(idle.hasOwner(1)).toBe(false);
+  });
+
+  it('extends the time on output and input', async () => {
+    const id = await open();
+    await vi.advanceTimersByTimeAsync(59_000);
+    io.data(Buffer.from('x'));
+    await vi.advanceTimersByTimeAsync(59_000);
+    await idle.input(1, id, 'ls\r');
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(last()).toMatchObject({ status: 'connected' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(last()).toMatchObject({ code: 'idle' });
+  });
+
+  it('sets no timer for 0 minutes and leaves none behind after close', async () => {
+    timeouts = { ...DEFAULT_TIMEOUTS, idleMinutes: 0 };
+    const zero = vi.getTimerCount();
+    const id = await open();
+    expect(vi.getTimerCount()).toBe(zero);
+    timeouts = { ...DEFAULT_TIMEOUTS, idleMinutes: 1 };
+    const second = await open();
+    expect(vi.getTimerCount()).toBe(zero + 1);
+    idle.close(1, second);
+    idle.close(1, id);
+    expect(vi.getTimerCount()).toBe(zero);
   });
 });
 

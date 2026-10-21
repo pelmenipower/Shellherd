@@ -1,7 +1,7 @@
 import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Server, utils } from 'ssh2';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Client, Server, utils } from 'ssh2';
 import type { ConnectionNode } from '../shared/vault/types';
 import { testConnection } from './connection-test';
 
@@ -56,6 +56,15 @@ describe('connection test (dry run)', () => {
     const slow = { ...trust, timeout: 1_000, verifyHost: () => new Promise<boolean>(resolve => setTimeout(() => resolve(true), 2_000)) };
     const result = await testConnection(node('ssh', 'synthetic-secret'), slow);
     expect(result.steps.map(step => [step.step, step.ok])).toEqual([['nameResolved', true], ['portReachable', true], ['hostKey', true], ['login', true]]);
+  });
+
+  it('keeps its own timer and no keepalive whatever the connection overrides', async () => {
+    const connect = vi.spyOn(Client.prototype, 'connect');
+    try {
+      const overridden = { ...node('ssh', 'synthetic-secret'), timeouts: { connectSeconds: 5, keepaliveSeconds: 5 } } as ConnectionNode;
+      await testConnection(overridden, trust);
+      expect(connect).toHaveBeenCalledWith(expect.objectContaining({ readyTimeout: 120_000, keepaliveInterval: 0 }));
+    } finally { connect.mockRestore(); }
   });
 
   it('checks RDP reachability and local shells without connecting', async () => {
