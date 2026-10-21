@@ -91,6 +91,7 @@ const desktopApi: DesktopApi = {
   sftpTransfer: request => ipcRenderer.invoke('sftp:transfer', request),
   sftpCancel: request => ipcRenderer.invoke('sftp:cancel', request),
   sftpResolve: request => ipcRenderer.invoke('sftp:resolve', request),
+  sftpVerify: request => ipcRenderer.invoke('sftp:verify', request),
   sftpClearFinished: request => ipcRenderer.invoke('sftp:clear-finished', request),
   sftpState: request => ipcRenderer.invoke('sftp:state', request),
   sftpClose: request => ipcRenderer.invoke('sftp:close', request),

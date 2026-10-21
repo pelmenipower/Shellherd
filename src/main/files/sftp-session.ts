@@ -21,6 +21,7 @@ import { planTransfer, runTransfer, TransferCanceled } from './transfer';
 import { RemoteEdits } from './remote-edit';
 import { AutoUploads } from './auto-upload';
 
+export const VERIFY_MAX = 10_000;
 const PROGRESS_INTERVAL = 200;
 const KEPT_FINISHED_JOBS = 20;
 
@@ -42,6 +43,8 @@ export interface SftpDependencies {
 interface Job {
   job: TransferJob;
   sources: string[];
+  /** Source and target of every file that arrived; "Prüfen" reads it. Never part of a snapshot. */
+  copied: { source: string; target: string }[];
   controller: AbortController;
   lastEmit: number;
 }
@@ -230,9 +233,9 @@ export class SftpSessionManager {
     if (!session.fs) throw new FileError('files.sessionNotReady');
     const names = request.sources.map(source => request.direction === 'upload' ? this.dependencies.local.basename(source) : posix.basename(source));
     const job: TransferJob = { id: randomUUID(), direction: request.direction, move: request.move, targetDir: request.targetDir,
-      label: names[0] ?? '', entryCount: names.length, state: 'queued',
+      label: names[0] ?? '', entryCount: names.length, state: 'queued', sources: [...request.sources],
       totalBytes: 0, doneBytes: 0, totalFiles: 0, doneFiles: 0, skippedFiles: 0 };
-    const entry: Job = { job, sources: request.sources, controller: new AbortController(), lastEmit: 0 };
+    const entry: Job = { job, sources: request.sources, copied: [], controller: new AbortController(), lastEmit: 0 };
     session.jobs.push(entry);
     this.pruneJobs(session);
     this.emitJob(session, entry, true);
@@ -268,6 +271,8 @@ export class SftpSessionManager {
       await runTransfer(job, items, from, to, {
         progress: () => this.emitJob(session, entry),
         conflict: details => this.ask(session, entry, details),
+        keepPartial: true,
+        copied: (source, target) => { if (entry.copied.length <= VERIFY_MAX) entry.copied.push({ source, target }); },
       }, controller.signal);
       job.state = 'done';
     } catch (error) {
@@ -277,6 +282,9 @@ export class SftpSessionManager {
       job.current = undefined;
       job.bytesPerSecond = undefined;
       session.running = undefined;
+      // A question of a stopped job must not come back with `state`.
+      if (session.conflict?.conflict.jobId === job.id) session.conflict = undefined;
+      if (!job.resumedFrom) entry.copied = [];
       session.lastIo = Date.now();
       this.emitJob(session, entry, true);
     }

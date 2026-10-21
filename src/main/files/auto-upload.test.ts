@@ -1,7 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
-import { Writable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AutoUploadStatus } from '../../shared/sftp';
 import type { AutoUploadBinding } from '../../shared/vault/types';
@@ -22,15 +21,27 @@ function fakeRemote(options: { keepUploadTime?: boolean; failOn?: string; missin
   const remote = { join: posix.join, basename: posix.basename, stat, lstat: stat,
     realpath: async (path: string) => { if (!nodes.has(path)) throw Object.assign(new Error('missing'), { code: 2 }); return path; },
     mkdir: async (path: string) => { nodes.set(path, dir()); },
-    write: (path: string) => {
+    // The node appears on close; failures leave nothing behind.
+    openWrite: async (path: string) => {
       log.push(`write:${path}`);
-      const chunks: Buffer[] = [];
-      return new Writable({ write(chunk: Buffer, _encoding, callback) { chunks.push(chunk); callback(); },
-        final(callback) {
-          if (options.failOn && path.includes(options.failOn)) return callback(new Error('boom'));
-          if (options.missingOn && path.includes(options.missingOn)) return callback(Object.assign(new Error('no such file'), { code: 2 }));
-          setTimeout(() => { nodes.set(path, { type: 'file', data: Buffer.concat(chunks), modified: Date.now() }); callback(); }, options.writeDelayMs ?? 0);
-        } });
+      if (options.missingOn && path.includes(options.missingOn)) throw Object.assign(new Error('no such file'), { code: 2 });
+      const chunks: { position: number; data: Buffer }[] = [];
+      let failed = false;
+      return {
+        write: async (data: Buffer, position: number) => {
+          if (options.failOn && path.includes(options.failOn)) { failed = true; throw new Error('boom'); }
+          // The data confirms late; a cancel interrupts the wait, a close does not.
+          await pause(options.writeDelayMs ?? 0);
+          chunks.push({ position, data });
+        },
+        close: async () => {
+          if (failed) return;
+          const size = Math.max(0, ...chunks.map(chunk => chunk.position + chunk.data.length));
+          const data = Buffer.alloc(size);
+          for (const chunk of chunks) chunk.data.copy(data, chunk.position);
+          nodes.set(path, { type: 'file', data, modified: Date.now() });
+        },
+      };
     },
     setModified: async (path: string, modified: number) => { const node = nodes.get(path); if (node && !options.keepUploadTime) node.modified = modified; },
     removeFile: async (path: string) => {
@@ -113,7 +124,7 @@ describe('AutoUploads', () => {
     await s.ready();
     s.write('a/b/c.txt', 'hello', Date.now());
     s.auto.handleEvent(s.binding().id, 'rename', 'a\\b\\c.txt');
-    await waitFor(() => s.nodes.has('/srv/a/b/c.txt'));
+    await waitFor(() => s.nodes.has('/srv/a/b/c.txt') && s.status().last?.name === 'c.txt');
     expect(text(s.nodes, '/srv/a/b/c.txt')).toBe('hello');
     expect(s.status().last?.name).toBe('c.txt');
     expect(s.status().state).toBe('watching');
