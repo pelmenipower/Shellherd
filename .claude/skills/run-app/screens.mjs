@@ -1,5 +1,6 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome …]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome …] [--readme]   (no argument = all)
+// --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -8,6 +9,8 @@ import path from 'node:path';
 const PORT = Number(process.env.DRIVER_PORT ?? 9333);
 const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
 const SHOTS = process.env.SCREENSHOT_DIR ?? path.join(RUN_DIR, 'shots');
+const REPO = path.resolve(import.meta.dirname, '../../..');
+const README_SHOTS = new Set(['sftp', 'containers', 'kubernetes', 'settings', 'assistant']);
 
 async function call(route, body, query = '') {
   const response = await fetch(`http://127.0.0.1:${PORT}/${route}${query}`, { method: body === undefined ? 'GET' : 'POST', body, headers: { 'x-driver-token': fs.readFileSync(path.join(RUN_DIR, 'token'), 'utf8') } });
@@ -33,7 +36,12 @@ async function waitFor(step, expression, { timeout = 20000, every = 250 } = {}) 
   }
 }
 const count = selector => `document.querySelectorAll(${JSON.stringify(selector)}).length`;
-const shot = async name => { await call('ss', undefined, `?name=${name}&crop=status`); shots.push(path.join(SHOTS, `${name}.png`)); };
+// The path comes from the driver; README images never show the real local container tree.
+const shot = async name => {
+  if (readme && README_SHOTS.has(name) && await evaluate(`!!document.querySelector('.local-containers')`))
+    throw new Error('„Dieser Computer“ (lokale Container) in der Seitenleiste – kein README-Bild');
+  shots.push(await call('ss', undefined, `?name=${name}&crop=status`));
+};
 
 // Closes open dialogs and every terminal tab (confirming the close dialog if one appears) so each block starts from the same state.
 async function closeTabs() {
@@ -136,7 +144,11 @@ const blocks = {
     await shot('containers');
   },
   async kubernetes() {
-    if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) { console.log('Kubernetes übersprungen: prod-k8s fehlt im Baum (Testserver ohne Kubernetes?).'); return; }
+    if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) {
+      // A skipped block would leave an outdated README image in place.
+      if (readme) throw new Error('prod-k8s fehlt im Baum – ohne Cluster kein README-Bild (Testserver ohne Kubernetes?).');
+      console.log('Kubernetes übersprungen: prod-k8s fehlt im Baum (Testserver ohne Kubernetes?).'); return;
+    }
     await click('text=prod-k8s >> nth=0');
     await key('Enter');
     await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
@@ -304,13 +316,16 @@ const blocks = {
   },
 };
 
+const args = process.argv.slice(2);
+const readme = args.includes('--readme');
+const wanted = args.filter(arg => arg !== '--readme');
+const unknown = wanted.filter(name => !Object.hasOwn(blocks, name));
+if (unknown.length) { console.error(`Unbekannter Block: ${unknown.join(', ')}. Verfügbar: ${Object.keys(blocks).join(', ')}`); process.exit(2); }
+
 let vaultOpen = false;
 try { vaultOpen = await evaluate(`!!document.querySelector('.workspace-save')?.offsetParent`); } catch (error) { console.error(`Treiber nicht erreichbar: ${error.message}`); process.exit(2); }
 if (!vaultOpen) { console.error('Vault nicht offen – zuerst demo-setup.mjs ausführen.'); process.exit(2); }
 
-const wanted = process.argv.slice(2);
-const unknown = wanted.filter(name => !(name in blocks));
-if (unknown.length) { console.error(`Unbekannter Block: ${unknown.join(', ')}. Verfügbar: ${Object.keys(blocks).join(', ')}`); process.exit(2); }
 let failed = false;
 for (const name of wanted.length ? wanted : Object.keys(blocks)) {
   try {
@@ -322,4 +337,9 @@ for (const name of wanted.length ? wanted : Object.keys(blocks)) {
   }
 }
 for (const file of shots) console.log(file);
+if (readme) for (const file of shots.filter(f => README_SHOTS.has(path.basename(f, '.png')))) {
+  const target = path.join(REPO, 'docs', 'images', `screenshot-${path.basename(file)}`);
+  fs.copyFileSync(file, target);
+  console.log(`→ ${target}`);
+}
 process.exit(failed ? 1 : 0);
