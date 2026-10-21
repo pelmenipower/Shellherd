@@ -608,6 +608,7 @@ describe('root shell and start commands after login', () => {
     expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: expect.objectContaining({ code: 'containers.passwordLineBreak' }) }));
     expect(execCommands).toEqual([]);
     expect(peers).toHaveLength(0);
+    expect(JSON.stringify(events)).not.toContain('synthetic\\npassword');
   });
 
   it('never sends the password when sudo does not ask (cache or NOPASSWD)', async () => {
