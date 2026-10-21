@@ -20,6 +20,7 @@ import type { RemoteFileSystem } from './sftp-file-system';
 import { planTransfer, runTransfer, TransferCanceled } from './transfer';
 import { RemoteEdits } from './remote-edit';
 import { AutoUploads } from './auto-upload';
+import { verifyCopies } from './verify';
 
 export const VERIFY_MAX = 10_000;
 const PROGRESS_INTERVAL = 200;
@@ -313,6 +314,21 @@ export class SftpSessionManager {
     if (entry.job.state === 'queued') { entry.job.state = 'canceled'; this.emitJob(session, entry, true); return; }
     entry.controller.abort();
     if (session.conflict?.conflict.jobId === jobId) session.conflict.resolve({ choice: 'cancel', applyToAll: false });
+  }
+
+  /** "Prüfen": sha256 of every file the job copied, local stream against sha256sum on the server. Result lands on the job and is emitted. */
+  async verify(ownerId: number, id: string, jobId: string): Promise<void> {
+    const session = this.owned(ownerId, id);
+    const entry = session.jobs.find(item => item.job.id === jobId);
+    if (!entry || entry.job.state !== 'done' || !entry.job.resumedFrom || entry.job.verify === 'running') return;
+    if (entry.copied.length > VERIFY_MAX) throw new FileError('files.verifyTooMany', { max: VERIFY_MAX });
+    entry.job.verify = 'running'; entry.job.mismatched = undefined; this.emitJob(session, entry, true);
+    try {
+      const mismatched = await verifyCopies(session.client, entry.copied, entry.job.direction);
+      entry.job.verify = mismatched.length ? 'mismatch' : 'ok';
+      entry.job.mismatched = mismatched.length ? mismatched : undefined;
+    } catch (error) { entry.job.verify = undefined; throw error; }
+    finally { if (this.active(session)) this.emitJob(session, entry, true); }
   }
 
   /** Removes finished jobs from the list. */
