@@ -5,7 +5,8 @@ import { posix } from 'node:path';
 import { Client } from 'ssh2';
 import type { SFTPWrapper } from 'ssh2';
 import { limitError, type CodedError } from '../../shared/errors';
-import type { ConnectionNode } from '../../shared/vault/types';
+import type { ConnectionNode, ConnectionTimeouts } from '../../shared/vault/types';
+import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
 import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
 import type { EditorChoice } from '../../shared/sftp';
 import type { ConflictChoice, DirectoryListing, SftpEvent, SftpSessionState, SftpStatus, SftpTransferRequest, TransferConflict, TransferJob } from '../../shared/sftp';
@@ -32,6 +33,8 @@ export interface SftpDependencies {
   openFile: (path: string, editor: EditorChoice) => Promise<void>;
   /** How often edited copies are checked for changes; tests use less. */
   editPollInterval?: number;
+  /** Effective timeouts of a connection; default () => DEFAULT_TIMEOUTS. */
+  getTimeouts?: (connection: ConnectionNode) => ConnectionTimeouts;
   /** Injected so tests never open network connections. */
   createClient?: () => Client;
 }
@@ -56,6 +59,9 @@ interface Session {
   running?: Job;
   conflict?: { conflict: TransferConflict; resolve: (answer: { choice: ConflictChoice; applyToAll: boolean }) => void };
   key?: Buffer;
+  idleMs?: number;
+  lastIo?: number;
+  idleTimer?: ReturnType<typeof setTimeout>;
 }
 
 export class SftpSessionManager {
@@ -79,6 +85,8 @@ export class SftpSessionManager {
 
   private async connect(session: Session, connection: ConnectionNode): Promise<void> {
     if (connection.protocol !== 'sftp' && connection.protocol !== 'ssh') return;
+    const timeouts = (this.dependencies.getTimeouts ?? (() => DEFAULT_TIMEOUTS))(connection);
+    session.idleMs = timeouts.idleMinutes * 60_000;
     try {
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
@@ -86,7 +94,7 @@ export class SftpSessionManager {
             if (!valid && this.active(session)) this.finish(session, 'error', { code: 'files.hostKeyRejected' }, 'hostkey-rejected');
             callback(valid && this.active(session));
           }).catch(error => { this.fail(session, error); callback(false); });
-      });
+      }, timeouts);
       session.key = key;
       if (!this.active(session)) { this.clearKey(session); return; }
       session.client.once('ready', () => {
@@ -104,6 +112,7 @@ export class SftpSessionManager {
             inUseElsewhere: bindingId => [...this.sessions.values()].some(other => other !== session && other.syncs?.running(bindingId) === true) });
           session.status = 'connected';
           this.emit(session, { type: 'status', sessionId: session.id, status: 'connected' });
+          this.armIdle(session);
           for (const binding of connection.autoUpload ?? []) if (binding.enabled) void session.syncs.start(binding);
         });
       });
@@ -121,9 +130,27 @@ export class SftpSessionManager {
   private clearKey(session: Session): void { session.key?.fill(0); session.key = undefined; }
   private emit(session: Session, event: SftpEvent): void { this.dependencies.emit(session.ownerId, event); }
 
+  private armIdle(session: Session): void {
+    session.lastIo = Date.now();
+    if (session.idleMs) session.idleTimer = setTimeout(() => this.checkIdle(session), session.idleMs);
+  }
+
+  /** Busy sessions (transfer, live auto-upload, open edit) are rearmed for the full time, never closed. */
+  private checkIdle(session: Session): void {
+    if (!this.active(session)) return;
+    const idleMs = session.idleMs!;
+    const busy = session.running || session.jobs.some(item => item.job.state === 'queued')
+      || session.syncs?.list().some(sync => sync.state !== 'error') || (session.edits?.list().length ?? 0) > 0;
+    if (busy) session.lastIo = Date.now();
+    const remaining = idleMs - (Date.now() - session.lastIo!);
+    if (remaining <= 0) this.finish(session, 'closed', undefined, 'idle');
+    else session.idleTimer = setTimeout(() => this.checkIdle(session), remaining);
+  }
+
   private owned(ownerId: number, id: string): Session {
     const session = this.sessions.get(id);
     if (!session || session.ownerId !== ownerId) throw new FileError('files.sessionUnavailable');
+    session.lastIo = Date.now();
     return session;
   }
 
@@ -249,6 +276,7 @@ export class SftpSessionManager {
     } finally {
       job.current = undefined;
       session.running = undefined;
+      session.lastIo = Date.now();
       this.emitJob(session, entry, true);
     }
     if (this.active(session)) void this.pump(session);
@@ -313,6 +341,7 @@ export class SftpSessionManager {
 
   private finish(session: Session, status: 'closed' | 'error', error?: CodedError, code?: ConnectionErrorCode): void {
     if (!this.active(session)) return;
+    clearTimeout(session.idleTimer);
     // Before the session leaves the map: the emit guard drops events of inactive sessions.
     session.syncs?.closeAll();
     this.sessions.delete(session.id);
