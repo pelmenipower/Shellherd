@@ -251,9 +251,11 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     void run(() => window.desktopApi.sftpTransfer({ sessionId, direction: from === 'local' ? 'upload' : 'download', sources, targetDir: target, move }));
   };
   const resume = (job: TransferJob): void => {
-    if (!remoteReady || !job.sources?.length) return;
-    setJobs(current => current.filter(item => item.id !== job.id));
-    transfer(job.direction === 'upload' ? 'local' : 'remote', job.sources, job.move, job.targetDir);
+    if (!remoteReady || !sessionId || !job.sources?.length) return;
+    const sources = job.sources;
+    // The old row (and its discard button) stays until the new job exists.
+    void run(() => window.desktopApi.sftpTransfer({ sessionId, direction: job.direction, sources, targetDir: job.targetDir, move: job.move }))
+      .then(done => { if (done) setJobs(current => current.filter(item => item.id !== job.id)); });
   };
   const discardPartial = (job: TransferJob): void => {
     const paths = job.partials;

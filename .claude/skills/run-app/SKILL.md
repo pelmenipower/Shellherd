@@ -47,7 +47,7 @@ Alle lauschen nur auf `127.0.0.1`.
 
 Ports per `SSHD_PORT`, `KUBE_FAKE_PORT`, `AI_FAKE_PORT` änderbar.
 
-**Nachher-Messung (Übertragungstempo):** `SSHD_LATENCY_MS=10 npm run drive:sshd` verzögert jede READ- und WRITE-Antwort des Testservers um 10 ms. Der sftp-Block gibt dann `Rate: …` im Protokoll aus (vor und nach dem Fortsetzen). Er bricht eine 512-MiB-Zufallsdatei ab, setzt sie fort, vergleicht SHA-256 lokal gegen `RUN_DIR/sftp/home/demo/big.bin` und klickt „Prüfen“. Wird das Abbruchfenster zu knapp, die Datei in `screens.mjs` auf 1 GiB setzen.
+**Nachher-Messung (Übertragungstempo):** `SSHD_LATENCY_MS=10 npm run drive:sshd` verzögert jede READ-, WRITE- und CLOSE-Antwort des Testservers um 10 ms. Der sftp-Block gibt dann `Rate: …` im Protokoll aus (vor und nach dem Fortsetzen). Er bricht eine 512-MiB-Zufallsdatei ab, setzt sie fort, vergleicht SHA-256 lokal gegen `RUN_DIR/sftp/home/demo/big.bin` und klickt „Prüfen“. Wird das Abbruchfenster zu knapp, die Datei in `screens.mjs` auf 1 GiB setzen.
 
 ## Demo-Vault (`demo-setup.mjs`)
 

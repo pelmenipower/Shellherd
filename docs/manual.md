@@ -349,7 +349,7 @@ Before resuming, Shellherd checks the leftover `.part`: it must not be larger or
 
 `Cancel` keeps the partial file. `Discard partial file` deletes it (local files go to the recycle bin) and is unavailable while a transfer is running. For uploads it needs a connection. To start over, discard the partial file and transfer again. For folders Shellherd asks about files that are already finished as usual; `Only if newer` with `For all` skips them. Resuming works per file. Auto-upload still cleans up its own partial files.
 
-`Verify` on a finished, resumed transfer computes the SHA-256 checksum of every file locally and with `sha256sum` (or `shasum` on macOS) on the server and shows whether they match. This needs a shell on the server; SFTP-only accounts report that no checksum is possible. File names with characters such as &, $ or  cannot be verified. `Verify` is not offered for moves, covers up to 10,000 files per transfer and works only in the session in which the transfer ran.
+`Verify` on a finished, resumed transfer computes the SHA-256 checksum of every file locally and with `sha256sum` (or `shasum` on macOS) on the server and shows whether they match. This needs a shell on the server; SFTP-only accounts report that no checksum is possible. File names with characters such as `&`, `$`, `\` or `'` cannot be verified. `Verify` is not offered for moves, covers up to 10,000 files per transfer and works only in the session in which the transfer ran.
 
 Limits: If the source gets shorter while a resumed transfer runs, the target stays too long; `Verify` reveals it. Shellherd treats a file named `name.part` as its own. A folder with that name is never touched; the transfer reports an error instead.
 
