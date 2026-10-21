@@ -79,7 +79,15 @@
     "files_one": "{{done}} von {{count}} Datei",
     "files_other": "{{done}} von {{count}} Dateien",
     "bytes": "{{done}} von {{total}}",
-    "skipped": "{{count}} übersprungen"
+    "skipped": "{{count}} übersprungen",
+    "resume": "Fortsetzen",
+    "discardPartial": "Teildatei verwerfen",
+    "resumedFrom": "fortgesetzt ab {{size}}",
+    "restarted": "Teildatei passte nicht, neu begonnen",
+    "verify": "Prüfen",
+    "verifying": "Prüfung läuft",
+    "verified": "Prüfsumme stimmt",
+    "verifyMismatch": "Prüfsumme weicht ab: {{names}}"
   },
   "edit": {
     "title": "Bearbeitete Dateien",

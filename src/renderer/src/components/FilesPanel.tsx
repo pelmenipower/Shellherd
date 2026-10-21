@@ -139,7 +139,13 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     let syncRefresh: ReturnType<typeof setTimeout> | undefined;
     const report = (next: SftpStatus, error?: CodedError, code?: ConnectionErrorCode): void => {
       if (disposed) return;
-      if (next === 'closed' || next === 'error') setEndedAt(Date.now());
+      if (next === 'closed' || next === 'error') {
+        setEndedAt(Date.now());
+        // The main process cannot report jobs of a dead session; whatever ran or waited has stopped.
+        setJobs(current => current.map(job => isFinished(job) ? job
+          : { ...job, state: 'error', error: { code: 'files.connectionLost' }, current: undefined, bytesPerSecond: undefined }));
+        setConflict(null);
+      }
       setStatus(next); setFailure({ code, error }); onStatusChange(tabId, next);
     };
     const connected = (): void => {
@@ -244,6 +250,22 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
     if (!sessionId || !target || !sources.length) return;
     void run(() => window.desktopApi.sftpTransfer({ sessionId, direction: from === 'local' ? 'upload' : 'download', sources, targetDir: target, move }));
   };
+  const resume = (job: TransferJob): void => {
+    if (!remoteReady || !job.sources?.length) return;
+    setJobs(current => current.filter(item => item.id !== job.id));
+    transfer(job.direction === 'upload' ? 'local' : 'remote', job.sources, job.move, job.targetDir);
+  };
+  const discardPartial = (job: TransferJob): void => {
+    const paths = job.partials;
+    if (!paths?.length) return;
+    const side: FileSide = job.direction === 'upload' ? 'remote' : 'local';
+    void run(() => side === 'remote' ? window.desktopApi.sftpDelete({ sessionId: sessionId!, paths }) : window.desktopApi.localDelete({ paths }), side)
+      .then(done => { if (done) setJobs(current => current.map(item => item.id === job.id ? { ...item, partials: undefined } : item)); });
+  };
+  const verify = (job: TransferJob): void => {
+    if (!sessionId) return;
+    void window.desktopApi.sftpVerify({ sessionId, jobId: job.id }).catch(error => setActionError(fail(error)));
+  };
   const answer = (choice: ConflictChoice, applyToAll: boolean): void => {
     if (!conflict || !sessionId) return;
     setConflict(null);
@@ -252,7 +274,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const remoteReady = status === 'connected' && !!sessionId;
   const remoteNotice = status === 'connected' ? undefined
     : { text: statusWord(status, 'long', { name: connection.name }) };
-  const reconnect = (): void => { setJobs([]); setSyncs([]); syncSeen.current.clear(); setConflict(null); adoptRef.current = undefined; setAttempt(value => value + 1); };
+  const reconnect = (): void => { setSyncs([]); syncSeen.current.clear(); setConflict(null); adoptRef.current = undefined; setAttempt(value => value + 1); };
   // Vault first, then the session; the dialog stays open when the vault was not saved.
   const saveSync = async (next: AutoUploadBinding[], apply: () => Promise<unknown>): Promise<boolean> => {
     if (!onSaveAutoUpload) return false;
@@ -333,7 +355,8 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
       {pendingPermissions && <PermissionsDialog entries={pendingPermissions.entries} busy={busy} onCancel={() => setPendingPermissions(null)}
         onApply={(mode, recursive) => void run(() => window.desktopApi.sftpChmod({ sessionId: sessionId!, paths: pendingPermissions.paths, mode, recursive }), 'remote')
           .then(done => { if (done) setPendingPermissions(null); })} />}
-      {jobs.length > 0 && <TransferQueue jobs={jobs} activeCount={active.length}
+      {jobs.length > 0 && <TransferQueue jobs={jobs} activeCount={active.length} canResume={remoteReady}
+        onResume={resume} onDiscard={discardPartial} onVerify={verify}
         onCancel={jobId => sessionId && void window.desktopApi.sftpCancel({ sessionId, jobId }).catch(() => {})}
         onClear={() => { setJobs(current => current.filter(job => !isFinished(job))); if (sessionId) void window.desktopApi.sftpClearFinished({ sessionId }).catch(() => {}); }} />}
       {conflict && visible && <ConflictDialog conflict={conflict} onAnswer={answer} />}
@@ -350,7 +373,12 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   );
 }
 
-function TransferQueue({ jobs, activeCount, onCancel, onClear }: { jobs: TransferJob[]; activeCount: number; onCancel: (jobId: string) => void; onClear: () => void }) {
+interface TransferQueueProps {
+  jobs: TransferJob[]; activeCount: number; canResume: boolean;
+  onCancel: (jobId: string) => void; onClear: () => void; onResume: (job: TransferJob) => void; onDiscard: (job: TransferJob) => void; onVerify: (job: TransferJob) => void;
+}
+
+function TransferQueue({ jobs, activeCount, canResume, onCancel, onClear, onResume, onDiscard, onVerify }: TransferQueueProps) {
   const { t } = useT();
   const jobLabel = (job: TransferJob): string => job.entryCount > 1 ? t('files:transfer.entries', { count: job.entryCount }) : job.label;
   return (
@@ -368,10 +396,21 @@ function TransferQueue({ jobs, activeCount, onCancel, onClear }: { jobs: Transfe
               {job.totalBytes > 0 && ` · ${t('files:queue.bytes', { done: formatSize(job.doneBytes), total: formatSize(job.totalBytes) })}`}
               {!!job.bytesPerSecond && ` · ${formatRate(job.bytesPerSecond)}`}
               {job.skippedFiles > 0 && ` · ${t('files:queue.skipped', { count: job.skippedFiles })}`}
+              {!!job.resumedFrom && ` · ${t('files:queue.resumedFrom', { size: formatSize(job.resumedFrom) })}`}
+              {job.restarted && ` · ${t('files:queue.restarted')}`}
+              {job.verify === 'running' && ` · ${t('files:queue.verifying')}`}
+              {job.verify === 'ok' && ` · ${t('files:queue.verified')}`}
+              {job.verify === 'mismatch' && ` · ${t('files:queue.verifyMismatch', { names: (job.mismatched ?? []).join(', ') })}`}
               {job.current && ` · ${job.current}`}
               {job.error && ` · ${errorText(job.error)}`}</small>
           </div>
           {!isFinished(job) && <button type="button" className="secondary-button" onClick={() => onCancel(job.id)}>{t('common:actions.cancel')}</button>}
+          {isFinished(job) && job.state !== 'done' && !!job.sources?.length && <button type="button" className="secondary-button" disabled={!canResume}
+            title={canResume ? undefined : t('files:sync.notConnected')} onClick={() => onResume(job)}>{t('files:queue.resume')}</button>}
+          {isFinished(job) && !!job.partials?.length && <button type="button" className="secondary-button" disabled={activeCount > 0 || (job.direction === 'upload' && !canResume)}
+            title={job.partials.join('\n')} onClick={() => onDiscard(job)}>{t('files:queue.discardPartial')}</button>}
+          {job.state === 'done' && !!job.resumedFrom && !job.move && <button type="button" className="secondary-button" disabled={!canResume || job.verify === 'running'}
+            title={canResume ? undefined : t('files:sync.notConnected')} onClick={() => onVerify(job)}>{t('files:queue.verify')}</button>}
         </li>)}
       </ul>
     </section>

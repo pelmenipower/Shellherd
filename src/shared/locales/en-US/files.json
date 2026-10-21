@@ -79,7 +79,15 @@
     "files_one": "{{done}} of {{count}} file",
     "files_other": "{{done}} of {{count}} files",
     "bytes": "{{done}} of {{total}}",
-    "skipped": "{{count}} skipped"
+    "skipped": "{{count}} skipped",
+    "resume": "Resume",
+    "discardPartial": "Discard partial file",
+    "resumedFrom": "resumed at {{size}}",
+    "restarted": "partial file did not match, started over",
+    "verify": "Verify",
+    "verifying": "verifying",
+    "verified": "checksum matches",
+    "verifyMismatch": "checksum differs: {{names}}"
   },
   "edit": {
     "title": "Edited files",
