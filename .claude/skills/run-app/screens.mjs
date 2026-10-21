@@ -1,5 +1,5 @@
-// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant …]   (no argument = all)
+// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, welcome tab) through the running driver.
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|welcome …]   (no argument = all)
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -143,6 +143,39 @@ const blocks = {
     await waitFor('KI-Antwort', `!document.querySelector('.assistant-typing') && [...document.querySelectorAll('.assistant-message.is-assistant .assistant-command code')].some(c => c.textContent.includes('du -xh'))`);
     await pause(300);
     await shot('assistant');
+  },
+  async lock() {
+    await click('text=web-01 >> nth=0');
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await pause(1000);
+    await click('.lock-button');
+    await waitFor('Sperrbildschirm', `document.querySelector('dialog.lock-screen[open]')`);
+    if (!await evaluate(`document.querySelector('.vault-shell').inert === true`)) throw new Error('Shell ist nicht inert');
+    // Escape must not close the lock screen.
+    await key('Escape'); await pause(300); await key('Escape'); await pause(300);
+    if (!await evaluate(`!!document.querySelector('dialog.lock-screen[open]')`)) throw new Error('Escape schließt den Sperrbildschirm');
+    // A modal opened later must not cover the lock screen: it raises itself again.
+    await evaluate(`(() => { const d = document.createElement('dialog'); d.id = 'lock-probe'; document.body.appendChild(d); d.showModal(); })()`);
+    await pause(300);
+    const onTop = await evaluate(`!!document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('dialog.lock-screen')`);
+    await evaluate(`document.getElementById('lock-probe')?.remove()`);
+    if (!onTop) throw new Error('Sperrbildschirm liegt nicht oben (Neuanhebung)');
+    await pause(300);
+    await shot('lock-screen');
+    await fill('.lock-screen input[type=password]', 'falsches-passwort');
+    await click('.lock-screen .primary-button');
+    await waitFor('Fehlermeldung', `document.querySelector('.lock-screen .error-message')?.offsetParent`);
+    await fill('.lock-screen input[type=password]', 'synthetic-vault-demo');
+    await click('.lock-screen .primary-button');
+    await waitFor('Entsperren', `!document.querySelector('dialog.lock-screen[open]') && ${count('.terminal-tab-close')} >= 1 && document.querySelector('.xterm')`, { timeout: 30000 });
+  },
+  async welcome() {
+    await click('.terminal-tab-add');
+    await click('.connection-picker-welcome');
+    await waitFor('Willkommensseite', `document.querySelector('.welcome-page')`);
+    await pause(300);
+    await shot('welcome');
   },
 };
 

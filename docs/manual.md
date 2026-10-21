@@ -59,8 +59,18 @@ kept. Tabs that are already running stay open. `Enable` releases it again.
 Background tabs stay connected and
 keep processing their output. In the tab strip, the arrow keys as well as
 Home/End switch between tabs. Closing a tab only ends its session.
-Locking the vault ends all sessions. Saved workspaces can be opened selectively after
+Locking does not disconnect: sessions keep running in the background, and all tabs are back after unlocking. New connections and `Reconnect` work only after unlocking. `Another vault file` on the lock screen always asks and disconnects everything. Saved workspaces can be opened selectively after
 unlocking; this starts new SSH sessions.
+
+### Locking and the welcome tab
+
+The lock button in the header locks without a confirmation. An opaque lock screen covers the window; the keyboard reaches nothing behind it. Detached windows are locked too and show their own lock screen (without a password field); you unlock in the main window.
+
+- **Credentials in memory:** The credentials of open sessions stay in Shellherd's memory while locked. A changed, unsaved connection editor keeps its content, including the connection's stored password; an unchanged editor closes on lock. The lock does not protect against reading the process memory.
+- **Idle disconnect:** It keeps running while locked. A long lock can disconnect sessions; the disconnected bar waits after unlocking.
+- **Assistant:** Automatic assistant requests (reading output) fail while locked with “No vault is unlocked.”
+- **Host key:** An open host key prompt can appear above the lock screen. It shows only the host and fingerprint.
+- **Welcome tab:** When a vault opens, the welcome page appears as a tab. Reopen it from the `+` menu (`Welcome page`). The tab can only be closed: no dragging, no splitting, no moving to another window. It is not saved in a workspace and counts toward the limit of 16 tabs.
 
 Selecting text in the terminal automatically copies the selection to the clipboard.
 Right-click pastes the clipboard text into the terminal you clicked.
@@ -85,13 +95,13 @@ The AI assistant answers in the selected language. kubectl-like output and raw s
 
 ### Vault
 
-`Ask before disconnecting running sessions` (default: on) asks before closing a tab or window, locking or switching workspaces ends running sessions. The setting belongs to the vault and is saved encrypted with it; it appears only after unlocking.
+`Ask before disconnecting running sessions` (default: on) asks before closing a tab or window or switching workspaces ends running sessions. The setting belongs to the vault and is saved encrypted with it; it appears only after unlocking.
 
-`Lock automatically after … minutes without input (0: never)` disconnects all sessions and locks the vault when neither mouse nor keyboard was used in any Shellherd window (range 0 to 1,440, default 15). The value is taken over on blur or `Enter` and applies immediately.
+`Lock automatically after … minutes without input (0: never)` locks the vault when neither mouse nor keyboard was used in any Shellherd window (range 0 to 1,440, default 15). Open sessions and tabs are kept. The value is taken over on blur or `Enter` and applies immediately.
 
 - **What counts:** Only mouse and keyboard in Shellherd windows. Terminal output does not count: if you only watch a long run, the vault locks. Work in other programs does not count either.
 - **RDP:** While an RDP session is connected, any input on the computer counts as well, because mouse and keyboard in the RDP window bypass Shellherd.
-- **Nothing is asked:** The lock works like manual locking, but without a confirmation. Unsaved input in the connection form is lost. Detached windows are closed. After the lock, the start card names the reason.
+- **Nothing is asked:** The lock works like manual locking, without a confirmation. Open settings and provider dialogs close. Detached windows are locked, not closed. After the lock, the lock screen names the reason.
 - **Imprecision:** The lock comes up to 10 seconds earlier or up to 30 seconds later than set; after waking from sleep, Shellherd locks immediately if the time has run out.
 - **Existing vaults:** Every vault carries the value 15, so from this version on they lock after 15 minutes; `0` turns the lock off.
 
@@ -358,7 +368,7 @@ a user interface for managing trusted hosts will follow later.
 - SSH requests use saved connection IDs and ownership-bound session IDs.
 - Output pauses while xterm acknowledgements are pending; input and scrollback
   are limited. Terminal output is not logged to disk.
-- Disconnecting, locking the vault (manual or automatic), idle disconnect, closing the window and a renderer crash end the SSH session.
+- Disconnecting, idle disconnect, closing the window, `Another vault file` and a renderer crash end the SSH session. Locking the vault (manual or automatic) does not; the credentials of open sessions stay in memory for that.
   With active sessions, closing is confirmed according to the vault setting.
 
 The SSH tests run a local `ssh2` server with test keys generated at runtime
