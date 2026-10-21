@@ -150,8 +150,10 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
     } finally { running.delete(item); job.current = [...running.values()].join(', ') || undefined; }
   };
   const files = items.filter(item => item.type === 'file');
-  // Windows ignores case: two names for one target are copied one after another, like before.
-  const width = new Set(files.map(item => item.target.toLowerCase())).size === files.length ? TUNING.files : 1;
+  const targets = new Set(files.map(item => item.target.toLowerCase()));
+  // Windows ignores case, and a file named like another file's .part shares that .part: such jobs copy one file at a time, like before.
+  const shared = targets.size < files.length || [...targets].some(target => target.endsWith('.part') && targets.has(target.slice(0, -'.part'.length)));
+  const width = shared ? 1 : TUNING.files;
   await mapLimit(files, width, async item => {
     if (failure !== undefined) return;
     try { await one(item); } catch (error) { failure ??= error; inner.abort(); }
@@ -180,11 +182,6 @@ export async function copyRange(source: ReadHandle, target: WriteHandle, start: 
     // Pieces that land after a cancel are not reported: the job has already ended.
     if (data.length) { await target.write(data, at); if (open) onConfirmed(data.length); }
   };
-  // A cancel must leave the loop at once, even while the oldest piece hangs on a silent server.
-  let cancel!: () => void;
-  const canceled = new Promise<never>((_, reject) => { cancel = () => reject(new TransferCanceled()); });
-  canceled.catch(() => {});
-  signal.addEventListener('abort', cancel, { once: true });
   try {
     while (pending.size || (!eof && offset < size && failure === undefined)) {
       checkAborted(signal);
@@ -193,11 +190,21 @@ export async function copyRange(source: ReadHandle, target: WriteHandle, start: 
         offset += TUNING.chunk;
       }
       const oldest = pending.keys().next().value as number;
-      await Promise.race([pending.get(oldest), canceled]);
+      await untilDoneOrAborted(pending.get(oldest)!, signal);
       pending.delete(oldest);
     }
-  } finally { open = false; signal.removeEventListener('abort', cancel); }
+  } finally { open = false; }
   if (failure !== undefined) throw failure;
+}
+
+/** Waits for `piece` or a cancel, whichever comes first; leaves nothing attached afterwards (a race against one long-lived promise keeps every round alive).
+ *  A cancel must leave the loop at once, even while the oldest piece hangs on a silent server. */
+function untilDoneOrAborted(piece: Promise<void>, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = (): void => reject(new TransferCanceled());
+    signal.addEventListener('abort', onAbort, { once: true });
+    void piece.then(() => { signal.removeEventListener('abort', onAbort); resolve(); });
+  });
 }
 
 async function copyFile(job: TransferJob, item: PlannedItem, target: string, mode: number | undefined, from: FileSystem, to: FileSystem,

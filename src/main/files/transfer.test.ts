@@ -455,6 +455,19 @@ describe('file transfer', () => {
       await done;
       expect([...issued].sort((a, b) => a - b)).toEqual([0, 4, 8, 12, 16, 20, 24, 28, 32, 36]);
     });
+
+    it('leaves no listener behind', async () => {
+      TUNING.chunk = 1; TUNING.inFlight = 4;
+      const data = Buffer.from(pattern(1000), 'latin1');
+      const source: ReadHandle = { read: async (length, position) => data.subarray(position, position + length), close: async () => {} };
+      const target: WriteHandle = { write: async () => {}, close: async () => {} };
+      const controller = new AbortController();
+      const add = vi.spyOn(controller.signal, 'addEventListener');
+      const remove = vi.spyOn(controller.signal, 'removeEventListener');
+      await copyRange(source, target, 0, 1000, controller.signal, () => {});
+      expect(add.mock.calls.length).toBe(remove.mock.calls.length);
+      expect(add.mock.calls.length).toBeGreaterThanOrEqual(250);
+    });
   });
 
   describe('folders', () => {
@@ -499,6 +512,23 @@ describe('file transfer', () => {
       };
       await transfer(from, to, ['/A.txt', '/a.txt']);
       expect(most).toBe(1);
+    });
+
+    it('copies a file and a file named like its .part one after another', async () => {
+      TUNING.files = 4;
+      const from = memory({ '/x.bin': 'main', '/x.bin.part': 'side' });
+      const to = memory({ '/target': null }, 1000, { gate: () => sleep(5) });
+      const open = to.openWrite;
+      let now = 0; let most = 0;
+      to.openWrite = async (path, mode, resume) => {
+        const handle = await open(path, mode, resume);
+        now += 1; most = Math.max(most, now);
+        return { write: handle.write, close: async () => { now -= 1; await handle.close(); } };
+      };
+      await transfer(from, to, ['/x.bin', '/x.bin.part']);
+      expect(most).toBe(1);
+      expect(to.nodes.get('/target/x.bin')).toMatchObject({ data: 'main' });
+      expect(to.nodes.get('/target/x.bin.part')).toMatchObject({ data: 'side' });
     });
 
     it('drops a moved source from the job even when a later one fails', async () => {

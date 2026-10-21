@@ -8,8 +8,8 @@ import { shellJoin } from '../containers/commands';
 import { FileError } from './file-system';
 
 const SCRIPT = 'sha256sum -- "$1" 2>/dev/null || shasum -a 256 -- "$1"';
-// Only names every common login shell (sh, bash, zsh, fish, csh, cmd, PowerShell) passes literally inside '…'.
-const VERIFIABLE = /^[\p{L}\p{N}\p{M} _.\/+,=@~#:()[\]'-]+$/u;
+// Only names every common login shell (sh, bash, zsh, fish, csh, cmd, PowerShell) passes literally inside '…'; a quote would need an escape that PowerShell does not know.
+const VERIFIABLE = /^[\p{L}\p{N}\p{M} _.\/+,=@~#:()[\]-]+$/u;
 /** Runs in sh whatever the login shell is; the path is the only argument. */
 export const verifyCommand = (path: string): string => shellJoin(['sh', '-c', SCRIPT, 'sh', path]);
 

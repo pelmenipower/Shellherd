@@ -63,13 +63,8 @@ describe('sha256Remote', () => {
     expect(await code(sha256Remote(fakeClient(() => ({ streamError: true })).client, '/srv/a.bin'))).toBe('files.verifyUnavailable');
   });
 
-  it('passes a path with a quote only as a quoted argument', async () => {
-    const { client, commands } = fakeClient(() => ({ out: `${HEX}  x\n` }));
-    await sha256Remote(client, "/srv/it's here.bin");
-    expect(commands[0]).toContain(`'/srv/it'\\''s here.bin'`);
-  });
-
   it.each([
+    "/srv/it's here.bin", "/srv/x'+(calc)+'.bin",
     '/srv/a&b.bin', '/srv/x\\y.bin', '/srv/$(id).bin', '/srv/a\nb.bin', '/srv/a!.bin',
     '/srv/a"b.bin', '/srv/`id`.bin', '/srv/a;b.bin', '/srv/$HOME', '/srv/a%b', '/srv/a\rb',
   ])('rejects %j without running a command', async path => {
