@@ -4,6 +4,16 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.14.0] – 2026-10-21
+
+- Neu: Der Vault sperrt sich automatisch. `Automatisch sperren nach … Minuten ohne Eingabe` unter Einstellungen → Vault zählt Maus und Tastatur in allen Shellherd-Fenstern; Terminal-Ausgabe zählt nicht. Alle Sitzungen werden getrennt, Nebenfenster geschlossen, die Startkarte nennt den Grund. Ungespeicherte Eingaben im Verbindungsformular gehen dabei verloren.
+- **Bestehende Vaults sperren ab jetzt nach 15 Minuten ohne Eingabe** (der Wert war schon gespeichert, wirkte aber nicht). `0` schaltet die Sperre ab.
+- Bei verbundener RDP-Sitzung zählt jede Eingabe am Rechner, weil das RDP-Fenster an Shellherd vorbeigeht.
+- Neu: Einstellungen → Verbindungen mit Leerlauf-Trennung (Standard: nie), Keepalive-Intervall und -Fehlversuchen und Verbindungs-Timeout. Die Werte gelten für SSH und SFTP, auch für Container und Cluster über SSH, ab der nächsten Verbindung.
+- Neu: Unter `Weitere Angaben` einer SSH- oder SFTP-Verbindung lassen sich die vier Werte einzeln überschreiben.
+- Neu: Nach Leerlauf zeigt die Getrennt-Leiste „wegen Leerlauf getrennt“. Lokale Shells, RDP und Cluster-Ansichten haben keinen Leerlauf; eine Dateiansicht mit Transfer, Auto-Upload oder offener Bearbeitung trennt sich nicht.
+- Hinweis: Der Verbindungs-Timeout läuft auch während der Server-Schlüssel-Rückfrage; bei kurzem Wert neue Schlüssel über `Verbindung testen` annehmen. Ein älteres Shellherd entfernt die neuen Werte beim Speichern des Vaults.
+
 ## [0.13.0] – 2026-10-20
 
 - Neu: Auto-Upload in der Dateiansicht. Ein lokaler Ordner wird in einen Server-Ordner gespiegelt, solange die Dateiansicht offen ist; eingerichtet über das Zahnrad ⚙ im lokalen Bereich (`Auto-Upload`). Die Bindung wird im Vault gemerkt und startet von selbst.

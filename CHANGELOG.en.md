@@ -4,6 +4,16 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.14.0] – 2026-10-21
+
+- New: The vault locks automatically. `Lock automatically after … minutes without input` under Settings → Vault counts mouse and keyboard in all Shellherd windows; terminal output does not count. All sessions are disconnected, detached windows closed, and the start card names the reason. Unsaved input in the connection form is lost.
+- **Existing vaults now lock after 15 minutes without input** (the value was already stored but had no effect). `0` turns the lock off.
+- With a connected RDP session, any input on the computer counts, because the RDP window bypasses Shellherd.
+- New: Settings → Connections with idle disconnect (default: never), keepalive interval and misses, and connection timeout. The values apply to SSH and SFTP, including containers and clusters over SSH, from the next connection.
+- New: Under `More options` of an SSH or SFTP connection, the four values can be overridden one by one.
+- New: After an idle disconnect, the disconnected bar shows “idle timeout”. Local shells, RDP and cluster views have no idle limit; a file view with a transfer, auto-upload or an open edit does not disconnect.
+- Note: The connection timeout keeps running during the host key prompt; with a short value, accept new keys through `Test connection`. An older Shellherd removes the new values when saving the vault.
+
 ## [0.13.0] – 2026-10-20
 
 - New: Auto-upload in the file view. A local folder is mirrored into a server folder while the file view is open; set up from the gear ⚙ in the local pane (`Auto-upload`). The binding is stored in the vault and starts by itself.
