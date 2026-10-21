@@ -50,7 +50,7 @@
     "downloadButton": "← Download",
     "renameTitle": "Rename (F2)",
     "deleteTitle": "Delete (Del)",
-    "autoUpload": "Set up auto-upload…"
+    "autoUpload": "Auto-upload"
   },
   "panel": {
     "openFolderFailed": "The folder could not be opened.",

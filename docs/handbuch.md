@@ -266,7 +266,7 @@ Secret-Daten sind in der YAML-Ansicht maskiert.
 
 ## Dateiansicht: Auto-Upload
 
-Auto-Upload spiegelt einen lokalen Ordner in einen Server-Ordner, solange die Dateiansicht der Verbindung offen ist. Eingerichtet wird es im lokalen Bereich: Das Zahnrad ⚙ in der Kopfzeile öffnet `Neue Datei`, `Neuer Ordner` und `Auto-Upload einrichten …` für den gerade angezeigten Ordner. Alternativ geht es per Rechtsklick auf einen Ordner. Der Dialog fragt den lokalen Ordner, den Server-Ordner (vorbelegt mit dem aktuellen Server-Ordner) und die Ausschlüsse ab. Mit `Auto-Upload starten` beginnt der Abgleich; darunter zeigt eine Liste je Bindung „Überwacht“, „Gleicht ab …“ oder den Fehler. Die Bindung wird im Vault gemerkt und startet beim nächsten Öffnen der Dateiansicht von selbst.
+Auto-Upload spiegelt einen lokalen Ordner in einen Server-Ordner, solange die Dateiansicht der Verbindung offen ist. Eingerichtet wird es im lokalen Bereich: Das Zahnrad ⚙ in der Kopfzeile öffnet `Neue Datei`, `Neuer Ordner` und `Auto-Upload` für den gerade angezeigten Ordner. Alternativ geht es per Rechtsklick auf einen Ordner. Der Dialog fragt den lokalen Ordner, den Server-Ordner (vorbelegt mit dem aktuellen Server-Ordner) und die Ausschlüsse ab. Mit `Auto-Upload starten` beginnt der Abgleich; darunter zeigt eine Liste je Bindung „Überwacht“, „Gleicht ab …“ oder den Fehler. Die Bindung wird im Vault gemerkt und startet beim nächsten Öffnen der Dateiansicht von selbst.
 
 **Regeln:**
 

@@ -50,7 +50,7 @@
     "downloadButton": "← Herunterladen",
     "renameTitle": "Umbenennen (F2)",
     "deleteTitle": "Löschen (Entf)",
-    "autoUpload": "Auto-Upload einrichten …"
+    "autoUpload": "Auto-Upload"
   },
   "panel": {
     "openFolderFailed": "Der Ordner konnte nicht geöffnet werden.",
