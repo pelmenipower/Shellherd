@@ -187,8 +187,7 @@ Wiederherstellen eines Workspaces.
   erscheint im Terminal ein Hinweis, und sudo fragt selbst: Sie tippen das
   Passwort einmal, danach geht es weiter. Ein eigenes sudo-Passwortfeld gibt es
   nicht. Lehnt sudo das gespeicherte Passwort ab, versucht Shellherd es erst
-  nach einer Änderung der Anmeldedaten wieder; bis dahin hilft `Ohne
-  Startbefehle verbinden`.
+  nach einer Änderung der Anmeldedaten wieder.
 - `Startbefehle` sind Freitext, eine Zeile je Befehl: höchstens 20 Zeilen mit je
   höchstens 500 Zeichen, ohne Steuerzeichen und ohne Tab (stattdessen
   Leerzeichen). Leerzeilen fallen weg. Shellherd tippt sie nach dem Anmelden
@@ -210,11 +209,13 @@ Die Root-Shell startet ohne Begrüßung (kein MOTD, kein `Last login`), und
 `exit` darin schließt den Tab, statt zur Benutzer-Shell zurückzukehren. Jeder
 sudo-Aufruf steht im auth.log des Servers; das ist normal.
 
-`Ohne Startbefehle verbinden` ist die Notbremse: Rechtsklick auf den
-SSH-Tab (Shift+F10 oder die Menütaste gehen auch) verbindet einmal neu, ohne
-Root-Shell und ohne Startbefehle. Eine laufende Sitzung wird dabei ohne Rückfrage
-beendet. Der nächste Verbindungsaufbau läuft wieder mit der Einstellung. Ältere
-Shellherd-Versionen entfernen die Einstellungen beim Speichern der Verbindung.
+Ältere Shellherd-Versionen entfernen die Einstellungen beim Speichern der
+Verbindung.
+
+Rechtsklick auf einen Tab (Shift+F10 oder die Menütaste gehen auch) bietet
+`Umbenennen`. Der Name gilt nur für diesen Tab, nicht für die gespeicherte
+Verbindung, und er wandert mit dem Tab in andere Fenster. Ein leerer Name
+stellt den Verbindungsnamen wieder her. Ein Workspace speichert ihn nicht.
 
 ## Container und VMs
 

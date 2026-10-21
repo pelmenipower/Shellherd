@@ -185,8 +185,7 @@ restored.
   without a password (NOPASSWD, also next to a `%sudo` rule). If not, a note
   appears in the terminal and sudo asks itself: you type the password once and
   it continues. There is no separate sudo password field. If sudo refuses the
-  stored password, Shellherd tries again only after the login data changes;
-  until then `Connect without start commands` helps.
+  stored password, Shellherd tries again only after the login data changes.
 - `Start commands` are free text, one line per command: at most 20 lines of at
   most 500 characters, no control characters and no tab (use spaces instead).
   Blank lines are dropped. Shellherd types them after login, as you would. They
@@ -207,11 +206,12 @@ The root shell starts without a greeting (no MOTD, no `Last login`), and `exit`
 in it closes the tab instead of returning to the user shell. Every sudo call
 appears in the server's auth.log; that is normal.
 
-`Connect without start commands` is the emergency brake: right-click the SSH
-tab (Shift+F10 or the menu key work too) to reconnect once without the root
-shell and without start commands. A running session ends without a
-confirmation. The next connect uses the setting again. Older Shellherd versions
-remove these settings when the connection is saved.
+Older Shellherd versions remove these settings when the connection is saved.
+
+Right-click a tab (Shift+F10 or the menu key work too) to `Rename` it. The
+name applies to this tab only, not to the saved connection, and it travels
+with the tab to other windows. An empty name restores the connection name. A
+workspace does not save it.
 
 ## Containers and VMs
 

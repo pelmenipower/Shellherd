@@ -87,8 +87,6 @@ interface Session {
   tail?: string;
   /** Set once the user sent input; later exits are the user's own. */
   typed?: boolean;
-  /** prepare(): this attempt skips the login block ("Ohne Startbefehle verbinden"). */
-  skipLogin?: boolean;
   /** Plain SSH terminal of a connection with a login block; never container, pod or local tabs. Commands are sent at most once. */
   login?: { sudo: boolean; commands: string[]; sent?: boolean };
   /** Container tab or root shell authenticating sudo; removed at the ready marker. manual: key/agent login, sudo asks
@@ -201,7 +199,7 @@ export class SshSessionManager {
     const session: Session = { id, ownerId, connectionId: request.connectionId,
       phase: 'prepared', size: { cols: request.cols, rows: request.rows }, outstanding: new Map(),
       outputBytes: 0, inputBytes: 0, sequence: 0, ...(request.target ? { target: request.target, tail: '' } : {}),
-      ...(request.kube ? { kube: { ...request.kube } } : {}), ...(request.skipLogin ? { skipLogin: true } : {}) };
+      ...(request.kube ? { kube: { ...request.kube } } : {}) };
     this.sessions.set(id, session);
     session.timer = setTimeout(() => this.finish(session, 'error', { code: 'ssh.startAborted' }), 30_000);
     if (connection?.protocol === 'ssh') {
@@ -243,7 +241,7 @@ export class SshSessionManager {
       if (session.target && connection.protocol !== 'ssh') throw new AppError('ssh.connectionTypeChanged');
       if (connection.protocol === 'powershell' || connection.protocol === 'cmd' || connection.protocol === 'aicli') { await this.startLocalShell(session, connection); return; }
       if (connection.protocol !== 'ssh' || !session.client) throw new AppError('ssh.connectionTypeChanged');
-      const block = !session.target && !session.skipLogin ? connection.login : undefined;
+      const block = !session.target ? connection.login : undefined;
       if (block && (block.sudo === true || (block.commands?.length ?? 0) > 0)) session.login = { sudo: block.sudo === true, commands: [...(block.commands ?? [])] };
       const timeouts = timeoutsOf();
       session.idleMs = timeouts.idleMinutes * 60_000;

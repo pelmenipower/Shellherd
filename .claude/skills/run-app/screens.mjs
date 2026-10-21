@@ -291,7 +291,7 @@ const blocks = {
       await use(0);
     }
   },
-  // ops-01: root shell (sudo -i) with start commands; then "Ohne Startbefehle verbinden" gives the plain user prompt without typed commands.
+  // ops-01: root shell (sudo -i) with start commands; then the tab menu renames the tab without touching the session.
   async 'login-commands'() {
     const screen = `(document.querySelector('.terminal-panel:not([hidden]) .xterm-rows')?.textContent ?? '')`;
     await click('text=ops-01 >> nth=0');
@@ -312,12 +312,13 @@ const blocks = {
     await pause(300);
     if (!await evaluate(`!!document.activeElement?.closest('.xterm')`)) throw new Error('Fokus wurde nach Klick ins Terminal dem Tab zurückgegeben');
     await rclick('.terminal-tab:not([data-fixed])');
-    await menuItem('Ohne Startbefehle verbinden');
-    // The root screen has no demo@ prompt, so this only matches the new session.
-    await waitFor('Benutzer-Prompt', `${screen}.includes('demo@web-01')`, { timeout: 30000 });
-    await pause(500);
-    if (await uptimes() > before) throw new Error('Startbefehle wurden trotz „Ohne Startbefehle“ ausgeführt');
-    await shot('login-plain');
+    await menuItem('Umbenennen');
+    await fill('input.view-rename', 'Deploy');
+    await key('Enter');
+    await waitFor('Tab umbenannt', `document.querySelector('.terminal-tab:not([data-fixed]) .tab-name')?.textContent === 'Deploy'`);
+    await pause(300);
+    if (await uptimes() !== before) throw new Error('Umbenennen hat die Sitzung neu gestartet');
+    await shot('tab-renamed');
   },
   async welcome() {
     await click('.terminal-tab-add');

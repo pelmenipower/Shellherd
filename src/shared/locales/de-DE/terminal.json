@@ -21,6 +21,7 @@
   "tabs": {
     "welcome": "Willkommen",
     "label": "SSH-Sessions",
+    "renameLabel": "Tab umbenennen",
     "editor": "Editor",
     "closeAria": "Tab {{label}} schließen",
     "closeTitle": "{{label}} schließen",
@@ -84,9 +85,7 @@
     "resizeHint": "Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben. Tabs auf eine Ansicht oben ziehen, um sie dorthin zu verschieben."
   },
   "tabMenu": {
-    "label": "Aktionen für {{name}}",
-    "withoutLogin": "Ohne Startbefehle verbinden",
-    "endsSession": "Beendet die laufende Sitzung"
+    "label": "Aktionen für {{name}}"
   },
   "viewMenu": {
     "label": "Aktionen für {{name}}",

@@ -10,6 +10,8 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 - Abbrechen behält jetzt die Teildatei, Teildatei verwerfen löscht sie (lokal in den Papierkorb). Auto-Upload räumt seine Teildateien weiterhin selbst auf.
 - Übertragungen schicken jetzt viele Anfragen gleichzeitig statt einer nach der anderen und kopieren bei Ordnern bis zu vier Dateien parallel. Über das Internet sind sie dadurch um ein Vielfaches schneller.
 - Neu: Prüfen vergleicht nach einer fortgesetzten Übertragung die SHA-256-Prüfsumme jeder Datei lokal und auf dem Server.
+- Neu: Rechtsklick auf einen Tab bietet Umbenennen. Der Name gilt nur für den Tab, nicht für die gespeicherte Verbindung.
+- Entfernt: Ohne Startbefehle verbinden im Tab-Menü.
 
 ## [0.17.0] – 2026-10-21
 

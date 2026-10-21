@@ -10,6 +10,8 @@ Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails 
 - Cancel now keeps the partial file, Discard partial file deletes it (local files go to the recycle bin). Auto-upload still cleans up its own partial files.
 - Transfers now keep many requests in flight instead of one at a time and copy up to four files of a folder in parallel. Over the internet they are many times faster.
 - New: Verify compares the SHA-256 checksum of every file locally and on the server after a resumed transfer.
+- New: Right-clicking a tab offers Rename. The name applies to the tab only, not to the saved connection.
+- Removed: Connect without start commands from the tab menu.
 
 ## [0.17.0] – 2026-10-21
 

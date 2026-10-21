@@ -21,6 +21,7 @@
   "tabs": {
     "welcome": "Welcome",
     "label": "SSH sessions",
+    "renameLabel": "Rename tab",
     "editor": "Editor",
     "closeAria": "Close tab {{label}}",
     "closeTitle": "Close {{label}}",
@@ -84,9 +85,7 @@
     "resizeHint": "Drag the dividers, or focus them and move them with the arrow keys. Drag tabs onto a view above to move them there."
   },
   "tabMenu": {
-    "label": "Actions for {{name}}",
-    "withoutLogin": "Connect without start commands",
-    "endsSession": "Ends the running session"
+    "label": "Actions for {{name}}"
   },
   "viewMenu": {
     "label": "Actions for {{name}}",

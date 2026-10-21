@@ -20,9 +20,12 @@ interface TerminalTabsProps {
   onTabPointerDown: (id: string, event: PointerEvent<HTMLElement>) => void;
   /** Right-click, Shift+F10 or the menu key on a tab; the caller decides whether a menu opens. */
   onTabMenu?: (id: string, x: number, y: number) => void;
+  /** Tab that shows a name field instead of its button; `onRename` gets the typed name, or null when cancelled. */
+  renamingId?: string | null;
+  onRename?: (id: string, title: string | null) => void;
 }
 
-export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect, onClose, onTabPointerDown, onTabMenu, showEditor = true, allTabs = tabs, label: barLabel }: TerminalTabsProps) {
+export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect, onClose, onTabPointerDown, onTabMenu, renamingId = null, onRename, showEditor = true, allTabs = tabs, label: barLabel }: TerminalTabsProps) {
   const { t } = useT();
   const barRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -50,6 +53,14 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
       {tabs.map(tab => {
         const welcome = isWelcomeTab(tab);
         const label = welcome ? t('terminal:tabs.welcome') : tabLabel(tab, allTabs);
+        if (renamingId === tab.id && onRename) return <div className="terminal-tab-item" data-active={activeTabId === tab.id} key={tab.id}>
+          <input className="view-rename" aria-label={t('terminal:tabs.renameLabel')} autoFocus defaultValue={label} onFocus={event => event.target.select()}
+            onBlur={event => onRename(tab.id, event.currentTarget.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter') onRename(tab.id, event.currentTarget.value);
+              if (event.key === 'Escape') onRename(tab.id, null);
+            }} />
+        </div>;
         return <div className="terminal-tab-item" data-active={activeTabId === tab.id} key={tab.id}>
           <button className="terminal-tab" id={`tab-${tab.id}`} type="button" role="tab" data-tab-id={tab.id}
             draggable={false} onPointerDown={event => onTabPointerDown(tab.id, event)}

@@ -100,6 +100,8 @@ export type TerminalTabsAction =
   | { type: 'adopt'; id: string; connection: TerminalConnection; status: SshStatus; adopt: AdoptedSession }
   | { type: 'select'; id: string | null }
   | { type: 'status'; id: string; status: SshStatus }
+  /** Blank title restores the default label. */
+  | { type: 'rename'; id: string; title: string }
   | { type: 'close'; id: string }
   | { type: 'retainConnections'; connectionIds: string[] }
   | { type: 'reset' }
@@ -119,15 +121,24 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
     }
     case 'adopt': {
       if (state.tabs.some(tab => tab.id === action.id)) return state;
-      const { id, name, protocol, address, view, runtime, target, kube } = action.connection;
+      const { id, name, protocol, address, view, runtime, target, kube, title } = action.connection;
       const ordinal = Math.max(0, ...state.tabs.filter(tab => sameTarget(tab.connection, action.connection)).map(tab => tab.ordinal)) + 1;
-      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(runtime ? { runtime } : {}), ...(target ? { target } : {}), ...(kube ? { kube } : {}) }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(runtime ? { runtime } : {}), ...(target ? { target } : {}), ...(kube ? { kube } : {}), ...(title ? { title } : {}) }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
     }
     case 'select':
       return action.id === null || state.tabs.some(tab => tab.id === action.id) ? { ...state, activeTabId: action.id } : state;
     case 'status':
       return state.tabs.some(tab => tab.id === action.id)
         ? { ...state, tabs: state.tabs.map(tab => tab.id === action.id ? { ...tab, status: action.status } : tab) } : state;
+    case 'rename': {
+      const title = action.title.trim();
+      return state.tabs.some(tab => tab.id === action.id)
+        ? { ...state, tabs: state.tabs.map(tab => {
+          if (tab.id !== action.id) return tab;
+          const { title: _old, ...connection } = tab.connection;
+          return { ...tab, connection: title ? { ...connection, title } : connection };
+        }) } : state;
+    }
     case 'close': {
       const index = state.tabs.findIndex(tab => tab.id === action.id);
       if (index < 0) return state;
@@ -146,6 +157,7 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
 }
 
 export function tabLabel(tab: TerminalTab, tabs: TerminalTab[]): string {
+  if (tab.connection.title) return tab.connection.title;
   return tabs.filter(other => sameTarget(other.connection, tab.connection)).length > 1 || tab.ordinal > 1
     ? `${tab.connection.name} (${tab.ordinal})` : tab.connection.name;
 }

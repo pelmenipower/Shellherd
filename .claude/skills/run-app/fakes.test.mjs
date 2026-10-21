@@ -58,9 +58,9 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect((await host.run('rm -rf /', 5000)).code).toBe(127);
   });
 
-  it('serves the root shell and the start commands, and skips them without login', async () => {
+  it('serves the root shell and the start commands', async () => {
     const { port } = await start('root');
-    const run = async (extra, skipLogin, done) => {
+    const run = async (extra, done) => {
       const events = [];
       const node = { ...connection(port), login: { sudo: true, commands: ['uptime', 'df -h /'] }, ...extra };
       const manager = new SshSessionManager({ getConnection: () => structuredClone(node), verifyHost: async () => true,
@@ -68,7 +68,7 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
         emit: (owner, event) => { events.push(event); if (event.type === 'data') manager.acknowledge(owner, event.sessionId, event.sequence); } });
       cleanup.push(async () => manager.closeAll());
       const text = () => Buffer.concat(events.filter(event => event.type === 'data').map(event => Buffer.from(event.data))).toString('utf8');
-      const { sessionId } = manager.prepare(1, { connectionId: node.id, cols: 80, rows: 24, ...(skipLogin ? { skipLogin: true } : {}) });
+      const { sessionId } = manager.prepare(1, { connectionId: node.id, cols: 80, rows: 24 });
       await manager.connect(1, sessionId);
       for (const end = Date.now() + 8000; !done(text()); await new Promise(resolve => setTimeout(resolve, 20))) {
         if (Date.now() > end) throw new Error(`timeout, output so far: ${JSON.stringify(text())}`);
@@ -77,13 +77,10 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
       manager.closeAll();
       return text();
     };
-    const root = await run({}, false, out => out.includes('Mounted on'));
+    const root = await run({}, out => out.includes('Mounted on'));
     expect(root).toContain('root@web-01:~# ');
     expect(root).toContain('load average');
     expect(root).not.toContain('terminus-');
-    const plain = await run({}, true, out => out.includes('demo@web-01:~$ '));
-    expect(plain).not.toContain('load average');
-    expect(plain).not.toContain('terminus-');
   });
 
   it('reports no kubeconfig without a Kubernetes fake', async () => {

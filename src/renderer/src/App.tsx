@@ -899,7 +899,7 @@ export default function App() {
             <SplitTerminalArea nodes={vault.nodes} onConnect={connectNode} tabs={terminals.tabs} selected={terminals.activeTabId} layout={terminalLayout.layout}
               draggedTabId={draggedTabId} onDrag={setDraggedTabId}
               focused={terminalLayout.focused} busy={busy} onLayout={terminalLayout.setLayout} onFocus={terminalLayout.setFocused}
-              onSelect={terminals.select} onStatus={terminals.updateStatus} onClose={requestCloseTab}
+              onSelect={terminals.select} onStatus={terminals.updateStatus} onClose={requestCloseTab} onRename={terminals.rename}
               externalHover={transfer.externalHover} pendingDock={transfer.pendingDock} onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff}
               viewControls={viewControls} onPopout={openPopout} onSnapshot={saveKubeView} onSaveAutoUpload={saveAutoUpload} onWelcome={openWelcome}
               welcomePanel={<WelcomePage vaultName={vault.name} version={version} onShowReleaseNotes={() => setShowReleaseNotes(true)} connectionCount={connectionCount}
