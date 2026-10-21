@@ -12,7 +12,7 @@ import { IPC_CHANNELS } from '../../shared/ipc';
 import { mainT } from '../i18n';
 import { toVaultAppError } from './ipc-error';
 import { vaultWriteCode } from '../../shared/vault/write-errors';
-import { VaultSessionManager } from './session';
+import { VaultSessionManager, resumesLocked } from './session';
 import { saveVault } from './storage';
 
 import type {
@@ -186,9 +186,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
       );
       await lastVault.set(snapshot.filePath);
 
-      // Only the same vault in the same file keeps its sessions; a replaced file counts as a switch.
-      const resumed = previous?.filePath === snapshot.filePath && previous.vaultId === snapshot.vault.id;
-      if (!resumed) onSessionChange();
+      if (!resumesLocked(previous, snapshot)) onSessionChange();
       onUnlock();
       onVaultChange();
       return {

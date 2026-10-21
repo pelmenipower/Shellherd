@@ -30,6 +30,7 @@ export function SecondaryWindow() {
   const [pendingClose, setPendingClose] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const returnFocus = useRef<HTMLElement | null>(null);
   const terminals = useTerminalTabs();
   const terminalLayout = useTerminalLayout(terminals.tabs, terminals.activeTabId);
   const transfer = useTabTransfer(terminals, terminalLayout);
@@ -43,8 +44,14 @@ export function SecondaryWindow() {
   useEffect(() => {
     let active = true;
     const unsubscribe = window.desktopApi.onConnectionCatalog(setCatalog);
-    const offLocked = window.desktopApi.onVaultLocked(() => { setLocked(true); setPaletteOpen(false); });
-    const offUnlocked = window.desktopApi.onVaultUnlocked(() => setLocked(false));
+    const offLocked = window.desktopApi.onVaultLocked(() => {
+      if (document.activeElement instanceof HTMLElement) returnFocus.current = document.activeElement;
+      setLocked(true); setPaletteOpen(false);
+    });
+    const offUnlocked = window.desktopApi.onVaultUnlocked(() => {
+      setLocked(false);
+      requestAnimationFrame(() => { const target = returnFocus.current; returnFocus.current = null; if (target?.isConnected) target.focus(); });
+    });
     window.desktopApi.connectionCatalog().then(value => { if (active) setCatalog(value); })
       .catch(error => {
         // A window still loading during the lock misses the vault:locked event.

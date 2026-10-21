@@ -642,7 +642,7 @@ export default function App() {
   function switchVault(filePath?: string): void {
     lockEpoch.current += 1;   // a save in flight must not bring the old vault back on the open screen
     void window.desktopApi.lockVault({ disconnect: true }).catch(() => {});
-    setLocked(null); setVault(null); setVaultPath(null); navigateTo('open');
+    setLocked(null); setPendingVaultFile(null); setVault(null); setVaultPath(null); navigateTo('open');
     if (filePath) setSelectedVaultPath(filePath); else void handleSelectVaultFile();
   }
 

@@ -37,7 +37,7 @@ export function LockScreen({ vaultName, minutes, running, onUnlock, onSwitch }: 
     // A modal opened later (conflict, Explorer file) would lie above in the top layer and block this one: re-raise in the same task, no frame in between.
     const observer = new MutationObserver(records => {
       if (records.some(record => record.target instanceof HTMLDialogElement && record.target !== dialog && !dialog.contains(record.target) && record.target.open)) {
-        dialog.close(); dialog.showModal();
+        dialog.close(); dialog.showModal(); setConfirmSwitch(false);
       }
     });
     observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
@@ -71,7 +71,7 @@ export function LockScreen({ vaultName, minutes, running, onUnlock, onSwitch }: 
         {onUnlock ? (
           <form onSubmit={event => void submit(event)}>
             <label>{t('app:open.password')}
-              <input ref={field} type="password" autoComplete="current-password" autoFocus value={password} disabled={pending}
+              <input ref={field} type="password" autoComplete="current-password" autoFocus value={password} readOnly={pending}
                 aria-invalid={error ? true : undefined} aria-describedby={error ? `${id}-error` : undefined}
                 onChange={event => setPassword(event.target.value)} />
             </label>

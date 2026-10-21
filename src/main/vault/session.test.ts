@@ -19,7 +19,7 @@ import {
   readEncryptedVaultFile,
   writeEncryptedVaultFile,
 } from './storage';
-import { VaultSessionManager } from './session';
+import { VaultSessionManager, resumesLocked } from './session';
 import { addNode, updateNode, removeNodeFromVault } from '../../shared/vault/mutations';
 import { validateVaultConsistency } from '../../shared/vault/consistency';
 import { exampleVault } from '../../shared/vault/example';
@@ -225,5 +225,14 @@ describe('VaultSessionManager', () => {
       manager.save(snapshot.vault),
     ).rejects.toThrow(expect.objectContaining({ code: 'core.vaultLocked' })
     );
+  });
+});
+describe('resumesLocked', () => {
+  const previous = { filePath: 'a.term', vaultId: 'v1' };
+  it('resumes only for the same file and the same vault id', () => {
+    expect(resumesLocked(previous, { filePath: 'a.term', vault: { id: 'v1' } })).toBe(true);
+    expect(resumesLocked(previous, { filePath: 'a.term', vault: { id: 'v2' } })).toBe(false);
+    expect(resumesLocked(previous, { filePath: 'b.term', vault: { id: 'v1' } })).toBe(false);
+    expect(resumesLocked(undefined, { filePath: 'a.term', vault: { id: 'v1' } })).toBe(false);
   });
 });

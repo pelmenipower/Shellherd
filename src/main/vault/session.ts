@@ -30,6 +30,11 @@ export interface VaultSessionSnapshot {
 
 export interface LockedVault { filePath: string; vaultId: string }
 
+/** Only the same vault in the same file keeps its sessions; a replaced file counts as a switch. */
+export function resumesLocked(previous: LockedVault | undefined, snapshot: { filePath: string; vault: { id: string } }): boolean {
+  return previous?.filePath === snapshot.filePath && previous.vaultId === snapshot.vault.id;
+}
+
 export class VaultSessionManager {
   private activeSession:
     | ActiveVaultSession
