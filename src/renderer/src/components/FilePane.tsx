@@ -4,6 +4,8 @@ import type { EditorChoice, FileEntry } from '../../../shared/sftp';
 import type { FileSide, SortKey, SortOrder } from '../file-browser';
 import { useT } from '../i18n';
 import { ContextMenu } from './ContextMenu';
+import { isTypeaheadKey, typeahead } from '../file-typeahead';
+import type { Typeahead } from '../file-typeahead';
 import { formatDate, formatSize, isDirectory, joinPath, nameError, nextSelection, parentPath, pathSegments, sortEntries } from '../file-browser';
 
 export const FILES_MIME = 'application/x-shellherd-files';
@@ -65,13 +67,14 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [toolsMenu, setToolsMenu] = useState<{ x: number; y: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const typeaheadRef = useRef<Typeahead | null>(null);
   const entries = useMemo(() => sortEntries(listing.entries, sort), [listing.entries, sort, i18n.language]);
   const names = useMemo(() => entries.map(entry => entry.name), [entries]);
   const path = listing.path;
   const parent = path ? parentPath(side, path) : null;
 
   // A new folder starts without selection; a refresh keeps what still exists.
-  useEffect(() => { setSelected([]); setAnchor(null); setCursor(null); setPrompt(null); }, [path]);
+  useEffect(() => { setSelected([]); setAnchor(null); setCursor(null); setPrompt(null); typeaheadRef.current = null; }, [path]);
   useEffect(() => {
     setSelected(current => current.filter(name => names.includes(name)));
     setCursor(current => current && names.includes(current) ? current : null);
@@ -115,10 +118,10 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (disabled || prompt || !path) return;
     const index = cursor ? names.indexOf(cursor) : -1;
-    const moveTo = (next: number): void => {
+    const moveTo = (next: number, extend = event.shiftKey): void => {
       const name = names[Math.max(0, Math.min(names.length - 1, next))];
       if (!name) return;
-      if (event.shiftKey) { const result = nextSelection(names, selected, anchor ?? cursor, name, { ctrl: false, shift: true }); setSelected(result.selected); setAnchor(result.anchor); }
+      if (extend) { const result = nextSelection(names, selected, anchor ?? cursor, name, { ctrl: false, shift: true }); setSelected(result.selected); setAnchor(result.anchor); }
       else { setSelected([name]); setAnchor(name); }
       setCursor(name);
     };
@@ -138,6 +141,12 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
     else if (event.key === 'Delete') { handled(); const list = targets(); if (list.length) onDelete(fullPaths(list), list); }
     else if (event.key.toLowerCase() === 'a' && (event.ctrlKey || event.metaKey)) { handled(); setSelected(names); }
     else if (event.key.toLowerCase() === 'r' && event.ctrlKey) { handled(); onRefresh(); }
+    else if (isTypeaheadKey(event) && !event.nativeEvent.isComposing) {
+      handled();
+      const hit = typeahead(names, cursor, typeaheadRef.current, event.key, Date.now());
+      typeaheadRef.current = hit.state;
+      if (hit.name) moveTo(names.indexOf(hit.name), false);
+    }
   };
 
   const dragPayload = (event: DragEvent): FileDrag | { external: string[] } | null => {
