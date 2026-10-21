@@ -137,7 +137,9 @@
     "create": "Neuen Vault erstellen",
     "open": "Vault öffnen",
     "crypto": "Argon2id und AES-256-GCM aktiv",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "autoLocked_one": "Automatisch gesperrt nach {{count}} Minute ohne Eingabe. Alle Sitzungen wurden getrennt.",
+    "autoLocked_other": "Automatisch gesperrt nach {{count}} Minuten ohne Eingabe. Alle Sitzungen wurden getrennt."
   },
   "create": {
     "title": "Vault erstellen",
@@ -201,6 +203,7 @@
     "sections": {
       "general": "Allgemein",
       "vault": "Vault",
+      "connections": "Verbindungen",
       "assistant": "KI-Assistent"
     },
     "locked": "Vault-Einstellungen und KI-Anbieter erscheinen nach dem Entsperren.",
@@ -208,6 +211,31 @@
       "label": "Vor dem Trennen laufender Sitzungen nachfragen",
       "hint": "Gilt für diesen Vault und wird mit ihm gespeichert."
     },
+    "autoLock": {
+      "label": "Automatisch sperren nach",
+      "unit": "Minuten ohne Eingabe (0: nie)",
+      "hint": "Trennt alle Sitzungen und sperrt den Vault, wenn in keinem Shellherd-Fenster Maus oder Tastatur benutzt wurde. Ungespeicherte Eingaben gehen dabei verloren."
+    },
+    "timeouts": {
+      "idle": {
+        "label": "Leerlauf-Trennung nach",
+        "unit": "Minuten ohne Ein- und Ausgabe (0: nie)"
+      },
+      "keepalive": {
+        "label": "Keepalive alle",
+        "unit": "Sekunden"
+      },
+      "keepaliveCount": {
+        "label": "Trennen nach",
+        "unit": "unbeantworteten Keepalives"
+      },
+      "connect": {
+        "label": "Verbindungs-Timeout",
+        "unit": "Sekunden"
+      },
+      "hint": "Gilt für neue SSH- und SFTP-Verbindungen dieses Vaults, auch für Container- und Cluster-Zugriffe über SSH. Der Verbindungs-Timeout läuft auch, solange die Rückfrage zum Host-Schlüssel offen ist. Einzelne Verbindungen können unter „Weitere Angaben“ abweichen."
+    },
+    "rangeError": "Gib eine ganze Zahl von {{min}} bis {{max}} ein.",
     "assistant": {
       "none": "Noch kein Anbieter eingerichtet.",
       "summary_one": "{{count}} Anbieter, Standard: {{name}}",

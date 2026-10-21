@@ -137,7 +137,9 @@
     "create": "Create new vault",
     "open": "Open vault",
     "crypto": "Argon2id and AES-256-GCM active",
-    "settings": "Settings"
+    "settings": "Settings",
+    "autoLocked_one": "Locked automatically after {{count}} minute without input. All sessions were disconnected.",
+    "autoLocked_other": "Locked automatically after {{count}} minutes without input. All sessions were disconnected."
   },
   "create": {
     "title": "Create vault",
@@ -201,6 +203,7 @@
     "sections": {
       "general": "General",
       "vault": "Vault",
+      "connections": "Connections",
       "assistant": "AI assistant"
     },
     "locked": "Vault settings and AI providers appear after unlocking.",
@@ -208,6 +211,31 @@
       "label": "Ask before disconnecting running sessions",
       "hint": "Applies to this vault and is saved with it."
     },
+    "autoLock": {
+      "label": "Lock automatically after",
+      "unit": "minutes without input (0: never)",
+      "hint": "Disconnects all sessions and locks the vault when neither mouse nor keyboard was used in any Shellherd window. Unsaved input is lost."
+    },
+    "timeouts": {
+      "idle": {
+        "label": "Disconnect when idle after",
+        "unit": "minutes without input or output (0: never)"
+      },
+      "keepalive": {
+        "label": "Keepalive every",
+        "unit": "seconds"
+      },
+      "keepaliveCount": {
+        "label": "Disconnect after",
+        "unit": "unanswered keepalives"
+      },
+      "connect": {
+        "label": "Connection timeout",
+        "unit": "seconds"
+      },
+      "hint": "Applies to new SSH and SFTP connections of this vault, including container and cluster access over SSH. The connection timeout keeps running while the host key prompt is open. Single connections can differ under “More options”."
+    },
+    "rangeError": "Enter a whole number from {{min}} to {{max}}.",
     "assistant": {
       "none": "No provider set up yet.",
       "summary_one": "{{count}} provider, default: {{name}}",

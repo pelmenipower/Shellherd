@@ -81,6 +81,7 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 |---|---|---|---|
 | `--size-dot` | das eine Statuspunkt-Maß | `8px` | `.toast-dot`, `.connect-error-dot`, `.kube-dot`, Terminal-Tab-Punkt |
 | `--toast-text-min` | Mindestbreite des Meldungstexts, bevor die Knöpfe in eine zweite Zeile rücken | `200px` | `.toast-text` |
+| `--input-number` | Breite kurzer Zahlenfelder in den Einstellungen | `calc(6ch + 2 * var(--space-8) + 2px)` | `.settings-number input` |
 | `--notice-ttl-info` | Anzeigedauer einer Info-Meldung (Ablaufbalken) | `5000ms` | `.toast[data-tone='info'] .toast-bar` |
 | `--notice-ttl-ok` | Anzeigedauer einer Erfolgs-Meldung | `3000ms` | `.toast[data-tone='ok'] .toast-bar` |
 
@@ -215,7 +216,7 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 | Ablaufbalken (`.toast-bar`) | laufend bei Hinweis und Erfolg | behalten, Zustand | Keyframe `toast-bar` (`translateX(-100%)`, `linear`, Dauer `--notice-ttl-info` bzw. `--notice-ttl-ok`; `scaleX(0)` wäre R5), `.toast` schneidet per `overflow: hidden` ab. Hover und `document.hidden` pausieren über `.toast-stack.is-held` (`animation-play-state`) | Keyframe `toast-bar-width` (`width`, geduldet wie `progress`), gleiche Dauer |
 | Vierte Meldung | selten | animieren | die älteste geht über `.is-closing` | nur `opacity` |
 | Fehlerkarte (`.connect-error`) | gelegentlich, Ereignis | animieren, harter Wechsel | `opacity 0→1`, `scale(.97)→1`, `--ease-out`, `--dur-modal`, Origin Mitte | nur `opacity` |
-| Getrennt-Leiste (`.connect-closed`) | gelegentlich, Ereignis | animieren bei Server-Trennung, sofort nach Abbrechen/Esc (`data-instant`) | `opacity`, `translateY(100%)→0`, `--ease-out`, `--dur-toast` | nur `opacity` |
+| Getrennt-Leiste (`.connect-closed`) | gelegentlich, Ereignis | animieren bei Server- und Leerlauf-Trennung, sofort nach Abbrechen/Esc (`data-instant`) | `opacity`, `translateY(100%)→0`, `--ease-out`, `--dur-toast` | nur `opacity` |
 | Verbindungskarte (`.connect-card`) | Enter | Warteanzeige, **nicht animiert**: erscheint nach 400 ms (`WAIT_MS`, im TSX) | – | – |
 | Schritt-Punkte (`.connect-ring`) | 4× je Verbindung | nicht | Farbe springt; ein Farbübergang wurde abgelehnt | – |
 | Cluster-Leiste (`.kube-connbar`) | Ereignis | nicht | Platz reserviert (`min-height: var(--control-sm)`), kein Farbübergang | – |

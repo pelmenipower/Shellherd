@@ -12,3 +12,6 @@
 .file-type-setting small { flex-basis: 100%; color: var(--color-text); }
 .language-setting select { width: auto; }
 .language-setting .field-error { color: var(--color-danger); }
+.settings-number { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin-top: var(--space-8); color: var(--color-text); font-size: var(--fs-md); }
+.settings-number input { flex: 0 0 auto; width: var(--input-number); }
+.settings-number .field-error { flex-basis: 100%; margin: 0; }
