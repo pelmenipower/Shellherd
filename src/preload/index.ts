@@ -49,6 +49,7 @@ const desktopApi: DesktopApi = {
   aiTest: provider => ipcRenderer.invoke('ai:test', provider),
   vaultActivity: () => ipcRenderer.send('vault:activity'),
   onVaultLocked: listener => subscribe('vault:locked', listener),
+  onVaultUnlocked: listener => subscribe('vault:unlocked', listener),
   onVaultOpenFile: listener => subscribe('vault:open-file', listener),
   fileTypeStatus: () => ipcRenderer.invoke('app:file-type-status'),
   fileTypeRegister: () => ipcRenderer.invoke('app:file-type-register'),
@@ -127,8 +128,8 @@ const desktopApi: DesktopApi = {
   saveCurrentVault: (request) =>
     ipcRenderer.invoke('vault:save-current', request),
 
-  lockVault: () =>
-    ipcRenderer.invoke('vault:lock'),
+  lockVault: (request) =>
+    ipcRenderer.invoke('vault:lock', request),
 };
 
 contextBridge.exposeInMainWorld(

@@ -103,6 +103,21 @@ describe('VaultSessionManager', () => {
     manager.lock();
   });
 
+  it('remembers the locked vault until the next successful unlock', async () => {
+    const { filePath, password } = await createTestVault();
+    const manager = new VaultSessionManager();
+    expect(manager.lockedVault()).toBeUndefined();
+    const snapshot = await manager.unlock(filePath, password);
+    expect(manager.lockedVault()).toBeUndefined();
+    manager.lock();
+    expect(manager.lockedVault()).toEqual({ filePath, vaultId: snapshot.vault.id });
+    await expect(manager.unlock(filePath, 'wrong-password')).rejects.toThrow();
+    expect(manager.lockedVault()).toEqual({ filePath, vaultId: snapshot.vault.id });
+    await manager.unlock(filePath, password);
+    expect(manager.lockedVault()).toBeUndefined();
+    manager.lock();
+  });
+
   it('saves changes with the session key', async () => {
     const { filePath, password } =
       await createTestVault();

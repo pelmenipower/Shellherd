@@ -28,10 +28,19 @@ export interface VaultSessionSnapshot {
   vault: Vault;
 }
 
+export interface LockedVault { filePath: string; vaultId: string }
+
 export class VaultSessionManager {
   private activeSession:
     | ActiveVaultSession
     | undefined;
+
+  private locked: LockedVault | undefined;
+
+  /** File and vault ID locked last, until the next successful unlock; only the same vault resumes its sessions. */
+  public lockedVault(): LockedVault | undefined {
+    return this.locked;
+  }
 
   public isUnlocked(): boolean {
     return this.activeSession !== undefined;
@@ -65,6 +74,7 @@ export class VaultSessionManager {
       },
       migratedFrom: unlocked.migratedFrom,
     };
+    this.locked = undefined;
 
     return this.getSnapshot();
   }
@@ -117,6 +127,7 @@ export class VaultSessionManager {
       return;
     }
 
+    this.locked = { filePath: this.activeSession.filePath, vaultId: this.activeSession.vault.id };
     this.activeSession.key.fill(0);
     this.activeSession = undefined;
   }

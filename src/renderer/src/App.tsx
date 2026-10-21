@@ -611,7 +611,7 @@ export default function App() {
   }
   const afterLockRef = useRef(afterLock);
   afterLockRef.current = afterLock;
-  useEffect(() => window.desktopApi.onVaultLocked(({ minutes }) => { afterLockRef.current(); setAutoLockedAfter(minutes); }), []);
+  useEffect(() => window.desktopApi.onVaultLocked(({ minutes }) => { afterLockRef.current(); setAutoLockedAfter(minutes ?? null); }), []);
 
   function navigateEditor(action: () => void): void {
     if (busy) return;
