@@ -531,6 +531,15 @@ describe('file transfer', () => {
       expect(to.nodes.get('/target/x.bin.part')).toMatchObject({ data: 'side' });
     });
 
+    it('moves x.part listed before x without losing either file', async () => {
+      TUNING.files = 4;
+      const from = memory({ '/x.bin': 'main', '/x.bin.part': 'side' });
+      const to = memory({ '/target': null });
+      await transfer(from, to, ['/x.bin.part', '/x.bin'], newJob(true));
+      expect(to.nodes.get('/target/x.bin')).toMatchObject({ data: 'main' });
+      expect(to.nodes.get('/target/x.bin.part')).toMatchObject({ data: 'side' });
+    });
+
     it('drops a moved source from the job even when a later one fails', async () => {
       TUNING.files = 1;
       const from = memory({ '/a.txt': 'a', '/b.txt': 'b' });

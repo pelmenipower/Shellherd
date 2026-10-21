@@ -154,7 +154,9 @@ export async function runTransfer(job: TransferJob, items: PlannedItem[], from: 
   // Windows ignores case, and a file named like another file's .part shares that .part: such jobs copy one file at a time, like before.
   const shared = targets.size < files.length || [...targets].some(target => target.endsWith('.part') && targets.has(target.slice(0, -'.part'.length)));
   const width = shared ? 1 : TUNING.files;
-  await mapLimit(files, width, async item => {
+  // x before x.part: copying x renames its own x.part away, so the real x.part must come after it.
+  const order = shared ? [...files].sort((a, b) => Number(a.target.toLowerCase().endsWith('.part')) - Number(b.target.toLowerCase().endsWith('.part'))) : files;
+  await mapLimit(order, width, async item => {
     if (failure !== undefined) return;
     try { await one(item); } catch (error) { failure ??= error; inner.abort(); }
   });
