@@ -16,6 +16,8 @@ export interface TabConnection {
   kube?: KubeTerminalTarget;
   /** Fixed runtime of a container view; absent = first runtime found, with the switcher in the header. */
   runtime?: ContainerRuntime;
+  /** Name the user gave the tab; shown instead of name and ordinal. Lives with the tab, not in the vault. */
+  title?: string;
 }
 
 export interface TransferSession { kind: 'terminal' | 'rdp' | 'sftp'; sessionId: string }

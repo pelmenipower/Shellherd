@@ -20,7 +20,9 @@ import type { RemoteFileSystem } from './sftp-file-system';
 import { planTransfer, runTransfer, TransferCanceled } from './transfer';
 import { RemoteEdits } from './remote-edit';
 import { AutoUploads } from './auto-upload';
+import { verifyCopies } from './verify';
 
+export const VERIFY_MAX = 10_000;
 const PROGRESS_INTERVAL = 200;
 const KEPT_FINISHED_JOBS = 20;
 
@@ -42,6 +44,8 @@ export interface SftpDependencies {
 interface Job {
   job: TransferJob;
   sources: string[];
+  /** Source and target of every file that arrived; "Prüfen" reads it. Never part of a snapshot. */
+  copied: { source: string; target: string }[];
   controller: AbortController;
   lastEmit: number;
 }
@@ -230,9 +234,9 @@ export class SftpSessionManager {
     if (!session.fs) throw new FileError('files.sessionNotReady');
     const names = request.sources.map(source => request.direction === 'upload' ? this.dependencies.local.basename(source) : posix.basename(source));
     const job: TransferJob = { id: randomUUID(), direction: request.direction, move: request.move, targetDir: request.targetDir,
-      label: names[0] ?? '', entryCount: names.length, state: 'queued',
+      label: names[0] ?? '', entryCount: names.length, state: 'queued', sources: [...request.sources],
       totalBytes: 0, doneBytes: 0, totalFiles: 0, doneFiles: 0, skippedFiles: 0 };
-    const entry: Job = { job, sources: request.sources, controller: new AbortController(), lastEmit: 0 };
+    const entry: Job = { job, sources: request.sources, copied: [], controller: new AbortController(), lastEmit: 0 };
     session.jobs.push(entry);
     this.pruneJobs(session);
     this.emitJob(session, entry, true);
@@ -268,6 +272,8 @@ export class SftpSessionManager {
       await runTransfer(job, items, from, to, {
         progress: () => this.emitJob(session, entry),
         conflict: details => this.ask(session, entry, details),
+        keepPartial: true,
+        copied: (source, target) => { if (entry.copied.length <= VERIFY_MAX) entry.copied.push({ source, target }); },
       }, controller.signal);
       job.state = 'done';
     } catch (error) {
@@ -277,6 +283,9 @@ export class SftpSessionManager {
       job.current = undefined;
       job.bytesPerSecond = undefined;
       session.running = undefined;
+      // A question of a stopped job must not come back with `state`.
+      if (session.conflict?.conflict.jobId === job.id) session.conflict = undefined;
+      if (!job.resumedFrom) entry.copied = [];
       session.lastIo = Date.now();
       this.emitJob(session, entry, true);
     }
@@ -305,6 +314,21 @@ export class SftpSessionManager {
     if (entry.job.state === 'queued') { entry.job.state = 'canceled'; this.emitJob(session, entry, true); return; }
     entry.controller.abort();
     if (session.conflict?.conflict.jobId === jobId) session.conflict.resolve({ choice: 'cancel', applyToAll: false });
+  }
+
+  /** "Prüfen": sha256 of every file the job copied, local stream against sha256sum on the server. Result lands on the job and is emitted. */
+  async verify(ownerId: number, id: string, jobId: string): Promise<void> {
+    const session = this.owned(ownerId, id);
+    const entry = session.jobs.find(item => item.job.id === jobId);
+    if (!entry || entry.job.state !== 'done' || !entry.job.resumedFrom || entry.job.verify === 'running') return;
+    if (entry.copied.length > VERIFY_MAX) throw new FileError('files.verifyTooMany', { max: VERIFY_MAX });
+    entry.job.verify = 'running'; entry.job.mismatched = undefined; this.emitJob(session, entry, true);
+    try {
+      const mismatched = await verifyCopies(session.client, entry.copied, entry.job.direction);
+      entry.job.verify = mismatched.length ? 'mismatch' : 'ok';
+      entry.job.mismatched = mismatched.length ? mismatched : undefined;
+    } catch (error) { entry.job.verify = undefined; throw error; }
+    finally { if (this.active(session)) this.emitJob(session, entry, true); }
   }
 
   /** Removes finished jobs from the list. */

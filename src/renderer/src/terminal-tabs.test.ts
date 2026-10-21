@@ -58,6 +58,18 @@ describe('terminal tab lifecycle', () => {
     expect(toTerminalConnection({ id: 'p', type: 'connection', protocol: 'powershell', name: 'PS', tags: [] }))
       .toEqual({ id: 'p', name: 'PS', protocol: 'powershell', address: 'Lokal · PowerShell' });
   });
+  it('renames a tab without touching its ordinal; an empty name restores the default label', () => {
+    const before = opened();
+    const state = reduce(before, { type: 'rename', id: 'second', title: ' Logs ' });
+    expect(state.tabs.map(tab => tabLabel(tab, state.tabs))).toEqual(['Server (1)', 'Logs']);
+    expect(state.tabs[1].ordinal).toBe(2);
+    expect(state.tabs[0]).toBe(before.tabs[0]);
+    const cleared = reduce(state, { type: 'rename', id: 'second', title: '  ' });
+    expect(tabLabel(cleared.tabs[1], cleared.tabs)).toBe('Server (2)');
+    expect(reduce(state, { type: 'rename', id: 'missing', title: 'x' })).toBe(state);
+    const adopted = reduce(state, { type: 'adopt', id: 'moved', connection: { ...connection, title: 'Deploy' }, status: 'connected', adopt: {} });
+    expect(tabLabel(adopted.tabs.at(-1)!, adopted.tabs)).toBe('Deploy');
+  });
   it('adopts tabs from other windows with their status and session', () => {
     const state = reduce(opened(), { type: 'adopt', id: 'moved', connection, status: 'connected',
       adopt: { session: { kind: 'terminal', sessionId: 'synthetic' }, snapshot: 'screen' } });

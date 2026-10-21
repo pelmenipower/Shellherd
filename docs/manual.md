@@ -185,8 +185,7 @@ restored.
   without a password (NOPASSWD, also next to a `%sudo` rule). If not, a note
   appears in the terminal and sudo asks itself: you type the password once and
   it continues. There is no separate sudo password field. If sudo refuses the
-  stored password, Shellherd tries again only after the login data changes;
-  until then `Connect without start commands` helps.
+  stored password, Shellherd tries again only after the login data changes.
 - `Start commands` are free text, one line per command: at most 20 lines of at
   most 500 characters, no control characters and no tab (use spaces instead).
   Blank lines are dropped. Shellherd types them after login, as you would. They
@@ -207,11 +206,12 @@ The root shell starts without a greeting (no MOTD, no `Last login`), and `exit`
 in it closes the tab instead of returning to the user shell. Every sudo call
 appears in the server's auth.log; that is normal.
 
-`Connect without start commands` is the emergency brake: right-click the SSH
-tab (Shift+F10 or the menu key work too) to reconnect once without the root
-shell and without start commands. A running session ends without a
-confirmation. The next connect uses the setting again. Older Shellherd versions
-remove these settings when the connection is saved.
+Older Shellherd versions remove these settings when the connection is saved.
+
+Right-click a tab (Shift+F10 or the menu key work too) to `Rename` it. The
+name applies to this tab only, not to the saved connection, and it travels
+with the tab to other windows. An empty name restores the connection name. A
+workspace does not save it.
 
 ## Containers and VMs
 
@@ -341,7 +341,17 @@ Secret data is masked in the YAML view.
 
 Typing in the file list jumps to the next entry whose name starts that way. The search follows the order shown, folders first. When you type quickly, Shellherd searches for the whole prefix (`no` finds `notes.md`); the same letter repeated moves to the next match each time. After a one-second pause the search starts over. Upper and lower case do not matter. This works on the local and the server side. The space bar, combinations with `Ctrl` or `Alt` and characters that need `AltGr` (such as `@`) do not jump.
 
-Running transfers show their speed next to the progress after the first second (`12 MB/s`), smoothed over the last few seconds. While the question about an existing file is open and on finished transfers no speed is shown. Auto-upload shows none.
+Running transfers show their speed next to the progress after the first second (`12 MB/s`), smoothed over the last few seconds. While the question about an existing file is open and on finished transfers no speed is shown. Auto-upload shows none. Shellherd keeps just under four megabytes of requests in flight and copies up to four files of a folder in parallel; the row names the files currently running.
+
+Canceled or failed transfers can be resumed with `Resume`, also after `Reconnect`. This applies to uploads and downloads. Each file is first written as `name.part` and replaces the target only at the end. If you transfer the same file again later, Shellherd resumes automatically; there is no automatic reconnecting.
+
+Before resuming, Shellherd checks the leftover `.part`: it must not be larger or older than the source, and the last megabyte before the resume point must equal the source. Shellherd resumes just under four megabytes before the end of the partial file, because data up to that point may still have been in flight; the megabyte before it is compared with the source. The row then shows “resumed from 4.1 GB”. If the partial file does not match, the transfer starts over and the row says so. A partial file of up to just under four megabytes is rewritten without a check and without a note.
+
+`Cancel` keeps the partial file. `Discard partial file` deletes it (local files go to the recycle bin) and is unavailable while a transfer is running. For uploads it needs a connection. To start over, discard the partial file and transfer again. For folders Shellherd asks about files that are already finished as usual; `Only if newer` with `For all` skips them. Resuming works per file. Auto-upload still cleans up its own partial files.
+
+`Verify` on a finished, resumed transfer computes the SHA-256 checksum of every file locally and with `sha256sum` (or `shasum` on macOS) on the server and shows whether they match. This needs a shell on the server; SFTP-only accounts report that no checksum is possible. File names with characters such as `&`, `$`, `\` or `'` cannot be verified. `Verify` is not offered for moves, covers up to 10,000 files per transfer and works only in the session in which the transfer ran.
+
+Limits: If the source gets shorter while a resumed transfer runs, the target stays too long; `Verify` reveals it. Shellherd treats a file named `name.part` as its own. A folder with that name is never touched; the transfer reports an error instead.
 
 ## File view: auto-upload
 

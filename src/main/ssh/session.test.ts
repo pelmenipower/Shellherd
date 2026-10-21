@@ -541,7 +541,7 @@ describe('root shell and start commands after login', () => {
   const commands = ['uptime', 'df -h /'];
   const web = { kind: 'container' as const, runtime: 'docker' as const, ref: 'web-1', name: 'web-1' };
   const typed = 'uptime\rdf -h /\r';
-  const prepareLogin = (extra: { skipLogin?: boolean } = {}) => manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, ...extra }).sessionId;
+  const prepareLogin = () => manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24 }).sessionId;
   const useKey = async () => {
     const directory = await mkdtemp(join(tmpdir(), 'terminus-ssh-key-test-')); directories.push(directory);
     const keyPath = join(directory, 'synthetic.pem');
@@ -670,17 +670,6 @@ describe('root shell and start commands after login', () => {
     expect(shellInput.join('')).toBe(typed);
   });
 
-  it('connects a plain shell without input when skipLogin is set', async () => {
-    connection = { ...connection, login: { sudo: true, commands } };
-    await manager.connect(1, prepareLogin({ skipLogin: true }));
-    await waitFor(() => hasStatus('connected') && output().includes('synthetic-ready'));
-    await new Promise(resolve => setTimeout(resolve, 50));
-    expect(shells).toHaveLength(1);
-    expect(execCommands).toEqual([]);
-    expect(shellInput).toEqual([]);
-    expect(sudoInput).toEqual([]);
-  });
-
   it('after a timeout it hints, never answers a late prompt and never types the commands', async () => {
     loginSudo = 'quiet';
     manager = new SshSessionManager({ getConnection: () => structuredClone(connection), verifyHost: async () => true, spawnShell: noShell,
@@ -699,18 +688,15 @@ describe('root shell and start commands after login', () => {
     expect(hasStatus('error')).toBe(false);
   });
 
-  it('ignores the login block in container tabs, with or without skipLogin', async () => {
+  it('ignores the login block in container tabs', async () => {
     connection = { ...connection, containers: { sudo: true }, login: { sudo: true, commands } };
-    for (const extra of [{}, { skipLogin: true }]) {
-      execCommands.length = 0; sudoInput.length = 0; events = [];
-      const id = manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: web, mode: 'shell' }, ...extra }).sessionId;
-      await manager.connect(1, id);
-      await waitFor(() => output().includes('sudo-ok'));
-      expect(execCommands[0]).toContain('sudo -n docker exec -it web-1');
-      expect(execCommands[0]).not.toContain('sudo -n -i');
-      expect(sudoInput.join('')).toBe('synthetic-password\n');
-      manager.close(1, id);
-    }
+    const id = manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: web, mode: 'shell' } }).sessionId;
+    await manager.connect(1, id);
+    await waitFor(() => output().includes('sudo-ok'));
+    expect(execCommands[0]).toContain('sudo -n docker exec -it web-1');
+    expect(execCommands[0]).not.toContain('sudo -n -i');
+    expect(sudoInput.join('')).toBe('synthetic-password\n');
+    manager.close(1, id);
   });
 });
 

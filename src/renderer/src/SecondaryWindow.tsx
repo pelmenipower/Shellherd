@@ -121,7 +121,7 @@ export function SecondaryWindow() {
       <SplitTerminalArea nodes={catalog?.nodes ?? []} onConnect={connect} tabs={terminals.tabs} selected={terminals.activeTabId}
         layout={terminalLayout.layout} draggedTabId={draggedTabId} onDrag={setDraggedTabId} focused={terminalLayout.focused} busy={false}
         onLayout={terminalLayout.setLayout} onFocus={terminalLayout.setFocused} onSelect={terminals.select} onStatus={terminals.updateStatus}
-        onClose={requestClose} externalHover={transfer.externalHover} pendingDock={transfer.pendingDock}
+        onClose={requestClose} onRename={terminals.rename} externalHover={transfer.externalHover} pendingDock={transfer.pendingDock}
         onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff} viewControls={viewControls} />
     </div>
     {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)} />}

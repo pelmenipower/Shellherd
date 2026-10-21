@@ -37,8 +37,6 @@ interface TerminalPanelProps {
   initialStatus?: SshStatus;
   /** Dock terminals: the connection cards never take focus. */
   embedded?: boolean;
-  /** A new value starts one attempt without the login block; 0 or a value seen at mount does nothing. */
-  reconnectPlain?: number;
 }
 
 interface Failure { code: ConnectionErrorCode; error?: CodedError }
@@ -47,7 +45,7 @@ interface Closed { reason: DisconnectReason; endedAt: number }
 const SSH2_STEPS: readonly SshStep[] = ['reach', 'hostkey', 'auth', 'shell'];
 const SHELL_STEPS: readonly SshStep[] = ['shell'];
 
-export function TerminalPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus, embedded = false, reconnectPlain }: TerminalPanelProps) {
+export function TerminalPanel({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, adopt, initialStatus, embedded = false }: TerminalPanelProps) {
   const { t } = useT();
   // The session effect must not restart on a language change, so it reads the latest translator here.
   const tRef = useRef(t);
@@ -66,15 +64,6 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
   const [marks, setMarks] = useState<StepMark[]>([]);
   const [startedAt, setStartedAt] = useState(() => Date.now());
   const [attempt, setAttempt] = useState(0);
-  // The attempt number that runs without the login block; later attempts log in again.
-  const plainAttempt = useRef(-1);
-  const seenPlain = useRef(reconnectPlain ?? 0);
-  useEffect(() => {
-    if (!reconnectPlain || reconnectPlain === seenPlain.current) return;
-    seenPlain.current = reconnectPlain;
-    adoptRef.current = undefined;
-    setAttempt(value => { plainAttempt.current = value + 1; return value + 1; });
-  }, [reconnectPlain]);
   const [showCard, setShowCard] = useState(false);
   // Session id of the running attempt, and whether the user cancelled it (also before the id is known).
   const sessionRef = useRef<string | undefined>(undefined);
@@ -86,7 +75,6 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     let disposed = false;
     let sessionId: string | undefined;
     let connected = false;
-    const skipLogin = plainAttempt.current === attempt;
     cancelledRef.current = false;
     sessionRef.current = undefined;
     if (attempt > 0) {
@@ -212,7 +200,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       void (async () => {
         try {
           const result = await window.desktopApi.sshPrepare({ connectionId: connection.id, ...(connection.target ? { target: connection.target } : {}),
-            ...(connection.kube ? { kube: connection.kube } : {}), ...(skipLogin ? { skipLogin: true } : {}),
+            ...(connection.kube ? { kube: connection.kube } : {}),
             cols: Math.max(2, Math.min(500, term.cols)), rows: Math.max(1, Math.min(300, term.rows)) });
           if (disposed || cancelledRef.current) { await window.desktopApi.sshClose({ sessionId: result.sessionId }); return; }
           register(result.sessionId);

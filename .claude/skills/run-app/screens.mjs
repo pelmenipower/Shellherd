@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
 
 const PORT = Number(process.env.DRIVER_PORT ?? 9333);
 const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
@@ -99,20 +100,43 @@ const blocks = {
     await key('n');
     await waitFor('Typeahead', `!!document.querySelector('.file-pane-remote .file-row.is-cursor[data-name="notes.md"]')`);
     await shot('sftp-typeahead');
-    // Transfer rate: a large upload; the rate vanishes at the end, so the shot follows the wait at once.
+    // Transfer rate, cancel, resume, verify: a large random upload (random, so the content comparison means something); the rate vanishes at the end, so shots follow their wait at once.
     const queue = '.transfer-queue:not(.file-sync-list):not(.edit-list)';
     const bigLocal = path.join(target, 'big.bin');
     const bigServer = path.join(RUN_DIR, 'sftp', 'home', 'demo', 'big.bin');
+    const rate = `/\\d\\s?[KMG]B\\/s/.test(document.querySelector('${queue}')?.innerText ?? '')`;
+    const logRate = async () => console.log(`Rate: ${await evaluate(`(document.querySelector('${queue}')?.innerText.match(/\\d[\\d,.]*\\s?[KMG]B\\/s/) ?? [''])[0]`)}`);
+    // Buttons of the big.bin job row, matched by their text.
+    const jobButton = (label, row = '.transfer-job') => `[...document.querySelectorAll('${queue} ${row}')].filter(j => j.textContent.includes('big.bin')).flatMap(j => [...j.querySelectorAll('button')]).find(b => b.textContent.trim() === ${JSON.stringify(label)} && !b.disabled)`;
+    const sha256 = file => new Promise((resolve, reject) => {
+      const hash = createHash('sha256');
+      fs.createReadStream(file).on('data', chunk => hash.update(chunk)).on('error', reject).on('end', () => resolve(hash.digest('hex')));
+    });
     try {
-      fs.writeFileSync(bigLocal, Buffer.alloc(256 * 1024 * 1024));
+      // 512 MiB; if the window for the cancel gets too tight, use 1 GiB.
+      fs.writeFileSync(bigLocal, randomBytes(512 * 1024 * 1024));
       // The local pane has no watcher: refresh before the row exists.
       await click('.file-pane-local button[aria-label="Aktualisieren"]');
       await waitFor('große Datei lokal', `!!document.querySelector('.file-pane-local [role=row][data-name="big.bin"]')`);
       await click('.file-pane-local [role=row][data-name="big.bin"]');
       await click('.file-pane-local .file-pane-actions button:first-child');
-      await waitFor('Rate', `/\\d\\s?[KMG]B\\/s/.test(document.querySelector('${queue}')?.innerText ?? '')`, { timeout: 60000, every: 100 });
+      await waitFor('Rate', rate, { timeout: 60000, every: 100 });
+      await logRate();
+      await waitFor('Abbrechen-Knopf', jobButton('Abbrechen'), { timeout: 5000, every: 50 });
+      await evaluate(`${jobButton('Abbrechen')}.click()`);
+      await waitFor('Fortsetzen und Teildatei verwerfen', `${jobButton('Fortsetzen')} && ${jobButton('Teildatei verwerfen')}`);
+      await pause(300);
+      await shot('sftp-transfer-canceled');
+      await evaluate(`${jobButton('Fortsetzen')}.click()`);
+      await waitFor('fortgesetzt', `document.querySelector('${queue}')?.innerText.includes('fortgesetzt ab') && ${rate}`, { timeout: 60000, every: 100 });
+      await logRate();
       await shot('sftp-transfer');
-      await waitFor('Upload fertig', `[...document.querySelectorAll('${queue} .transfer-job.is-done')].some(j => j.textContent.includes('big.bin'))`, { timeout: 180000 });
+      await waitFor('Upload fertig', `!!${jobButton('Prüfen', '.transfer-job.is-done')}`, { timeout: 300000 });
+      const [local, server] = await Promise.all([sha256(bigLocal), sha256(bigServer)]);
+      if (local !== server) throw new Error(`SHA-256 weicht ab: lokal ${local}, Server ${server}`);
+      await evaluate(`${jobButton('Prüfen', '.transfer-job.is-done')}.click()`);
+      await waitFor('Prüfsumme', `[...document.querySelectorAll('${queue} .transfer-job.is-done')].some(j => j.textContent.includes('big.bin') && j.textContent.includes('Prüfsumme stimmt'))`, { timeout: 120000 });
+      await shot('sftp-transfer-verified');
     } finally {
       // Only our own test file, no recursion.
       for (const file of [bigLocal, bigServer, `${bigServer}.part`]) fs.rmSync(file, { force: true });
@@ -279,7 +303,7 @@ const blocks = {
       await use(0);
     }
   },
-  // ops-01: root shell (sudo -i) with start commands; then "Ohne Startbefehle verbinden" gives the plain user prompt without typed commands.
+  // ops-01: root shell (sudo -i) with start commands; then the tab menu renames the tab without touching the session.
   async 'login-commands'() {
     const screen = `(document.querySelector('.terminal-panel:not([hidden]) .xterm-rows')?.textContent ?? '')`;
     await click('text=ops-01 >> nth=0');
@@ -300,12 +324,13 @@ const blocks = {
     await pause(300);
     if (!await evaluate(`!!document.activeElement?.closest('.xterm')`)) throw new Error('Fokus wurde nach Klick ins Terminal dem Tab zurückgegeben');
     await rclick('.terminal-tab:not([data-fixed])');
-    await menuItem('Ohne Startbefehle verbinden');
-    // The root screen has no demo@ prompt, so this only matches the new session.
-    await waitFor('Benutzer-Prompt', `${screen}.includes('demo@web-01')`, { timeout: 30000 });
-    await pause(500);
-    if (await uptimes() > before) throw new Error('Startbefehle wurden trotz „Ohne Startbefehle“ ausgeführt');
-    await shot('login-plain');
+    await menuItem('Umbenennen');
+    await fill('input.view-rename', 'Deploy');
+    await key('Enter');
+    await waitFor('Tab umbenannt', `document.querySelector('.terminal-tab:not([data-fixed]) .tab-name')?.textContent === 'Deploy'`);
+    await pause(300);
+    if (await uptimes() !== before) throw new Error('Umbenennen hat die Sitzung neu gestartet');
+    await shot('tab-renamed');
   },
   async welcome() {
     await click('.terminal-tab-add');

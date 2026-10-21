@@ -95,6 +95,7 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
   handle(IPC_CHANNELS.sftpCancel, JobSchema, (ownerId, request) => manager.cancel(ownerId, request.sessionId, request.jobId));
   handle(IPC_CHANNELS.sftpResolve, ConflictSchema, (ownerId, request) =>
     manager.resolveConflict(ownerId, request.sessionId, request.conflictId, request.choice, request.applyToAll));
+  handle(IPC_CHANNELS.sftpVerify, JobSchema, (ownerId, request) => manager.verify(ownerId, request.sessionId, request.jobId));
   handle(IPC_CHANNELS.sftpClearFinished, SessionSchema, (ownerId, request) => manager.clearFinished(ownerId, request.sessionId));
   handle(IPC_CHANNELS.sftpState, SessionSchema, (ownerId, request) => manager.state(ownerId, request.sessionId));
   handle(IPC_CHANNELS.sftpChmod, ChmodSchema, (ownerId, request) => manager.chmod(ownerId, request.sessionId, request.paths, request.mode, request.recursive));

@@ -55,6 +55,7 @@ export const IPC_CHANNELS = {
   sftpTransfer: 'sftp:transfer',
   sftpCancel: 'sftp:cancel',
   sftpResolve: 'sftp:resolve',
+  sftpVerify: 'sftp:verify',
   sftpClearFinished: 'sftp:clear-finished',
   sftpState: 'sftp:state',
   sftpClose: 'sftp:close',
@@ -200,6 +201,7 @@ export interface DesktopApi {
   sftpTransfer: (request: SftpTransferRequest) => Promise<{ jobId: string }>;
   sftpCancel: (request: SftpJobRequest) => Promise<void>;
   sftpResolve: (request: SftpConflictAnswer) => Promise<void>;
+  sftpVerify: (request: SftpJobRequest) => Promise<void>;
   sftpClearFinished: (request: SftpSessionRequest) => Promise<void>;
   sftpState: (request: SftpSessionRequest) => Promise<SftpSessionState>;
   sftpClose: (request: SftpSessionRequest) => Promise<void>;

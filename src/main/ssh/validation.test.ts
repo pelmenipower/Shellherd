@@ -15,10 +15,9 @@ describe('SSH IPC input validation', () => {
     expect(() => parseRequest(InputSchema, { sessionId, data: 'x'.repeat(16385) })).toThrow();
     expect(() => parseRequest(AckSchema, { sessionId, sequence: -1 })).toThrow();
   });
-  it('accepts skipLogin only as a boolean and never commands', () => {
+  it('never accepts commands or a login switch from the renderer', () => {
     const base = { connectionId: 'c1', cols: 80, rows: 24 };
-    expect(PrepareSchema.safeParse({ ...base, skipLogin: true }).success).toBe(true);
-    expect(PrepareSchema.safeParse({ ...base, skipLogin: 'x' }).success).toBe(false);
+    expect(PrepareSchema.safeParse({ ...base, skipLogin: true }).success).toBe(false);
     expect(PrepareSchema.safeParse({ ...base, commands: ['id'] }).success).toBe(false);
   });
   it('accepts an optional container target and rejects malformed ones', () => {

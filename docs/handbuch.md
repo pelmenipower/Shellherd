@@ -187,8 +187,7 @@ Wiederherstellen eines Workspaces.
   erscheint im Terminal ein Hinweis, und sudo fragt selbst: Sie tippen das
   Passwort einmal, danach geht es weiter. Ein eigenes sudo-Passwortfeld gibt es
   nicht. Lehnt sudo das gespeicherte Passwort ab, versucht Shellherd es erst
-  nach einer Änderung der Anmeldedaten wieder; bis dahin hilft `Ohne
-  Startbefehle verbinden`.
+  nach einer Änderung der Anmeldedaten wieder.
 - `Startbefehle` sind Freitext, eine Zeile je Befehl: höchstens 20 Zeilen mit je
   höchstens 500 Zeichen, ohne Steuerzeichen und ohne Tab (stattdessen
   Leerzeichen). Leerzeilen fallen weg. Shellherd tippt sie nach dem Anmelden
@@ -210,11 +209,13 @@ Die Root-Shell startet ohne Begrüßung (kein MOTD, kein `Last login`), und
 `exit` darin schließt den Tab, statt zur Benutzer-Shell zurückzukehren. Jeder
 sudo-Aufruf steht im auth.log des Servers; das ist normal.
 
-`Ohne Startbefehle verbinden` ist die Notbremse: Rechtsklick auf den
-SSH-Tab (Shift+F10 oder die Menütaste gehen auch) verbindet einmal neu, ohne
-Root-Shell und ohne Startbefehle. Eine laufende Sitzung wird dabei ohne Rückfrage
-beendet. Der nächste Verbindungsaufbau läuft wieder mit der Einstellung. Ältere
-Shellherd-Versionen entfernen die Einstellungen beim Speichern der Verbindung.
+Ältere Shellherd-Versionen entfernen die Einstellungen beim Speichern der
+Verbindung.
+
+Rechtsklick auf einen Tab (Shift+F10 oder die Menütaste gehen auch) bietet
+`Umbenennen`. Der Name gilt nur für diesen Tab, nicht für die gespeicherte
+Verbindung, und er wandert mit dem Tab in andere Fenster. Ein leerer Name
+stellt den Verbindungsnamen wieder her. Ein Workspace speichert ihn nicht.
 
 ## Container und VMs
 
@@ -345,7 +346,17 @@ Secret-Daten sind in der YAML-Ansicht maskiert.
 
 Tippen in der Dateiliste springt zum nächsten Eintrag, dessen Name so beginnt. Gesucht wird in der angezeigten Reihenfolge, Ordner zuerst. Schnell weitergetippt sucht Shellherd nach dem ganzen Anfang (`no` findet `notes.md`); derselbe Buchstabe mehrmals geht zum jeweils nächsten Treffer. Nach einer Sekunde Pause beginnt die Suche neu. Groß- und Kleinschreibung spielt keine Rolle. Das gilt für die lokale und die Server-Seite. Die Leertaste, Kombinationen mit `Strg` oder `Alt` und Zeichen, die nur mit `AltGr` entstehen (etwa `@`), springen nicht.
 
-Laufende Übertragungen zeigen nach der ersten Sekunde ihre Geschwindigkeit hinter dem Fortschritt (`12 MB/s`), geglättet über die letzten Sekunden. Solange die Frage nach einer vorhandenen Datei offen ist und bei fertigen Übertragungen steht keine Geschwindigkeit. Auto-Upload zeigt keine.
+Laufende Übertragungen zeigen nach der ersten Sekunde ihre Geschwindigkeit hinter dem Fortschritt (`12 MB/s`), geglättet über die letzten Sekunden. Solange die Frage nach einer vorhandenen Datei offen ist und bei fertigen Übertragungen steht keine Geschwindigkeit. Auto-Upload zeigt keine. Shellherd hält dabei knapp vier Megabyte an Anfragen gleichzeitig unterwegs und kopiert bei Ordnern bis zu vier Dateien parallel; die Zeile nennt die gerade laufenden Dateien.
+
+Abgebrochene oder fehlgeschlagene Übertragungen lassen sich mit `Fortsetzen` wieder aufnehmen, auch nach `Neu verbinden`. Das gilt für Upload und Download. Jede Datei wird zuerst als `name.part` geschrieben und ersetzt das Ziel erst am Ende. Überträgst du dieselbe Datei später noch einmal, setzt Shellherd automatisch fort; ein automatisches Neuverbinden gibt es nicht.
+
+Vor dem Fortsetzen prüft Shellherd die liegen gebliebene `.part`: Sie darf nicht größer und nicht älter als die Quelle sein, und das letzte Megabyte vor der Fortsetzungsstelle muss mit der Quelle übereinstimmen. Fortgesetzt wird knapp vier Megabyte vor dem Ende der Teildatei, weil bis dahin noch Daten unterwegs gewesen sein können; das letzte Megabyte davor wird mit der Quelle verglichen. Die Zeile zeigt dann „fortgesetzt ab 4,1 GB“. Passt die Teildatei nicht, beginnt die Übertragung von vorn, und die Zeile sagt es. Eine Teildatei bis knapp vier Megabyte wird ohne Prüfung und ohne Hinweis neu geschrieben.
+
+`Abbrechen` behält die Teildatei. `Teildatei verwerfen` löscht sie (lokal in den Papierkorb) und ist gesperrt, solange eine Übertragung läuft. Mit Upload-Teildateien geht das nur mit Verbindung. Wer von vorn beginnen will, verwirft die Teildatei und überträgt erneut. Bei Ordnern fragt Shellherd nach schon fertigen Dateien wie gewohnt; `Nur wenn neuer` mit `Für alle` überspringt sie. Fortgesetzt wird pro Datei. Auto-Upload räumt seine Teildateien weiterhin selbst auf.
+
+`Prüfen` an einer fertigen, fortgesetzten Übertragung berechnet die SHA-256-Prüfsumme jeder Datei lokal und mit `sha256sum` (oder `shasum` auf macOS) auf dem Server und zeigt, ob sie übereinstimmen. Das braucht eine Shell auf dem Server; reine SFTP-Konten melden, dass keine Prüfsumme möglich ist. Dateinamen mit Zeichen wie `&`, `$`, `\` oder `'` lassen sich nicht prüfen. `Prüfen` gibt es nicht beim Verschieben, höchstens für 10 000 Dateien je Übertragung und nur in der Sitzung, in der die Übertragung lief.
+
+Grenzen: Ändert sich die Quelle während einer fortgesetzten Übertragung und wird kürzer, bleibt die Zieldatei zu lang; `Prüfen` deckt das auf. Teildateien mit dem Namen `name.part` behandelt Shellherd als seine eigenen. Ein Ordner mit diesem Namen wird nie angefasst, die Übertragung meldet stattdessen einen Fehler.
 
 ## Dateiansicht: Auto-Upload
 

@@ -17,8 +17,7 @@ import { rdpActionLabel } from '../rdp-sessions';
 import { useT } from '../i18n';
 import { liveSessions } from '../session-registry';
 import type { ExternalDragHover } from '../../../shared/windows';
-import { isRunning, isWelcomeTab, tabLabel } from '../terminal-tabs';
-import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
+import { isWelcomeTab, tabLabel } from '../terminal-tabs';
 import type { ViewControls } from '../terminal-views';
 import { RDP_ACTIONS } from '../../../shared/rdp';
 import { TerminalTabs } from './TerminalTabs';
@@ -34,6 +33,8 @@ interface Props {
   tabs: TerminalTab[]; selected: string | null; layout: LiveLayout; focused: string; busy: boolean;
   onLayout: (layout: LiveLayout) => void; onFocus: (id: string) => void; onSelect: (id: string | null) => void;
   onStatus: (id: string, status: SshStatus) => void; onClose: (id: string) => void;
+  /** Blank title restores the tab's default label. */
+  onRename: (id: string, title: string) => void;
   draggedTabId: string | null; onDrag: (id: string | null) => void;
   visible?: boolean;
   /** Tab dragged from another window, in viewport coordinates. */
@@ -75,7 +76,7 @@ interface DockTarget {
   paneId: string; zone: DockZone; beforeTabId?: string | null;
   marker?: { left: number; top: number };
 }
-export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, focused, busy, onLayout, onFocus, onSelect, onStatus, onClose, draggedTabId, onDrag, visible = true,
+export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, focused, busy, onLayout, onFocus, onSelect, onStatus, onClose, onRename, draggedTabId, onDrag, visible = true,
   externalHover = null, pendingDock = null, onDockHandled, onTearOff, viewControls, onPopout, onSnapshot, onSaveAutoUpload, welcomePanel, onWelcome }: Props) {
   const { t } = useT();
   const [viewDrop, setViewDrop] = useState<string | null>(null);
@@ -112,8 +113,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
   const [keysMenu, setKeysMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
   const closeKeysMenu = useCallback(() => setKeysMenu(null), []);
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
-  // The nonce counts up globally so every choice reaches the panel as a new value.
-  const [plainReconnect, setPlainReconnect] = useState<{ tabId: string; nonce: number } | null>(null);
+  const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const closeTabMenu = useCallback(() => {
     setTabMenu(current => {
       // Only restore focus if it was lost (Escape/selection), not when the user clicked elsewhere.
@@ -374,9 +374,10 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
           {region.pane.tabIds.length ? <TerminalTabs appearance={appearance} tabs={region.pane.tabIds.flatMap(id => tabs.find(tab => tab.id === id) ?? [])} allTabs={tabs}
             activeTabId={region.pane.activeTabId} showEditor={false} label={t('terminal:area.sessionsLabel', { number: index + 1 })} disabled={busy}
             onSelect={id => selectTab(region.pane.id, id)} onClose={onClose} onTabPointerDown={beginTabDrag}
+            renamingId={renamingTab} onRename={(id, title) => { setRenamingTab(null); if (title !== null) onRename(id, title); }}
             onTabMenu={(id, x, y) => {
               const tab = tabs.find(item => item.id === id);
-              if (busy || !tab || !(tab.connection.protocol === 'ssh' && !tab.connection.view && !tab.connection.target && !tab.connection.kube && tab.connection.id !== LOCAL_CONTAINER_HOST)) return;
+              if (busy || !tab || isWelcomeTab(tab)) return;
               setTabMenu({ x, y, tabId: id });
             }} />
             : <span className="empty-pane-title">{t('terminal:area.emptyTitle')}</span>}
@@ -446,8 +447,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
             sshForNode={node => sshConnectionForNode(nodes, node)} onOpenSsh={id => onConnect(id, region?.pane.id ?? focusedPane.id)} />;
         }
         return tab.connection.protocol === 'rdp' ? <RdpPanel key={tab.id} {...panel} />
-          : <TerminalPanel key={tab.id} {...panel} onClose={() => onClose(tab.id)}
-            reconnectPlain={plainReconnect?.tabId === tab.id ? plainReconnect.nonce : 0} />;
+          : <TerminalPanel key={tab.id} {...panel} onClose={() => onClose(tab.id)} />;
       })}
       {!zoomed && splitRects(layout).map((region, index) => {
         const horizontal = region.split.direction === 'horizontal';
@@ -483,8 +483,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
         const tab = tabs.find(item => item.id === tabMenu.tabId);
         if (!tab) return null;
         return <ContextMenu x={tabMenu.x} y={tabMenu.y} label={t('terminal:tabMenu.label', { name: tabLabel(tab, tabs) })} onClose={closeTabMenu} entries={[
-          { kind: 'item', label: t('terminal:tabMenu.withoutLogin'), hint: isRunning(tab) ? t('terminal:tabMenu.endsSession') : undefined,
-            onSelect: () => setPlainReconnect(current => ({ tabId: tab.id, nonce: (current?.nonce ?? 0) + 1 })) },
+          { kind: 'item', label: t('common:actions.rename'), onSelect: () => setRenamingTab(tab.id) },
         ]} />;
       })()}
       {keysMenu && <ContextMenu x={keysMenu.x} y={keysMenu.y} label={t('terminal:keysMenu.label')} onClose={closeKeysMenu}

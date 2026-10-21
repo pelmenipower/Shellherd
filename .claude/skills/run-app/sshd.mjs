@@ -2,6 +2,9 @@
 // Shell: a few canned commands; `exit` ends the session, `sudo reboot` simulates a server-side close.
 // Root shell: the exec of `sudo -n -i` with a pty asks for the password (`synthetic-demo`, else a second prompt), prints READY and serves `root@web-01:~# `.
 // Also serves SFTP (tree under sftpRoot), a fixed set of exec commands (never executed, only matched) and one tcpip target.
+// SSHD_LATENCY_MS (default 0) delays every READ, WRITE and CLOSE reply, in order, to simulate the ping to a real server.
+// The sha256sum exec only hashes a file that `local()` maps into the SFTP root; the path is never executed.
+import { createHash } from 'node:crypto';
 import { chmodSync, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -24,9 +27,20 @@ const outputs = {
 
 const LISTS = { containers: CONTAINERS, images: IMAGES, volumes: VOLUMES, networks: NETWORKS };
 const HOME = '/home/demo';
+const LATENCY = Number(process.env.SSHD_LATENCY_MS ?? 0);
+const later = run => (LATENCY ? setTimeout(run, LATENCY) : run());
+
+const enoent = () => Object.assign(new Error('outside root'), { code: 'ENOENT' });
+// Maps a remote path to a local one; anything that could leave the root (Windows separators, drive letters, `..`) is "not found".
+const localPath = (root, p) => {
+  if (/[\\:]/.test(p)) throw enoent();
+  const full = path.join(root, path.posix.normalize(`/${p}`));
+  if (full !== root && !full.startsWith(root + path.sep)) throw enoent();
+  return full;
+};
 
 /** Answers an exec command by matching known substrings; nothing from the command is ever run or used as a path. */
-function execReply(command, kubeconfig) {
+function execReply(command, kubeconfig, root) {
   if (command.includes('for c in docker podman pct qm')) return { out: 'has:docker\n', code: 0 };
   const marker = /\[terminus-list-[0-9a-f]{16}\]/.exec(command)?.[0];
   if (marker) {
@@ -43,20 +57,19 @@ function execReply(command, kubeconfig) {
     const found = inspect(ref);
     return found ? { out: JSON.stringify(found, null, 2), code: 0 } : { err: `Error: No such container: ${ref}\n`, code: 1 };
   }
+  const word = /^sh -c 'sha256sum -- "\$1" 2>\/dev\/null \|\| shasum -a 256 -- "\$1"' sh ('(?:[^']|'\\'')*'|[A-Za-z0-9_.\/:=@%+,-]+)$/.exec(command)?.[1];
+  if (word) {
+    const p = word.startsWith("'") ? word.slice(1, -1).replaceAll("'\\''", "'") : word;
+    try { return { out: `${createHash('sha256').update(readFileSync(localPath(root, p))).digest('hex')}  ${p}\n`, code: 0 }; }
+    catch { return { err: `sha256sum: ${p}: No such file or directory\n`, code: 1 }; }
+  }
   if (command.includes('KUBECONFIG%%')) return { out: kubeconfig ? `src:${HOME}/.kube/config\n${kubeconfig}` : 'src:none\n', code: 0 };
   return { err: `sh: 1: ${command.trim().split(/\s+/)[0]}: not found\n`, code: 127 };
 }
 
 function sftpHandler(sftp, root) {
   const attrs = info => ({ mode: (info.mode & 0o170000) | (info.isDirectory() ? 0o755 : 0o644), uid: 0, gid: 0, size: info.size, atime: Math.floor(info.atimeMs / 1000), mtime: Math.floor(info.mtimeMs / 1000) });
-  const enoent = () => Object.assign(new Error('outside root'), { code: 'ENOENT' });
-  // Maps a remote path to a local one; anything that could leave the root (Windows separators, drive letters, `..`) is "not found".
-  const local = p => {
-    if (/[\\:]/.test(p)) throw enoent();
-    const full = path.join(root, path.posix.normalize(`/${p}`));
-    if (full !== root && !full.startsWith(root + path.sep)) throw enoent();
-    return full;
-  };
+  const local = p => localPath(root, p);
   const handles = new Map();
   let next = 0;
   const handle = value => { const id = next++; handles.set(id, value); const buffer = Buffer.alloc(4); buffer.writeUInt32BE(id); return buffer; };
@@ -81,13 +94,13 @@ function sftpHandler(sftp, root) {
     guard(reqid, () => sftp.name(reqid, readdirSync(entry.dir).map(name => ({ filename: name, longname: name, attrs: attrs(lstatSync(path.join(entry.dir, name))) }))));
   });
   sftp.on('OPEN', (reqid, p, flags) => guard(reqid, () => sftp.handle(reqid, handle({ fd: openSync(local(p), flagsToString(flags)) }))));
-  sftp.on('READ', (reqid, buffer, offset, length) => guard(reqid, () => {
+  sftp.on('READ', (reqid, buffer, offset, length) => later(() => guard(reqid, () => {
     const data = Buffer.alloc(length);
     const read = readSync(lookup(buffer).fd, data, 0, length, offset);
     if (read) sftp.data(reqid, data.subarray(0, read)); else sftp.status(reqid, STATUS_CODE.EOF);
-  }));
-  sftp.on('WRITE', (reqid, buffer, offset, data) => guard(reqid, () => { writeSync(lookup(buffer).fd, data, 0, data.length, offset); ok(reqid); }));
-  sftp.on('CLOSE', (reqid, buffer) => { const entry = lookup(buffer); if (entry?.fd !== undefined) closeSync(entry.fd); handles.delete(buffer.readUInt32BE(0)); ok(reqid); });
+  })));
+  sftp.on('WRITE', (reqid, buffer, offset, data) => later(() => guard(reqid, () => { writeSync(lookup(buffer).fd, data, 0, data.length, offset); ok(reqid); })));
+  sftp.on('CLOSE', (reqid, buffer) => later(() => { const entry = lookup(buffer); if (entry?.fd !== undefined) closeSync(entry.fd); handles.delete(buffer.readUInt32BE(0)); ok(reqid); }));
   sftp.on('MKDIR', (reqid, p) => guard(reqid, () => { mkdirSync(local(p)); ok(reqid); }));
   sftp.on('RMDIR', (reqid, p) => guard(reqid, () => { rmdirSync(local(p)); ok(reqid); }));
   sftp.on('REMOVE', (reqid, p) => guard(reqid, () => { unlinkSync(local(p)); ok(reqid); }));
@@ -200,7 +213,7 @@ export async function startSshd({ port = 2222, dir = RUN_DIR, sftpRoot = path.jo
       session.on('exec', (acceptExec, _reject, { command }) => {
         const stream = acceptExec();
         if (/\[terminus-sudo-[0-9a-f]{16}\]/.test(command) && /\[terminus-ready-[0-9a-f]{16}\]/.test(command) && command.includes('sudo -n -i')) { serveRootShell(stream, command); return; }
-        const { out, err, code } = execReply(command, kubeconfig);
+        const { out, err, code } = execReply(command, kubeconfig, sftpRoot);
         if (out) stream.write(out);
         if (err) stream.stderr.write(err);
         stream.exit(code);
