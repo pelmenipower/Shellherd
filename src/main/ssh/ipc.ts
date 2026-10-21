@@ -7,6 +7,7 @@ import { IPC_CHANNELS } from '../../shared/ipc';
 import { mainT } from '../i18n';
 import { vaultSessionManager } from '../vault/ipc';
 import { KnownHosts } from './known-hosts';
+import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { findConnection, SshSessionManager } from './session';
 import type { SshDependencies } from './session';
 import { SudoRejections } from '../containers/sudo-rejections';
@@ -47,6 +48,7 @@ export function registerSshIpcHandlers(knownHosts: KnownHosts, sudoRejections = 
       return connection;
     },
     spawnShell,
+    getTimeouts: connection => effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, connection),
     verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);

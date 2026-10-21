@@ -47,6 +47,9 @@ const desktopApi: DesktopApi = {
   aiCancel: request => ipcRenderer.invoke('ai:cancel', request),
   onAiEvent: listener => subscribe('ai:event', listener),
   aiTest: provider => ipcRenderer.invoke('ai:test', provider),
+  vaultActivity: () => ipcRenderer.send('vault:activity'),
+  onVaultLocked: listener => subscribe('vault:locked', listener),
+  onVaultUnlocked: listener => subscribe('vault:unlocked', listener),
   onVaultOpenFile: listener => subscribe('vault:open-file', listener),
   fileTypeStatus: () => ipcRenderer.invoke('app:file-type-status'),
   fileTypeRegister: () => ipcRenderer.invoke('app:file-type-register'),
@@ -88,6 +91,7 @@ const desktopApi: DesktopApi = {
   sftpTransfer: request => ipcRenderer.invoke('sftp:transfer', request),
   sftpCancel: request => ipcRenderer.invoke('sftp:cancel', request),
   sftpResolve: request => ipcRenderer.invoke('sftp:resolve', request),
+  sftpVerify: request => ipcRenderer.invoke('sftp:verify', request),
   sftpClearFinished: request => ipcRenderer.invoke('sftp:clear-finished', request),
   sftpState: request => ipcRenderer.invoke('sftp:state', request),
   sftpClose: request => ipcRenderer.invoke('sftp:close', request),
@@ -125,8 +129,8 @@ const desktopApi: DesktopApi = {
   saveCurrentVault: (request) =>
     ipcRenderer.invoke('vault:save-current', request),
 
-  lockVault: () =>
-    ipcRenderer.invoke('vault:lock'),
+  lockVault: (request) =>
+    ipcRenderer.invoke('vault:lock', request),
 };
 
 contextBridge.exposeInMainWorld(

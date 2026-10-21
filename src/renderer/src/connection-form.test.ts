@@ -8,8 +8,9 @@ const fields: ConnectionFields = {
   name: ' API ', comment: ' comment ', host: ' api.example.test ', port: '22', username: ' deploy ',
   method: 'agent', password: 'synthetic-only', keyPath: '/synthetic/key', passphrase: 'synthetic-only',
   domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
-  tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off', disabled: 'off',
+  tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off', loginSudo: 'off', loginCommands: '', disabled: 'off',
   accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
+  idleMinutes: '', keepaliveSeconds: '', keepaliveCount: '', connectSeconds: '',
 };
 
 /** SSH result narrowed for property assertions. */
@@ -40,6 +41,39 @@ describe('connection form per protocol', () => {
     expect(node).toMatchObject({ protocol: 'ssh', containers: { sudo: true } });
     expect(fieldsFromConnection('ssh', node).containerSudo).toBe('on');
     expect(connectionFromFields('id1', { ...fields, containerSudo: 'off' }, 'ssh')).not.toHaveProperty('containers');
+  });
+  it('round-trips the login block together with timeouts and containers', () => {
+    const input = { ...fields, loginSudo: 'on' as const, loginCommands: ' uptime \n\n  df -h /  \n', containerSudo: 'on' as const, idleMinutes: '5' };
+    const node = ssh(input);
+    expect(node).toMatchObject({ login: { sudo: true, commands: ['uptime', 'df -h /'] }, timeouts: { idleMinutes: 5 }, containers: { sudo: true } });
+    expect(fieldsFromConnection('ssh', node)).toMatchObject({ loginSudo: 'on', loginCommands: 'uptime\ndf -h /', containerSudo: 'on', idleMinutes: '5' });
+    expect(ssh({ ...fields, loginCommands: 'ls' }).login).toEqual({ commands: ['ls'] });
+    expect(ssh({ ...fields, loginSudo: 'on' }).login).toEqual({ sudo: true });
+    expect(ssh({ ...fields, loginCommands: ' \n ' })).not.toHaveProperty('login');
+    expect(fieldsFromConnection('ssh')).toMatchObject({ loginSudo: 'off', loginCommands: '' });
+  });
+  it('keeps autoUpload while login comes from the form', () => {
+    const existing = { ...ssh(fields), autoUpload: [{ id: 'b', localPath: '/a', remotePath: '/b', enabled: true }], login: { sudo: true } } as unknown as VaultNode;
+    const updated = keepAutoUpload(ssh({ ...fields, loginCommands: 'ls' }), existing);
+    expect(updated).toMatchObject({ autoUpload: (existing as { autoUpload: unknown }).autoUpload, login: { commands: ['ls'] } });
+    expect((updated as { login: object }).login).not.toHaveProperty('sudo');
+  });
+  it('rejects bad login lines with the line number in the text field', () => {
+    const fail = (loginCommands: string) => {
+      try { connectionFromFields('id', { ...fields, loginCommands }); } catch (error) { return error; }
+      throw new Error('no error');
+    };
+    const tab = fail('a\n\nb\tc');
+    expect(tab).toBeInstanceOf(ConnectionFieldError);
+    expect(tab).toMatchObject({ field: 'loginCommands' });
+    expect((tab as Error).message).toContain('Zeile 3');
+    expect((fail('a\u009bb') as Error).message).toContain('Zeile 1');
+    expect((fail(`ok\n${'x'.repeat(501)}`) as Error).message).toContain('Zeile 2');
+    expect(fail(Array(21).fill('x').join('\n'))).toMatchObject({ field: 'loginCommands' });
+    expect(() => connectionFromFields('id', { ...fields, loginCommands: 'x'.repeat(500) })).not.toThrow();
+  });
+  it('writes no login block for SFTP', () => {
+    expect(connectionFromFields('id', { ...fields, loginSudo: 'on', loginCommands: 'ls' }, 'sftp')).not.toHaveProperty('login');
   });
   it('builds AI CLI tabs: preset tools without a command, custom ones with exactly one line', () => {
     const claude = connectionFromFields('id', { ...fields, tool: 'codex', command: 'ignored', workingDirectory: ' C:\\Projekte\\x ' }, 'aicli');
@@ -151,6 +185,37 @@ describe('disabled connections in the editor', () => {
     expect(message({ accessHosts: ['a'], namespace: 'Bad Name' }, 'kubernetes')).toBe('Gib einen gültigen Namespace ein, z. B. default.');
     expect(message({ color: 'red' })).toBe('Gib die Farbe als #RRGGBB an.');
     expect(message({ icon: 'nope' as ConnectionFields['icon'] })).toBe('Wähle ein verfügbares Symbol.');
+  });
+});
+
+describe('connection timeout overrides', () => {
+  const all = { idleMinutes: '30', keepaliveSeconds: '20', keepaliveCount: '5', connectSeconds: '60' };
+  it('round-trips all four fields for SSH and SFTP', () => {
+    for (const protocol of ['ssh', 'sftp'] as const) {
+      const node = connectionFromFields('id', { ...fields, ...all }, protocol);
+      expect(node).toMatchObject({ timeouts: { idleMinutes: 30, keepaliveSeconds: 20, keepaliveCount: 5, connectSeconds: 60 } });
+      expect(fieldsFromConnection(protocol, node)).toMatchObject(all);
+    }
+  });
+  it('writes no timeouts object when every field is empty', () => {
+    expect(connectionFromFields('id', fields)).not.toHaveProperty('timeouts');
+    expect(fieldsFromConnection('ssh')).toMatchObject({ idleMinutes: '', connectSeconds: '' });
+  });
+  it('keeps a partial override partial, and 0 idle is a value', () => {
+    const node = connectionFromFields('id', { ...fields, idleMinutes: ' 0 ', keepaliveCount: '4' });
+    expect(node).toMatchObject({ timeouts: { idleMinutes: 0, keepaliveCount: 4 } });
+    expect((node as { timeouts: object }).timeouts).toEqual({ idleMinutes: 0, keepaliveCount: 4 });
+  });
+  it('names the field on a range error', () => {
+    for (const [key, value] of [['keepaliveSeconds', '4'], ['idleMinutes', '1441'], ['connectSeconds', '1.5'], ['keepaliveCount', '-1']] as const) {
+      expect(() => connectionFromFields('id', { ...fields, [key]: value })).toThrow(expect.objectContaining({ name: 'ConnectionFieldError', field: key }));
+    }
+  });
+  it('ignores the fields for RDP and keeps them next to autoUpload', () => {
+    expect(connectionFromFields('id', { ...fields, ...all }, 'rdp')).not.toHaveProperty('timeouts');
+    const list = [{ id: 'b1', localPath: 'C:\\x', remotePath: '/x', excludes: [], enabled: true }];
+    const existing = { ...connectionFromFields('id', fields), autoUpload: list } as VaultNode;
+    expect(keepAutoUpload(connectionFromFields('id', { ...fields, ...all }), existing)).toMatchObject({ autoUpload: list, timeouts: { idleMinutes: 30 } });
   });
 });
 

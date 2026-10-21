@@ -58,8 +58,18 @@ erhalten. Bereits laufende Tabs bleiben offen. `Aktivieren` gibt sie wieder frei
 Hintergrund-Tabs bleiben verbunden und
 verarbeiten ihre Ausgabe weiter. Im Tabstreifen wechseln Pfeiltasten sowie
 Home/End zwischen Tabs. Das Schließen eines Tabs beendet nur seine Session.
-Die Vault-Sperre beendet alle Sessions. Gespeicherte Workspaces lassen sich nach
+Sperren trennt nicht: Die Sitzungen laufen im Hintergrund weiter, und nach dem Entsperren sind alle Tabs wieder da. Neue Verbindungen und `Neu verbinden` gehen erst nach dem Entsperren. `Andere Vault-Datei` im Sperrbildschirm fragt immer nach und trennt alles. Gespeicherte Workspaces lassen sich nach
 dem Entsperren gezielt öffnen; dabei starten neue SSH-Sessions.
+
+### Sperren und Willkommens-Tab
+
+Der Sperrknopf in der Kopfzeile sperrt ohne Rückfrage. Ein undurchsichtiger Sperrbildschirm deckt das Fenster ab; die Tastatur erreicht nichts dahinter. Nebenfenster werden mitgesperrt und zeigen ihren eigenen Sperrbildschirm (ohne Passwortfeld); entsperrt wird im Hauptfenster.
+
+- **Zugangsdaten im Speicher:** Die Zugangsdaten offener Sitzungen bleiben während der Sperre im Speicher von Shellherd. Ein geänderter, ungespeicherter Verbindungseditor behält seinen Inhalt, auch das gespeicherte Passwort der Verbindung; ein unveränderter Editor schließt beim Sperren. Gegen das Auslesen des Arbeitsspeichers schützt die Sperre nicht.
+- **Leerlauf-Trennung:** Sie läuft während der Sperre weiter. Eine lange Sperre kann Sitzungen trennen; die Getrennt-Leiste wartet dann nach dem Entsperren.
+- **Assistent:** Automatische Rückfragen des Assistenten (gelesene Ausgabe) scheitern während der Sperre mit „Es ist kein Vault entsperrt.“
+- **Host-Schlüssel:** Eine offene Host-Schlüssel-Rückfrage kann über dem Sperrbildschirm erscheinen. Sie zeigt nur Host und Fingerabdruck.
+- **Willkommens-Tab:** Beim Öffnen eines Vaults erscheint die Willkommensseite als Tab. Du öffnest sie wieder über das `+`-Menü (`Willkommensseite`). Der Tab lässt sich nur schließen: nicht ziehen, nicht teilen, nicht in ein anderes Fenster verschieben. Er wird nicht im Workspace gespeichert und zählt zum Limit von 16 Tabs.
 
 Text im Terminal markieren kopiert die Auswahl automatisch in die Zwischenablage.
 Rechtsklick fügt den Text aus der Zwischenablage in das angeklickte Terminal ein.
@@ -86,7 +96,31 @@ Fehlermeldungen, Dialoge und Fenstertitel folgen der Sprache, ebenso Datum, Zahl
 
 ### Vault
 
-`Vor dem Trennen laufender Sitzungen nachfragen` (Standard: an) fragt nach, bevor das Schließen eines Tabs oder Fensters, das Sperren oder ein Workspace-Wechsel laufende Sitzungen beendet. Die Einstellung gehört zum Vault und wird verschlüsselt mit ihm gespeichert; sie erscheint erst nach dem Entsperren.
+`Vor dem Trennen laufender Sitzungen nachfragen` (Standard: an) fragt nach, bevor das Schließen eines Tabs oder Fensters oder ein Workspace-Wechsel laufende Sitzungen beendet. Die Einstellung gehört zum Vault und wird verschlüsselt mit ihm gespeichert; sie erscheint erst nach dem Entsperren.
+
+`Automatisch sperren nach … Minuten ohne Eingabe (0: nie)` sperrt den Vault, wenn in keinem Shellherd-Fenster Maus oder Tastatur benutzt wurde (Bereich 0 bis 1.440, Standard 15). Offene Sitzungen und Tabs bleiben erhalten. Der Wert wird bei Blur oder `Enter` übernommen und gilt sofort.
+
+- **Was zählt:** Nur Maus und Tastatur in Shellherd-Fenstern. Terminal-Ausgabe zählt nicht: Wer nur einen langen Lauf beobachtet, wird gesperrt. Arbeit in anderen Programmen zählt ebenfalls nicht.
+- **RDP:** Solange eine RDP-Sitzung verbunden ist, zählt zusätzlich jede Eingabe am Rechner, denn Maus und Tastatur im RDP-Fenster gehen an Shellherd vorbei.
+- **Nichts wird gefragt:** Die Sperre arbeitet wie das manuelle Sperren, ohne Rückfrage. Offene Einstellungs- und Anbieter-Dialoge schließen sich. Nebenfenster werden mitgesperrt, nicht geschlossen. Nach der Sperre nennt der Sperrbildschirm den Grund.
+- **Ungenauigkeit:** Die Sperre kommt bis zu 10 Sekunden früher oder bis zu 30 Sekunden später als eingestellt; nach dem Aufwachen aus dem Ruhezustand sperrt Shellherd sofort, wenn die Zeit abgelaufen ist.
+- **Bestehende Vaults:** Jeder Vault trägt den Wert 15. Sie sperren sich daher ab dieser Version nach 15 Minuten; `0` schaltet die Sperre ab.
+
+### Verbindungen
+
+Unter Einstellungen → Verbindungen (erst nach dem Entsperren) stehen vier Werte für SSH und SFTP dieses Vaults. Sie gelten auch für Container- und Cluster-Zugriffe über SSH und werden mit dem Vault gespeichert. Jedes Feld übernimmt seinen Wert bei Blur oder `Enter`; eine Zahl außerhalb der Grenzen steht als Fehler unter dem Feld.
+
+| Wert | Standard | Grenzen |
+|---|---|---|
+| `Leerlauf-Trennung nach … Minuten ohne Ein- und Ausgabe (0: nie)` | 0 | 0 bis 1.440 |
+| `Keepalive alle … Sekunden` | 15 | 5 bis 300 |
+| `Trennen nach … unbeantworteten Keepalives` | 3 | 1 bis 10 |
+| `Verbindungs-Timeout … Sekunden` | 120 | 5 bis 300 |
+
+- **Gilt ab der nächsten Verbindung.** Offene Sitzungen behalten ihre Werte; `Neu verbinden` übernimmt die neuen.
+- **Leerlauf:** Eingabe oder Ausgabe setzt die Zeit zurück. Danach zeigt die Leiste „wegen Leerlauf getrennt“ und `Neu verbinden` (`Enter`). Das gilt für SSH-Terminals, Container-Tabs, Pod-Terminals und die Dateiansicht. Lokale Shells, RDP und Cluster-Ansichten haben keinen Leerlauf. Eine Dateiansicht mit laufendem Transfer, aktivem Auto-Upload oder offener Bearbeitung trennt sich nicht durch Leerlauf.
+- **Pro Verbindung:** Unter `Weitere Angaben` einer SSH- oder SFTP-Verbindung lassen sich die vier Werte einzeln überschreiben (`Leerlauf-Trennung (min)`, `Keepalive (s)`, `Keepalive-Fehlversuche`, `Verbindungs-Timeout (s)`). Leer heißt: Vorgabe aus den Einstellungen. Container und Cluster erben die Werte des genutzten SSH-Knotens.
+- **Kurzer Verbindungs-Timeout:** Er läuft auch, solange die Rückfrage zum Server-Schlüssel offen ist. Bei sehr kurzem Wert scheitert das Annehmen eines neuen Schlüssels, wenn du länger liest. Nimm neue Schlüssel dann über `Verbindung testen` an (dessen Zeitmesser pausiert in der Rückfrage) oder stelle einen größeren Wert ein.
 
 ### KI-Anbieter
 
@@ -138,6 +172,50 @@ OpenSSH-Agent unter `\\.\pipe\openssh-ssh-agent` verwendet; der Dienst muss lauf
 und den passenden Schlüssel enthalten. Auf Unix muss `SSH_AUTH_SOCK` gesetzt sein.
 Agent-Forwarding ist deaktiviert. Interaktive MFA-/Keyboard-Interactive-Anmeldung
 folgt in einem weiteren Schritt.
+
+### Nach dem Anmelden
+
+Pro SSH-Verbindung lässt sich im Formular festlegen, was nach dem Anmelden
+passiert. Beides gilt bei jedem Verbinden, auch bei `Neu verbinden` und beim
+Wiederherstellen eines Workspaces.
+
+- `Nach dem Anmelden root werden (sudo -i)` startet die Shell als root. Bei
+  Passwort-Anmeldung beantwortet Shellherd die sudo-Abfrage genau einmal mit dem
+  gespeicherten Passwort; das Passwort und der sudo-Aufruf stehen nicht in der
+  History. Bei Schlüssel oder SSH-Agent prüft Shellherd mit `sudo -n true`, ob
+  sudo ohne Passwort geht (NOPASSWD, auch neben einer `%sudo`-Regel). Wenn nicht,
+  erscheint im Terminal ein Hinweis, und sudo fragt selbst: Sie tippen das
+  Passwort einmal, danach geht es weiter. Ein eigenes sudo-Passwortfeld gibt es
+  nicht. Lehnt sudo das gespeicherte Passwort ab, versucht Shellherd es erst
+  nach einer Änderung der Anmeldedaten wieder.
+- `Startbefehle` sind Freitext, eine Zeile je Befehl: höchstens 20 Zeilen mit je
+  höchstens 500 Zeichen, ohne Steuerzeichen und ohne Tab (stattdessen
+  Leerzeichen). Leerzeilen fallen weg. Shellherd tippt sie nach dem Anmelden
+  ein, wie Sie es täten. Sie sind sichtbar und stehen in der Shell-History.
+  Schreiben Sie keine Passwörter oder Tokens hinein.
+
+Mit `root werden` gehen die Startbefehle erst nach erfolgreichem sudo raus, in
+der Root-Shell. Ohne `root werden` gehen sie sofort nach dem Start der Shell
+raus. Fragt der Server vorher etwas ab (abgelaufenes Passwort, Auswahlmenü,
+eine Abfrage in `.bashrc`), landen die Startbefehle dort. Ein Startskript auf
+dem Server, das die vorab gesendete Eingabe verwirft, lässt die Befehle
+verschwinden; Shellherd wiederholt sie nicht. Ein Vollbild- oder
+Eingabeprogramm (`vim`, `top`, `ssh`) gehört nur in die letzte Zeile, sonst
+liest es die folgenden Zeilen als Tastendrücke. Getippte Befehle können doppelt
+erscheinen, einmal als Echo vor dem Prompt und einmal an der Eingabezeile; das
+ist bei vorab Getipptem normal.
+
+Die Root-Shell startet ohne Begrüßung (kein MOTD, kein `Last login`), und
+`exit` darin schließt den Tab, statt zur Benutzer-Shell zurückzukehren. Jeder
+sudo-Aufruf steht im auth.log des Servers; das ist normal.
+
+Ältere Shellherd-Versionen entfernen die Einstellungen beim Speichern der
+Verbindung.
+
+Rechtsklick auf einen Tab (Shift+F10 oder die Menütaste gehen auch) bietet
+`Umbenennen`. Der Name gilt nur für diesen Tab, nicht für die gespeicherte
+Verbindung, und er wandert mit dem Tab in andere Fenster. Ein leerer Name
+stellt den Verbindungsnamen wieder her. Ein Workspace speichert ihn nicht.
 
 ## Container und VMs
 
@@ -264,6 +342,22 @@ Die kubeconfig liegt nur im Speicher des Hauptprozesses und wird nicht auf die
 Festplatte geschrieben. Der Tunnel zum API-Server lauscht nur auf `127.0.0.1`.
 Secret-Daten sind in der YAML-Ansicht maskiert.
 
+## Dateiansicht: Tastatur und Übertragungen
+
+Tippen in der Dateiliste springt zum nächsten Eintrag, dessen Name so beginnt. Gesucht wird in der angezeigten Reihenfolge, Ordner zuerst. Schnell weitergetippt sucht Shellherd nach dem ganzen Anfang (`no` findet `notes.md`); derselbe Buchstabe mehrmals geht zum jeweils nächsten Treffer. Nach einer Sekunde Pause beginnt die Suche neu. Groß- und Kleinschreibung spielt keine Rolle. Das gilt für die lokale und die Server-Seite. Die Leertaste, Kombinationen mit `Strg` oder `Alt` und Zeichen, die nur mit `AltGr` entstehen (etwa `@`), springen nicht.
+
+Laufende Übertragungen zeigen nach der ersten Sekunde ihre Geschwindigkeit hinter dem Fortschritt (`12 MB/s`), geglättet über die letzten Sekunden. Solange die Frage nach einer vorhandenen Datei offen ist und bei fertigen Übertragungen steht keine Geschwindigkeit. Auto-Upload zeigt keine. Shellherd hält dabei knapp vier Megabyte an Anfragen gleichzeitig unterwegs und kopiert bei Ordnern bis zu vier Dateien parallel; die Zeile nennt die gerade laufenden Dateien.
+
+Abgebrochene oder fehlgeschlagene Übertragungen lassen sich mit `Fortsetzen` wieder aufnehmen, auch nach `Neu verbinden`. Das gilt für Upload und Download. Jede Datei wird zuerst als `name.part` geschrieben und ersetzt das Ziel erst am Ende. Überträgst du dieselbe Datei später noch einmal, setzt Shellherd automatisch fort; ein automatisches Neuverbinden gibt es nicht.
+
+Vor dem Fortsetzen prüft Shellherd die liegen gebliebene `.part`: Sie darf nicht größer und nicht älter als die Quelle sein, und das letzte Megabyte vor der Fortsetzungsstelle muss mit der Quelle übereinstimmen. Fortgesetzt wird knapp vier Megabyte vor dem Ende der Teildatei, weil bis dahin noch Daten unterwegs gewesen sein können; das letzte Megabyte davor wird mit der Quelle verglichen. Die Zeile zeigt dann „fortgesetzt ab 4,1 GB“. Passt die Teildatei nicht, beginnt die Übertragung von vorn, und die Zeile sagt es. Eine Teildatei bis knapp vier Megabyte wird ohne Prüfung und ohne Hinweis neu geschrieben.
+
+`Abbrechen` behält die Teildatei. `Teildatei verwerfen` löscht sie (lokal in den Papierkorb) und ist gesperrt, solange eine Übertragung läuft. Mit Upload-Teildateien geht das nur mit Verbindung. Wer von vorn beginnen will, verwirft die Teildatei und überträgt erneut. Bei Ordnern fragt Shellherd nach schon fertigen Dateien wie gewohnt; `Nur wenn neuer` mit `Für alle` überspringt sie. Fortgesetzt wird pro Datei. Auto-Upload räumt seine Teildateien weiterhin selbst auf.
+
+`Prüfen` an einer fertigen, fortgesetzten Übertragung berechnet die SHA-256-Prüfsumme jeder Datei lokal und mit `sha256sum` (oder `shasum` auf macOS) auf dem Server und zeigt, ob sie übereinstimmen. Das braucht eine Shell auf dem Server; reine SFTP-Konten melden, dass keine Prüfsumme möglich ist. Dateinamen mit Zeichen wie `&`, `$`, `\` oder `'` lassen sich nicht prüfen. `Prüfen` gibt es nicht beim Verschieben, höchstens für 10 000 Dateien je Übertragung und nur in der Sitzung, in der die Übertragung lief.
+
+Grenzen: Ändert sich die Quelle während einer fortgesetzten Übertragung und wird kürzer, bleibt die Zieldatei zu lang; `Prüfen` deckt das auf. Teildateien mit dem Namen `name.part` behandelt Shellherd als seine eigenen. Ein Ordner mit diesem Namen wird nie angefasst, die Übertragung meldet stattdessen einen Fehler.
+
 ## Dateiansicht: Auto-Upload
 
 Auto-Upload spiegelt einen lokalen Ordner in einen Server-Ordner, solange die Dateiansicht der Verbindung offen ist. Eingerichtet wird es im lokalen Bereich: Das Zahnrad ⚙ in der Kopfzeile öffnet `Neue Datei`, `Neuer Ordner` und `Auto-Upload` für den gerade angezeigten Ordner. Alternativ geht es per Rechtsklick auf einen Ordner. Der Dialog fragt den lokalen Ordner, den Server-Ordner (vorbelegt mit dem aktuellen Server-Ordner) und die Ausschlüsse ab. Mit `Auto-Upload starten` beginnt der Abgleich; darunter zeigt eine Liste je Bindung „Überwacht“, „Gleicht ab …“ oder den Fehler. Die Bindung wird im Vault gemerkt und startet beim nächsten Öffnen der Dateiansicht von selbst.
@@ -311,7 +405,7 @@ Shellherd zeigt Probleme dort, wo sie entstehen.
 
 **Fehler:** Scheitert die Verbindung, nennt die Karte die Ursache (etwa „Anmeldung abgelehnt“, „Server antwortet nicht“, „Server-Schlüssel hat sich geändert“) und den nächsten Schritt. Je nach Fall stehen `Verbindung bearbeiten`, `Erneut verbinden` oder `Fingerprint kopieren` zur Wahl; `Details` zeigt den Rohtext des Servers.
 
-**Getrennt:** Beendet der Server die Sitzung oder bricht sie ab, bleibt die Ausgabe sichtbar. Eine Leiste am unteren Rand sagt, wie lange das her ist, und bietet `Neu verbinden` (`Enter`). Das gilt auch für RDP und die Dateiansicht.
+**Getrennt:** Beendet der Server die Sitzung oder bricht sie ab, bleibt die Ausgabe sichtbar. Eine Leiste am unteren Rand sagt, wie lange das her ist, und bietet `Neu verbinden` (`Enter`). Das gilt auch für RDP und die Dateiansicht. Hat Shellherd die Sitzung wegen der eingestellten Leerlaufzeit beendet (siehe Einstellungen → Verbindungen), nennt die Leiste den Grund „wegen Leerlauf getrennt“.
 
 **Speichern:** Knöpfe zeigen „Speichert …“ und danach kurz „Gespeichert“, ohne ihre Breite zu ändern. Scheitert das Speichern der Vault-Datei, nennt die Meldung den Grund (schreibgeschützt, von einem anderen Programm gesperrt, Ordner fehlt, Laufwerk voll). Bei Container-Aktionen steht in der Status-Spalte der Zielzustand („stoppt“, „startet neu“), bis die Liste aktualisiert ist.
 
@@ -336,7 +430,7 @@ werden; eine Oberfläche zur gezielten Verwaltung vertrauter Hosts folgt später
 - SSH-Anfragen verwenden gespeicherte Connection-IDs und besitzgebundene Session-IDs.
 - Ausgabe pausiert bei ausstehenden xterm-Bestätigungen; Eingaben und Scrollback
   sind begrenzt. Terminalausgabe wird nicht auf Platte protokolliert.
-- Trennen, Vault-Sperre, Fensterende und Renderer-Ausfall beenden die SSH-Session.
+- Trennen, Leerlauf-Trennung, Fensterende, `Andere Vault-Datei` und Renderer-Ausfall beenden die SSH-Session. Die Vault-Sperre (manuell oder automatisch) beendet sie nicht; die Zugangsdaten offener Sitzungen bleiben dafür im Speicher.
   Bei aktiven Sessions wird das Schließen entsprechend der Vault-Einstellung bestätigt.
 
 Die SSH-Tests betreiben einen lokalen `ssh2`-Server mit zur Laufzeit erzeugten

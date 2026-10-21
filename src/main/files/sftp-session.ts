@@ -5,7 +5,8 @@ import { posix } from 'node:path';
 import { Client } from 'ssh2';
 import type { SFTPWrapper } from 'ssh2';
 import { limitError, type CodedError } from '../../shared/errors';
-import type { ConnectionNode } from '../../shared/vault/types';
+import type { ConnectionNode, ConnectionTimeouts } from '../../shared/vault/types';
+import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
 import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
 import type { EditorChoice } from '../../shared/sftp';
 import type { ConflictChoice, DirectoryListing, SftpEvent, SftpSessionState, SftpStatus, SftpTransferRequest, TransferConflict, TransferJob } from '../../shared/sftp';
@@ -19,7 +20,9 @@ import type { RemoteFileSystem } from './sftp-file-system';
 import { planTransfer, runTransfer, TransferCanceled } from './transfer';
 import { RemoteEdits } from './remote-edit';
 import { AutoUploads } from './auto-upload';
+import { verifyCopies } from './verify';
 
+export const VERIFY_MAX = 10_000;
 const PROGRESS_INTERVAL = 200;
 const KEPT_FINISHED_JOBS = 20;
 
@@ -32,6 +35,8 @@ export interface SftpDependencies {
   openFile: (path: string, editor: EditorChoice) => Promise<void>;
   /** How often edited copies are checked for changes; tests use less. */
   editPollInterval?: number;
+  /** Effective timeouts of a connection; default () => DEFAULT_TIMEOUTS. */
+  getTimeouts?: (connection: ConnectionNode) => ConnectionTimeouts;
   /** Injected so tests never open network connections. */
   createClient?: () => Client;
 }
@@ -39,6 +44,8 @@ export interface SftpDependencies {
 interface Job {
   job: TransferJob;
   sources: string[];
+  /** Source and target of every file that arrived; "Prüfen" reads it. Never part of a snapshot. */
+  copied: { source: string; target: string }[];
   controller: AbortController;
   lastEmit: number;
 }
@@ -56,6 +63,9 @@ interface Session {
   running?: Job;
   conflict?: { conflict: TransferConflict; resolve: (answer: { choice: ConflictChoice; applyToAll: boolean }) => void };
   key?: Buffer;
+  idleMs?: number;
+  lastIo?: number;
+  idleTimer?: ReturnType<typeof setTimeout>;
 }
 
 export class SftpSessionManager {
@@ -79,6 +89,8 @@ export class SftpSessionManager {
 
   private async connect(session: Session, connection: ConnectionNode): Promise<void> {
     if (connection.protocol !== 'sftp' && connection.protocol !== 'ssh') return;
+    const timeouts = (this.dependencies.getTimeouts ?? (() => DEFAULT_TIMEOUTS))(connection);
+    session.idleMs = timeouts.idleMinutes * 60_000;
     try {
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
@@ -86,7 +98,7 @@ export class SftpSessionManager {
             if (!valid && this.active(session)) this.finish(session, 'error', { code: 'files.hostKeyRejected' }, 'hostkey-rejected');
             callback(valid && this.active(session));
           }).catch(error => { this.fail(session, error); callback(false); });
-      });
+      }, timeouts);
       session.key = key;
       if (!this.active(session)) { this.clearKey(session); return; }
       session.client.once('ready', () => {
@@ -104,6 +116,7 @@ export class SftpSessionManager {
             inUseElsewhere: bindingId => [...this.sessions.values()].some(other => other !== session && other.syncs?.running(bindingId) === true) });
           session.status = 'connected';
           this.emit(session, { type: 'status', sessionId: session.id, status: 'connected' });
+          this.armIdle(session);
           for (const binding of connection.autoUpload ?? []) if (binding.enabled) void session.syncs.start(binding);
         });
       });
@@ -121,9 +134,27 @@ export class SftpSessionManager {
   private clearKey(session: Session): void { session.key?.fill(0); session.key = undefined; }
   private emit(session: Session, event: SftpEvent): void { this.dependencies.emit(session.ownerId, event); }
 
+  private armIdle(session: Session): void {
+    session.lastIo = Date.now();
+    if (session.idleMs) session.idleTimer = setTimeout(() => this.checkIdle(session), session.idleMs);
+  }
+
+  /** Busy sessions (transfer, live auto-upload, open edit) are rearmed for the full time, never closed. */
+  private checkIdle(session: Session): void {
+    if (!this.active(session)) return;
+    const idleMs = session.idleMs!;
+    const busy = session.running || session.jobs.some(item => item.job.state === 'queued')
+      || session.syncs?.list().some(sync => sync.state !== 'error') || (session.edits?.list().length ?? 0) > 0;
+    if (busy) session.lastIo = Date.now();
+    const remaining = idleMs - (Date.now() - session.lastIo!);
+    if (remaining <= 0) this.finish(session, 'closed', undefined, 'idle');
+    else session.idleTimer = setTimeout(() => this.checkIdle(session), remaining);
+  }
+
   private owned(ownerId: number, id: string): Session {
     const session = this.sessions.get(id);
     if (!session || session.ownerId !== ownerId) throw new FileError('files.sessionUnavailable');
+    session.lastIo = Date.now();
     return session;
   }
 
@@ -203,9 +234,9 @@ export class SftpSessionManager {
     if (!session.fs) throw new FileError('files.sessionNotReady');
     const names = request.sources.map(source => request.direction === 'upload' ? this.dependencies.local.basename(source) : posix.basename(source));
     const job: TransferJob = { id: randomUUID(), direction: request.direction, move: request.move, targetDir: request.targetDir,
-      label: names[0] ?? '', entryCount: names.length, state: 'queued',
+      label: names[0] ?? '', entryCount: names.length, state: 'queued', sources: [...request.sources],
       totalBytes: 0, doneBytes: 0, totalFiles: 0, doneFiles: 0, skippedFiles: 0 };
-    const entry: Job = { job, sources: request.sources, controller: new AbortController(), lastEmit: 0 };
+    const entry: Job = { job, sources: request.sources, copied: [], controller: new AbortController(), lastEmit: 0 };
     session.jobs.push(entry);
     this.pruneJobs(session);
     this.emitJob(session, entry, true);
@@ -241,6 +272,8 @@ export class SftpSessionManager {
       await runTransfer(job, items, from, to, {
         progress: () => this.emitJob(session, entry),
         conflict: details => this.ask(session, entry, details),
+        keepPartial: true,
+        copied: (source, target) => { if (entry.copied.length <= VERIFY_MAX) entry.copied.push({ source, target }); },
       }, controller.signal);
       job.state = 'done';
     } catch (error) {
@@ -248,7 +281,12 @@ export class SftpSessionManager {
       if (job.state === 'error') job.error = fileError(error);
     } finally {
       job.current = undefined;
+      job.bytesPerSecond = undefined;
       session.running = undefined;
+      // A question of a stopped job must not come back with `state`.
+      if (session.conflict?.conflict.jobId === job.id) session.conflict = undefined;
+      if (!job.resumedFrom) entry.copied = [];
+      session.lastIo = Date.now();
       this.emitJob(session, entry, true);
     }
     if (this.active(session)) void this.pump(session);
@@ -276,6 +314,21 @@ export class SftpSessionManager {
     if (entry.job.state === 'queued') { entry.job.state = 'canceled'; this.emitJob(session, entry, true); return; }
     entry.controller.abort();
     if (session.conflict?.conflict.jobId === jobId) session.conflict.resolve({ choice: 'cancel', applyToAll: false });
+  }
+
+  /** "Prüfen": sha256 of every file the job copied, local stream against sha256sum on the server. Result lands on the job and is emitted. */
+  async verify(ownerId: number, id: string, jobId: string): Promise<void> {
+    const session = this.owned(ownerId, id);
+    const entry = session.jobs.find(item => item.job.id === jobId);
+    if (!entry || entry.job.state !== 'done' || !entry.job.resumedFrom || entry.job.verify === 'running') return;
+    if (entry.copied.length > VERIFY_MAX) throw new FileError('files.verifyTooMany', { max: VERIFY_MAX });
+    entry.job.verify = 'running'; entry.job.mismatched = undefined; this.emitJob(session, entry, true);
+    try {
+      const mismatched = await verifyCopies(session.client, entry.copied, entry.job.direction);
+      entry.job.verify = mismatched.length ? 'mismatch' : 'ok';
+      entry.job.mismatched = mismatched.length ? mismatched : undefined;
+    } catch (error) { entry.job.verify = undefined; throw error; }
+    finally { if (this.active(session)) this.emitJob(session, entry, true); }
   }
 
   /** Removes finished jobs from the list. */
@@ -313,6 +366,7 @@ export class SftpSessionManager {
 
   private finish(session: Session, status: 'closed' | 'error', error?: CodedError, code?: ConnectionErrorCode): void {
     if (!this.active(session)) return;
+    clearTimeout(session.idleTimer);
     // Before the session leaves the map: the emit guard drops events of inactive sessions.
     session.syncs?.closeAll();
     this.sessions.delete(session.id);

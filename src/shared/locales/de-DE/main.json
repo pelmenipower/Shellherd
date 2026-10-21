@@ -56,7 +56,9 @@
     }
   },
   "terminal": {
-    "sudoGaveUp": "[Shellherd] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben."
+    "sudoGaveUp": "[Shellherd] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben.",
+    "sudoNeedsPassword": "[Shellherd] sudo verlangt ein Passwort (kein NOPASSWD) – bitte eingeben.",
+    "sudoGaveUpLogin": "[Shellherd] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben. Die Startbefehle werden nicht gesendet."
   },
   "fileAssociation": {
     "openVerb": "Mit Shellherd öffnen"

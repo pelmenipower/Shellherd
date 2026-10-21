@@ -12,10 +12,11 @@ import { IPC_CHANNELS } from '../../shared/ipc';
 import { mainT } from '../i18n';
 import { toVaultAppError } from './ipc-error';
 import { vaultWriteCode } from '../../shared/vault/write-errors';
-import { VaultSessionManager } from './session';
+import { VaultSessionManager, resumesLocked } from './session';
 import { saveVault } from './storage';
 
 import type {
+  LockVaultRequest,
   SaveVaultRequest,
   SaveVaultResult,
   SelectVaultFileResult,
@@ -37,15 +38,19 @@ export const vaultSessionManager =
   new VaultSessionManager();
 
 export interface VaultIpcOptions {
-  /** Called on unlock and lock; sessions of the previous vault must end. */
+  /** A new vault, another file or vault, or an explicit disconnect: sessions of the previous vault must end. */
   onSessionChange?: () => void;
+  /** After every successful unlock or new vault (resume or switch). */
+  onUnlock?: () => void;
+  /** After a lock that keeps sessions: windows show the lock screen. */
+  onLock?: () => void;
   /** Called after the vault content changed (unlock or save). */
   onVaultChange?: () => void;
   /** Rejects senders that may not use vault commands (e.g. detached windows). */
   guard?: (event: IpcMainInvokeEvent) => void;
 }
 
-export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultChange = () => {}, guard = () => {} }: VaultIpcOptions = {}): void {
+export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock = () => {}, onLock = () => {}, onVaultChange = () => {}, guard = () => {} }: VaultIpcOptions = {}): void {
   const handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: never[]) => unknown): void => {
     ipcMain.handle(channel, async (event, ...args) => {
       try {
@@ -114,6 +119,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
       await lastVault.set(filePath);
 
       onSessionChange();
+      onUnlock();
       return {
         canceled: false,
         filePath,
@@ -173,13 +179,15 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
         throw new AppError('core.vaultFileMissing');
       }
 
+      const previous = vaultSessionManager.lockedVault();
       const snapshot = await vaultSessionManager.unlock(
         request.filePath,
         request.password,
       );
       await lastVault.set(snapshot.filePath);
 
-      onSessionChange();
+      if (!resumesLocked(previous, snapshot)) onSessionChange();
+      onUnlock();
       onVaultChange();
       return {
         filePath: snapshot.filePath,
@@ -213,9 +221,13 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onVaultCh
 
   handle(
     IPC_CHANNELS.lockVault,
-    () => {
-      onSessionChange();
+    (_event, request: LockVaultRequest | undefined) => {
+      // Anything but a literal true keeps the sessions.
+      const disconnect = request?.disconnect === true;
+      if (disconnect) onSessionChange();
       vaultSessionManager.lock();
+      // A switch announces nothing: secondary windows are closed and the main window navigates itself.
+      if (!disconnect) onLock();
     },
   );
 }

@@ -58,6 +58,33 @@ export function sftpFileSystem(sftp: SFTPWrapper): RemoteFileSystem {
     mkdir: path => call<void>(callback => sftp.mkdir(path, error => callback(error, undefined))),
     read: path => sftp.createReadStream(path, { highWaterMark: 256 * 1024 }),
     write: (path, mode) => sftp.createWriteStream(path, { mode: mode ?? 0o644 }),
+    openRead: async path => {
+      const handle = await call<Buffer>(callback => sftp.open(path, 'r', callback));
+      // Servers hand a closed handle's number to the next open; nothing may be sent on it afterwards.
+      let closed = false;
+      return { read: async (length, position) => {
+        const buffer = Buffer.allocUnsafe(length);
+        let got = 0;
+        // ssh2 splits requests above the server's limit itself; a short answer short of EOF is asked again.
+        while (got < length) {
+          if (closed) throw new Error('handle closed');
+          const bytes = await call<number>(callback => sftp.read(handle, buffer, got, length - got, position + got, (error, count) => callback(error, count)));
+          if (!bytes) break;
+          got += bytes;
+        }
+        return buffer.subarray(0, got);
+      }, close: () => { closed = true; return call<void>(callback => sftp.close(handle, error => callback(error, undefined))); } };
+    },
+    openWrite: async (path, mode = 0o644, resume) => {
+      const handle = await call<Buffer>(callback => sftp.open(path, resume ? 'r+' : 'w', mode, callback));
+      // Like ssh2's write stream: servers set the mode on new and existing files alike; a refusal is not an error.
+      await call<void>(callback => sftp.fchmod(handle, mode, error => callback(error, undefined))).catch(() => {});
+      let closed = false;
+      return { write: async (data, position) => {
+        if (closed) throw new Error('handle closed');
+        await call<void>(callback => sftp.write(handle, data, 0, data.length, position, error => callback(error, undefined)));
+      }, close: () => { closed = true; return call<void>(callback => sftp.close(handle, error => callback(error, undefined))); } };
+    },
     setModified: (path, modified) => call<void>(callback => sftp.utimes(path, new Date(), new Date(modified), error => callback(error, undefined))),
     removeFile: path => call<void>(callback => sftp.unlink(path, error => callback(error, undefined))),
     removeDirectory: path => call<void>(callback => sftp.rmdir(path, error => callback(error, undefined))),

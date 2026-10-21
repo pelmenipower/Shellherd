@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { i18n } from './i18n';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
-import { containerConnection, containerTabName, containerViewConnection, emptyTerminalTabs, isRunning, kubeTabName, planContainerView, reusableTab, sameTarget, shellOf, tabLabel, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, containerTabName, containerViewConnection, emptyTerminalTabs, isRunning, kubeTabName, planContainerView, reusableTab, sameTarget, shellOf, tabLabel, isWelcomeTab, welcomeConnection, WELCOME_HOST, terminalTabsReducer as reduce, toTerminalConnection } from './terminal-tabs';
 import type { TerminalTab, TerminalTabsState } from './terminal-tabs';
 const connection = { id: 'ssh', name: 'Server', protocol: 'ssh' as const, address: 'synthetic@example.test:22' };
 function opened(): TerminalTabsState {
@@ -57,6 +57,18 @@ describe('terminal tab lifecycle', () => {
       password: 'synthetic-secret', rdp: { clipboard: true }, tags: [] })).toEqual({ id: 'r', name: 'Desk', protocol: 'rdp', address: 'D\\u@h:3389' });
     expect(toTerminalConnection({ id: 'p', type: 'connection', protocol: 'powershell', name: 'PS', tags: [] }))
       .toEqual({ id: 'p', name: 'PS', protocol: 'powershell', address: 'Lokal · PowerShell' });
+  });
+  it('renames a tab without touching its ordinal; an empty name restores the default label', () => {
+    const before = opened();
+    const state = reduce(before, { type: 'rename', id: 'second', title: ' Logs ' });
+    expect(state.tabs.map(tab => tabLabel(tab, state.tabs))).toEqual(['Server (1)', 'Logs']);
+    expect(state.tabs[1].ordinal).toBe(2);
+    expect(state.tabs[0]).toBe(before.tabs[0]);
+    const cleared = reduce(state, { type: 'rename', id: 'second', title: '  ' });
+    expect(tabLabel(cleared.tabs[1], cleared.tabs)).toBe('Server (2)');
+    expect(reduce(state, { type: 'rename', id: 'missing', title: 'x' })).toBe(state);
+    const adopted = reduce(state, { type: 'adopt', id: 'moved', connection: { ...connection, title: 'Deploy' }, status: 'connected', adopt: {} });
+    expect(tabLabel(adopted.tabs.at(-1)!, adopted.tabs)).toBe('Deploy');
   });
   it('adopts tabs from other windows with their status and session', () => {
     const state = reduce(opened(), { type: 'adopt', id: 'moved', connection, status: 'connected',
@@ -207,5 +219,25 @@ describe('terminal tab names in en-US', () => {
     const logs = { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'logs' as const };
     expect(kubeTabName({ ...logs, mode: 'previous' }, 'k8s')).toBe('Previous logs: api-1 @ k8s');
     expect(kubeTabName(logs, 'k8s')).toBe('Logs: api-1 @ k8s');
+  });
+});
+
+describe('welcome tab', () => {
+  it('opens closed, is not running, has no shell and survives retainConnections', () => {
+    const state = reduce(opened(), { type: 'open', id: 'w', connection: welcomeConnection() });
+    const tab = state.tabs.find(item => item.id === 'w')!;
+    expect(isWelcomeTab(tab)).toBe(true);
+    expect(tab.connection.id).toBe(WELCOME_HOST);
+    expect(tab.status).toBe('closed');
+    expect(isRunning(tab)).toBe(false);
+    expect(shellOf(tab)).toBeNull();
+    expect(reduce(state, { type: 'retainConnections', connectionIds: [] }).tabs.map(item => item.id)).toEqual(['w']);
+    expect(sameTarget(tab.connection, welcomeConnection())).toBe(true);
+    expect(reusableTab(state.tabs, state.activeTabId, welcomeConnection())).toBe(tab);
+  });
+  it('counts toward the tab limit', () => {
+    let state = emptyTerminalTabs;
+    for (let i = 0; i < MAX_SSH_SESSIONS; i++) state = reduce(state, { type: 'open', id: `t${i}`, connection });
+    expect(reduce(state, { type: 'open', id: 'w', connection: welcomeConnection() })).toBe(state);
   });
 });

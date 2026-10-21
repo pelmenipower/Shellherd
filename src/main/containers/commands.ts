@@ -25,7 +25,7 @@ export const PROBE_COMMAND = shellJoin(['sh', '-c', PROBE_SCRIPT]);
 export type SudoMode = { kind: 'none' } | { kind: 'noninteractive' } | { kind: 'prompt'; marker: string; ready: string; stdin: boolean };
 
 /** No `%` (sudo expands prompt escapes) and nothing a terminal could reinterpret. */
-const SUDO_MARKER = /^[A-Za-z0-9_[\]-]{8,64}$/;
+export const SUDO_MARKER = /^[A-Za-z0-9_[\]-]{8,64}$/;
 
 export function remoteCommand(argv: string[], sudo: SudoMode): string {
   if (sudo.kind === 'none') return `${PATH_PREFIX} ${shellJoin(argv)}`;
@@ -46,9 +46,9 @@ export function remoteScript(body: string, sudo: SudoMode): string {
   return shellJoin(['sh', '-c', `${PATH_PREFIX}; ${validate} && printf %s ${shellJoin([sudo.ready])} && { ${body}; }; exit $?`]);
 }
 
-/** How container commands of this connection use sudo; prompt only with a stored password. */
-export function sudoSetting(connection: SshConnectionNode): { kind: 'none' } | { kind: 'noninteractive' } | { kind: 'prompt'; password: string } {
-  if (connection.containers?.sudo !== true) return { kind: 'none' };
+/** How sudo is used for this connection; `enabled` defaults to the container setting. Prompt only with a stored password. */
+export function sudoSetting(connection: SshConnectionNode, enabled = connection.containers?.sudo === true): { kind: 'none' } | { kind: 'noninteractive' } | { kind: 'prompt'; password: string } {
+  if (!enabled) return { kind: 'none' };
   const auth = connection.authentication;
   if (auth.method !== 'password' || !auth.password) return { kind: 'noninteractive' };
   if (/[\r\n]/.test(auth.password)) throw new ContainerInputError('containers.passwordLineBreak');

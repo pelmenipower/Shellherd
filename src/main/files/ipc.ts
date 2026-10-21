@@ -12,6 +12,7 @@ import type { KnownHosts } from '../ssh/known-hosts';
 import { requireSshSender } from '../ssh/ipc';
 import { findConnection } from '../ssh/session';
 import { vaultSessionManager } from '../vault/ipc';
+import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { FileError, fileError, localFileSystem, localPlaces } from './file-system';
 import { SftpSessionManager } from './sftp-session';
 
@@ -61,7 +62,8 @@ export async function openForEditing(path: string, editor: EditorChoice = 'defau
 function handle<T>(channel: string, schema: z.ZodType<T>, run: (ownerId: number, request: T) => unknown): void {
   ipcMain.handle(channel, async (event: IpcMainInvokeEvent, request: unknown) => {
     const ownerId = requireSshSender(event);
-    vaultSessionManager.getSnapshot();
+    // Session-bound channels are guarded by ownership: the session only exists if the vault was unlocked when it opened.
+    if (!(channel.startsWith('sftp:') && channel !== IPC_CHANNELS.sftpOpen)) vaultSessionManager.getSnapshot();
     const parsed = parseRequest(schema, request, 'files.invalidRequest');
     try { return await run(ownerId, parsed); } catch (error) { throw AppError.from(fileError(error)); }
   });
@@ -74,6 +76,7 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
       if (!connection) throw new FileError('files.connectionNotFound');
       return connection;
     },
+    getTimeouts: connection => effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, connection),
     verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);
@@ -92,6 +95,7 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
   handle(IPC_CHANNELS.sftpCancel, JobSchema, (ownerId, request) => manager.cancel(ownerId, request.sessionId, request.jobId));
   handle(IPC_CHANNELS.sftpResolve, ConflictSchema, (ownerId, request) =>
     manager.resolveConflict(ownerId, request.sessionId, request.conflictId, request.choice, request.applyToAll));
+  handle(IPC_CHANNELS.sftpVerify, JobSchema, (ownerId, request) => manager.verify(ownerId, request.sessionId, request.jobId));
   handle(IPC_CHANNELS.sftpClearFinished, SessionSchema, (ownerId, request) => manager.clearFinished(ownerId, request.sessionId));
   handle(IPC_CHANNELS.sftpState, SessionSchema, (ownerId, request) => manager.state(ownerId, request.sessionId));
   handle(IPC_CHANNELS.sftpChmod, ChmodSchema, (ownerId, request) => manager.chmod(ownerId, request.sessionId, request.paths, request.mode, request.recursive));

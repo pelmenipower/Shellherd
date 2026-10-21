@@ -1,11 +1,16 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { access, lstat, mkdir, readdir, realpath, rename, rmdir, stat, unlink, utimes } from 'node:fs/promises';
+import { access, lstat, mkdir, open, readdir, realpath, rename, rmdir, stat, unlink, utimes } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { win32 } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import { AppError, type CodedError } from '../../shared/errors';
 import type { FileEntry, LocalPlaces } from '../../shared/sftp';
+
+/** Positional access for the copy loop. `read` returns fewer bytes only at the end of the file. */
+export interface ReadHandle { read: (length: number, position: number) => Promise<Buffer>; close: () => Promise<void> }
+/** `write` resolves once every byte is confirmed (local: written, server: STATUS OK). `write` after `close` rejects without sending anything. */
+export interface WriteHandle { write: (data: Buffer, position: number) => Promise<void>; close: () => Promise<void> }
 
 /** One side of a transfer: this computer or a server. FTP becomes another implementation. */
 export interface FileSystem {
@@ -18,6 +23,9 @@ export interface FileSystem {
   read: (path: string) => Readable;
   /** Servers set `mode` on new and existing files alike (default 0644), so pass the old mode when overwriting; this computer ignores it. */
   write: (path: string, mode?: number) => Writable;
+  openRead: (path: string) => Promise<ReadHandle>;
+  /** `resume` opens an existing file without truncating (`r+`), otherwise the file is created or truncated. Servers apply `mode` (see `write`). */
+  openWrite: (path: string, mode?: number, resume?: boolean) => Promise<WriteHandle>;
   setModified: (path: string, modified: number) => Promise<void>;
   removeFile: (path: string) => Promise<void>;
   /** Only empty directories. */
@@ -90,6 +98,31 @@ export const localFileSystem: FileSystem = {
   mkdir: async path => { await mkdir(path); },
   read: path => createReadStream(path, { highWaterMark: 256 * 1024 }),
   write: path => createWriteStream(path),
+  openRead: async path => {
+    const handle = await open(path, 'r');
+    return { read: async (length, position) => {
+      const buffer = Buffer.allocUnsafe(length);
+      let got = 0;
+      // pread may return less than asked; only 0 means end of file.
+      while (got < length) {
+        const { bytesRead } = await handle.read(buffer, got, length - got, position + got);
+        if (!bytesRead) break;
+        got += bytesRead;
+      }
+      return buffer.subarray(0, got);
+    }, close: () => handle.close() };
+  },
+  openWrite: async (path, _mode, resume) => {
+    const handle = await open(path, resume ? 'r+' : 'w');
+    return { write: async (data, position) => {
+      for (let done = 0; done < data.length;) {
+        const { bytesWritten } = await handle.write(data, done, data.length - done, position + done);
+        // A write that makes no progress would spin forever.
+        if (!bytesWritten) throw Object.assign(new Error('short write'), { code: 'EIO' });
+        done += bytesWritten;
+      }
+    }, close: () => handle.close() };
+  },
   setModified: async (path, modified) => { await utimes(path, new Date(), new Date(modified)); },
   removeFile: path => unlink(path),
   removeDirectory: path => rmdir(path),

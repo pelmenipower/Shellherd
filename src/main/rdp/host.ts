@@ -141,6 +141,8 @@ export class RdpSessionManager {
   owns(ownerId: number, id: string): boolean { return this.sessions.get(id)?.ownerId === ownerId; }
   hasOwner(ownerId: number): boolean { return [...this.sessions.values()].some(session => session.ownerId === ownerId); }
 
+  hasConnected(): boolean { return [...this.sessions.values()].some(session => session.status === 'connected'); }
+
   /** Ends the helper: closing stdin makes it disconnect all sessions and exit; kill as fallback. */
   dispose(): void {
     const helper = this.helper;

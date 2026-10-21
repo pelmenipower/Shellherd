@@ -1,6 +1,7 @@
-import { ConnectionNodeSchema } from '../../shared/vault/schema';
+import { ConnectionNodeSchema, LOGIN_CONTROL, LOGIN_LIMITS } from '../../shared/vault/schema';
 import { CONNECTION_ICONS } from '../../shared/vault/appearance';
 import { PROTOCOLS } from '../../shared/vault/connections';
+import { TIMEOUT_LIMITS, parseBounded } from '../../shared/vault/timeouts';
 import { KUBE_NAME } from '../../shared/kubernetes';
 import type { Authentication, ConnectionNode, ConnectionProtocol, VaultNode } from '../../shared/vault/types';
 import { kubeconfigPathError, noAccessMessage } from './cluster-form';
@@ -28,6 +29,10 @@ export interface ConnectionFields {
   icon: string;
   /** SSH only: run container commands with sudo (stored password or sudo -n). */
   containerSudo: 'on' | 'off';
+  /** SSH only: become root after login (sudo -i). */
+  loginSudo: 'on' | 'off';
+  /** SSH only: start commands, one per line. */
+  loginCommands: string;
   /** Not editable in the form; carried over so saving never re-enables a connection. */
   disabled: 'on' | 'off';
   /** Kubernetes only: ordered SSH connection ids. */
@@ -38,7 +43,14 @@ export interface ConnectionFields {
   namespace: string;
   production: 'on' | 'off';
   readOnly: 'on' | 'off';
+  /** SSH/SFTP only: per-connection overrides; empty = inherit from the vault settings. */
+  idleMinutes: string;
+  keepaliveSeconds: string;
+  keepaliveCount: string;
+  connectSeconds: string;
 }
+
+const TIMEOUT_KEYS = ['idleMinutes', 'keepaliveSeconds', 'keepaliveCount', 'connectSeconds'] as const;
 
 /** Form fields that hold plain text and can be shown in a text input. */
 export type ConnectionTextField = { [K in keyof ConnectionFields]: ConnectionFields[K] extends string ? K : never }[keyof ConnectionFields];
@@ -58,9 +70,10 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
     tags: connection?.tags.join(', ') ?? '', color: connection?.color ?? '',
     icon: connection?.icon ?? PROTOCOLS[protocol].defaultIcon,
-    containerSudo: 'off',
+    containerSudo: 'off', loginSudo: 'off', loginCommands: '',
     disabled: connection?.disabled ? 'on' : 'off',
     accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
+    idleMinutes: '', keepaliveSeconds: '', keepaliveCount: '', connectSeconds: '',
   };
   if (connection?.protocol === 'ssh' || connection?.protocol === 'sftp' || connection?.protocol === 'rdp') {
     Object.assign(fields, { host: connection.host, port: String(connection.port), username: connection.username ?? '' });
@@ -72,9 +85,14 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
       password: auth.method === 'password' ? auth.password : '',
       keyPath: auth.method === 'privateKey' ? auth.keyPath : '',
       passphrase: auth.method === 'privateKey' ? auth.passphrase ?? '' : '',
+      ...Object.fromEntries(TIMEOUT_KEYS.map(key => [key, String(connection.timeouts?.[key] ?? '')])),
     });
   }
-  if (connection?.protocol === 'ssh') fields.containerSudo = connection.containers?.sudo ? 'on' : 'off';
+  if (connection?.protocol === 'ssh') {
+    fields.containerSudo = connection.containers?.sudo ? 'on' : 'off';
+    fields.loginSudo = connection.login?.sudo ? 'on' : 'off';
+    fields.loginCommands = (connection.login?.commands ?? []).join('\n');
+  }
   if (connection?.protocol === 'rdp') {
     Object.assign(fields, { password: connection.password ?? '', domain: connection.rdp.domain ?? '', clipboard: connection.rdp.clipboard ? 'on' : 'off' });
   }
@@ -95,6 +113,20 @@ function remoteTarget(fields: ConnectionFields): { host: string; port: number; u
   const port = Number(fields.port.trim());
   if (port < 1 || port > 65535) throw new ConnectionFieldError('port', t('connection:validation.portRange'));
   return { host: fields.host.trim(), port, ...(fields.username.trim() ? { username: fields.username.trim() } : {}) };
+}
+
+/** Trimmed start commands; errors carry the 1-based line number in the text field (blank lines counted). */
+function loginCommandLines(text: string): string[] {
+  const commands: string[] = [];
+  text.split(/\r?\n/).forEach((raw, index) => {
+    const line = raw.trim();
+    if (!line) return;
+    if (LOGIN_CONTROL.test(line)) throw new ConnectionFieldError('loginCommands', t('connection:validation.loginControlChars', { line: index + 1 }));
+    if (line.length > LOGIN_LIMITS.length) throw new ConnectionFieldError('loginCommands', t('connection:validation.loginLineTooLong', { line: index + 1, max: LOGIN_LIMITS.length }));
+    commands.push(line);
+  });
+  if (commands.length > LOGIN_LIMITS.lines) throw new ConnectionFieldError('loginCommands', t('connection:validation.loginTooManyLines', { max: LOGIN_LIMITS.lines }));
+  return commands;
 }
 
 /** Bindings are edited in the file view, never in the form: saving the form keeps the stored list. */
@@ -121,7 +153,17 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
     const authentication: Authentication = fields.method === 'agent' ? { method: 'agent' }
       : fields.method === 'password' ? { method: 'password', password: fields.password }
       : { method: 'privateKey', keyPath: fields.keyPath.trim(), ...(fields.passphrase ? { passphrase: fields.passphrase } : {}) };
-    node = { ...base, protocol, ...target, authentication, ...(protocol === 'ssh' && fields.containerSudo === 'on' ? { containers: { sudo: true } } : {}) };
+    const timeouts: Partial<Record<(typeof TIMEOUT_KEYS)[number], number>> = {};
+    for (const key of TIMEOUT_KEYS) {
+      if (!fields[key].trim()) continue;
+      const value = parseBounded(fields[key], TIMEOUT_LIMITS[key]);
+      if (value === null) throw new ConnectionFieldError(key, t('connection:validation.timeoutRange', { min: TIMEOUT_LIMITS[key][0], max: TIMEOUT_LIMITS[key][1] }));
+      timeouts[key] = value;
+    }
+    const commands = protocol === 'ssh' ? loginCommandLines(fields.loginCommands) : [];
+    const sudo = protocol === 'ssh' && fields.loginSudo === 'on';
+    node = { ...base, protocol, ...target, authentication, ...(Object.keys(timeouts).length ? { timeouts } : {}), ...(protocol === 'ssh' && fields.containerSudo === 'on' ? { containers: { sudo: true } } : {}),
+      ...(sudo || commands.length ? { login: { ...(sudo ? { sudo: true } : {}), ...(commands.length ? { commands } : {}) } } : {}) };
   } else if (protocol === 'rdp') {
     const target = remoteTarget(fields);
     const domain = fields.domain.trim();

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { PointerEvent } from 'react';
 import type { TerminalTab } from '../terminal-tabs';
-import { tabLabel } from '../terminal-tabs';
+import { isWelcomeTab, tabLabel } from '../terminal-tabs';
 import { statusWord } from '../status-words';
 import { ConnectionIcon } from './ConnectionIcon';
 import type { ConnectionNode } from '../../../shared/vault/types';
@@ -18,9 +18,14 @@ interface TerminalTabsProps {
   onSelect: (id: string | null) => void;
   onClose: (id: string) => void;
   onTabPointerDown: (id: string, event: PointerEvent<HTMLElement>) => void;
+  /** Right-click, Shift+F10 or the menu key on a tab; the caller decides whether a menu opens. */
+  onTabMenu?: (id: string, x: number, y: number) => void;
+  /** Tab that shows a name field instead of its button; `onRename` gets the typed name, or null when cancelled. */
+  renamingId?: string | null;
+  onRename?: (id: string, title: string | null) => void;
 }
 
-export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect, onClose, onTabPointerDown, showEditor = true, allTabs = tabs, label: barLabel }: TerminalTabsProps) {
+export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect, onClose, onTabPointerDown, onTabMenu, renamingId = null, onRename, showEditor = true, allTabs = tabs, label: barLabel }: TerminalTabsProps) {
   const { t } = useT();
   const barRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -46,14 +51,32 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
         {t('terminal:tabs.editor')}
       </button>}
       {tabs.map(tab => {
-        const label = tabLabel(tab, allTabs);
+        const welcome = isWelcomeTab(tab);
+        const label = welcome ? t('terminal:tabs.welcome') : tabLabel(tab, allTabs);
+        if (renamingId === tab.id && onRename) return <div className="terminal-tab-item" data-active={activeTabId === tab.id} key={tab.id}>
+          <input className="view-rename" aria-label={t('terminal:tabs.renameLabel')} autoFocus defaultValue={label} onFocus={event => event.target.select()}
+            onBlur={event => onRename(tab.id, event.currentTarget.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter') onRename(tab.id, event.currentTarget.value);
+              if (event.key === 'Escape') onRename(tab.id, null);
+            }} />
+        </div>;
         return <div className="terminal-tab-item" data-active={activeTabId === tab.id} key={tab.id}>
           <button className="terminal-tab" id={`tab-${tab.id}`} type="button" role="tab" data-tab-id={tab.id}
             draggable={false} onPointerDown={event => onTabPointerDown(tab.id, event)}
+            onContextMenu={event => {
+              if (!onTabMenu || disabled) return;
+              event.preventDefault();
+              // Keyboard triggers may report no coordinates: anchor at the tab instead.
+              const rect = event.currentTarget.getBoundingClientRect();
+              const atOrigin = event.clientX === 0 && event.clientY === 0;
+              onTabMenu(tab.id, atOrigin ? rect.left : event.clientX, atOrigin ? rect.bottom : event.clientY);
+            }}
             aria-controls={`terminal-${tab.id}`} aria-selected={activeTabId === tab.id}
-            tabIndex={activeTabId === tab.id ? 0 : -1} disabled={disabled} onClick={() => onSelect(tab.id)} title={`${label} · ${connectionAddress(tab)} · ${statusWord(tab.status, 'short')}`}>
-            <span className={`tab-status tab-status-${tab.status}`} aria-label={statusWord(tab.status, 'short')} />
-            <ConnectionIcon {...appearance.get(tab.connection.id)} />
+            tabIndex={activeTabId === tab.id ? 0 : -1} disabled={disabled} onClick={() => onSelect(tab.id)} data-fixed={welcome || undefined}
+            title={welcome ? label : `${label} · ${connectionAddress(tab)} · ${statusWord(tab.status, 'short')}`}>
+            {!welcome && <span className={`tab-status tab-status-${tab.status}`} aria-label={statusWord(tab.status, 'short')} />}
+            {!welcome && <ConnectionIcon {...appearance.get(tab.connection.id)} />}
             <span className="tab-name">{label}</span>
           </button>
           <button className="terminal-tab-close" type="button" disabled={disabled} aria-label={t('terminal:tabs.closeAria', { label })} title={t('terminal:tabs.closeTitle', { label })}

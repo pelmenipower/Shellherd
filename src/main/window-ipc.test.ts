@@ -7,7 +7,7 @@ vi.mock('./vault/ipc', () => ({ vaultSessionManager: {} }));
 vi.mock('./drag-ghost', () => ({ DragGhost: class {}, tearOffBounds: vi.fn() }));
 vi.mock('./windows', () => ({ visibleBounds: vi.fn() }));
 
-import { moveSession, type TransferTab } from './window-ipc';
+import { TabConnectionSchema, moveSession, type TransferTab } from './window-ipc';
 
 const target = { webContents: { id: 2 } } as BrowserWindow;
 const connection: TransferTab['connection'] = { id: 'c1', name: 'srv', protocol: 'ssh', address: 'host' };
@@ -32,5 +32,12 @@ describe('moveSession', () => {
     const broken = owner(() => { throw new Error('boom'); });
     const owners = { ssh: broken, rdp: broken, sftp: broken };
     expect(() => moveSession(owners as never, 1, { connection, status: 'connected', session }, target)).toThrow('boom');
+  });
+});
+
+describe('TabConnectionSchema', () => {
+  it('rejects the welcome page, which never travels between windows', () => {
+    expect(TabConnectionSchema.safeParse({ id: 'welcome', name: 'x', protocol: 'cmd', address: '', view: 'welcome' }).success).toBe(false);
+    expect(TabConnectionSchema.safeParse({ id: 'c1', name: 'x', protocol: 'cmd', address: '', view: 'files' }).success).toBe(true);
   });
 });

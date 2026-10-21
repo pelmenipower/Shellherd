@@ -37,6 +37,16 @@ describe('helper error lines', () => {
   });
 });
 
+describe('hasConnected', () => {
+  it('is false without a session and true once the login completed', () => {
+    const { manager, sessionId, receive } = openSession(vi.fn());
+    expect(new RdpSessionManager({ executable: 'x', mode: 'owned' as never, getTarget: () => ({ host: 'h', port: 3389, clipboard: false }), emit: vi.fn() }).hasConnected()).toBe(false);
+    expect(manager.hasConnected()).toBe(false);
+    receive(JSON.stringify({ type: 'status', sessionId, status: 'loginComplete' }));
+    expect(manager.hasConnected()).toBe(true);
+  });
+});
+
 describe('splitAccount', () => {
   it('splits DOMAIN\\user and keeps UPNs and plain names intact', () => {
     expect(splitAccount('EXAMPLE\\administrator')).toEqual({ domain: 'EXAMPLE', username: 'administrator' });

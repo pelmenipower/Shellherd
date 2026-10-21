@@ -44,6 +44,19 @@ export interface TransferJob {
   doneFiles: number;
   skippedFiles: number;
   current?: string;
+  /** Smoothed rate of the running copy; absent in the first second, while a conflict question is open and after the end. */
+  bytesPerSecond?: number;
+  /** Absolute paths on the source side as requested; moved top-level files leave the list. Absent for auto-upload. */
+  sources?: string[];
+  /** Target-side paths of half-written .part files: set while files are copied, kept after a cancel or failure, gone after the swap. */
+  partials?: string[];
+  /** Bytes taken over from leftover .part files when the copy continued (sum over the job). */
+  resumedFrom?: number;
+  /** A leftover .part did not match the source and was discarded; the copy started over. */
+  restarted?: boolean;
+  /** "Prüfen": sha256 of every copied file on both sides; `mismatched` names the files that differ. */
+  verify?: 'running' | 'ok' | 'mismatch';
+  mismatched?: string[];
   error?: CodedError;
 }
 

@@ -53,6 +53,8 @@
   --size-dot: 8px;
   /* Notice text: narrowest width before the buttons move to a second row */
   --toast-text-min: 200px;
+  /* Short number inputs (settings): four digits plus padding and border */
+  --input-number: calc(6ch + 2 * var(--space-8) + 2px);
 
   /* Radii */
   --radius-sm: 4px; --radius-md: 5px; --radius-lg: 8px; --radius-pill: 999px;

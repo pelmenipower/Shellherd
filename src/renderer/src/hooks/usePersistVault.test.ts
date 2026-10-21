@@ -12,15 +12,17 @@ const vaultOf = (name: string) => ({ id: name, nodes: [], workspaces: [] }) as u
 function setup(save: PersistDeps['save'], current: Vault | null = vaultOf('old')) {
   const calls: string[] = [];
   let live = current;
+  const epoch = { current: 0 };
   const deps: PersistDeps = {
     vault: () => live,
     setVault: vault => { live = vault; calls.push(`vault:${vault.id}`); },
     setVaultPath: path => calls.push(`path:${path}`),
     setBusy: busy => calls.push(`busy:${busy}`),
     setSaved: saved => calls.push(`saved:${saved}`),
+    epoch: () => epoch.current,
     save,
   };
-  return { deps, calls, setLive: (vault: Vault) => { live = vault; } };
+  return { deps, calls, epoch, setLive: (vault: Vault) => { live = vault; } };
 }
 
 describe('persistVaultWith', () => {
@@ -52,6 +54,19 @@ describe('persistVaultWith', () => {
     action.run();
     expect(info).toHaveBeenCalledWith(t('app:notices.notRetried'), { body: t('app:notices.retryChanged') });
     expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('changes nothing when the vault was locked while saving', async () => {
+    const error = vi.spyOn(notify, 'error').mockImplementation(() => undefined as never);
+    const result = { vault: vaultOf('saved'), filePath: 'a.vault' } as unknown as VaultSessionResult;
+    for (const outcome of [async () => result, async () => { throw new Error('x'); }]) {
+      const inProgress = { current: false };
+      const { deps, calls, epoch } = setup(async () => { epoch.current += 1; return outcome(); });
+      expect(await persistVaultWith(deps, inProgress, vaultOf('new'))).toBe(false);
+      expect(calls).toEqual(['saved:false', 'busy:true', 'vault:new', 'busy:false']);
+      expect(inProgress.current).toBe(false);
+    }
+    expect(error).not.toHaveBeenCalled();
   });
 
   it('returns false while a save is in progress or without a vault', async () => {

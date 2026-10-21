@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { AiSettings, Vault } from '../../shared/vault/types';
 import { exampleVault } from '../../shared/vault/example';
 import { i18n } from './i18n';
-import { aiProviderSummary, settingsSections, withConfirmBeforeClosing } from './settings-sections';
+import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
+import { aiProviderSummary, settingsSections, withAutoLockMinutes, withConfirmBeforeClosing, withTimeouts } from './settings-sections';
 
 afterEach(async () => { await i18n.changeLanguage('de-DE'); });
 
@@ -16,7 +17,7 @@ describe('settingsSections', () => {
 
   it('offers all sections with a vault', () => {
     const vault = { ...exampleVault } satisfies Vault;
-    expect(settingsSections(vault)).toEqual(['general', 'vault', 'assistant']);
+    expect(settingsSections(vault)).toEqual(['general', 'vault', 'connections', 'assistant']);
   });
 });
 
@@ -50,5 +51,30 @@ describe('withConfirmBeforeClosing', () => {
     expect(next).not.toBe(settings);
     expect(next).toEqual({ theme: 'dark', autoLockMinutes: 7, confirmBeforeClosingSession: false });
     expect(settings.confirmBeforeClosingSession).toBe(true);
+  });
+});
+
+describe('withAutoLockMinutes', () => {
+  it('returns a new object and changes only the minutes', () => {
+    const settings = { theme: 'dark', autoLockMinutes: 7, confirmBeforeClosingSession: true } as const;
+    const next = withAutoLockMinutes(settings, 20);
+    expect(next).not.toBe(settings);
+    expect(next).toEqual({ theme: 'dark', autoLockMinutes: 20, confirmBeforeClosingSession: true });
+  });
+});
+
+describe('withTimeouts', () => {
+  const base = { theme: 'dark', autoLockMinutes: 7, confirmBeforeClosingSession: true } as const;
+
+  it('stores the full object with defaults plus the patch when the vault has none', () => {
+    expect(withTimeouts(base, { idleMinutes: 30 }).timeouts).toEqual({ ...DEFAULT_TIMEOUTS, idleMinutes: 30 });
+  });
+
+  it('changes only the patched key of an existing object', () => {
+    const settings = { ...base, timeouts: { idleMinutes: 5, keepaliveSeconds: 20, keepaliveCount: 4, connectSeconds: 60 } };
+    const next = withTimeouts(settings, { keepaliveCount: 6 });
+    expect(next.timeouts).toEqual({ idleMinutes: 5, keepaliveSeconds: 20, keepaliveCount: 6, connectSeconds: 60 });
+    expect(settings.timeouts.keepaliveCount).toBe(4);
+    expect(next.autoLockMinutes).toBe(7);
   });
 });

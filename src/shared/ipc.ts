@@ -13,6 +13,11 @@ import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlace
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
 
+/** Sent to every window when the vault locks; without minutes = manual lock. */
+export interface VaultLockedInfo { minutes?: number }
+/** disconnect: end every session and close secondary windows (switching to another vault file). */
+export interface LockVaultRequest { disconnect?: boolean }
+
 export const IPC_CHANNELS = {
   getVersion: 'app:get-version',
   readClipboardText: 'clipboard:read-text',
@@ -23,6 +28,9 @@ export const IPC_CHANNELS = {
   unlockVault: 'vault:unlock',
   saveCurrentVault: 'vault:save-current',
   lockVault: 'vault:lock',
+  vaultActivity: 'vault:activity',
+  vaultLocked: 'vault:locked',
+  vaultUnlocked: 'vault:unlocked',
   sshPrepare: 'ssh:prepare',
   sshConnect: 'ssh:connect',
   sshInput: 'ssh:input',
@@ -47,6 +55,7 @@ export const IPC_CHANNELS = {
   sftpTransfer: 'sftp:transfer',
   sftpCancel: 'sftp:cancel',
   sftpResolve: 'sftp:resolve',
+  sftpVerify: 'sftp:verify',
   sftpClearFinished: 'sftp:clear-finished',
   sftpState: 'sftp:state',
   sftpClose: 'sftp:close',
@@ -192,6 +201,7 @@ export interface DesktopApi {
   sftpTransfer: (request: SftpTransferRequest) => Promise<{ jobId: string }>;
   sftpCancel: (request: SftpJobRequest) => Promise<void>;
   sftpResolve: (request: SftpConflictAnswer) => Promise<void>;
+  sftpVerify: (request: SftpJobRequest) => Promise<void>;
   sftpClearFinished: (request: SftpSessionRequest) => Promise<void>;
   sftpState: (request: SftpSessionRequest) => Promise<SftpSessionState>;
   sftpClose: (request: SftpSessionRequest) => Promise<void>;
@@ -282,5 +292,9 @@ export interface DesktopApi {
     request: SaveCurrentVaultRequest,
   ) => Promise<VaultSessionResult>;
 
-  lockVault: () => Promise<void>;
+  lockVault: (request?: LockVaultRequest) => Promise<void>;
+  /** Reports mouse or keyboard use to the auto-lock; fire-and-forget. */
+  vaultActivity: () => void;
+  onVaultLocked: (listener: (info: VaultLockedInfo) => void) => () => void;
+  onVaultUnlocked: (listener: () => void) => () => void;
 }

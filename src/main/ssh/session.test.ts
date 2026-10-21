@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Server } from 'ssh2';
+import { Client, Server } from 'ssh2';
 import type { Connection, ServerChannel, PseudoTtyOptions } from 'ssh2';
 import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import type { SshEvent, TerminalSize } from '../../shared/ssh';
@@ -17,6 +17,8 @@ import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import { connectionFingerprint, SudoRejections } from '../containers/sudo-rejections';
+import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
+import type { ConnectionTimeouts } from '../../shared/vault/types';
 
 const hostKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
 let server: Server;
@@ -29,6 +31,11 @@ let shell: ServerChannel | undefined;
 let shells: ServerChannel[];
 let execCommands: string[];
 let sudoInput: string[];
+let shellInput: string[];
+/** Root shell via the password script: how the fake sudo behaves (the command carries no container name). */
+let loginSudo: 'prompt' | 'wrong' | 'nocache' | 'nopasswd' | 'quiet' | 'double';
+/** Root shell for key login: sudo -n true succeeds, or sudo asks on the terminal. */
+let manualSudo: 'nopasswd' | 'prompt';
 let size: PseudoTtyOptions | undefined;
 let autoAck: boolean;
 let sudoRejections: SudoRejections;
@@ -52,8 +59,10 @@ function prepare() { return manager.prepare(1, { connectionId: connection.id, co
 function simulateTtySudo(stream: ServerChannel, command: string): void {
   const marker = /\[terminus-sudo-[0-9a-f]{16}\]/.exec(command)![0];
   const ready = /\[terminus-ready-[0-9a-f]{16}\]/.exec(command)![0];
-  const expected = command.includes('sudo-wrong') ? 'other-synthetic-password' : 'synthetic-password';
-  let answered = command.includes('nopasswd');
+  const login = command.includes('sudo -n -i');
+  const flag = (name: string, mode: typeof loginSudo): boolean => login ? loginSudo === mode : command.includes(name);
+  const expected = flag('sudo-wrong', 'wrong') ? 'other-synthetic-password' : 'synthetic-password';
+  let answered = flag('nopasswd', 'nopasswd');
   let line = '';
   stream.on('data', (data: Buffer) => {
     sudoInput.push(data.toString('utf8'));
@@ -67,10 +76,10 @@ function simulateTtySudo(stream: ServerChannel, command: string): void {
     if (end === -1) return;
     const attempt = line.slice(0, end);
     line = '';
-    if (attempt === expected && command.includes('sudo-nocache')) {
+    if (attempt === expected && flag('sudo-nocache', 'nocache')) {
       stream.write(`\r\n${ready}sudo: a password is required\r\n`); stream.exit(1); stream.end(); return;
     }
-    if (attempt === expected) { answered = true; stream.write('\r\n'); stream.write(`${ready}sudo-ok\r\n`); return; }
+    if (attempt === expected) { answered = true; stream.write('\r\n'); stream.write(`${ready}${loginSudo === 'double' ? ready : ''}sudo-ok\r\n`); return; }
     stream.write(`\r\nSorry, try again.\r\n${marker}`);
   });
   if (answered) { stream.write(ready); stream.write('exec-ready\r\n'); return; }
@@ -85,7 +94,7 @@ function simulateTtySudo(stream: ServerChannel, command: string): void {
     stream.write(`notice\r\n${marker.slice(0, 9)}`);
     stream.write(marker.slice(9));
   };
-  if (command.includes('sudo-quiet')) {
+  if (flag('sudo-quiet', 'quiet')) {
     stream.write('starting\r\n');
     quietPrompt = prompt;
     quietCrash = () => { stream.stderr.write('sudo: unable to resolve host\r\n'); stream.exit(1); stream.end(); };
@@ -93,13 +102,30 @@ function simulateTtySudo(stream: ServerChannel, command: string): void {
   }
   prompt();
 }
+/** Key login: `sudo -n true || { echo HINT; sudo -v; }`, then READY and an echoing shell. */
+function simulateManualSudo(stream: ServerChannel, command: string): void {
+  const ready = /\[terminus-ready-[0-9a-f]{16}\]/.exec(command)![0];
+  const echo = (): void => { stream.on('data', (data: Buffer) => { sudoInput.push(data.toString('utf8')); stream.write(data); }); };
+  if (manualSudo === 'nopasswd') { stream.write(ready); echo(); return; }
+  stream.write(`${/echo '\\''(.*?)'\\''/.exec(command)![1]}\r\n[sudo] password for synthetic-user: `);
+  let line = '';
+  const onLine = (data: Buffer): void => {
+    sudoInput.push(data.toString('utf8'));
+    line += data.toString('utf8');
+    if (!/[\r\n]/.test(line)) return;
+    stream.off('data', onLine);
+    stream.write(`\r\n${ready}`);
+    echo();
+  };
+  stream.on('data', onLine);
+}
 let quietPrompt: (() => void) | undefined;
 let quietCrash: (() => void) | undefined;
 let openPrompts = new Set<ServerChannel>();
 let mostOpenPrompts = 0;
 
 beforeEach(async () => {
-  events = []; peers = []; shell = undefined; shells = []; execCommands = []; sudoInput = []; size = undefined; autoAck = true; quietPrompt = undefined; quietCrash = undefined; openPrompts = new Set(); mostOpenPrompts = 0;
+  events = []; peers = []; shell = undefined; shells = []; execCommands = []; sudoInput = []; shellInput = []; loginSudo = 'prompt'; manualSudo = 'nopasswd'; size = undefined; autoAck = true; quietPrompt = undefined; quietCrash = undefined; openPrompts = new Set(); mostOpenPrompts = 0;
   sudoRejections = new SudoRejections();
   server = new Server({ hostKeys: [hostKey] }, peer => {
     peers.push(peer);
@@ -118,12 +144,13 @@ beforeEach(async () => {
         shell = stream; shells.push(stream);
         stream.on('error', () => {});
         stream.write('synthetic-ready\r\n');
-        stream.on('data', (data: Buffer) => { stream.write(data); });
+        stream.on('data', (data: Buffer) => { shellInput.push(data.toString('utf8')); stream.write(data); });
       });
       session.on('exec', (acceptExec, _reject, info) => {
         execCommands.push(info.command);
         const stream = acceptExec();
         stream.on('error', () => {});
+        if (info.command.includes('sudo -n true')) { simulateManualSudo(stream, info.command); return; }
         if (info.command.includes(' -v && printf')) { simulateTtySudo(stream, info.command); return; }
         if (info.command.includes('missing')) { stream.stderr.write('Error response from daemon: No such container: missing\r\n'); stream.exit(1); stream.end(); return; }
         if (info.command.includes('exits-ok')) { stream.write('bye\r\n'); stream.exit(0); stream.end(); return; }
@@ -510,6 +537,169 @@ describe('SSH session manager with a real local SSH server', () => {
   });
 });
 
+describe('root shell and start commands after login', () => {
+  const commands = ['uptime', 'df -h /'];
+  const web = { kind: 'container' as const, runtime: 'docker' as const, ref: 'web-1', name: 'web-1' };
+  const typed = 'uptime\rdf -h /\r';
+  const prepareLogin = () => manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24 }).sessionId;
+  const useKey = async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'terminus-ssh-key-test-')); directories.push(directory);
+    const keyPath = join(directory, 'synthetic.pem');
+    await writeFile(keyPath, generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' }));
+    connection = { ...connection, authentication: { method: 'privateKey', keyPath } };
+  };
+
+  it('answers the marker prompt once, then types the commands after the ready marker', async () => {
+    connection = { ...connection, login: { sudo: true, commands } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => output().includes('df -h /'));
+    expect(execCommands).toHaveLength(1);
+    expect(execCommands[0]).toMatch(/sudo -p .*\[terminus-sudo-[0-9a-f]{16}\].* -v && printf %s .*\[terminus-ready-[0-9a-f]{16}\].* && sudo -n -i; exit \$\?/);
+    expect(execCommands[0]).not.toContain('synthetic-password');
+    expect(execCommands[0]).not.toContain('uptime');
+    expect(sudoInput[0]).toBe('synthetic-password\n');
+    expect(sudoInput.join('')).toBe(`synthetic-password\n${typed}`);
+    expect(output()).not.toContain('terminus-');
+    expect(JSON.stringify(events)).not.toContain('synthetic-password');
+    expect(shells).toHaveLength(0);
+    expect(hasStatus('error')).toBe(false);
+  });
+
+  it('sends the commands only once even if the ready marker appears twice', async () => {
+    loginSudo = 'double';
+    connection = { ...connection, login: { sudo: true, commands } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => output().includes('df -h /'));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(sudoInput.join('')).toBe(`synthetic-password\n${typed}`);
+  });
+
+  it('ends with ssh.loginSudoRejected on a wrong password, sends nothing else and remembers it', async () => {
+    loginSudo = 'wrong';
+    connection = { ...connection, login: { sudo: true, commands } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'status', status: 'error', error: { code: 'ssh.loginSudoRejected' } }));
+    expect(sudoInput.join('')).toBe('synthetic-password\n');
+    expect(output()).not.toContain('terminus-');
+    expect(JSON.stringify(events)).not.toContain('synthetic-password');
+    expect(sudoRejections.isRejected(connection.id, connectionFingerprint(connection))).toBe(true);
+    events = [];
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: { code: 'ssh.loginSudoRejected' } }));
+    expect(peers).toHaveLength(1);
+    expect(execCommands).toHaveLength(1);
+  });
+
+  it('fails without contacting the host when a rejection is already remembered', async () => {
+    connection = { ...connection, login: { sudo: true, commands } };
+    sudoRejections.markRejected(connection.id, connectionFingerprint(connection));
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: { code: 'ssh.loginSudoRejected' } }));
+    expect(peers).toHaveLength(0);
+  });
+
+  it('refuses a password with a line break for login.sudo before connecting', async () => {
+    connection = { ...connection, authentication: { method: 'password', password: 'synthetic\npassword' }, login: { sudo: true, commands } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: expect.objectContaining({ code: 'containers.passwordLineBreak' }) }));
+    expect(execCommands).toEqual([]);
+    expect(peers).toHaveLength(0);
+    expect(JSON.stringify(events)).not.toContain('synthetic\\npassword');
+  });
+
+  it('never sends the password when sudo does not ask (cache or NOPASSWD)', async () => {
+    loginSudo = 'nopasswd';
+    connection = { ...connection, login: { sudo: true, commands } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => output().includes('df -h /'));
+    expect(sudoInput.join('')).toBe(typed);
+    expect(sudoInput.join('')).not.toContain('synthetic-password');
+    expect(output()).not.toContain('terminus-');
+    expect(JSON.stringify(events)).not.toContain('synthetic-password');
+  });
+
+  it('explains a server that does not cache sudo credentials', async () => {
+    loginSudo = 'nocache';
+    connection = { ...connection, login: { sudo: true } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: { code: 'containers.sudoNotCached' } }));
+  });
+
+  it('with a key and NOPASSWD it needs no password and types the commands after the ready marker', async () => {
+    await useKey();
+    manualSudo = 'nopasswd';
+    connection = { ...connection, login: { sudo: true, commands } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => output().includes('df -h /'));
+    expect(execCommands[0]).toContain('sudo -n true 2>/dev/null ||');
+    expect(execCommands[0]).toContain('sudo -n -i; exit $?');
+    expect(execCommands[0]).not.toContain('uptime');
+    expect(sudoInput.join('')).toBe(typed);
+    expect(output()).not.toContain('terminus-');
+    expect(output()).not.toContain('sudo verlangt');
+  });
+
+  it('with a key and no NOPASSWD it prints the hint, leaves the input open and types the commands after the password', async () => {
+    await useKey();
+    manualSudo = 'prompt';
+    connection = { ...connection, login: { sudo: true, commands } };
+    const id = prepareLogin();
+    await manager.connect(1, id);
+    await waitFor(() => output().includes('[sudo] password for synthetic-user: '));
+    expect(output()).toContain('[Shellherd] sudo verlangt ein Passwort (kein NOPASSWD) – bitte eingeben.');
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(sudoInput).toEqual([]);
+    await manager.input(1, id, 'manual-secret\r');
+    await waitFor(() => output().includes('df -h /'));
+    expect(sudoInput.join('')).toBe(`manual-secret\r${typed}`);
+    expect(output()).not.toContain('terminus-');
+    expect(hasStatus('error')).toBe(false);
+  });
+
+  it('types commands into a plain shell right after attach when root is not requested', async () => {
+    connection = { ...connection, login: { commands } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => output().includes('df -h /'));
+    expect(shells).toHaveLength(1);
+    expect(execCommands).toEqual([]);
+    expect(shellInput.join('')).toBe(typed);
+  });
+
+  it('after a timeout it hints, never answers a late prompt and never types the commands', async () => {
+    loginSudo = 'quiet';
+    manager = new SshSessionManager({ getConnection: () => structuredClone(connection), verifyHost: async () => true, spawnShell: noShell,
+      sudoRejections, sudoReadyTimeoutMs: 150, emit: (owner, event) => {
+        events.push(event);
+        if (event.type === 'data') manager.acknowledge(owner, event.sessionId, event.sequence);
+      } });
+    connection = { ...connection, login: { sudo: true, commands } };
+    await manager.connect(1, prepareLogin());
+    await waitFor(() => output().includes('Die Startbefehle werden nicht gesendet.'));
+    expect(output()).toContain('[Shellherd] sudo hat nicht wie erwartet geantwortet – bitte selbst eingeben. Die Startbefehle werden nicht gesendet.');
+    quietPrompt!();
+    await waitFor(() => /notice\r\n\[terminus-sudo-[0-9a-f]{16}\]/.test(output()));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(sudoInput).toEqual([]);
+    expect(hasStatus('error')).toBe(false);
+  });
+
+  it('ignores the login block in container tabs', async () => {
+    connection = { ...connection, containers: { sudo: true }, login: { sudo: true, commands } };
+    const id = manager.prepare(1, { connectionId: connection.id, cols: 80, rows: 24, target: { item: web, mode: 'shell' } }).sessionId;
+    await manager.connect(1, id);
+    await waitFor(() => output().includes('sudo-ok'));
+    expect(execCommands[0]).toContain('sudo -n docker exec -it web-1');
+    expect(execCommands[0]).not.toContain('sudo -n -i');
+    expect(sudoInput.join('')).toBe('synthetic-password\n');
+    manager.close(1, id);
+  });
+});
+
 describe('Kubernetes pod terminals', () => {
   const target: KubeTerminalTarget = { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'logs' };
   const cluster = (id: string, readOnly: boolean): KubernetesConnectionNode => ({ id, type: 'connection', protocol: 'kubernetes', name: 'Synthetic cluster',
@@ -646,6 +836,87 @@ describe('Kubernetes pod terminals', () => {
     expect(kubeOutput(id)).toBe('before\r\nheld\r\n');
     expect(kubeEvents[kubeEvents.length - 1]).toMatchObject({ owner: 2, event: { type: 'data' } });
     expect(streamCalls).toEqual(['pause', 'resume']);
+  });
+});
+
+describe('idle disconnect', () => {
+  const minute = 60_000;
+  const cluster: KubernetesConnectionNode = { id: 'k1', type: 'connection', protocol: 'kubernetes', name: 'Synthetic cluster',
+    tags: [], accessHosts: [], kubeconfig: { source: 'auto' }, production: false, readOnly: false };
+  const stream: KubeStream = { write: () => {}, resize: () => {}, pause: () => {}, resume: () => {}, close: () => {} };
+  let idleEvents: SshEvent[];
+  let io: TerminalIo;
+  let idle: SshSessionManager;
+  let timeouts: ConnectionTimeouts;
+  const last = () => idleEvents.flatMap(event => event.type === 'status' ? [event] : []).pop();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    idleEvents = []; timeouts = { ...DEFAULT_TIMEOUTS, idleMinutes: 1 };
+    idle = new SshSessionManager({ getConnection: () => structuredClone(cluster), verifyHost: async () => true, spawnShell: noShell,
+      getTimeouts: () => timeouts, emit: (owner, event) => { idleEvents.push(event); if (event.type === 'data') idle.acknowledge(owner, event.sessionId, event.sequence); },
+      openKubeTerminal: async (_id, _target, _size, terminalIo) => { io = terminalIo; return stream; } });
+  });
+  afterEach(() => { idle.closeAll(); vi.useRealTimers(); });
+
+  async function open(): Promise<string> {
+    const id = idle.prepare(1, { connectionId: 'k1', cols: 80, rows: 24, kube: { namespace: 'shop', pod: 'api-1', container: 'api', mode: 'shell' } }).sessionId;
+    await idle.connect(1, id);
+    return id;
+  }
+
+  it('closes with code idle after a minute without input or output', async () => {
+    await open();
+    await vi.advanceTimersByTimeAsync(minute - 1);
+    expect(last()).toMatchObject({ status: 'connected' });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(last()).toMatchObject({ status: 'closed', code: 'idle' });
+    expect(idle.hasOwner(1)).toBe(false);
+  });
+
+  it('extends the time on output and input', async () => {
+    const id = await open();
+    await vi.advanceTimersByTimeAsync(59_000);
+    io.data(Buffer.from('x'));
+    await vi.advanceTimersByTimeAsync(59_000);
+    await idle.input(1, id, 'ls\r');
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(last()).toMatchObject({ status: 'connected' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(last()).toMatchObject({ code: 'idle' });
+  });
+
+  it('sets no timer for 0 minutes and leaves none behind after close', async () => {
+    timeouts = { ...DEFAULT_TIMEOUTS, idleMinutes: 0 };
+    const zero = vi.getTimerCount();
+    const id = await open();
+    expect(vi.getTimerCount()).toBe(zero);
+    timeouts = { ...DEFAULT_TIMEOUTS, idleMinutes: 1 };
+    const second = await open();
+    expect(vi.getTimerCount()).toBe(zero + 1);
+    idle.close(1, second);
+    idle.close(1, id);
+    expect(vi.getTimerCount()).toBe(zero);
+  });
+});
+
+describe('SSH timeouts', () => {
+  it('passes the timeouts to the ssh2 connect call and arms the idle timer', async () => {
+    const connect = vi.spyOn(Client.prototype, 'connect');
+    const timer = vi.spyOn(globalThis, 'setTimeout');
+    const getTimeouts = vi.fn(() => ({ idleMinutes: 1, keepaliveSeconds: 7, keepaliveCount: 2, connectSeconds: 30 }));
+    const timed = new SshSessionManager({ getConnection: () => structuredClone(connection), verifyHost: async () => true, spawnShell: noShell,
+      getTimeouts, emit: (_owner, event) => events.push(event) });
+    try {
+      const id = timed.prepare(1, { connectionId: connection.id, cols: 80, rows: 24 }).sessionId;
+      await timed.connect(1, id);
+      await waitFor(() => hasStatus('connected'));
+      expect(getTimeouts).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }));
+      expect(connect).toHaveBeenCalledWith(expect.objectContaining({ readyTimeout: 30_000, keepaliveInterval: 7_000, keepaliveCountMax: 2 }));
+      expect(timer).toHaveBeenCalledWith(expect.any(Function), 60_000);
+    } finally {
+      timed.closeAll(); connect.mockRestore(); timer.mockRestore();
+    }
   });
 });
 
