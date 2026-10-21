@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Server } from 'ssh2';
+import { Client, Server } from 'ssh2';
 import type { Connection, ServerChannel, PseudoTtyOptions } from 'ssh2';
 import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import type { SshEvent, TerminalSize } from '../../shared/ssh';
@@ -709,6 +709,26 @@ describe('idle disconnect', () => {
     idle.close(1, second);
     idle.close(1, id);
     expect(vi.getTimerCount()).toBe(zero);
+  });
+});
+
+describe('SSH timeouts', () => {
+  it('passes the timeouts to the ssh2 connect call and arms the idle timer', async () => {
+    const connect = vi.spyOn(Client.prototype, 'connect');
+    const timer = vi.spyOn(globalThis, 'setTimeout');
+    const getTimeouts = vi.fn(() => ({ idleMinutes: 1, keepaliveSeconds: 7, keepaliveCount: 2, connectSeconds: 30 }));
+    const timed = new SshSessionManager({ getConnection: () => structuredClone(connection), verifyHost: async () => true, spawnShell: noShell,
+      getTimeouts, emit: (_owner, event) => events.push(event) });
+    try {
+      const id = timed.prepare(1, { connectionId: connection.id, cols: 80, rows: 24 }).sessionId;
+      await timed.connect(1, id);
+      await waitFor(() => hasStatus('connected'));
+      expect(getTimeouts).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }));
+      expect(connect).toHaveBeenCalledWith(expect.objectContaining({ readyTimeout: 30_000, keepaliveInterval: 7_000, keepaliveCountMax: 2 }));
+      expect(timer).toHaveBeenCalledWith(expect.any(Function), 60_000);
+    } finally {
+      timed.closeAll(); connect.mockRestore(); timer.mockRestore();
+    }
   });
 });
 

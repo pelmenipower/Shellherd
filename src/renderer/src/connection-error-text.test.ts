@@ -64,9 +64,3 @@ describe('connectionError idle', () => {
     expect(connectionError('idle', ctx)).toMatchObject({ title: 'Wegen Leerlauf getrennt', primary: 'retry' });
   });
 });
-
-describe('connectionError idle', () => {
-  it('offers a plain reconnect like closed-by-server', () => {
-    expect(connectionError('idle', ctx)).toMatchObject({ title: 'Wegen Leerlauf getrennt', primary: 'retry' });
-  });
-});

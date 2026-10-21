@@ -268,13 +268,14 @@ app.whenReady().then(() => {
     guard: event => windowRegistry.requireMain(event),
   });
   // Same path as the manual lock (sessions, secondary windows, key); only the notice to the main window is new.
-  const lockNow = (): void => { closeAllSessions(); closeSecondaryWindows(); vaultSessionManager.lock(); };
+  const lockNow = (): void => { try { closeAllSessions(); closeSecondaryWindows(); } finally { vaultSessionManager.lock(); } };
   autoLock = new AutoLock({
     minutes: () => vaultSessionManager.isUnlocked() ? vaultSessionManager.getSnapshot().vault.settings.autoLockMinutes : 0,
     lock: minutes => {
-      lockNow();
-      const main = windowRegistry.main();
-      if (main && !main.isDestroyed()) main.webContents.send(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo);
+      try { lockNow(); } finally {
+        const main = windowRegistry.main();
+        if (main && !main.isDestroyed()) main.webContents.send(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo);
+      }
     },
     systemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
     rdpConnected: () => rdpSessionManager.hasConnected(),
