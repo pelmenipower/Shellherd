@@ -319,7 +319,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
       )}
       </div>
       {status === 'closed' && (
-        <DisconnectedBar reason={failure.code === 'closed-by-server' ? 'server' : 'session'} endedAt={endedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />
+        <DisconnectedBar reason={failure.code === 'closed-by-server' ? 'server' : failure.code === 'idle' ? 'idle' : 'session'} endedAt={endedAt} active={cardActive} ticking={visible} onReconnect={reconnect} />
       )}
       {edits.length > 0 && sessionId && <EditList edits={edits}
         onOpen={editId => void window.desktopApi.sftpEditOpen({ sessionId, editId }).catch(error => setActionError(fail(error)))}

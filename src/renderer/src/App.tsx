@@ -168,7 +168,11 @@ export default function App() {
   // Announce readiness after the transfer listeners above are registered.
   useEffect(() => { void window.desktopApi.windowReady(); }, []);
   const containerDiscovery = useContainerDiscovery();
-  const persistVault = usePersistVault(vault, { setVault, setVaultPath, setBusy, setSaved });
+  // Bumped on every lock; a save that settles under another epoch must not bring the vault back.
+  const lockEpoch = useRef(0);
+  const getLockEpoch = useCallback(() => lockEpoch.current, []);
+  const [autoLockedAfter, setAutoLockedAfter] = useState<number | null>(null);
+  const persistVault = usePersistVault(vault, { setVault, setVaultPath, setBusy, setSaved, epoch: getLockEpoch });
   const vaultId = vault?.id;
   const { load: loadContainers } = containerDiscovery;
   // Local discovery once per unlocked vault.
@@ -302,6 +306,7 @@ export default function App() {
     setPendingSshAction(null);
     setFormError(null);
     setFolderError(null);
+    setAutoLockedAfter(null);
     clearNotices();
   }
 
@@ -588,15 +593,25 @@ export default function App() {
     try {
       await window.desktopApi.lockVault();
     } finally {
-      setVault(null);
-      setVaultPath(null);
-      resetForm();
-      setScreen('home');
-      setAppDialog(null);
-      settingsReturnFocus.current = null;
-      setBusy(false);
+      afterLock();
     }
   }
+
+  // Shared by the manual lock and the main process's auto-lock.
+  function afterLock(): void {
+    lockEpoch.current += 1;
+    setVault(null);
+    setVaultPath(null);
+    resetForm();
+    setScreen('home');
+    setAppDialog(null);
+    settingsReturnFocus.current = null;
+    setPendingVaultFile(null);
+    setBusy(false);
+  }
+  const afterLockRef = useRef(afterLock);
+  afterLockRef.current = afterLock;
+  useEffect(() => window.desktopApi.onVaultLocked(({ minutes }) => { afterLockRef.current(); setAutoLockedAfter(minutes); }), []);
 
   function navigateEditor(action: () => void): void {
     if (busy) return;
@@ -907,6 +922,7 @@ export default function App() {
             <h1>{t('app:home.title')}</h1>
 
             <p className="subtitle">{t('app:home.subtitle')}</p>
+            {autoLockedAfter !== null && <p className="subtitle" role="status">{t('app:home.autoLocked', { count: autoLockedAfter })}</p>}
 
             <div className="action-grid">
               <button
