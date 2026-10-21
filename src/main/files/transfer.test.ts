@@ -74,12 +74,12 @@ describe('file transfer', () => {
         let atConflict: number | undefined = -1;
         let asked = -1;
         const progress = (job: TransferJob): void => { seen.push(job.bytesPerSecond); vi.setSystemTime(Date.now() + 600); };
+        const job = newJob();
         const conflict: TransferHooks['conflict'] = async () => {
-          atConflict = newestJob?.bytesPerSecond; asked = seen.length;
+          atConflict = job.bytesPerSecond; asked = seen.length;
           return { choice: 'overwrite', applyToAll: false };
         };
-        const newestJob = newJob();
-        await transfer(from, to, ['/a.txt', '/b.txt'], newestJob, { progress, conflict });
+        await transfer(from, to, ['/a.txt', '/b.txt'], job, { progress, conflict });
         expect(seen.slice(0, asked).some(value => typeof value === 'number')).toBe(true);
         expect(atConflict).toBeUndefined();
         expect(seen[asked]).toBeUndefined();
