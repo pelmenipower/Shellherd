@@ -10,6 +10,7 @@ const fields: ConnectionFields = {
   domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
   tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off', disabled: 'off',
   accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
+  idleMinutes: '', keepaliveSeconds: '', keepaliveCount: '', connectSeconds: '',
 };
 
 /** SSH result narrowed for property assertions. */
@@ -151,6 +152,37 @@ describe('disabled connections in the editor', () => {
     expect(message({ accessHosts: ['a'], namespace: 'Bad Name' }, 'kubernetes')).toBe('Gib einen gültigen Namespace ein, z. B. default.');
     expect(message({ color: 'red' })).toBe('Gib die Farbe als #RRGGBB an.');
     expect(message({ icon: 'nope' as ConnectionFields['icon'] })).toBe('Wähle ein verfügbares Symbol.');
+  });
+});
+
+describe('connection timeout overrides', () => {
+  const all = { idleMinutes: '30', keepaliveSeconds: '20', keepaliveCount: '5', connectSeconds: '60' };
+  it('round-trips all four fields for SSH and SFTP', () => {
+    for (const protocol of ['ssh', 'sftp'] as const) {
+      const node = connectionFromFields('id', { ...fields, ...all }, protocol);
+      expect(node).toMatchObject({ timeouts: { idleMinutes: 30, keepaliveSeconds: 20, keepaliveCount: 5, connectSeconds: 60 } });
+      expect(fieldsFromConnection(protocol, node)).toMatchObject(all);
+    }
+  });
+  it('writes no timeouts object when every field is empty', () => {
+    expect(connectionFromFields('id', fields)).not.toHaveProperty('timeouts');
+    expect(fieldsFromConnection('ssh')).toMatchObject({ idleMinutes: '', connectSeconds: '' });
+  });
+  it('keeps a partial override partial, and 0 idle is a value', () => {
+    const node = connectionFromFields('id', { ...fields, idleMinutes: ' 0 ', keepaliveCount: '4' });
+    expect(node).toMatchObject({ timeouts: { idleMinutes: 0, keepaliveCount: 4 } });
+    expect((node as { timeouts: object }).timeouts).toEqual({ idleMinutes: 0, keepaliveCount: 4 });
+  });
+  it('names the field on a range error', () => {
+    for (const [key, value] of [['keepaliveSeconds', '4'], ['idleMinutes', '1441'], ['connectSeconds', '1.5'], ['keepaliveCount', '-1']] as const) {
+      expect(() => connectionFromFields('id', { ...fields, [key]: value })).toThrow(expect.objectContaining({ name: 'ConnectionFieldError', field: key }));
+    }
+  });
+  it('ignores the fields for RDP and keeps them next to autoUpload', () => {
+    expect(connectionFromFields('id', { ...fields, ...all }, 'rdp')).not.toHaveProperty('timeouts');
+    const list = [{ id: 'b1', localPath: 'C:\\x', remotePath: '/x', excludes: [], enabled: true }];
+    const existing = { ...connectionFromFields('id', fields), autoUpload: list } as VaultNode;
+    expect(keepAutoUpload(connectionFromFields('id', { ...fields, ...all }), existing)).toMatchObject({ autoUpload: list, timeouts: { idleMinutes: 30 } });
   });
 });
 

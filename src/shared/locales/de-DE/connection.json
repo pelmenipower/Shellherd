@@ -57,7 +57,11 @@
       "targetFolder": "Zielordner",
       "comment": "Kommentar",
       "tags": "Tags (durch Komma getrennt)",
-      "color": "Farbe (optional, #RRGGBB)"
+      "color": "Farbe (optional, #RRGGBB)",
+      "idleMinutes": "Leerlauf-Trennung (min)",
+      "keepaliveSeconds": "Keepalive (s)",
+      "keepaliveCount": "Keepalive-Fehlversuche",
+      "connectSeconds": "Verbindungs-Timeout (s)"
     },
     "appearance": {
       "legend": "Symbol und Farbe",
@@ -88,6 +92,9 @@
       "privateKey": "Privater Schlüssel"
     },
     "containerSudo": "Container-Befehle mit sudo ausführen",
+    "timeouts": {
+      "hint": "Leer: Vorgabe aus den Einstellungen."
+    },
     "details": {
       "summary": "Weitere Angaben",
       "vaultRoot": "Vault-Ebene"
@@ -121,6 +128,7 @@
     "hostMissing": "Gib einen Host oder eine IP-Adresse ein.",
     "portInteger": "Der Port muss eine ganze Zahl zwischen 1 und 65535 sein.",
     "portRange": "Der Port muss zwischen 1 und 65535 liegen.",
+    "timeoutRange": "Gib eine ganze Zahl von {{min}} bis {{max}} ein oder lass das Feld leer.",
     "keyPathMissing": "Gib den Pfad zum privaten Schlüssel ein.",
     "domainTwice": "Gib die Domäne entweder hier oder im Benutzernamen an (DOMÄNE\\Benutzer oder benutzer@domäne), nicht beides.",
     "commandMissing": "Gib den Befehl an, z. B. aider --model sonnet.",
