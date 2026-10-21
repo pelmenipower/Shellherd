@@ -1,20 +1,49 @@
-# Builds the Windows installer and portable exe for a version tag and publishes a GitHub release.
-# Trigger: git tag v0.11.0 && git push origin v0.11.0
+# Publishes a GitHub release with the Windows installer and portable exe whenever main gets a version without a tag.
+# Trigger: merging staging into main. Merges that keep the version (docs, tooling) publish nothing.
 name: Release
 
 on:
   push:
-    tags: ['v*.*.*']
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+# Two quick merges must not publish the same version twice.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: check
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "$tag ist schon veröffentlicht, kein Release."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
   release:
+    needs: version
+    if: needs.version.outputs.exists == 'false'
     runs-on: windows-latest
     defaults:
       run:
         shell: bash
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
 
@@ -25,26 +54,20 @@ jobs:
 
       - run: npm ci
 
-      - name: Tag must match package.json
-        run: |
-          version=$(node -p "require('./package.json').version")
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME passt nicht zu package.json ($version)."
-            exit 1
-          fi
-
       - run: npx vitest run
 
       # check:version, typecheck, electron-vite build, RDP helper, then electron-builder
       - run: npm run dist
 
-      - run: node scripts/release-notes.mjs "$GITHUB_REF_NAME" > release-notes.md
+      - run: node scripts/release-notes.mjs "$TAG" > release-notes.md
 
+      # Creates the tag on the merged commit together with the release.
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create "$TAG" \
             dist/Shellherd-Setup-*.exe dist/Shellherd-Portable-*.exe \
-            --title "Shellherd ${GITHUB_REF_NAME#v}" \
+            --target "$GITHUB_SHA" \
+            --title "Shellherd ${TAG#v}" \
             --notes-file release-notes.md
