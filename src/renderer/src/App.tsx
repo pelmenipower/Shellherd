@@ -30,12 +30,15 @@ import { onEditRequest } from './edit-request';
 import { ResizableSidebar } from './components/ResizableSidebar';
 import { useTerminalTabs } from './hooks/useTerminalTabs';
 import { usePersistVault } from './hooks/usePersistVault';
-import { containerConnection, containerViewConnection, isRunning, planContainerView, tabLabel, toTerminalConnection } from './terminal-tabs';
+import { containerConnection, containerViewConnection, isRunning, isWelcomeTab, planContainerView, reusableTab, tabLabel, toTerminalConnection, welcomeConnection } from './terminal-tabs';
 import type { TerminalConnection, TerminalTab } from './terminal-tabs';
 import { newClusterFromSsh } from './cluster-form';
 import type { KubeProbeResult, KubeViewSnapshot } from '../../shared/kubernetes';
-import type { KubernetesConnectionNode } from '../../shared/vault/types';
-import { connectionsIn, NEW_CONNECTION_KINDS } from '../../shared/vault/connections';
+import type { AutoUploadBinding, KubernetesConnectionNode } from '../../shared/vault/types';
+import { connectionsIn, NEW_CONNECTION_KINDS, redactVault } from '../../shared/vault/connections';
+import { AppError } from '../../shared/errors';
+import type { UnlockVaultResult } from '../../shared/ipc';
+import { LockScreen } from './components/LockScreen';
 import { connectionAddress, protocolLabel } from './connection-labels';
 import { disabledNotice, disabledTitle, sessionLimitNotice, sessionLimitText, skippedNotice } from './vault-notices';
 import { LOCAL_CONTAINER_HOST, toTarget } from '../../shared/containers';
@@ -60,7 +63,7 @@ import { WorkflowPalette } from './components/WorkflowPalette';
 import { WorkflowsDialog } from './components/WorkflowsDialog';
 import type { Workflow } from '../../shared/vault/types';
 import { ConnectionForm } from './components/ConnectionForm';
-import { parentFolderId } from './connection-form';
+import { keepAutoUpload, parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
 import { errorText } from './error-text';
 import { useT } from './i18n';
@@ -69,6 +72,7 @@ import { settingsShortcutAction } from './shortcut-match';
 import mark from '../../../resources/mark-64.png';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
+type LockState = { minutes?: number; vaultId: string };
 type AppDialog =
   | { kind: 'settings'; instant: boolean; focus: 'close' | 'manageAi' }
   | { kind: 'ai'; backToSettings: boolean };
@@ -122,7 +126,7 @@ export default function App() {
   const settingsReturnFocus = useRef<HTMLElement | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [workflowEditor, setWorkflowEditor] = useState<{ initial?: Partial<Workflow> } | null>(null);
-  useCtrlShiftShortcut('Space', () => { if (screenRef.current === 'vault') setPaletteOpen(open => !open); });
+  useCtrlShiftShortcut('Space', () => { if (screenRef.current === 'vault' && !lockedRef.current) setPaletteOpen(open => !open); });
 
   const [vault, setVault] = useState<Vault | null>(null);
   const [vaultPath, setVaultPath] = useState<string | null>(
@@ -168,13 +172,22 @@ export default function App() {
   // Announce readiness after the transfer listeners above are registered.
   useEffect(() => { void window.desktopApi.windowReady(); }, []);
   const containerDiscovery = useContainerDiscovery();
-  const persistVault = usePersistVault(vault, { setVault, setVaultPath, setBusy, setSaved });
+  // Bumped on every lock; a save that settles under another epoch must not bring the vault back.
+  const lockEpoch = useRef(0);
+  const getLockEpoch = useCallback(() => lockEpoch.current, []);
+  // The lock screen state; the ref is set synchronously so afterLock stays idempotent.
+  const [locked, setLockedState] = useState<LockState | null>(null);
+  const lockedRef = useRef<LockState | null>(null);
+  const setLocked = (value: LockState | null): void => { lockedRef.current = value; setLockedState(value); };
+  const lockReturnFocus = useRef<HTMLElement | null>(null);
+  // While locked, the redacted vault must never reach the disk.
+  const persistVault = usePersistVault(locked ? null : vault, { setVault, setVaultPath, setBusy, setSaved, epoch: getLockEpoch });
   const vaultId = vault?.id;
   const { load: loadContainers } = containerDiscovery;
   // Local discovery once per unlocked vault.
   useEffect(() => { if (vaultId) void loadContainers(LOCAL_CONTAINER_HOST); }, [vaultId, loadContainers]);
   const [pendingSshAction, setPendingSshAction] = useState<
-    { type: 'closeTab'; tabId: string } | { type: 'lockVault' } | { type: 'openWorkspace'; workspaceId: string } | { type: 'closeWorkspace' } | null
+    { type: 'closeTab'; tabId: string } | { type: 'openWorkspace'; workspaceId: string } | { type: 'closeWorkspace' } | null
   >(null);
   const pendingTab = pendingSshAction?.type === 'closeTab' ? terminals.tabs.find(tab => tab.id === pendingSshAction.tabId) : undefined;
   const [showConnectionForm, setShowConnectionForm] = useState(false);
@@ -270,7 +283,7 @@ export default function App() {
     onCancel={() => setPendingVaultFile(null)} onConfirm={() => {
       const filePath = pendingVaultFile;
       setPendingVaultFile(null);
-      void lockVault().catch(() => {}).then(() => { setScreen('open'); setSelectedVaultPath(filePath); });
+      switchVault(filePath);
     }} />;
   const fileDropHint = fileDragActive && <div className="file-drop-hint" aria-hidden="true">{t('app:fileDrop.hint')}</div>;
 
@@ -350,6 +363,7 @@ export default function App() {
       setVaultPath(result.filePath);
       setScreen('vault');
       resetForm();
+      terminals.open(welcomeConnection());   // after reset: never reuse a tab of the old state
     } catch (caughtError) {
       setFormError(errorText(caughtError, t('app:errors.vaultFailed')));
     } finally {
@@ -383,10 +397,7 @@ export default function App() {
         password,
       });
 
-      setVault(result.vault);
-      setVaultPath(result.filePath);
-      setScreen('vault');
-      resetForm();
+      openFresh(result);
     } catch (caughtError) {
       setFormError(errorText(caughtError, t('app:errors.vaultFailed')));
     } finally {
@@ -486,9 +497,17 @@ export default function App() {
     return saved;
   }
 
+  const saveAutoUpload = (connectionId: string, bindings: AutoUploadBinding[]): Promise<boolean> => !vault ? Promise.resolve(false)
+    : persistVault({ ...vault, nodes: updateNode(vault.nodes, connectionId, node => {
+      if (node.type !== 'connection' || (node.protocol !== 'ssh' && node.protocol !== 'sftp')) return node;
+      const { autoUpload: _old, ...rest } = node;
+      return bindings.length ? { ...rest, autoUpload: bindings } : rest;
+    }) }, t('files:sync.notSaved'));
+
   async function saveConnection(connection: ConnectionNode, parentId: string): Promise<boolean> {
     if (!vault || busy) return false;
     const existing = findNode(vault.nodes, connection.id);
+    connection = keepAutoUpload(connection, existing);
     const nodes = existing
       ? parentFolderId(vault.nodes, connection.id) === parentId
         ? updateNode(vault.nodes, connection.id, () => connection)
@@ -580,14 +599,59 @@ export default function App() {
     try {
       await window.desktopApi.lockVault();
     } finally {
-      setVault(null);
-      setVaultPath(null);
-      resetForm();
-      setScreen('home');
-      setAppDialog(null);
-      settingsReturnFocus.current = null;
       setBusy(false);
+      afterLock();
     }
+  }
+
+  // Shared by the manual lock and the main process's auto-lock; sessions, tabs and form drafts stay.
+  function afterLock(minutes?: number): void {
+    if (lockedRef.current || screenRef.current !== 'vault' || !vault) return;   // idempotent; ignores late events
+    lockEpoch.current += 1;
+    lockReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setLocked({ minutes, vaultId: vault.id });
+    setVault(current => current && redactVault(current));
+    setAppDialog(null); settingsReturnFocus.current = null; setPaletteOpen(false);
+    // A clean editor holds the connection's stored secret in its draft; a dirty one is the user's unsaved input and stays.
+    if (!editorDirty) setEditorOpen(false);
+  }
+  const afterLockRef = useRef(afterLock);
+  afterLockRef.current = afterLock;
+  useEffect(() => window.desktopApi.onVaultLocked(info => afterLockRef.current(info.minutes)), []);
+
+  async function unlockFromLock(password: string): Promise<void> {
+    const current = lockedRef.current;
+    if (!current || !vaultPath) throw new AppError('core.vaultFileMissing');
+    const result = await window.desktopApi.unlockVault({ filePath: vaultPath, password });
+    if (result.vault.id !== current.vaultId) { openFresh(result); return; }   // main already ended the old sessions
+    setVault(result.vault); setVaultPath(result.filePath); setSaved(false);
+    // Tabs of connections deleted elsewhere close, the same filter as deleteSelectedNode.
+    terminals.retainConnections(terminals.tabs.filter(tab => findNode(result.vault.nodes, tab.connection.id)?.type === 'connection').map(tab => tab.connection.id));
+    if (selectedNodeId && !findNode(result.vault.nodes, selectedNodeId)) { setSelectedNodeId(null); setEditorOpen(false); setEditorDirty(false); }
+    if (activeWorkspaceId && !result.vault.workspaces.some(item => item.id === activeWorkspaceId)) setActiveWorkspaceId(null);
+    setLocked(null);
+    requestAnimationFrame(() => { const target = lockReturnFocus.current; lockReturnFocus.current = null; if (target?.isConnected) target.focus(); });
+  }
+
+  function openFresh(result: UnlockVaultResult): void {
+    lockEpoch.current += 1; setLocked(null);
+    setVault(result.vault); setVaultPath(result.filePath); setScreen('vault'); resetForm();
+    terminals.open(welcomeConnection());   // after reset: never reuse a tab of the old state
+  }
+
+  function switchVault(filePath?: string): void {
+    lockEpoch.current += 1;   // a save in flight must not bring the old vault back on the open screen
+    void window.desktopApi.lockVault({ disconnect: true }).catch(() => {});
+    setLocked(null); setPendingVaultFile(null); setVault(null); setVaultPath(null); navigateTo('open');
+    if (filePath) setSelectedVaultPath(filePath); else void handleSelectVaultFile();
+  }
+
+  function openWelcome(paneId: string): void {
+    terminalLayout.setFocused(paneId);
+    const open = reusableTab(terminals.tabs, terminals.activeTabId, welcomeConnection());
+    if (open) terminals.select(open.id);
+    else if (terminals.tabs.length >= MAX_SSH_SESSIONS) notifySessionLimit();
+    else terminals.open(welcomeConnection());
   }
 
   function navigateEditor(action: () => void): void {
@@ -757,10 +821,11 @@ export default function App() {
     const currentViews = toWorkspaceViews(terminalLayout.viewsState, tabsWithKubeViews());
     const workspaceDirty = activeWorkspace
       ? JSON.stringify([activeWorkspace.layout, activeWorkspace.views]) !== JSON.stringify([currentViews.layout, currentViews.views])
-      : terminals.tabs.length > 0;
+      : terminals.tabs.some(tab => !isWelcomeTab(tab));
     const runningCount = terminals.tabs.filter(isRunning).length;
     const closeEditor = () => navigateEditor(() => { setEditorOpen(false); setEditorDirty(false); });
-    return <main className="vault-shell">
+    return <>
+    <main className="vault-shell" inert={locked !== null}>
       {vaultFileDialog}{fileDropHint}
       <header className="app-header">
         <button className="icon-button sidebar-toggle" type="button" aria-label={sidebarCollapsed ? t('app:header.sidebarShow') : t('app:header.sidebarHide')}
@@ -768,17 +833,14 @@ export default function App() {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
         </button>
         <div className="header-vault" title={vaultPath ?? undefined}><img className="brand-icon" src={mark} alt="" /><span className="brand-word">Shellherd</span><strong>{vault.name}</strong></div>
-        <WorkspaceControls workspaces={vault.workspaces} busy={busy} hasTabs={terminals.tabs.length > 0}
+        <WorkspaceControls workspaces={vault.workspaces} busy={busy} hasTabs={terminals.tabs.some(tab => !isWelcomeTab(tab))}
           activeId={activeWorkspaceId} dirty={workspaceDirty} onSave={saveWorkspace}
           onOpen={id => navigateEditor(() => openWorkspace(id))} onRename={renameWorkspace} onDelete={deleteWorkspace}
           onClose={() => navigateEditor(() => closeWorkspace())} />
         <button className="secondary-button" type="button" title={t('app:header.workflowsTitle', { shortcut: t('common:shortcuts.palette') })} onClick={() => setPaletteOpen(true)}>{t('app:header.workflows')}</button>
         <button className="secondary-button assistant-toggle" type="button" aria-pressed={assistant.open} title={t('app:header.assistantTitle', { shortcut: t('common:shortcuts.assistant') })}
           onClick={assistant.toggle}>{t('app:header.assistant')}</button>
-        <button className="secondary-button lock-button" type="button" disabled={busy} onClick={() => navigateEditor(() => {
-          if (terminals.hasRunning && vault.settings.confirmBeforeClosingSession) setPendingSshAction({ type: 'lockVault' });
-          else void lockVault();
-        })}>{t('app:header.lock')}</button>
+        <button className="secondary-button lock-button" type="button" disabled={busy} onClick={() => void lockVault()}>{t('app:header.lock')}</button>
         <button className="icon-button settings-button" type="button" aria-haspopup="dialog" aria-label={t('app:header.settings')}
           title={t('app:header.settingsTitle', { shortcut: t('common:shortcuts.settings') })} onClick={() => openSettings(false)}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
@@ -789,14 +851,13 @@ export default function App() {
           const action = pendingNavigation; setPendingNavigation(null); setEditorDirty(false); setEditorRevision(value => value + 1); action();
         }} />}
       {pendingSshAction && <ConfirmDialog
-        title={pendingSshAction.type === 'lockVault' ? t('app:dialogs.lockVault') : pendingSshAction.type === 'openWorkspace' ? t('app:dialogs.replaceWorkspace') : pendingSshAction.type === 'closeWorkspace' ? t('app:dialogs.closeWorkspace')
+        title={pendingSshAction.type === 'openWorkspace' ? t('app:dialogs.replaceWorkspace') : pendingSshAction.type === 'closeWorkspace' ? t('app:dialogs.closeWorkspace')
           : t('app:dialogs.closeTab.title', { name: pendingTab ? tabLabel(pendingTab, terminals.tabs) : t('app:dialogs.closeTab.fallbackName') })}
         description={pendingSshAction.type === 'closeTab' ? t('app:dialogs.closeTab.description') : t('app:dialogs.endConnections', { count: runningCount })}
-        confirmLabel={pendingSshAction.type === 'lockVault' ? t('app:dialogs.confirmLock') : pendingSshAction.type === 'openWorkspace' ? t('app:dialogs.confirmReplace') : t('app:dialogs.confirmDisconnect')}
+        confirmLabel={pendingSshAction.type === 'openWorkspace' ? t('app:dialogs.confirmReplace') : t('app:dialogs.confirmDisconnect')}
         busy={busy} onCancel={() => setPendingSshAction(null)} onConfirm={() => {
           const action = pendingSshAction; setPendingSshAction(null);
-          if (action.type === 'lockVault') void lockVault();
-          else if (action.type === 'openWorkspace') openWorkspace(action.workspaceId, true);
+          if (action.type === 'openWorkspace') openWorkspace(action.workspaceId, true);
           else if (action.type === 'closeWorkspace') closeWorkspace(true);
           else terminals.close(action.tabId);
         }} />}
@@ -833,18 +894,18 @@ export default function App() {
             onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} onOpenContainerView={id => openContainerView(id)} />
           {!vault.nodes.length && <div className="empty-state"><p>{t('app:sidebar.emptyText')}</p><button type="button" className="secondary-button" onClick={() => newConnection()}>{t('app:sidebar.emptyAction')}</button></div>}
         </ResizableSidebar>
-        <section className={`workspace${editorOpen ? ' with-editor' : ''}${!terminals.tabs.length ? ' no-terminals' : ''}`}>
-          <div className="terminal-area" hidden={!terminals.tabs.length && !transfer.externalHover}>
+        <section className={`workspace${editorOpen ? ' with-editor' : ''}`}>
+          <div className="terminal-area">
             <SplitTerminalArea nodes={vault.nodes} onConnect={connectNode} tabs={terminals.tabs} selected={terminals.activeTabId} layout={terminalLayout.layout}
-              draggedTabId={draggedTabId} onDrag={setDraggedTabId} visible={terminals.tabs.length > 0}
+              draggedTabId={draggedTabId} onDrag={setDraggedTabId}
               focused={terminalLayout.focused} busy={busy} onLayout={terminalLayout.setLayout} onFocus={terminalLayout.setFocused}
-              onSelect={terminals.select} onStatus={terminals.updateStatus} onClose={requestCloseTab}
+              onSelect={terminals.select} onStatus={terminals.updateStatus} onClose={requestCloseTab} onRename={terminals.rename}
               externalHover={transfer.externalHover} pendingDock={transfer.pendingDock} onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff}
-              viewControls={viewControls} onPopout={openPopout} onSnapshot={saveKubeView} />
+              viewControls={viewControls} onPopout={openPopout} onSnapshot={saveKubeView} onSaveAutoUpload={saveAutoUpload} onWelcome={openWelcome}
+              welcomePanel={<WelcomePage vaultName={vault.name} version={version} onShowReleaseNotes={() => setShowReleaseNotes(true)} connectionCount={connectionCount}
+                workspaces={vault.workspaces} busy={busy} onNewConnection={protocol => newConnection(protocol)}
+                onOpenWorkspace={id => navigateEditor(() => openWorkspace(id))} />} />
           </div>
-          {!terminals.tabs.length && !editorOpen && !transfer.externalHover && <WelcomePage vaultName={vault.name} version={version} onShowReleaseNotes={() => setShowReleaseNotes(true)} connectionCount={connectionCount}
-            workspaces={vault.workspaces} busy={busy} onNewConnection={protocol => newConnection(protocol)}
-            onOpenWorkspace={id => navigateEditor(() => openWorkspace(id))} />}
           {editorOpen && <aside className="properties-panel" aria-label={t('app:properties.aria')}>
             <div className="properties-heading"><span>{editorDirty ? t('app:dialogs.unsaved.title') : t('app:properties.title')}</span>
               <button type="button" className="icon-button" aria-label={t('app:properties.closeEditor')} disabled={busy} onClick={closeEditor}>
@@ -880,7 +941,9 @@ export default function App() {
         <span>{t('app:status.activeSessions', { count: runningCount })}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>
         <button type="button" className="version-button" title={t('app:status.whatsNew')} onClick={() => setShowReleaseNotes(true)}>v{version}</button></footer>
       {showReleaseNotes && <ReleaseNotesDialog version={version} onClose={() => setShowReleaseNotes(false)} />}
-    </main>;
+    </main>
+    {locked && <LockScreen vaultName={vault.name} minutes={locked.minutes} running={runningCount} onUnlock={unlockFromLock} onSwitch={() => switchVault()} />}
+    </>;
   }
 
   return (

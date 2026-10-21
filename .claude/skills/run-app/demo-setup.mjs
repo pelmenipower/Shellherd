@@ -1,5 +1,5 @@
 // Creates the synthetic demo vault through the running driver (`npm run drive`), or unlocks it if it exists.
-// Entries: web-01 (SSH), files-01 (SFTP), prod-k8s (cluster via web-01), db-main (wrong password), legacy-app (closed port), folder Staging, AI provider Demo-KI.
+// Entries: web-01 (SSH), ops-01 (SSH, root shell and start commands), files-01 (SFTP), prod-k8s (cluster via web-01), db-main (wrong password), legacy-app (closed port), folder Staging, AI provider Demo-KI.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -29,7 +29,7 @@ async function waitFor(expression, timeout = 20000) {
 }
 const allConnections = () => call('eval', `[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Alle Verbindungen')?.click()`);
 
-async function addConnection(menuLabel, name, port, password) {
+async function addConnection(menuLabel, name, port, password, extra) {
   await allConnections();
   await click('button:text-is("Neu")');
   await menuItem(menuLabel);
@@ -42,11 +42,23 @@ async function addConnection(menuLabel, name, port, password) {
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, option.value);
     select.dispatchEvent(new Event('change', { bubbles: true }));`);
   await fill('input[id$="-password"]', password);
+  await extra?.();
   await click('button:has-text("Verbindung speichern")');
   await pause(800);
 }
 const addSsh = (name, port, password) => addConnection('SSH', name, port, password);
 const addSftp = (name, port, password) => addConnection('SFTP (Dateien)', name, port, password);
+
+// ops-01: root shell and start commands after login. Also added to an existing demo vault when missing.
+async function ensureOps() {
+  await allConnections();
+  if (await call('eval', `return document.body.innerText.includes('ops-01')`)) return false;
+  await addConnection('SSH', 'ops-01', 2222, 'synthetic-demo', async () => {
+    await click('label:has-text("Nach dem Anmelden root werden (sudo -i)")');
+    await fill('textarea[id$="-loginCommands"]', 'cd /var/www\nuptime');
+  });
+  return true;
+}
 
 // Cluster via the context menu of web-01; skipped when the test server has no Kubernetes fake. Returns whether it was created.
 async function addCluster() {
@@ -92,6 +104,7 @@ if (!vaultOpen) {
     await click('button:text-is("Vault öffnen") >> nth=-1');
     await pause(3000);
     console.log('Demo-Vault entsperrt.');
+    if (await ensureOps()) console.log('ops-01 nachgetragen.');
   } else {
     // A remembered file shows the open form; go back to the start card first.
     if (!await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Neuen Vault erstellen'))`, 2000)) {
@@ -110,6 +123,7 @@ if (!vaultOpen) {
     const cluster = await addCluster();
     await addSsh('db-main', 2222, 'wrong-synthetic-pw');
     await addSsh('legacy-app', 1, 'synthetic-demo');
+    await ensureOps();
     await allConnections();
     await click('button:text-is("Neu")');
     await menuItem('Neuer Ordner');
@@ -118,7 +132,7 @@ if (!vaultOpen) {
     await pause(800);
     await addAiProvider();
     await call('eval', `[...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? '').startsWith('Editor schlie'))?.click()`);
-    console.log(`Demo-Vault angelegt: web-01, files-01, ${cluster ? 'prod-k8s, ' : ''}db-main, legacy-app, Ordner Staging, KI-Anbieter Demo-KI.`);
+    console.log(`Demo-Vault angelegt: web-01, files-01, ${cluster ? 'prod-k8s, ' : ''}db-main, legacy-app, ops-01, Ordner Staging, KI-Anbieter Demo-KI.`);
   }
 } else {
   console.log('Kein Startbildschirm sichtbar – Vault ist vermutlich schon offen.');

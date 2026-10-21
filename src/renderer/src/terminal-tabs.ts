@@ -15,6 +15,11 @@ export type TerminalConnection = TabConnection;
 /** A running session taken over from another window instead of opening a new one. */
 export interface AdoptedSession { session?: TransferSession; snapshot?: string }
 
+export const WELCOME_HOST = 'welcome';
+/** The welcome page as a tab: no session, never saved, never transferred. */
+export const welcomeConnection = (): TerminalConnection => ({ id: WELCOME_HOST, name: t('terminal:tabs.welcome'), protocol: 'cmd', address: '', view: 'welcome' });
+export const isWelcomeTab = (tab: Pick<TerminalTab, 'connection'>): boolean => tab.connection.view === 'welcome';
+
 /** `asFiles` opens an SSH connection as file browser (SFTP over the same login). */
 export function toTerminalConnection(node: ConnectionNode, asFiles = false): TerminalConnection {
   if (asFiles && node.protocol === 'ssh') return { id: node.id, name: t('terminal:tabs.files', { name: node.name }), protocol: 'sftp', address: connectionAddress(node), view: 'files' };
@@ -50,7 +55,7 @@ export function kubeTabName(target: KubeTerminalTarget, clusterName: string): st
  * also on this computer, where the tab keeps protocol 'cmd' for the local terminal plumbing.
  */
 export function shellOf(tab: TerminalTab | undefined): AiTerminalContext['shell'] | null {
-  if (!tab || tab.connection.view === 'files' || tab.connection.view === 'containers') return null;
+  if (!tab || tab.connection.view === 'files' || tab.connection.view === 'containers' || tab.connection.view === 'welcome') return null;
   if (tab.connection.kube) return tab.connection.kube.mode === 'shell' ? 'ssh' : null;
   if (tab.connection.target) return 'ssh';
   const { protocol } = tab.connection;
@@ -95,6 +100,8 @@ export type TerminalTabsAction =
   | { type: 'adopt'; id: string; connection: TerminalConnection; status: SshStatus; adopt: AdoptedSession }
   | { type: 'select'; id: string | null }
   | { type: 'status'; id: string; status: SshStatus }
+  /** Blank title restores the default label. */
+  | { type: 'rename'; id: string; title: string }
   | { type: 'close'; id: string }
   | { type: 'retainConnections'; connectionIds: string[] }
   | { type: 'reset' }
@@ -110,19 +117,28 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
       if (state.tabs.length >= MAX_SSH_SESSIONS || state.tabs.some(tab => tab.id === action.id)) return state;
       const { id, name, protocol, address, view, runtime, target, kube } = action.connection;
       const ordinal = Math.max(0, ...state.tabs.filter(tab => sameTarget(tab.connection, action.connection)).map(tab => tab.ordinal)) + 1;
-      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(runtime ? { runtime } : {}), ...(target ? { target } : {}), ...(kube ? { kube } : {}) }, ordinal, status: 'connecting' }], activeTabId: action.id };
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(runtime ? { runtime } : {}), ...(target ? { target } : {}), ...(kube ? { kube } : {}) }, ordinal, status: view === 'welcome' ? 'closed' : 'connecting' }], activeTabId: action.id };
     }
     case 'adopt': {
       if (state.tabs.some(tab => tab.id === action.id)) return state;
-      const { id, name, protocol, address, view, runtime, target, kube } = action.connection;
+      const { id, name, protocol, address, view, runtime, target, kube, title } = action.connection;
       const ordinal = Math.max(0, ...state.tabs.filter(tab => sameTarget(tab.connection, action.connection)).map(tab => tab.ordinal)) + 1;
-      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(runtime ? { runtime } : {}), ...(target ? { target } : {}), ...(kube ? { kube } : {}) }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
+      return { tabs: [...state.tabs, { id: action.id, connection: { id, name, protocol, address, ...(view ? { view } : {}), ...(runtime ? { runtime } : {}), ...(target ? { target } : {}), ...(kube ? { kube } : {}), ...(title ? { title } : {}) }, ordinal, status: action.status, adopt: action.adopt }], activeTabId: action.id };
     }
     case 'select':
       return action.id === null || state.tabs.some(tab => tab.id === action.id) ? { ...state, activeTabId: action.id } : state;
     case 'status':
       return state.tabs.some(tab => tab.id === action.id)
         ? { ...state, tabs: state.tabs.map(tab => tab.id === action.id ? { ...tab, status: action.status } : tab) } : state;
+    case 'rename': {
+      const title = action.title.trim();
+      return state.tabs.some(tab => tab.id === action.id)
+        ? { ...state, tabs: state.tabs.map(tab => {
+          if (tab.id !== action.id) return tab;
+          const { title: _old, ...connection } = tab.connection;
+          return { ...tab, connection: title ? { ...connection, title } : connection };
+        }) } : state;
+    }
     case 'close': {
       const index = state.tabs.findIndex(tab => tab.id === action.id);
       if (index < 0) return state;
@@ -131,7 +147,7 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
     }
     case 'retainConnections': {
       const ids = new Set(action.connectionIds);
-      const tabs = state.tabs.filter(tab => tab.connection.id === LOCAL_CONTAINER_HOST || ids.has(tab.connection.id));
+      const tabs = state.tabs.filter(tab => tab.connection.id === LOCAL_CONTAINER_HOST || tab.connection.view === 'welcome' || ids.has(tab.connection.id));
       return tabs.length === state.tabs.length ? state : { tabs,
         activeTabId: state.activeTabId === null || tabs.some(tab => tab.id === state.activeTabId) ? state.activeTabId : tabs[0]?.id ?? null };
     }
@@ -141,6 +157,7 @@ export function terminalTabsReducer(state: TerminalTabsState, action: TerminalTa
 }
 
 export function tabLabel(tab: TerminalTab, tabs: TerminalTab[]): string {
+  if (tab.connection.title) return tab.connection.title;
   return tabs.filter(other => sameTarget(other.connection, tab.connection)).length > 1 || tab.ordinal > 1
     ? `${tab.connection.name} (${tab.ordinal})` : tab.connection.name;
 }

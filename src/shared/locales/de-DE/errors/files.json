@@ -29,6 +29,17 @@
     "serverRejected": "Der Server hat die Aktion abgelehnt. Vielleicht existiert der Name schon oder der Ordner ist nicht leer.",
     "failed": "Die Dateiaktion ist fehlgeschlagen.",
     "hostKeyRejected": "Der Server-Schlüssel wurde nicht bestätigt.",
-    "noSftp": "Der Server bietet kein SFTP an."
+    "noSftp": "Der Server bietet kein SFTP an.",
+    "syncLocalMissing": "Der lokale Ordner wurde auf diesem Computer nicht gefunden.",
+    "syncLocalLink": "Der lokale Ordner ist eine Verknüpfung; Verknüpfungen werden nicht überwacht.",
+    "syncRemoteMissing": "Der Server-Ordner wurde nicht gefunden.",
+    "syncRemoteRoot": "Das Wurzelverzeichnis ist als Ziel nicht erlaubt.",
+    "syncOverlap": "Der Ordner überschneidet sich mit einer laufenden Bindung.",
+    "syncNotFound": "Die Bindung wurde nicht gefunden.",
+    "syncElsewhere": "Der Auto-Upload läuft bereits in einer anderen Dateiansicht.",
+    "connectionLost": "Die Verbindung wurde getrennt.",
+    "verifyUnavailable": "Der Server liefert keine Prüfsumme: sha256sum fehlt, die Datei ist nicht lesbar oder Befehle sind nicht erlaubt.",
+    "verifyTooMany": "Prüfen geht bis {{max}} Dateien je Übertragung.",
+    "verifyUnsafeName": "„{{name}}“ lässt sich nicht prüfen: Der Name enthält Zeichen, die nicht sicher an den Server übergeben werden können."
   }
 }

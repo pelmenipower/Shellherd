@@ -26,7 +26,7 @@ describe('connection labels', () => {
       { ...base, protocol: 'aicli', tool: 'custom', command: ' my-tool --flag ' },
       { ...base, protocol: 'aicli', tool: 'custom' },
     ] as ConnectionNode[];
-    expect(nodes.map(connectionAddress)).toEqual(['u@h:22', 'h:3389', 'Lokal · CMD', 'Lokal · Claude Code', 'Lokal · my-tool', 'Lokal · Eigener Befehl']);
+    expect(nodes.map(connectionAddress)).toEqual(['u@h:22', 'h:3389', 'Lokal · cmd', 'Lokal · Claude Code', 'Lokal · my-tool', 'Lokal · Eigener Befehl']);
   });
 
   it('pluralises cluster access hosts', async () => {

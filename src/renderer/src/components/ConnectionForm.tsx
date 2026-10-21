@@ -15,6 +15,8 @@ import { errorText } from '../error-text';
 import { Trans, useT } from '../i18n';
 import { protocolShort } from '../connection-labels';
 
+const NUMERIC_FIELDS = new Set<ConnectionTextField>(['port', 'idleMinutes', 'keepaliveSeconds', 'keepaliveCount', 'connectSeconds']);
+
 const STEP_LABEL_KEYS = {
   clusterTest: 'connection:test.steps.clusterTest', startFolder: 'connection:test.steps.startFolder', command: 'connection:test.steps.command',
   toolFound: 'connection:test.steps.toolFound', programFound: 'connection:test.steps.programFound', hostGiven: 'connection:test.steps.hostGiven',
@@ -109,7 +111,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
       const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
       setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : t('connection:form.saveFailed') });
       if (field) {
-        if ((field === 'color' || field === 'workingDirectory') && detailsRef.current) detailsRef.current.open = true;
+        if ((field === 'color' || field === 'workingDirectory' || field === 'idleMinutes' || field === 'keepaliveSeconds' || field === 'keepaliveCount' || field === 'connectSeconds') && detailsRef.current) detailsRef.current.open = true;
         requestAnimationFrame(() => document.getElementById(`${prefix}-${field}`)?.focus());
       }
     } finally { submittingRef.current = false; }
@@ -119,7 +121,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
       <label htmlFor={`${prefix}-${field}`}>{label}</label>
       <div className="editor-input-group">
         <input id={`${prefix}-${field}`} type={secret && !visibleSecret ? 'password' : 'text'} value={fields[field]} disabled={busy}
-          inputMode={field === 'port' ? 'numeric' : undefined}
+          inputMode={NUMERIC_FIELDS.has(field) ? 'numeric' : undefined}
           autoComplete={secret ? 'new-password' : 'off'} spellCheck={false}
           aria-invalid={error?.field === field || undefined}
           aria-describedby={error?.field === field ? `${prefix}-${field}-error` : undefined}
@@ -195,7 +197,20 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
           {textField(t('connection:form.fields.passphrase'), 'passphrase', true)}
         </>}
         {protocol === 'ssh' && <label className="editor-checkbox"><input type="checkbox" checked={fields.containerSudo === 'on'} disabled={busy}
-          onChange={event => setField('containerSudo', event.target.checked ? 'on' : 'off')} />{t('connection:form.containerSudo')}</label>}</>}
+          onChange={event => setField('containerSudo', event.target.checked ? 'on' : 'off')} />{t('connection:form.containerSudo')}</label>}
+        {protocol === 'ssh' && <>
+          <label className="editor-checkbox"><input type="checkbox" checked={fields.loginSudo === 'on'} disabled={busy}
+            onChange={event => setField('loginSudo', event.target.checked ? 'on' : 'off')} />{t('connection:form.login.sudo')}</label>
+          <div className="editor-field">
+            <label htmlFor={`${prefix}-loginCommands`}>{t('connection:form.login.commands')}</label>
+            <textarea id={`${prefix}-loginCommands`} rows={3} spellCheck={false} autoComplete="off" value={fields.loginCommands} disabled={busy}
+              aria-invalid={error?.field === 'loginCommands' || undefined}
+              aria-describedby={error?.field === 'loginCommands' ? `${prefix}-loginCommands-hint ${prefix}-loginCommands-error` : `${prefix}-loginCommands-hint`}
+              onChange={event => setField('loginCommands', event.target.value)} />
+            <p className="editor-hint" id={`${prefix}-loginCommands-hint`}>{t('connection:form.login.hint')}</p>
+            {error?.field === 'loginCommands' && <p className="field-error" id={`${prefix}-loginCommands-error`} role="alert">{error.message}</p>}
+          </div>
+        </>}</>}
         <details className="editor-details" ref={detailsRef}>
           <summary>{t('connection:form.details.summary')}</summary>
           <div className="editor-details-content">
@@ -206,6 +221,11 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
             <label>{t('connection:form.fields.comment')}<textarea value={fields.comment} disabled={busy} rows={2} onChange={event => setField('comment', event.target.value)} /></label>
             {textField(t('connection:form.fields.tags'), 'tags')}
             {textField(t('connection:form.fields.color'), 'color')}
+            {sshAuth && <>
+              <div className="editor-auth-row">{textField(t('connection:form.fields.idleMinutes'), 'idleMinutes')}{textField(t('connection:form.fields.connectSeconds'), 'connectSeconds')}</div>
+              <div className="editor-auth-row">{textField(t('connection:form.fields.keepaliveSeconds'), 'keepaliveSeconds')}{textField(t('connection:form.fields.keepaliveCount'), 'keepaliveCount')}</div>
+              <p className="editor-hint">{t('connection:form.timeouts.hint')}</p>
+            </>}
           </div>
         </details>
         {error && !error.field && <p className="field-error" role="alert">{error.message}</p>}

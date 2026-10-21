@@ -59,8 +59,18 @@ kept. Tabs that are already running stay open. `Enable` releases it again.
 Background tabs stay connected and
 keep processing their output. In the tab strip, the arrow keys as well as
 Home/End switch between tabs. Closing a tab only ends its session.
-Locking the vault ends all sessions. Saved workspaces can be opened selectively after
+Locking does not disconnect: sessions keep running in the background, and all tabs are back after unlocking. New connections and `Reconnect` work only after unlocking. `Other vault file` on the lock screen always asks and disconnects everything. Saved workspaces can be opened selectively after
 unlocking; this starts new SSH sessions.
+
+### Locking and the welcome tab
+
+The lock button in the header locks without a confirmation. An opaque lock screen covers the window; the keyboard reaches nothing behind it. Detached windows are locked too and show their own lock screen (without a password field); you unlock in the main window.
+
+- **Credentials in memory:** The credentials of open sessions stay in Shellherd's memory while locked. A changed, unsaved connection editor keeps its content, including the connection's stored password; an unchanged editor closes on lock. The lock does not protect against reading the process memory.
+- **Idle disconnect:** It keeps running while locked. A long lock can disconnect sessions; the disconnected bar waits after unlocking.
+- **Assistant:** Automatic assistant requests (reading output) fail while locked with “No vault is unlocked.”
+- **Host key:** An open host key prompt can appear above the lock screen. It shows only the host and fingerprint.
+- **Welcome tab:** When a vault opens, the welcome page appears as a tab. Reopen it from the `+` menu (`Welcome page`). The tab can only be closed: no dragging, no splitting, no moving to another window. It is not saved in a workspace and counts toward the limit of 16 tabs.
 
 Selecting text in the terminal automatically copies the selection to the clipboard.
 Right-click pastes the clipboard text into the terminal you clicked.
@@ -85,7 +95,31 @@ The AI assistant answers in the selected language. kubectl-like output and raw s
 
 ### Vault
 
-`Ask before disconnecting running sessions` (default: on) asks before closing a tab or window, locking or switching workspaces ends running sessions. The setting belongs to the vault and is saved encrypted with it; it appears only after unlocking.
+`Ask before disconnecting running sessions` (default: on) asks before closing a tab or window or switching workspaces ends running sessions. The setting belongs to the vault and is saved encrypted with it; it appears only after unlocking.
+
+`Lock automatically after … minutes without input (0: never)` locks the vault when neither mouse nor keyboard was used in any Shellherd window (range 0 to 1,440, default 15). Open sessions and tabs are kept. The value is taken over on blur or `Enter` and applies immediately.
+
+- **What counts:** Only mouse and keyboard in Shellherd windows. Terminal output does not count: if you only watch a long run, the vault locks. Work in other programs does not count either.
+- **RDP:** While an RDP session is connected, any input on the computer counts as well, because mouse and keyboard in the RDP window bypass Shellherd.
+- **Nothing is asked:** The lock works like manual locking, without a confirmation. Open settings and provider dialogs close. Detached windows are locked, not closed. After the lock, the lock screen names the reason.
+- **Imprecision:** The lock comes up to 10 seconds earlier or up to 30 seconds later than set; after waking from sleep, Shellherd locks immediately if the time has run out.
+- **Existing vaults:** Every vault carries the value 15, so from this version on they lock after 15 minutes; `0` turns the lock off.
+
+### Connections
+
+Settings → Connections (after unlocking only) holds four values for SSH and SFTP of this vault. They also apply to container and cluster access over SSH and are saved with the vault. Each field takes its value on blur or `Enter`; a number outside the limits appears as an error below the field.
+
+| Value | Default | Limits |
+|---|---|---|
+| `Disconnect when idle after … minutes without input or output (0: never)` | 0 | 0 to 1,440 |
+| `Keepalive every … seconds` | 15 | 5 to 300 |
+| `Disconnect after … unanswered keepalives` | 3 | 1 to 10 |
+| `Connection timeout … seconds` | 120 | 5 to 300 |
+
+- **Applies from the next connection.** Open sessions keep their values; `Reconnect` picks up the new ones.
+- **Idle:** Input or output resets the time. Afterwards the bar shows “idle timeout” and `Reconnect` (`Enter`). This applies to SSH terminals, container tabs, pod terminals and the file view. Local shells, RDP and cluster views have no idle limit. A file view with a running transfer, active auto-upload or an open edit does not disconnect when idle.
+- **Per connection:** Under `More options` of an SSH or SFTP connection, the four values can be overridden one by one (`Idle disconnect (min)`, `Keepalive (s)`, `Keepalive misses`, `Connection timeout (s)`). Empty means: default from the settings. Containers and clusters inherit the values of the SSH node they use.
+- **Short connection timeout:** It keeps running while the host key prompt is open. With a very short value, accepting a new key fails if you read for longer. Accept new keys through `Test connection` (its timer pauses in the prompt) or set a larger value.
 
 ### AI providers
 
@@ -137,6 +171,47 @@ OpenSSH agent at `\\.\pipe\openssh-ssh-agent` is used; the service must be runni
 and contain the matching key. On Unix, `SSH_AUTH_SOCK` must be set.
 Agent forwarding is disabled. Interactive MFA / keyboard-interactive login
 will follow in a later step.
+
+### After login
+
+For each SSH connection, the form lets you define what happens after login.
+Both apply on every connect, including `Reconnect` and when a workspace is
+restored.
+
+- `Become root after login (sudo -i)` starts the shell as root. With password
+  login, Shellherd answers the sudo prompt exactly once with the stored
+  password; neither the password nor the sudo call appears in the history. With
+  a key or the SSH agent, Shellherd checks with `sudo -n true` whether sudo works
+  without a password (NOPASSWD, also next to a `%sudo` rule). If not, a note
+  appears in the terminal and sudo asks itself: you type the password once and
+  it continues. There is no separate sudo password field. If sudo refuses the
+  stored password, Shellherd tries again only after the login data changes.
+- `Start commands` are free text, one line per command: at most 20 lines of at
+  most 500 characters, no control characters and no tab (use spaces instead).
+  Blank lines are dropped. Shellherd types them after login, as you would. They
+  are visible and end up in the shell history. Do not put passwords or tokens in
+  them.
+
+With `root`, the start commands go out only after sudo succeeded, in the root
+shell. Without `root`, they go out right after the shell starts. If the server
+asks something first (expired password, selection menu, a prompt in `.bashrc`),
+the start commands land there. A startup script on the server that discards
+input sent ahead makes the commands disappear; Shellherd does not repeat them.
+A full-screen or input program (`vim`, `top`, `ssh`) belongs on the last line
+only, otherwise it reads the following lines as key presses. Typed commands can
+appear twice, once as an echo before the prompt and once at the input line; that
+is normal for input typed ahead.
+
+The root shell starts without a greeting (no MOTD, no `Last login`), and `exit`
+in it closes the tab instead of returning to the user shell. Every sudo call
+appears in the server's auth.log; that is normal.
+
+Older Shellherd versions remove these settings when the connection is saved.
+
+Right-click a tab (Shift+F10 or the menu key work too) to `Rename` it. The
+name applies to this tab only, not to the saved connection, and it travels
+with the tab to other windows. An empty name restores the connection name. A
+workspace does not save it.
 
 ## Containers and VMs
 
@@ -262,6 +337,57 @@ The kubeconfig lives only in the main process's memory and is not written to
 disk. The tunnel to the API server listens only on `127.0.0.1`.
 Secret data is masked in the YAML view.
 
+## File view: keyboard and transfers
+
+Typing in the file list jumps to the next entry whose name starts that way. The search follows the order shown, folders first. When you type quickly, Shellherd searches for the whole prefix (`no` finds `notes.md`); the same letter repeated moves to the next match each time. After a one-second pause the search starts over. Upper and lower case do not matter. This works on the local and the server side. The space bar, combinations with `Ctrl` or `Alt` and characters that need `AltGr` (such as `@`) do not jump.
+
+Running transfers show their speed next to the progress after the first second (`12 MB/s`), smoothed over the last few seconds. While the question about an existing file is open and on finished transfers no speed is shown. Auto-upload shows none. Shellherd keeps just under four megabytes of requests in flight and copies up to four files of a folder in parallel; the row names the files currently running.
+
+Canceled or failed transfers can be resumed with `Resume`, also after `Reconnect`. This applies to uploads and downloads. Each file is first written as `name.part` and replaces the target only at the end. If you transfer the same file again later, Shellherd resumes automatically; there is no automatic reconnecting.
+
+Before resuming, Shellherd checks the leftover `.part`: it must not be larger or older than the source, and the last megabyte before the resume point must equal the source. Shellherd resumes just under four megabytes before the end of the partial file, because data up to that point may still have been in flight; the megabyte before it is compared with the source. The row then shows “resumed from 4.1 GB”. If the partial file does not match, the transfer starts over and the row says so. A partial file of up to just under four megabytes is rewritten without a check and without a note.
+
+`Cancel` keeps the partial file. `Discard partial file` deletes it (local files go to the recycle bin) and is unavailable while a transfer is running. For uploads it needs a connection. To start over, discard the partial file and transfer again. For folders Shellherd asks about files that are already finished as usual; `Only if newer` with `For all` skips them. Resuming works per file. Auto-upload still cleans up its own partial files.
+
+`Verify` on a finished, resumed transfer computes the SHA-256 checksum of every file locally and with `sha256sum` (or `shasum` on macOS) on the server and shows whether they match. This needs a shell on the server; SFTP-only accounts report that no checksum is possible. File names with characters such as `&`, `$`, `\` or `'` cannot be verified. `Verify` is not offered for moves, covers up to 10,000 files per transfer and works only in the session in which the transfer ran.
+
+Limits: If the source gets shorter while a resumed transfer runs, the target stays too long; `Verify` reveals it. Shellherd treats a file named `name.part` as its own. A folder with that name is never touched; the transfer reports an error instead.
+
+## File view: auto-upload
+
+Auto-upload mirrors a local folder into a server folder while the connection's file view is open. You set it up in the local pane: the gear ⚙ in the pane header offers `New file`, `New folder` and `Auto-upload` for the folder shown. Right-clicking a folder works too. The dialog asks for the local folder, the server folder (prefilled with the current server folder) and the excludes. `Start auto-upload` begins the comparison; a list below shows each binding as “Watching”, “Syncing…” or the error. The binding is stored in the vault and starts by itself the next time the file view opens.
+
+**Rules:**
+
+- **Local → server only.** Nothing is downloaded; Shellherd never fetches changes from the server.
+- **Never deletes.** If you delete or rename a local file, the old one stays on the server (also for `Foo` → `foo`: the server then has both).
+- **At start** size and modification time are compared: missing and locally newer files are uploaded once, afterwards only changes.
+- **Newer on the server:** A file that is newer on the server, or was changed there by someone else, is skipped. The row shows the number (“2 skipped, newer on the server”), a notice the names. `Overwrite anyway` replaces all skipped files with the local ones.
+- **Pause, Resume, Edit, Remove** are on the row. `Remove` only deletes the binding, no files.
+- **Lost connection:** The binding pauses with the connection. After `Reconnect` it starts again and catches up on everything missed.
+
+**Excludes** are a list of patterns, one per line, as in `.gitignore`. The defaults are `.git`, `node_modules/`, `~$*`, `*.swp`, `*.tmp` and `.DS_Store`.
+
+| Pattern | Matches |
+|---|---|
+| `.git` | any file or folder `.git` at any level, with its contents |
+| `node_modules/` | folders of that name only (trailing `/`) |
+| `*.log` | all files ending in `.log`, hidden ones too |
+| `/build/` | only the folder `build` directly in the bound folder, not `src/build` |
+| `secrets/**/*.pem` | `.pem` files under `secrets` at any depth, from the bound folder only |
+
+Without `/` a pattern applies at every level, with a leading or inner `/` only from the bound folder, with a trailing `/` only to folders. `\` counts as `/`. Upper and lower case do not matter (`Build/` also excludes `build`). There are no exceptions with `!`. Excluded folders are not traversed.
+
+**Good to know:**
+
+- **Exclude secrets:** The defaults do not exclude `.env`, keys or credential files. Exclude them yourself (for example `.env` and `*.pem`), otherwise they land on the server, new files with permissions 0644.
+- **Renaming folders:** While the file view with an active binding is open, Windows does not let you rename or move the parent folder. Pause the binding or close the file view.
+- **Unreadable subfolders:** If Shellherd cannot read a local subfolder, the comparison stops and the binding shows an error. Exclude the folder with a pattern.
+- **Two bindings, one server folder:** Allowed. They do not overwrite each other silently but skip with a notice.
+- **Paths are machine-specific:** The local path only applies on the computer that created the binding. On another computer the row reports that the folder is missing; you can edit or remove it there.
+- **Set up in the main window only:** Setting up, editing, pausing and removing work in the main window only. In other windows bindings keep running, and `Overwrite anyway` works everywhere.
+- **Network drives:** Changes on shares are reported unreliably; anything missed is caught up at the next start.
+
 ## Notices and connection state
 
 Shellherd shows problems where they occur.
@@ -274,7 +400,7 @@ Shellherd shows problems where they occur.
 
 **Errors:** If the connection fails, the card names the cause (for example “Sign-in rejected”, “Server not responding”, “Server key has changed”) and the next step. Depending on the case, `Edit connection`, `Reconnect` or `Copy fingerprint` are offered; `Details` shows the server's raw text.
 
-**Disconnected:** If the server ends the session or it drops, the output stays visible. A bar at the bottom says how long ago that was and offers `Reconnect` (`Enter`). This also applies to RDP and the file view.
+**Disconnected:** If the server ends the session or it drops, the output stays visible. A bar at the bottom says how long ago that was and offers `Reconnect` (`Enter`). This also applies to RDP and the file view. If Shellherd ended the session because of the configured idle time (see Settings → Connections), the bar names the reason “idle timeout”.
 
 **Saving:** Buttons show “Saving…” and then briefly “Saved” without changing their width. If saving the vault file fails, the notice names the reason (read-only, locked by another program, folder missing, drive full). For container actions, the status column shows the target state (“stopping”, “restarting”) until the list has refreshed.
 
@@ -299,7 +425,7 @@ a user interface for managing trusted hosts will follow later.
 - SSH requests use saved connection IDs and ownership-bound session IDs.
 - Output pauses while xterm acknowledgements are pending; input and scrollback
   are limited. Terminal output is not logged to disk.
-- Disconnecting, locking the vault, closing the window and a renderer crash end the SSH session.
+- Disconnecting, idle disconnect, closing the window, `Other vault file` and a renderer crash end the SSH session. Locking the vault (manual or automatic) does not; the credentials of open sessions stay in memory for that.
   With active sessions, closing is confirmed according to the vault setting.
 
 The SSH tests run a local `ssh2` server with test keys generated at runtime

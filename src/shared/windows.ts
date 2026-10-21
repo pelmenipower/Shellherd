@@ -8,14 +8,16 @@ export type WindowRole = 'main' | 'secondary';
 /** Tab metadata shared between windows; never credentials. */
 export interface TabConnection {
   id: string; name: string; protocol: ConnectionProtocol; address: string;
-  /** File browser ('files') or container view ('containers') of the connection `id`. */
-  view?: 'files' | 'containers';
+  /** File browser ('files') or container view ('containers') of the connection `id`; 'welcome' is the welcome page and never travels between windows. */
+  view?: 'files' | 'containers' | 'welcome';
   /** Container or Proxmox guest on the host `id`. */
   target?: TerminalTarget;
   /** Logs or shell of a pod in the cluster `id`. */
   kube?: KubeTerminalTarget;
   /** Fixed runtime of a container view; absent = first runtime found, with the switcher in the header. */
   runtime?: ContainerRuntime;
+  /** Name the user gave the tab; shown instead of name and ordinal. Lives with the tab, not in the vault. */
+  title?: string;
 }
 
 export interface TransferSession { kind: 'terminal' | 'rdp' | 'sftp'; sessionId: string }

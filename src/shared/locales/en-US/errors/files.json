@@ -29,6 +29,17 @@
     "serverRejected": "The server rejected the action. The name may already exist or the folder is not empty.",
     "failed": "The file action failed.",
     "hostKeyRejected": "The server key was not confirmed.",
-    "noSftp": "The server does not offer SFTP."
+    "noSftp": "The server does not offer SFTP.",
+    "syncLocalMissing": "The local folder was not found on this computer.",
+    "syncLocalLink": "The local folder is a link; links are not watched.",
+    "syncRemoteMissing": "The server folder was not found.",
+    "syncRemoteRoot": "The root folder is not allowed as target.",
+    "syncOverlap": "The folder overlaps with a running binding.",
+    "syncNotFound": "The binding was not found.",
+    "syncElsewhere": "The auto-upload is already running in another file view.",
+    "connectionLost": "The connection was lost.",
+    "verifyUnavailable": "The server returned no checksum: sha256sum is missing, the file is unreadable or commands are not allowed.",
+    "verifyTooMany": "Verify covers up to {{max}} files per transfer.",
+    "verifyUnsafeName": "“{{name}}” cannot be verified: its name contains characters that cannot be passed to the server safely."
   }
 }

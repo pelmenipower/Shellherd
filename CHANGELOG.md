@@ -4,6 +4,54 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.18.0] – 2026-10-21
+
+- Neu: Abgebrochene oder fehlgeschlagene Übertragungen lassen sich mit Fortsetzen an der Stelle wieder aufnehmen, an der sie stehen geblieben sind, auch nach Neu verbinden. Eine liegen gebliebene Teildatei wird beim erneuten Übertragen derselben Datei weiterverwendet, wenn sie zur Quelle passt.
+- Abbrechen behält jetzt die Teildatei, Teildatei verwerfen löscht sie (lokal in den Papierkorb). Auto-Upload räumt seine Teildateien weiterhin selbst auf.
+- Übertragungen schicken jetzt viele Anfragen gleichzeitig statt einer nach der anderen und kopieren bei Ordnern bis zu vier Dateien parallel. Über das Internet sind sie dadurch um ein Vielfaches schneller.
+- Neu: Prüfen vergleicht nach einer fortgesetzten Übertragung die SHA-256-Prüfsumme jeder Datei lokal und auf dem Server.
+- Neu: Rechtsklick auf einen Tab bietet Umbenennen. Der Name gilt nur für den Tab, nicht für die gespeicherte Verbindung.
+- Entfernt: Ohne Startbefehle verbinden im Tab-Menü.
+
+## [0.17.0] – 2026-10-21
+
+- Neu: In der Dateiansicht springt ein getippter Buchstabe zum nächsten Eintrag mit diesem Anfang. Schnell weitergetippt wird daraus ein Namensanfang, derselbe Buchstabe mehrmals geht zum nächsten Treffer. Das gilt für die lokale und die Server-Seite.
+- Neu: Übertragungen zeigen nach der ersten Sekunde ihre Geschwindigkeit (etwa 12 MB/s) hinter dem Fortschritt.
+
+## [0.16.0] – 2026-10-21
+
+- Neu: SSH-Verbindungen können nach dem Anmelden root werden (sudo -i). Bei Passwort-Anmeldung beantwortet Shellherd die sudo-Abfrage einmal mit dem gespeicherten Passwort; bei Schlüssel oder Agent fragt sudo im Terminal, falls kein NOPASSWD eingerichtet ist.
+- Neu: Startbefehle je SSH-Verbindung, eine Zeile je Befehl. Sie werden nach dem Anmelden eingetippt, sichtbar und in der Shell-History.
+- Neu: Rechtsklick auf einen SSH-Tab bietet Ohne Startbefehle verbinden. Das verbindet einmal ohne Root-Shell und ohne Startbefehle.
+- Ältere Shellherd-Versionen entfernen diese Einstellungen beim Speichern.
+
+## [0.15.0] – 2026-10-21
+
+- Neu: Sperren trennt nicht mehr. Ein Sperrbildschirm deckt das Fenster ab; Sitzungen und Tabs laufen weiter und sind nach dem Entsperren wieder da. Neue Verbindungen und Neu verbinden gehen erst nach dem Entsperren. Die Zugangsdaten offener Sitzungen bleiben dabei im Speicher.
+- Neu: Nebenfenster sperren mit und zeigen einen eigenen Sperrbildschirm; entsperrt wird im Hauptfenster. Die automatische Sperre schließt keine Nebenfenster mehr.
+- Neu: Im Sperrbildschirm wechselt Andere Vault-Datei nach Rückfrage die Datei und trennt dabei alle Sitzungen.
+- Der Sperrknopf sperrt ohne Rückfrage.
+- Neu: Die Willkommensseite ist ein Tab. Sie erscheint beim Öffnen eines Vaults, ist über das +-Menü (Willkommensseite) wieder erreichbar und lässt sich nur schließen.
+- Ohne Tabs zeigt die Bühne den leeren Bereich statt der Willkommensseite.
+- Die lokale Eingabeaufforderung heißt jetzt cmd (lokal).
+
+## [0.14.0] – 2026-10-21
+
+- Neu: Der Vault sperrt sich automatisch. `Automatisch sperren nach … Minuten ohne Eingabe` unter Einstellungen → Vault zählt Maus und Tastatur in allen Shellherd-Fenstern; Terminal-Ausgabe zählt nicht. Alle Sitzungen werden getrennt, Nebenfenster geschlossen, die Startkarte nennt den Grund. Ungespeicherte Eingaben im Verbindungsformular gehen dabei verloren.
+- Bestehende Vaults sperren ab jetzt nach 15 Minuten ohne Eingabe (der Wert war schon gespeichert, wirkte aber nicht). `0` schaltet die Sperre ab.
+- Bei verbundener RDP-Sitzung zählt jede Eingabe am Rechner, weil das RDP-Fenster an Shellherd vorbeigeht.
+- Neu: Einstellungen → Verbindungen mit Leerlauf-Trennung (Standard: nie), Keepalive-Intervall und -Fehlversuchen und Verbindungs-Timeout. Die Werte gelten für SSH und SFTP, auch für Container und Cluster über SSH, ab der nächsten Verbindung.
+- Neu: Unter `Weitere Angaben` einer SSH- oder SFTP-Verbindung lassen sich die vier Werte einzeln überschreiben.
+- Neu: Nach Leerlauf zeigt die Getrennt-Leiste „wegen Leerlauf getrennt“. Lokale Shells, RDP und Cluster-Ansichten haben keinen Leerlauf; eine Dateiansicht mit Transfer, Auto-Upload oder offener Bearbeitung trennt sich nicht.
+- Hinweis: Der Verbindungs-Timeout läuft auch während der Server-Schlüssel-Rückfrage; bei kurzem Wert neue Schlüssel über `Verbindung testen` annehmen. Ein älteres Shellherd entfernt die neuen Werte beim Speichern des Vaults.
+
+## [0.13.0] – 2026-10-20
+
+- Neu: Auto-Upload in der Dateiansicht. Ein lokaler Ordner wird in einen Server-Ordner gespiegelt, solange die Dateiansicht offen ist; eingerichtet über das Zahnrad ⚙ im lokalen Bereich (`Auto-Upload`). Die Bindung wird im Vault gemerkt und startet von selbst.
+- Auto-Upload lädt nur lokal → Server hoch und löscht auf dem Server nie. Ist eine Datei dort neuer, wird sie übersprungen; `Trotzdem überschreiben` ersetzt sie.
+- Ausschlüsse sind Muster wie bei `.gitignore` (z. B. `node_modules/`, `*.log`, `/build/`), beim Einrichten festlegbar und später änderbar. Die Vorgaben schließen `.env` und Schlüssel nicht aus.
+- Nach einem Verbindungsabbruch holt `Neu verbinden` verpasste Änderungen nach; Einrichten und Bearbeiten gehen nur im Hauptfenster.
+
 ## [0.12.1] – 2026-10-20
 
 - Behoben: Downloads aus der Dateiansicht landen nur im gewählten Zielordner; Namen, die Windows nicht speichern kann (`\`, `:`, Gerätenamen, Punkt oder Leerzeichen am Ende), werden übersprungen oder mit Hinweis abgelehnt.

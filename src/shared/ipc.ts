@@ -7,11 +7,16 @@ import type {
   ContainerAction, ContainerHostId, ContainerInventory, ContainerRuntime, ContainerTarget, DiscoveryResult, InventoryAction, InventoryRef,
 } from './containers';
 import type { ConnectionCatalog, ExternalDragHover, IncomingTab, IncomingView, TabTransferRequest, ViewTransferRequest, WindowLayoutReport, WindowRole, WorkspaceWindowState } from './windows';
-import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditRequest } from './sftp';
+import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditRequest, SftpSyncRequest } from './sftp';
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
+
+/** Sent to every window when the vault locks; without minutes = manual lock. */
+export interface VaultLockedInfo { minutes?: number }
+/** disconnect: end every session and close secondary windows (switching to another vault file). */
+export interface LockVaultRequest { disconnect?: boolean }
 
 export const IPC_CHANNELS = {
   getVersion: 'app:get-version',
@@ -23,6 +28,9 @@ export const IPC_CHANNELS = {
   unlockVault: 'vault:unlock',
   saveCurrentVault: 'vault:save-current',
   lockVault: 'vault:lock',
+  vaultActivity: 'vault:activity',
+  vaultLocked: 'vault:locked',
+  vaultUnlocked: 'vault:unlocked',
   sshPrepare: 'ssh:prepare',
   sshConnect: 'ssh:connect',
   sshInput: 'ssh:input',
@@ -47,6 +55,7 @@ export const IPC_CHANNELS = {
   sftpTransfer: 'sftp:transfer',
   sftpCancel: 'sftp:cancel',
   sftpResolve: 'sftp:resolve',
+  sftpVerify: 'sftp:verify',
   sftpClearFinished: 'sftp:clear-finished',
   sftpState: 'sftp:state',
   sftpClose: 'sftp:close',
@@ -58,6 +67,9 @@ export const IPC_CHANNELS = {
   sftpEditOpen: 'sftp:edit-open',
   sftpEditUpload: 'sftp:edit-upload',
   sftpEditClose: 'sftp:edit-close',
+  sftpSyncStart: 'sftp:sync-start',
+  sftpSyncStop: 'sftp:sync-stop',
+  sftpSyncForce: 'sftp:sync-force',
   sftpEvent: 'sftp:event',
   localPlaces: 'local:places',
   localList: 'local:list',
@@ -189,6 +201,7 @@ export interface DesktopApi {
   sftpTransfer: (request: SftpTransferRequest) => Promise<{ jobId: string }>;
   sftpCancel: (request: SftpJobRequest) => Promise<void>;
   sftpResolve: (request: SftpConflictAnswer) => Promise<void>;
+  sftpVerify: (request: SftpJobRequest) => Promise<void>;
   sftpClearFinished: (request: SftpSessionRequest) => Promise<void>;
   sftpState: (request: SftpSessionRequest) => Promise<SftpSessionState>;
   sftpClose: (request: SftpSessionRequest) => Promise<void>;
@@ -201,6 +214,9 @@ export interface DesktopApi {
   sftpEditOpen: (request: SftpEditRequest) => Promise<void>;
   sftpEditUpload: (request: SftpEditRequest) => Promise<void>;
   sftpEditClose: (request: SftpEditRequest) => Promise<void>;
+  sftpSyncStart: (request: SftpSyncRequest) => Promise<void>;
+  sftpSyncStop: (request: SftpSyncRequest) => Promise<void>;
+  sftpSyncForce: (request: SftpSyncRequest) => Promise<void>;
   onSftpEvent: (listener: (event: SftpEvent) => void) => () => void;
   localPlaces: () => Promise<LocalPlaces>;
   localList: (request: LocalPathRequest) => Promise<DirectoryListing>;
@@ -276,5 +292,9 @@ export interface DesktopApi {
     request: SaveCurrentVaultRequest,
   ) => Promise<VaultSessionResult>;
 
-  lockVault: () => Promise<void>;
+  lockVault: (request?: LockVaultRequest) => Promise<void>;
+  /** Reports mouse or keyboard use to the auto-lock; fire-and-forget. */
+  vaultActivity: () => void;
+  onVaultLocked: (listener: (info: VaultLockedInfo) => void) => () => void;
+  onVaultUnlocked: (listener: () => void) => () => void;
 }

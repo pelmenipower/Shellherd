@@ -4,6 +4,54 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.18.0] – 2026-10-21
+
+- New: Canceled or failed transfers can be resumed with Resume from where they stopped, also after Reconnect. A leftover partial file is reused when the same file is transferred again and it matches the source.
+- Cancel now keeps the partial file, Discard partial file deletes it (local files go to the recycle bin). Auto-upload still cleans up its own partial files.
+- Transfers now keep many requests in flight instead of one at a time and copy up to four files of a folder in parallel. Over the internet they are many times faster.
+- New: Verify compares the SHA-256 checksum of every file locally and on the server after a resumed transfer.
+- New: Right-clicking a tab offers Rename. The name applies to the tab only, not to the saved connection.
+- Removed: Connect without start commands from the tab menu.
+
+## [0.17.0] – 2026-10-21
+
+- New: In the file view, typing a letter jumps to the next entry that starts with it. Typing quickly builds a name prefix; the same letter again moves to the next match. This works on the local and the server side.
+- New: Transfers show their speed (e.g. 12 MB/s) next to the progress after the first second.
+
+## [0.16.0] – 2026-10-21
+
+- New: SSH connections can become root after login (sudo -i). With password login, Shellherd answers the sudo prompt once with the stored password; with a key or agent, sudo asks in the terminal if NOPASSWD is not set up.
+- New: Start commands per SSH connection, one line per command. They are typed after login, visible and in the shell history.
+- New: Right-clicking an SSH tab offers Connect without start commands. This connects once without the root shell and without start commands.
+- Older Shellherd versions remove these settings when saving.
+
+## [0.15.0] – 2026-10-21
+
+- New: Locking no longer disconnects. A lock screen covers the window; sessions and tabs keep running and are back after unlocking. New connections and Reconnect work only after unlocking. The credentials of open sessions stay in memory.
+- New: Detached windows lock too and show their own lock screen; you unlock in the main window. The automatic lock no longer closes detached windows.
+- New: On the lock screen, Other vault file switches the file after a confirmation and disconnects all sessions.
+- The lock button locks without a confirmation.
+- New: The welcome page is a tab. It appears when a vault opens, can be reopened from the + menu (Welcome page) and can only be closed.
+- Without tabs, the stage shows the empty area instead of the welcome page.
+- The local command prompt is now called cmd (local).
+
+## [0.14.0] – 2026-10-21
+
+- New: The vault locks automatically. `Lock automatically after … minutes without input` under Settings → Vault counts mouse and keyboard in all Shellherd windows; terminal output does not count. All sessions are disconnected, detached windows closed, and the start card names the reason. Unsaved input in the connection form is lost.
+- Existing vaults now lock after 15 minutes without input (the value was already stored but had no effect). `0` turns the lock off.
+- With a connected RDP session, any input on the computer counts, because the RDP window bypasses Shellherd.
+- New: Settings → Connections with idle disconnect (default: never), keepalive interval and misses, and connection timeout. The values apply to SSH and SFTP, including containers and clusters over SSH, from the next connection.
+- New: Under `More options` of an SSH or SFTP connection, the four values can be overridden one by one.
+- New: After an idle disconnect, the disconnected bar shows “idle timeout”. Local shells, RDP and cluster views have no idle limit; a file view with a transfer, auto-upload or an open edit does not disconnect.
+- Note: The connection timeout keeps running during the host key prompt; with a short value, accept new keys through `Test connection`. An older Shellherd removes the new values when saving the vault.
+
+## [0.13.0] – 2026-10-20
+
+- New: Auto-upload in the file view. A local folder is mirrored into a server folder while the file view is open; set up from the gear ⚙ in the local pane (`Auto-upload`). The binding is stored in the vault and starts by itself.
+- Auto-upload only uploads local → server and never deletes on the server. A file that is newer there is skipped; `Overwrite anyway` replaces it.
+- Excludes are patterns as in `.gitignore` (e.g. `node_modules/`, `*.log`, `/build/`), set when setting up and editable later. The defaults do not exclude `.env` and keys.
+- After a lost connection, `Reconnect` catches up on missed changes; setting up and editing work in the main window only.
+
 ## [0.12.1] – 2026-10-20
 
 - Fixed: Downloads from the file view only land in the chosen target folder; names Windows cannot store (`\`, `:`, device names, trailing dot or space) are skipped or rejected with a message.

@@ -1,12 +1,41 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   ConnectionNodeSchema,
+  LOGIN_LIMITS,
   EncryptedVaultFileSchema,
   VaultSchema,
   WorkspacePaneSchema,
 } from './schema';
 import { exampleVault } from './example';
 
+
+describe('ConnectionNodeSchema login block', () => {
+    const ssh = { id: 'c', type: 'connection', protocol: 'ssh', name: 'S', host: 'h', port: 22, tags: [], authentication: { method: 'agent' } };
+    const ok = (commands: string[]) => ConnectionNodeSchema.safeParse({ ...ssh, login: { commands } }).success;
+
+    it('keeps login through the parse and treats it as optional', () => {
+        const login = { sudo: true, commands: ['uptime', 'df -h /'] };
+        expect(ConnectionNodeSchema.parse({ ...ssh, login })).toMatchObject({ login });
+        expect(ConnectionNodeSchema.parse(ssh)).not.toHaveProperty('login');
+    });
+
+    it('rejects Tab, ESC, DEL and C1 controls', () => {
+        for (const bad of ['a\tb', 'a\x1bb', 'a\x7fb', 'a\u009b6n', 'a\nb', '']) expect(ok([bad])).toBe(false);
+        expect(ok(['plain command'])).toBe(true);
+    });
+
+    it('keeps schema.ts free of raw control characters', () => {
+        const source = readFileSync(new URL('./schema.ts', import.meta.url), 'utf8');
+        expect(source).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/);
+    });
+
+    it('enforces the limits', () => {
+        expect(ok(Array(LOGIN_LIMITS.lines).fill('x'.repeat(LOGIN_LIMITS.length)))).toBe(true);
+        expect(ok(Array(LOGIN_LIMITS.lines + 1).fill('x'))).toBe(false);
+        expect(ok(['x'.repeat(LOGIN_LIMITS.length + 1)])).toBe(false);
+    });
+});
 
 describe('ConnectionNodeSchema', () => {
     it('accepts a kubernetes connection and keeps old vaults valid', () => {
@@ -163,4 +192,38 @@ describe('WorkspacePaneSchema containerViews', () => {
     expect(ok([{ index: 0, runtime: 'proxmox' }])).toBe(false);
     expect(ok([{ index: 0, extra: 1 }])).toBe(false);
   });
+});
+
+describe('autoUpload bindings', () => {
+    const id = '3f2b1c4e-5a6d-4e7f-8a9b-0c1d2e3f4a5b';
+    const binding = { id, localPath: 'C:\\Projekte\\app', remotePath: '/srv/app', excludes: ['.git'], enabled: true };
+    const host = { id: 'c', type: 'connection', name: 'S', tags: [], host: 'h', port: 22, authentication: { method: 'agent' } };
+    const ssh = (autoUpload?: unknown) => ConnectionNodeSchema.safeParse({ ...host, protocol: 'ssh', ...(autoUpload === undefined ? {} : { autoUpload }) });
+    const sftp = (autoUpload?: unknown) => ConnectionNodeSchema.safeParse({ ...host, protocol: 'sftp', autoUpload });
+
+    it('keeps vaults without bindings valid and accepts a binding on SSH and SFTP', () => {
+        expect(ssh().success).toBe(true);
+        expect(ssh([binding]).success).toBe(true);
+        expect(sftp([binding]).success).toBe(true);
+        expect(ssh([{ ...binding, localPath: '\\\\server\\share\\x' }]).success).toBe(true);
+    });
+
+    it('rejects unusable bindings', () => {
+        for (const bad of [
+            { ...binding, localPath: 'app' },
+            { ...binding, localPath: '\\\\?\\C:\\x' },
+            { ...binding, localPath: '\\\\.\\C:\\x' },
+            { ...binding, remotePath: 'srv/app' },
+            { ...binding, excludes: ['a\tb'] },
+        ]) expect(ssh([bad]).success).toBe(false);
+        expect(ssh([binding, { ...binding }]).success).toBe(false);
+        const many = Array.from({ length: 17 }, (_, index) => ({ ...binding, id: `3f2b1c4e-5a6d-4e7f-8a9b-0c1d2e3f4a${String(index).padStart(2, '0')}` }));
+        expect(ssh(many).success).toBe(false);
+        expect(ssh(many.slice(0, 16)).success).toBe(true);
+    });
+
+    it('strips unknown binding fields instead of rejecting them', () => {
+        const parsed = ssh([{ ...binding, future: 1 }]);
+        expect(parsed.success && parsed.data.protocol === 'ssh' ? parsed.data.autoUpload?.[0] : undefined).toEqual(binding);
+    });
 });

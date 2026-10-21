@@ -1,10 +1,11 @@
-// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant …] [--readme]   (no argument = all)
+// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab) through the running driver.
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
 
 const PORT = Number(process.env.DRIVER_PORT ?? 9333);
 const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
@@ -21,7 +22,7 @@ async function call(route, body, query = '') {
 const click = selector => call('click', selector);
 const rclick = selector => call('rclick', selector);
 const fill = (selector, value) => call('fill', `${selector}\n${value}`);
-const key = name => call('key', undefined, `?k=${name}`);
+const key = name => call('key', undefined, `?k=${encodeURIComponent(name)}`);
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 // Menu entries carry hints in child spans, so they are matched by their leading text.
 const menuItem = label => call('eval', `const item = [...document.querySelectorAll('[role=menuitem]')].find(i => i.textContent.trim().startsWith(${JSON.stringify(label)}) && !i.disabled);
@@ -64,6 +65,8 @@ function localTarget() {
   const dir = candidates.find(p => !inside(p));
   if (!dir) throw new Error('Kein Ort für die lokale Spalte ohne Benutzernamen: SHELLHERD_RUN_DIR außerhalb des Benutzerordners setzen (z. B. C:\\shellherd-run).');
   fs.mkdirSync(dir, { recursive: true });
+  // Leftover of an aborted run; auto-upload would otherwise upload it.
+  fs.rmSync(path.join(dir, 'big.bin'), { force: true });
   fs.writeFileSync(path.join(dir, 'readme.txt'), 'Demo files\nfor the local pane\n');
   fs.writeFileSync(path.join(dir, 'deploy.sh'), '#!/bin/sh\necho deploy\n');
   fs.writeFileSync(path.join(dir, 'notes.md'), '# Notes\n\n- synthetic\n- demo\n');
@@ -71,6 +74,8 @@ function localTarget() {
 }
 
 const shots = [];
+// The web-01 tab (not the fixed welcome tab) is connected; proves a session is alive.
+const connectedTab = `[...document.querySelectorAll('.terminal-tab:not([data-fixed])')].some(b => b.querySelector('.tab-name')?.textContent === 'web-01' && b.querySelector('.tab-status-connected'))`;
 const blocks = {
   async sftp() {
     const { target, segment } = localTarget();
@@ -82,8 +87,78 @@ const blocks = {
     await fill('.file-pane-local input[aria-label="Pfad"]', target);
     await key('Enter');
     await waitFor('lokale Spalte', `document.querySelector('.file-pane-local nav[aria-label="Pfad"]')?.textContent.includes(${JSON.stringify(segment)})`);
+    // The demo vault survives runs, so a leftover binding (aborted run) is removed first and the block ends by removing its own.
+    const removeBinding = async () => {
+      await evaluate(`[...document.querySelectorAll('.file-sync-list .transfer-job button')].find(b => b.textContent.trim() === 'Entfernen')?.click()`);
+      await waitFor('Bindung entfernen', `!document.querySelector('.file-sync-list .transfer-job')`);
+    };
+    if (await evaluate(`!!document.querySelector('.file-sync-list .transfer-job')`)) await removeBinding();
     await pause(300);
     await shot('sftp');
+    // Type-to-jump: a click on a fixed row focuses the list, then "n" must land on notes.md.
+    await click('.file-pane-remote [role=row][data-name="backups"]');
+    await key('n');
+    await waitFor('Typeahead', `!!document.querySelector('.file-pane-remote .file-row.is-cursor[data-name="notes.md"]')`);
+    await shot('sftp-typeahead');
+    // Transfer rate, cancel, resume, verify: a large random upload (random, so the content comparison means something); the rate vanishes at the end, so shots follow their wait at once.
+    const queue = '.transfer-queue:not(.file-sync-list):not(.edit-list)';
+    const bigLocal = path.join(target, 'big.bin');
+    const bigServer = path.join(RUN_DIR, 'sftp', 'home', 'demo', 'big.bin');
+    const rate = `/\\d\\s?[KMG]B\\/s/.test(document.querySelector('${queue}')?.innerText ?? '')`;
+    const logRate = async () => console.log(`Rate: ${await evaluate(`(document.querySelector('${queue}')?.innerText.match(/\\d[\\d,.]*\\s?[KMG]B\\/s/) ?? [''])[0]`)}`);
+    // Buttons of the big.bin job row, matched by their text.
+    const jobButton = (label, row = '.transfer-job') => `[...document.querySelectorAll('${queue} ${row}')].filter(j => j.textContent.includes('big.bin')).flatMap(j => [...j.querySelectorAll('button')]).find(b => b.textContent.trim() === ${JSON.stringify(label)} && !b.disabled)`;
+    const sha256 = file => new Promise((resolve, reject) => {
+      const hash = createHash('sha256');
+      fs.createReadStream(file).on('data', chunk => hash.update(chunk)).on('error', reject).on('end', () => resolve(hash.digest('hex')));
+    });
+    try {
+      // 512 MiB; if the window for the cancel gets too tight, use 1 GiB.
+      fs.writeFileSync(bigLocal, randomBytes(512 * 1024 * 1024));
+      // The local pane has no watcher: refresh before the row exists.
+      await click('.file-pane-local button[aria-label="Aktualisieren"]');
+      await waitFor('große Datei lokal', `!!document.querySelector('.file-pane-local [role=row][data-name="big.bin"]')`);
+      await click('.file-pane-local [role=row][data-name="big.bin"]');
+      await click('.file-pane-local .file-pane-actions button:first-child');
+      await waitFor('Rate', rate, { timeout: 60000, every: 100 });
+      await logRate();
+      await waitFor('Abbrechen-Knopf', jobButton('Abbrechen'), { timeout: 5000, every: 50 });
+      await evaluate(`${jobButton('Abbrechen')}.click()`);
+      await waitFor('Fortsetzen und Teildatei verwerfen', `${jobButton('Fortsetzen')} && ${jobButton('Teildatei verwerfen')}`);
+      await pause(300);
+      await shot('sftp-transfer-canceled');
+      await evaluate(`${jobButton('Fortsetzen')}.click()`);
+      await waitFor('fortgesetzt', `document.querySelector('${queue}')?.innerText.includes('fortgesetzt ab') && ${rate}`, { timeout: 60000, every: 100 });
+      await logRate();
+      await shot('sftp-transfer');
+      await waitFor('Upload fertig', `!!${jobButton('Prüfen', '.transfer-job.is-done')}`, { timeout: 300000 });
+      const [local, server] = await Promise.all([sha256(bigLocal), sha256(bigServer)]);
+      if (local !== server) throw new Error(`SHA-256 weicht ab: lokal ${local}, Server ${server}`);
+      await evaluate(`${jobButton('Prüfen', '.transfer-job.is-done')}.click()`);
+      await waitFor('Prüfsumme', `[...document.querySelectorAll('${queue} .transfer-job.is-done')].some(j => j.textContent.includes('big.bin') && j.textContent.includes('Prüfsumme stimmt'))`, { timeout: 120000 });
+      await shot('sftp-transfer-verified');
+    } finally {
+      // Only our own test file, no recursion.
+      for (const file of [bigLocal, bigServer, `${bigServer}.part`]) fs.rmSync(file, { force: true });
+    }
+    await click('.file-pane-local button[aria-label="Aktualisieren"]');
+    await click('.file-pane-remote button[aria-label="Aktualisieren"]');
+    await waitFor('große Datei entfernt', `!document.querySelector('[role=row][data-name="big.bin"]')`);
+    await click(`${queue} header button`);
+    // Gear menu in the local pane header: binds the folder shown there.
+    await click('.file-pane-local button[aria-haspopup="menu"]');
+    await menuItem('Auto-Upload');
+    await waitFor('Auto-Upload-Dialog', `document.querySelector('dialog.file-sync-dialog[open]')`);
+    await pause(300);
+    await shot('sftp-auto-upload-dialog');
+    // BusyButton carries hidden placeholder labels, so match by class: the dialog has one primary button.
+    await click('dialog.file-sync-dialog[open] .primary-button');
+    await waitFor('Zeile Überwacht', `[...document.querySelectorAll('.file-sync-list .transfer-job')].some(j => j.textContent.includes('Überwacht'))`);
+    // The server column refreshes throttled after uploads; show the uploaded file.
+    await waitFor('hochgeladene Datei', `!!document.querySelector('.file-pane-remote [role=row][data-name="readme.txt"]')`);
+    await pause(300);
+    await shot('sftp-auto-upload');
+    await removeBinding();
   },
   async containers() {
     await rclick('text=web-01 >> nth=0');
@@ -135,6 +210,134 @@ const blocks = {
     await waitFor('KI-Antwort', `!document.querySelector('.assistant-typing') && [...document.querySelectorAll('.assistant-message.is-assistant .assistant-command code')].some(c => c.textContent.includes('du -xh'))`);
     await pause(300);
     await shot('assistant');
+  },
+  async lock() {
+    await click('text=web-01 >> nth=0');
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener web-01-Tab', connectedTab);
+    // Marks the visible terminal node: if it survives the lock, it was not remounted.
+    await evaluate(`(document.querySelector('.terminal-panel:not([hidden]) .xterm').dataset.lockProbe = '1')`);
+    await pause(1000);
+    await click('.lock-button');
+    await waitFor('Sperrbildschirm', `document.querySelector('dialog.lock-screen[open]')`);
+    if (!await evaluate(`document.querySelector('.vault-shell').inert === true`)) throw new Error('Shell ist nicht inert');
+    // Escape must not close the lock screen.
+    await key('Escape'); await pause(300); await key('Escape'); await pause(300);
+    if (!await evaluate(`!!document.querySelector('dialog.lock-screen[open]')`)) throw new Error('Escape schließt den Sperrbildschirm');
+    // A modal opened later must not cover the lock screen: it raises itself again.
+    await evaluate(`(() => { const d = document.createElement('dialog'); d.id = 'lock-probe'; document.body.appendChild(d); d.showModal(); })()`);
+    await pause(300);
+    const onTop = await evaluate(`!!document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('dialog.lock-screen')`);
+    await evaluate(`document.getElementById('lock-probe')?.remove()`);
+    if (!onTop) throw new Error('Sperrbildschirm liegt nicht oben (Neuanhebung)');
+    // The switch confirmation is a child of the lock screen; raising the lock screen must close it, or the next click would do nothing.
+    await click('.lock-screen .secondary-button');
+    await waitFor('Wechsel-Rückfrage', `document.querySelector('.lock-screen dialog[open]')`);
+    await evaluate(`(() => { const d = document.createElement('dialog'); d.id = 'lock-probe'; document.body.appendChild(d); d.showModal(); })()`);
+    await pause(300);
+    const confirmClosed = await evaluate(`!document.querySelector('.lock-screen dialog[open]')`);
+    if (!confirmClosed) { await evaluate(`document.getElementById('lock-probe')?.remove()`); throw new Error('Wechsel-Rückfrage bleibt nach der Neuanhebung offen'); }
+    await click('.lock-screen .secondary-button');
+    const confirmReopened = await evaluate(`!!document.querySelector('.lock-screen dialog[open]')`);
+    await key('Escape'); await pause(300);
+    await evaluate(`document.getElementById('lock-probe')?.remove()`);
+    if (!confirmReopened) throw new Error('Wechsel-Rückfrage öffnet nach der Neuanhebung nicht erneut');
+    await pause(300);
+    await shot('lock-screen');
+    await fill('.lock-screen input[type=password]', 'falsches-passwort');
+    await click('.lock-screen .primary-button');
+    await waitFor('Fehlermeldung', `document.querySelector('.lock-screen .error-message')?.offsetParent`);
+    // After a failed attempt the field is empty and keeps the focus, so typing can continue at once.
+    if (!await evaluate(`document.activeElement === document.querySelector('.lock-screen input[type=password]') && document.querySelector('.lock-screen input[type=password]').value === ''`)) throw new Error('Passwortfeld nach Fehlversuch nicht leer oder ohne Fokus');
+    await fill('.lock-screen input[type=password]', 'synthetic-vault-demo');
+    await click('.lock-screen .primary-button');
+    await waitFor('Entsperren', `!document.querySelector('dialog.lock-screen[open]') && document.querySelector('.xterm[data-lock-probe]') && ${connectedTab}`, { timeout: 30000 });
+    if (!await evaluate(`document.querySelector('.vault-shell').inert === false`)) throw new Error('Shell bleibt nach dem Entsperren inert');
+  },
+  // Detached window: locks with the main window, shows a form-less lock screen, and is usable again after unlocking in the main window.
+  async 'lock-secondary'() {
+    await click('.view-add');
+    await click('text=web-01 >> nth=0');
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener web-01-Tab', connectedTab);
+    await rclick('.view-tab.is-active');
+    await menuItem('In neues Fenster verschieben');
+    let main = 0, secondary = -1;
+    for (const end = Date.now() + 20000; secondary < 0; await pause(250)) {
+      const urls = await call('windows');
+      secondary = urls.findIndex(url => url.includes('role=secondary'));
+      main = urls.findIndex(url => !url.includes('role=secondary'));
+      if (secondary < 0 && Date.now() > end) throw new Error('Nebenfenster (Timeout nach 20 s)');
+    }
+    const use = index => call('use', undefined, `?i=${index}`);
+    try {
+      await use(secondary);
+      await waitFor('Terminal im Nebenfenster', `document.querySelector('.xterm')`);
+      await waitFor('verbundener web-01-Tab im Nebenfenster', connectedTab);
+      await click('.xterm-helper-textarea >> nth=0');
+      await evaluate(`(document.querySelector('.terminal-panel:not([hidden]) .xterm').dataset.lockProbe = '1')`);
+      await use(main);
+      await click('.lock-button');
+      await use(secondary);
+      await waitFor('Sperrbildschirm im Nebenfenster', `document.querySelector('dialog.lock-screen[open]')`);
+      if (!await evaluate(`document.querySelector('.vault-shell').inert === true`)) throw new Error('Nebenfenster ist nicht inert');
+      if (!await evaluate(`!document.querySelector('.lock-screen form')`)) throw new Error('Sperrbildschirm im Nebenfenster zeigt ein Formular');
+      await key('Control+Shift+Space'); await pause(500);
+      if (!await evaluate(`!document.querySelector('dialog.workflow-palette[open]') && document.querySelectorAll('dialog[open]').length === 1`)) throw new Error('Workflow-Palette öffnet sich im gesperrten Nebenfenster');
+      await call('ss', undefined, '?name=lock-secondary'); shots.push(path.join(SHOTS, 'lock-secondary.png'));
+      await use(main);
+      await waitFor('Sperrbildschirm im Hauptfenster', `document.querySelector('dialog.lock-screen[open]')`);
+      await fill('.lock-screen input[type=password]', 'synthetic-vault-demo');
+      await click('.lock-screen .primary-button');
+      await waitFor('Entsperren', `!document.querySelector('dialog.lock-screen[open]')`, { timeout: 30000 });
+      await use(secondary);
+      await waitFor('Nebenfenster entsperrt', `!document.querySelector('dialog.lock-screen[open]') && document.querySelector('.xterm[data-lock-probe]') && ${connectedTab}`, { timeout: 30000 });
+      if (!await evaluate(`document.querySelector('.vault-shell').inert === false`)) throw new Error('Nebenfenster bleibt nach dem Entsperren inert');
+      await waitFor('Fokus im Nebenfenster-Terminal', `document.activeElement?.classList.contains('xterm-helper-textarea')`, { timeout: 5000 });
+    } finally {
+      // Closing the last tab closes the window, so the page may vanish mid-cleanup.
+      try { await use(secondary); await closeTabs(); } catch { /* window already closed */ }
+      for (const end = Date.now() + 10000; (await call('windows')).length > 1 && Date.now() < end; await pause(250));
+      await use(0);
+    }
+  },
+  // ops-01: root shell (sudo -i) with start commands; then the tab menu renames the tab without touching the session.
+  async 'login-commands'() {
+    const screen = `(document.querySelector('.terminal-panel:not([hidden]) .xterm-rows')?.textContent ?? '')`;
+    await click('text=ops-01 >> nth=0');
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('Root-Prompt und Startbefehle', `${screen}.includes('root@web-01') && ${screen}.includes('load average')`, { timeout: 30000 });
+    await pause(500);
+    const uptimes = () => evaluate(`${screen}.split('load average').length - 1`);
+    const before = await uptimes();
+    await shot('login-commands');
+    // Focus return: Escape gives the focus back to the tab, a click into the terminal keeps it there.
+    await rclick('.terminal-tab:not([data-fixed])');
+    await key('Escape');
+    await pause(300);
+    if (!await evaluate(`document.activeElement?.id.startsWith('tab-')`)) throw new Error('Fokus ging nach Escape nicht auf den Tab zurück');
+    await rclick('.terminal-tab:not([data-fixed])');
+    await click('.terminal-panel:not([hidden]) .xterm');
+    await pause(300);
+    if (!await evaluate(`!!document.activeElement?.closest('.xterm')`)) throw new Error('Fokus wurde nach Klick ins Terminal dem Tab zurückgegeben');
+    await rclick('.terminal-tab:not([data-fixed])');
+    await menuItem('Umbenennen');
+    await fill('input.view-rename', 'Deploy');
+    await key('Enter');
+    await waitFor('Tab umbenannt', `document.querySelector('.terminal-tab:not([data-fixed]) .tab-name')?.textContent === 'Deploy'`);
+    await pause(300);
+    if (await uptimes() !== before) throw new Error('Umbenennen hat die Sitzung neu gestartet');
+    await shot('tab-renamed');
+  },
+  async welcome() {
+    await click('.terminal-tab-add');
+    await click('.connection-picker-welcome');
+    await waitFor('Willkommensseite', `document.querySelector('.welcome-page')`);
+    await pause(300);
+    await shot('welcome');
   },
 };
 

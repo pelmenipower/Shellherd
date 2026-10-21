@@ -1,15 +1,17 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import ssh2 from 'ssh2';
 import { openRemoteHost } from '../../../src/main/containers/runner';
-import { PROBE_COMMAND } from '../../../src/main/containers/commands';
+import { PROBE_COMMAND, shellJoin } from '../../../src/main/containers/commands';
 import { parseProbe } from '../../../src/main/containers/parsers';
 import { BATCH_OUTPUT_LIMIT, inventoryBatchCommand, splitInventoryBatch } from '../../../src/main/containers/inventory-batch';
 import { parseContainerRows } from '../../../src/main/containers/inventory-parsers';
 import { createSudoMarker } from '../../../src/main/containers/sudo';
 import { SudoRejections } from '../../../src/main/containers/sudo-rejections';
+import { SshSessionManager } from '../../../src/main/ssh/session';
 import { readKubeconfig } from '../../../src/main/kubernetes/access';
 import { parseKubeconfig } from '../../../src/main/kubernetes/kubeconfig';
 import { openTunnel } from '../../../src/main/kubernetes/tunnel';
@@ -54,6 +56,31 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect(parseContainerRows('docker', lists.containers.stdout)).toHaveLength(6);
 
     expect((await host.run('rm -rf /', 5000)).code).toBe(127);
+  });
+
+  it('serves the root shell and the start commands', async () => {
+    const { port } = await start('root');
+    const run = async (extra, done) => {
+      const events = [];
+      const node = { ...connection(port), login: { sudo: true, commands: ['uptime', 'df -h /'] }, ...extra };
+      const manager = new SshSessionManager({ getConnection: () => structuredClone(node), verifyHost: async () => true,
+        spawnShell: () => { throw new Error('no local shell'); },
+        emit: (owner, event) => { events.push(event); if (event.type === 'data') manager.acknowledge(owner, event.sessionId, event.sequence); } });
+      cleanup.push(async () => manager.closeAll());
+      const text = () => Buffer.concat(events.filter(event => event.type === 'data').map(event => Buffer.from(event.data))).toString('utf8');
+      const { sessionId } = manager.prepare(1, { connectionId: node.id, cols: 80, rows: 24 });
+      await manager.connect(1, sessionId);
+      for (const end = Date.now() + 8000; !done(text()); await new Promise(resolve => setTimeout(resolve, 20))) {
+        if (Date.now() > end) throw new Error(`timeout, output so far: ${JSON.stringify(text())}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 300));
+      manager.closeAll();
+      return text();
+    };
+    const root = await run({}, out => out.includes('Mounted on'));
+    expect(root).toContain('root@web-01:~# ');
+    expect(root).toContain('load average');
+    expect(root).not.toContain('terminus-');
   });
 
   it('reports no kubeconfig without a Kubernetes fake', async () => {
@@ -122,5 +149,17 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     // NO_SUCH_FILE (2): neither ".." climbing nor backslashes may leave the root.
     await expect(call(done => sftp.stat('/../../x', done))).rejects.toMatchObject({ code: 2 });
     await expect(call(done => sftp.stat('/home/..\\..\\..\\x', done))).rejects.toBeDefined();
+  });
+
+  it('answers sha256sum inside the SFTP root, quoted names too, and fails for missing files', async () => {
+    const { port } = await start('sha');
+    writeFileSync(join(base, 'sha', 'sftp', 'home', 'demo', "it's here.bin"), 'payload');
+    const { host } = await connect(port);
+    const digest = createHash('sha256').update('payload').digest('hex');
+    const command = file => shellJoin(['sh', '-c', 'sha256sum -- "$1" 2>/dev/null || shasum -a 256 -- "$1"', 'sh', file]);
+    expect(await host.run(command("/home/demo/it's here.bin"), 5000)).toMatchObject({ code: 0, stdout: `${digest}  /home/demo/it's here.bin\n` });
+    expect((await host.run(command('/home/demo/notes.md'), 5000)).stdout).toMatch(/^[0-9a-f]{64} {2}\/home\/demo\/notes\.md\n$/);
+    expect((await host.run(command('/home/demo/missing.bin'), 5000)).code).toBe(1);
+    expect((await host.run(command('/../../x'), 5000)).code).toBe(1);
   });
 });

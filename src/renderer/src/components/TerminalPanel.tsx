@@ -20,7 +20,7 @@ import { notify } from '../notice-store';
 import { statusWord } from '../status-words';
 import { ConnectingCard } from './ConnectingCard';
 import { ConnectionErrorCard } from './ConnectionErrorCard';
-import { DisconnectedBar } from './DisconnectedBar';
+import { DisconnectedBar, type DisconnectReason } from './DisconnectedBar';
 
 interface TerminalPanelProps {
   connection: TerminalConnection;
@@ -40,7 +40,7 @@ interface TerminalPanelProps {
 }
 
 interface Failure { code: ConnectionErrorCode; error?: CodedError }
-interface Closed { reason: 'server' | 'session' | 'cancel'; endedAt: number }
+interface Closed { reason: DisconnectReason; endedAt: number }
 
 const SSH2_STEPS: readonly SshStep[] = ['reach', 'hostkey', 'auth', 'shell'];
 const SHELL_STEPS: readonly SshStep[] = ['shell'];
@@ -148,7 +148,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
         onStatusChange(tabId, event.status);
         if (event.status === 'error') setFailure({ code: event.code ?? 'unknown', ...(event.error ? { error: event.error } : {}) });
         if (event.status === 'closed') {
-          const reason = cancelledRef.current ? 'cancel' : event.code === 'closed-by-server' ? 'server' : 'session';
+          const reason: DisconnectReason = cancelledRef.current ? 'cancel' : event.code === 'closed-by-server' ? 'server' : event.code === 'idle' ? 'idle' : 'session';
           setClosed(previous => (previous?.reason === 'cancel' ? previous : { reason, endedAt: Date.now() }));
         }
         if (connected && visibleRef.current && focusedRef.current) term.focus();

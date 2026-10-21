@@ -17,5 +17,6 @@ export function useTerminalTabs() {
   const restore = useCallback((tabs: TerminalTab[], activeTabId: string | null) => dispatch({ type: 'restore', tabs, activeTabId }), []);
   const reset = useCallback(() => dispatch({ type: 'reset' }), []);
   const retainConnections = useCallback((connectionIds: string[]) => dispatch({ type: 'retainConnections', connectionIds }), []);
-  return { ...state, hasRunning: state.tabs.some(isRunning), open, adopt, select, close, updateStatus, reset, restore, retainConnections };
+  const rename = useCallback((id: string, title: string) => dispatch({ type: 'rename', id, title }), []);
+  return { ...state, hasRunning: state.tabs.some(isRunning), open, adopt, select, close, updateStatus, reset, restore, retainConnections, rename };
 }

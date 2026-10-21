@@ -80,6 +80,8 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 | Name | Rolle | Wert | Beispiel |
 |---|---|---|---|
 | `--size-dot` | das eine Statuspunkt-Maß | `8px` | `.toast-dot`, `.connect-error-dot`, `.kube-dot`, Terminal-Tab-Punkt |
+| `--toast-text-min` | Mindestbreite des Meldungstexts, bevor die Knöpfe in eine zweite Zeile rücken | `200px` | `.toast-text` |
+| `--input-number` | Breite kurzer Zahlenfelder in den Einstellungen | `calc(6ch + 2 * var(--space-8) + 2px)` | `.settings-number input` |
 | `--notice-ttl-info` | Anzeigedauer einer Info-Meldung (Ablaufbalken) | `5000ms` | `.toast[data-tone='info'] .toast-bar` |
 | `--notice-ttl-ok` | Anzeigedauer einer Erfolgs-Meldung | `3000ms` | `.toast[data-tone='ok'] .toast-bar` |
 
@@ -145,6 +147,8 @@ Die Reihenfolge `header < popover < menu < modal < toast` ist verbindlich.
 | `--layer-modal` | `90` | Dialoge und Hilfe |
 | `--layer-toast` | `100` | Hinweise |
 
+Der Sperrbildschirm ist ein modaler `<dialog>` im Top-Layer und liegt über allen Ebenen, auch über `--layer-toast`. Öffnet während der Sperre ein anderer modaler Dialog, hebt der Sperrbildschirm sich sofort wieder an die Spitze des Top-Layers.
+
 Beispiel: `z-index: var(--layer-modal)` oder `z-index: calc(var(--layer-chrome) + 5)`.
 
 ### Schatten und Fokus (`--shadow-*`, `--focus-*`)
@@ -200,7 +204,7 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 |---|---|---|---|---|---|
 | Button `:active` (alle außer Ausnahmeliste) | zig/Tag | animieren, minimal | Feedback | `transform: scale(.97)`, `--ease-out`, `--dur-press` | kein Druck |
 | Flache Druckelemente (siehe Ausnahmeliste unten) | 100+/Tag, teils Tastatur | nicht | Breite Flächen skalieren sichtbar, Listen- und Tabnavigation | eine `:not()`-Liste in `styles.css` | – |
-| Übrige Dialoge: Bestätigungs-, KI-, Konflikt-, Release-Notes-Dialog (`.confirm-dialog`) | gelegentlich | animieren | harten Wechsel vermeiden | `opacity 0→1`, `scale(.97)→1`, `--ease-out`, `--dur-modal`, `::backdrop` nur `opacity`, Origin `center`, kein Exit | nur `opacity` |
+| Übrige Dialoge: Bestätigungs-, KI-, Konflikt-, Release-Notes-Dialog (`.confirm-dialog`), Auto-Upload-Dialog (`.file-sync-dialog`) | gelegentlich | animieren | harten Wechsel vermeiden | `opacity 0→1`, `scale(.97)→1`, `--ease-out`, `--dur-modal`, `::backdrop` nur `opacity`, Origin `center`, kein Exit | nur `opacity` |
 | Bestätigungen, die eine Taste auslösen kann (Kube-/Container-Aktionen `.kube-confirm`, Datei-Löschen `[data-instant]`) | Tastatur, Entf | nicht, erscheinen sofort | Tastatur-Aktionen werden nie animiert, ein Element hat ein Verhalten | die Ausnahme steht in den `:not(.kube-confirm):not([data-instant])` der Dialog-Regeln in `styles.css` | – |
 | Einstellungen-Dialog (`.settings-dialog`) | gelegentlich, Klick oder `Strg+,` | per Klick animieren wie `.confirm-dialog`; per `Strg+,` und beim Zurück aus den KI-Anbietern sofort (`data-instant`) | harten Wechsel vermeiden, Tastatur bewegt nicht | keine eigene Regel: greift über `.confirm-dialog` und die Ausnahme `:not([data-instant])` in `styles.css` | nur `opacity` |
 | Workflow-Palette (`.workflow-palette`) | Strg+Umschalt+Leertaste, 100+/Tag | nicht | Tastatur, Command-Palette | hat nicht die Klasse `.confirm-dialog` | – |
@@ -214,12 +218,14 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 | Ablaufbalken (`.toast-bar`) | laufend bei Hinweis und Erfolg | behalten, Zustand | Keyframe `toast-bar` (`translateX(-100%)`, `linear`, Dauer `--notice-ttl-info` bzw. `--notice-ttl-ok`; `scaleX(0)` wäre R5), `.toast` schneidet per `overflow: hidden` ab. Hover und `document.hidden` pausieren über `.toast-stack.is-held` (`animation-play-state`) | Keyframe `toast-bar-width` (`width`, geduldet wie `progress`), gleiche Dauer |
 | Vierte Meldung | selten | animieren | die älteste geht über `.is-closing` | nur `opacity` |
 | Fehlerkarte (`.connect-error`) | gelegentlich, Ereignis | animieren, harter Wechsel | `opacity 0→1`, `scale(.97)→1`, `--ease-out`, `--dur-modal`, Origin Mitte | nur `opacity` |
-| Getrennt-Leiste (`.connect-closed`) | gelegentlich, Ereignis | animieren bei Server-Trennung, sofort nach Abbrechen/Esc (`data-instant`) | `opacity`, `translateY(100%)→0`, `--ease-out`, `--dur-toast` | nur `opacity` |
+| Getrennt-Leiste (`.connect-closed`) | gelegentlich, Ereignis | animieren bei Server- und Leerlauf-Trennung, sofort nach Abbrechen/Esc (`data-instant`) | `opacity`, `translateY(100%)→0`, `--ease-out`, `--dur-toast` | nur `opacity` |
 | Verbindungskarte (`.connect-card`) | Enter | Warteanzeige, **nicht animiert**: erscheint nach 400 ms (`WAIT_MS`, im TSX) | – | – |
 | Schritt-Punkte (`.connect-ring`) | 4× je Verbindung | nicht | Farbe springt; ein Farbübergang wurde abgelehnt | – |
 | Cluster-Leiste (`.kube-connbar`) | Ereignis | nicht | Platz reserviert (`min-height: var(--control-sm)`), kein Farbübergang | – |
 | „Gespeichert“-Label (`.busy-button`) | gelegentlich | animieren, Zustand | `.busy-face.is-fresh`: `opacity .4→1`, `--dur-fade`, `--ease-out`, nur nach dem ersten Zustandswechsel; Punkt `tm-pulse` während busy | Einblenden bleibt, der Puls steht |
 | Statustext unten | häufig | nicht | Textwechsel, keine Bewegung | – | – |
+| Sperrbildschirm (`.lock-screen`) | Timer oder Klick, Entsperren per Enter | nicht | Sicherheitsfläche erscheint sofort, Tastatur schließt sie | – | – |
+| Willkommens-Tab (`.welcome-panel`) | Tab | nicht | wie Tabs | – | – |
 | Tabs: Wechsel, Hinzufügen, Schließen | 100+/Tag, Tastatur | nicht | Tastatur, Layout-Eigenschaften | – | – |
 | Tab-Drag: `.dock-preview`, `.tab-drop-marker`, `.is-dragging-tab` | Geste | nicht | folgt dem Zeiger | – | – |
 | Dock auf/zu (`.kube-dock`) | Strg+J | nicht | Tastatur, Höhe ist Layout, xterm fittet neu | – | – |

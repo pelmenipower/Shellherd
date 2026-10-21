@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor } from 'electron';
 import type { Rectangle } from 'electron';
 import { join } from 'node:path';
 
@@ -30,6 +30,8 @@ import { localeStore } from './locale';
 import { mainT, setMainLocale } from './i18n';
 
 import { IPC_CHANNELS } from '../shared/ipc';
+import type { VaultLockedInfo } from '../shared/ipc';
+import { AutoLock } from './vault/auto-lock';
 import {
   registerVaultIpcHandlers,
   vaultSessionManager,
@@ -42,6 +44,7 @@ let kubeSessions: KubeSessions | undefined;
 let rdpSessionManager: RdpSessionManager;
 let sftpSessionManager: SftpSessionManager;
 let assistant: AssistantService | undefined;
+let autoLock: AutoLock | undefined;
 
 // SSH, local shells, RDP and SFTP share every lifecycle path: crash, navigation, close, lock and quit.
 const closeOwnerSessions = (ownerId: number): void => {
@@ -259,10 +262,29 @@ app.whenReady().then(() => {
     registry: windowRegistry, ssh: sshSessionManager, rdp: rdpSessionManager, sftp: sftpSessionManager, closeOwnerSessions,
     createSecondary: bounds => createWindow('secondary', bounds),
   });
+  // Lock and unlock reach every window; the main window learns its own unlock from the IPC result.
+  const announce = (channel: string, payload?: unknown): void => {
+    for (const target of [windowRegistry.main(), ...windowRegistry.secondaries()])
+      if (target && !target.isDestroyed() && !target.webContents.isDestroyed()) target.webContents.send(channel, payload);
+  };
   registerVaultIpcHandlers({
     onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); },
+    onLock: () => announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo),
+    onUnlock: () => { autoLock?.touch(); announce(IPC_CHANNELS.vaultUnlocked); },
     onVaultChange: () => { broadcastCatalog(); ai.broadcast(); rdpSessionManager.prewarm(); },
     guard: event => windowRegistry.requireMain(event),
+  });
+  autoLock = new AutoLock({
+    minutes: () => vaultSessionManager.isUnlocked() ? vaultSessionManager.getSnapshot().vault.settings.autoLockMinutes : 0,
+    lock: minutes => { try { vaultSessionManager.lock(); } finally { announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
+    systemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
+    rdpConnected: () => rdpSessionManager.hasConnected(),
+  });
+  autoLock.start();
+  powerMonitor.on('resume', () => autoLock?.check());
+  // Payload-free ping; only registered windows' main frames count.
+  ipcMain.on(IPC_CHANNELS.vaultActivity, event => {
+    if (windowRegistry.roleOf(event.sender.id) && event.senderFrame === event.sender.mainFrame) autoLock?.touch();
   });
   createWindow('main');
 
@@ -280,6 +302,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  autoLock?.dispose();
   closeAllSessions();
   rdpSessionManager?.dispose();
   vaultSessionManager.lock();

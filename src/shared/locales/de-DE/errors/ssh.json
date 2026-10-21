@@ -46,6 +46,7 @@
     "failed": "Die SSH-Verbindung ist fehlgeschlagen. Prüfe Host, Benutzer und Authentifizierung.",
     "containerNotFound": "Container „{{name}}“ wurde nicht gefunden.",
     "noShellInContainer": "Keine Shell im Container gefunden.",
-    "serialConsoleUnavailable": "Die serielle Konsole ist nicht verfügbar. Serielle Schnittstelle in der VM-Hardware hinzufügen."
+    "serialConsoleUnavailable": "Die serielle Konsole ist nicht verfügbar. Serielle Schnittstelle in der VM-Hardware hinzufügen.",
+    "loginSudoRejected": "sudo hat das gespeicherte Passwort abgelehnt. Shellherd versucht es erst nach einer Änderung der Anmeldedaten wieder. Ohne Root-Shell verbinden: Rechtsklick auf den Tab, dann „Ohne Startbefehle verbinden“."
   }
 }

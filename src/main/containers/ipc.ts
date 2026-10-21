@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
+import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { vaultSessionManager } from '../vault/ipc';
 import type { KnownHosts } from '../ssh/known-hosts';
 import { requireSshSender } from '../ssh/ipc';
@@ -19,7 +20,8 @@ export function registerContainerIpcHandlers(knownHosts: KnownHosts, sudoRejecti
       if (!connection) throw new AppError('containers.connectionNotFound');
       return connection;
     },
-    openRemote: connection => openRemoteHost(connection, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive)),
+    openRemote: connection => openRemoteHost(connection, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive), undefined,
+      effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, connection)),
     runLocal: (file, args, timeoutMs) => runLocal(file, args, timeoutMs),
   });
   ipcMain.handle(IPC_CHANNELS.containersList, (event, request: unknown) => {

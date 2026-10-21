@@ -6,7 +6,7 @@ import type { LiveLayout } from '../terminal-layout';
 import { remapLayout } from '../terminal-views';
 import type { LiveView } from '../terminal-views';
 import type { AdoptedSession, TerminalConnection, TerminalTab } from '../terminal-tabs';
-import { isRunning } from '../terminal-tabs';
+import { isRunning, isWelcomeTab } from '../terminal-tabs';
 import { liveSessions } from '../session-registry';
 import { errorText } from '../error-text';
 import { t } from '../i18n';
@@ -48,12 +48,14 @@ export function useTabTransfer(terminals: Terminals, views: Views) {
   const transferView = useCallback(async (view: LiveView, target: TransferTarget): Promise<boolean> => {
     const keys = panes(view.layout).flatMap(pane => pane.tabIds);
     const tabs = keys.flatMap(key => terminals.tabs.find(tab => tab.id === key) ?? []);
-    const moving: ViewTransferTab[] = tabs.map(tab => {
+    // The welcome page never travels; it closes with the view.
+    const moving: ViewTransferTab[] = tabs.filter(tab => !isWelcomeTab(tab)).map(tab => {
       const live = isRunning(tab) ? liveSessions.get(tab.id) : undefined;
       return { key: tab.id, connection: tab.connection, status: tab.status,
         ...(live ? { session: { kind: live.kind, sessionId: live.sessionId } } : {}),
         ...(live?.snapshot ? { snapshot: live.snapshot() } : {}) };
     });
+    if (!moving.length) return false;
     try {
       await window.desktopApi.transferView({ name: view.name, layout: view.layout, tabs: moving, target });
     } catch (error) {

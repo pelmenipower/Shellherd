@@ -12,6 +12,7 @@ import type { KnownHosts } from '../ssh/known-hosts';
 import { requireSshSender } from '../ssh/ipc';
 import { findConnection } from '../ssh/session';
 import { vaultSessionManager } from '../vault/ipc';
+import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { FileError, fileError, localFileSystem, localPlaces } from './file-system';
 import { SftpSessionManager } from './sftp-session';
 
@@ -38,6 +39,7 @@ const editor = z.enum(['default', 'notepad']);
 const EditFileSchema = z.object({ ...session, path: remotePath, editor }).strict();
 const LocalOpenSchema = z.object({ path: localPath, editor }).strict();
 const EditSchema = z.object({ ...session, editId: z.string().uuid() }).strict();
+const SyncSchema = z.object({ ...session, bindingId: z.string().uuid() }).strict();
 const ChmodSchema = z.object({ ...session, paths: z.array(remotePath).min(1).max(1000), mode: z.number().int().min(0).max(0o7777), recursive: z.boolean() }).strict();
 
 // Only types whose Windows association is a viewer or editor, never an interpreter. Everything else opens in Notepad.
@@ -60,7 +62,8 @@ export async function openForEditing(path: string, editor: EditorChoice = 'defau
 function handle<T>(channel: string, schema: z.ZodType<T>, run: (ownerId: number, request: T) => unknown): void {
   ipcMain.handle(channel, async (event: IpcMainInvokeEvent, request: unknown) => {
     const ownerId = requireSshSender(event);
-    vaultSessionManager.getSnapshot();
+    // Session-bound channels are guarded by ownership: the session only exists if the vault was unlocked when it opened.
+    if (!(channel.startsWith('sftp:') && channel !== IPC_CHANNELS.sftpOpen)) vaultSessionManager.getSnapshot();
     const parsed = parseRequest(schema, request, 'files.invalidRequest');
     try { return await run(ownerId, parsed); } catch (error) { throw AppError.from(fileError(error)); }
   });
@@ -73,6 +76,7 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
       if (!connection) throw new FileError('files.connectionNotFound');
       return connection;
     },
+    getTimeouts: connection => effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, connection),
     verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);
@@ -91,6 +95,7 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
   handle(IPC_CHANNELS.sftpCancel, JobSchema, (ownerId, request) => manager.cancel(ownerId, request.sessionId, request.jobId));
   handle(IPC_CHANNELS.sftpResolve, ConflictSchema, (ownerId, request) =>
     manager.resolveConflict(ownerId, request.sessionId, request.conflictId, request.choice, request.applyToAll));
+  handle(IPC_CHANNELS.sftpVerify, JobSchema, (ownerId, request) => manager.verify(ownerId, request.sessionId, request.jobId));
   handle(IPC_CHANNELS.sftpClearFinished, SessionSchema, (ownerId, request) => manager.clearFinished(ownerId, request.sessionId));
   handle(IPC_CHANNELS.sftpState, SessionSchema, (ownerId, request) => manager.state(ownerId, request.sessionId));
   handle(IPC_CHANNELS.sftpChmod, ChmodSchema, (ownerId, request) => manager.chmod(ownerId, request.sessionId, request.paths, request.mode, request.recursive));
@@ -99,6 +104,9 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
   handle(IPC_CHANNELS.sftpEditOpen, EditSchema, (ownerId, request) => manager.editOpen(ownerId, request.sessionId, request.editId));
   handle(IPC_CHANNELS.sftpEditUpload, EditSchema, (ownerId, request) => manager.editUpload(ownerId, request.sessionId, request.editId));
   handle(IPC_CHANNELS.sftpEditClose, EditSchema, (ownerId, request) => manager.editClose(ownerId, request.sessionId, request.editId));
+  handle(IPC_CHANNELS.sftpSyncStart, SyncSchema, (ownerId, request) => manager.syncStart(ownerId, request.sessionId, request.bindingId));
+  handle(IPC_CHANNELS.sftpSyncStop, SyncSchema, (ownerId, request) => manager.syncStop(ownerId, request.sessionId, request.bindingId));
+  handle(IPC_CHANNELS.sftpSyncForce, SyncSchema, (ownerId, request) => manager.syncForce(ownerId, request.sessionId, request.bindingId));
   handle(IPC_CHANNELS.sftpClose, SessionSchema, (ownerId, request) => manager.close(ownerId, request.sessionId));
 
   handle(IPC_CHANNELS.localPlaces, z.undefined(), () => localPlaces());

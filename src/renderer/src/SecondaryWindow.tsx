@@ -18,6 +18,8 @@ import { useAssistantToggle } from './hooks/useAssistantToggle';
 import { useCtrlShiftShortcut } from './hooks/useShortcut';
 import { WorkflowPalette } from './components/WorkflowPalette';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
+import { LockScreen } from './components/LockScreen';
+import { decodeError } from '../../shared/errors';
 import { disabledNotice, disabledTitle, sessionLimitNotice, skippedNotice } from './vault-notices';
 
 /** Detached window: tabs and split layout only; vault, sidebar and editor stay in the main window. */
@@ -26,6 +28,9 @@ export function SecondaryWindow() {
   const [catalog, setCatalog] = useState<ConnectionCatalog | null>(null);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const [pendingClose, setPendingClose] = useState<string | null>(null);
+  const [locked, setLocked] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const returnFocus = useRef<HTMLElement | null>(null);
   const terminals = useTerminalTabs();
   const terminalLayout = useTerminalLayout(terminals.tabs, terminals.activeTabId);
   const transfer = useTabTransfer(terminals, terminalLayout);
@@ -39,9 +44,21 @@ export function SecondaryWindow() {
   useEffect(() => {
     let active = true;
     const unsubscribe = window.desktopApi.onConnectionCatalog(setCatalog);
+    const offLocked = window.desktopApi.onVaultLocked(() => {
+      if (document.activeElement instanceof HTMLElement) returnFocus.current = document.activeElement;
+      setLocked(true); setPaletteOpen(false);
+    });
+    const offUnlocked = window.desktopApi.onVaultUnlocked(() => {
+      setLocked(false);
+      requestAnimationFrame(() => { const target = returnFocus.current; returnFocus.current = null; if (target?.isConnected) target.focus(); });
+    });
     window.desktopApi.connectionCatalog().then(value => { if (active) setCatalog(value); })
-      .catch(() => notify.error(translate('app:notices.catalogUnavailableTitle'), { body: translate('app:notices.catalogUnavailableBody') }));
-    return () => { active = false; unsubscribe(); };
+      .catch(error => {
+        // A window still loading during the lock misses the vault:locked event.
+        if (error instanceof Error && decodeError(error.message)?.code === 'core.vaultLocked') { setLocked(true); return; }
+        notify.error(translate('app:notices.catalogUnavailableTitle'), { body: translate('app:notices.catalogUnavailableBody') });
+      });
+    return () => { active = false; unsubscribe(); offLocked(); offUnlocked(); };
   }, []);
 
   // Ready once the catalog is loaded; listeners are registered by then.
@@ -96,15 +113,15 @@ export function SecondaryWindow() {
   };
   const closingTab = terminals.tabs.find(tab => tab.id === pendingClose);
   const assistant = useAssistantToggle();
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  useCtrlShiftShortcut('Space', () => setPaletteOpen(open => !open));
+  useCtrlShiftShortcut('Space', () => { if (!locked) setPaletteOpen(open => !open); });
 
-  return <main className="vault-shell secondary-shell">
+  return <>
+  <main className="vault-shell secondary-shell" inert={locked}>
     <div className="secondary-body"><div className="terminal-area">
       <SplitTerminalArea nodes={catalog?.nodes ?? []} onConnect={connect} tabs={terminals.tabs} selected={terminals.activeTabId}
         layout={terminalLayout.layout} draggedTabId={draggedTabId} onDrag={setDraggedTabId} focused={terminalLayout.focused} busy={false}
         onLayout={terminalLayout.setLayout} onFocus={terminalLayout.setFocused} onSelect={terminals.select} onStatus={terminals.updateStatus}
-        onClose={requestClose} externalHover={transfer.externalHover} pendingDock={transfer.pendingDock}
+        onClose={requestClose} onRename={terminals.rename} externalHover={transfer.externalHover} pendingDock={transfer.pendingDock}
         onDockHandled={transfer.clearPendingDock} onTearOff={transfer.tearOff} viewControls={viewControls} />
     </div>
     {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)} />}
@@ -115,5 +132,7 @@ export function SecondaryWindow() {
       confirmLabel={t('app:dialogs.confirmDisconnect')} busy={false} onCancel={() => setPendingClose(null)}
       onConfirm={() => { setPendingClose(null); terminals.close(closingTab.id); }} />}
     <ToastStack />
-  </main>;
+  </main>
+  {locked && <LockScreen running={terminals.tabs.filter(isRunning).length} />}
+  </>;
 }

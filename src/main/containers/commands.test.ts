@@ -155,6 +155,11 @@ describe('sudoSetting', () => {
     expect(sudoSetting({ ...base, containers: { sudo: true }, authentication: { method: 'agent' } })).toEqual({ kind: 'noninteractive' });
     expect(sudoSetting({ ...base, containers: { sudo: true }, authentication: { method: 'password', password: '' } })).toEqual({ kind: 'noninteractive' });
   });
+  it('takes the explicit flag instead of the container setting', () => {
+    expect(sudoSetting(base, true)).toEqual({ kind: 'prompt', password: 'synthetic-password' });
+    expect(sudoSetting({ ...base, authentication: { method: 'agent' } }, true)).toEqual({ kind: 'noninteractive' });
+    expect(sudoSetting({ ...base, containers: { sudo: true } }, false)).toEqual({ kind: 'none' });
+  });
   it.each(['a\nb', 'a\rb'])('refuses a password with a line break (%j)', password => {
     expect(() => sudoSetting({ ...base, containers: { sudo: true }, authentication: { method: 'password', password } }))
       .toThrow(expect.objectContaining({ code: 'containers.passwordLineBreak' }));

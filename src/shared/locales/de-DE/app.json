@@ -87,7 +87,6 @@
       "description": "Deine Eingaben sind noch nicht gespeichert. Kehre zum Editor zurück, um sie zu speichern, oder verwirf sie und fahre fort.",
       "confirm": "Verwerfen und fortfahren"
     },
-    "lockVault": "Vault sperren?",
     "replaceWorkspace": "Aktiven Workspace ersetzen?",
     "closeWorkspace": "Workspace schließen?",
     "closeTab": {
@@ -97,7 +96,6 @@
     },
     "endConnections_one": "{{count}} aktive Verbindung wird beendet. Laufende Programme in den Sitzungen können dadurch beendet werden.",
     "endConnections_other": "{{count}} aktive Verbindungen werden beendet. Laufende Programme in den Sitzungen können dadurch beendet werden.",
-    "confirmLock": "Trennen und sperren",
     "confirmReplace": "Ersetzen und öffnen",
     "confirmDisconnect": "Verbindung trennen",
     "confirmDefault": "Endgültig löschen"
@@ -162,6 +160,20 @@
     "submit": "Vault öffnen",
     "submitting": "Vault wird entschlüsselt …"
   },
+  "lock": {
+    "title": "Vault „{{name}}“ gesperrt",
+    "titlePlain": "Vault gesperrt",
+    "autoLocked_one": "Automatisch gesperrt nach {{count}} Minute ohne Eingabe.",
+    "autoLocked_other": "Automatisch gesperrt nach {{count}} Minuten ohne Eingabe.",
+    "sessions_one": "{{count}} Sitzung läuft weiter.",
+    "sessions_other": "{{count}} Sitzungen laufen weiter.",
+    "unlock": "Entsperren",
+    "switch": "Andere Vault-Datei",
+    "switchTitle": "Andere Vault-Datei öffnen?",
+    "switchDescription": "Alle Verbindungen in allen Fenstern werden getrennt. Danach wählst du die Datei aus und gibst ihr Passwort ein.",
+    "switchConfirm": "Trennen und wechseln",
+    "secondary": "Entsperre den Vault im Hauptfenster."
+  },
   "toast": {
     "closeAria": "Meldung schließen"
   },
@@ -201,6 +213,7 @@
     "sections": {
       "general": "Allgemein",
       "vault": "Vault",
+      "connections": "Verbindungen",
       "assistant": "KI-Assistent"
     },
     "locked": "Vault-Einstellungen und KI-Anbieter erscheinen nach dem Entsperren.",
@@ -208,6 +221,31 @@
       "label": "Vor dem Trennen laufender Sitzungen nachfragen",
       "hint": "Gilt für diesen Vault und wird mit ihm gespeichert."
     },
+    "autoLock": {
+      "label": "Automatisch sperren nach",
+      "unit": "Minuten ohne Eingabe (0: nie)",
+      "hint": "Sperrt den Vault, wenn in keinem Shellherd-Fenster Maus oder Tastatur benutzt wurde. Offene Sitzungen und Tabs bleiben erhalten."
+    },
+    "timeouts": {
+      "idle": {
+        "label": "Leerlauf-Trennung nach",
+        "unit": "Minuten ohne Ein- und Ausgabe (0: nie)"
+      },
+      "keepalive": {
+        "label": "Keepalive alle",
+        "unit": "Sekunden"
+      },
+      "keepaliveCount": {
+        "label": "Trennen nach",
+        "unit": "unbeantworteten Keepalives"
+      },
+      "connect": {
+        "label": "Verbindungs-Timeout",
+        "unit": "Sekunden"
+      },
+      "hint": "Gilt für neue SSH- und SFTP-Verbindungen dieses Vaults, auch für Container- und Cluster-Zugriffe über SSH. Der Verbindungs-Timeout läuft auch, solange die Rückfrage zum Host-Schlüssel offen ist. Einzelne Verbindungen können unter „Weitere Angaben“ abweichen."
+    },
+    "rangeError": "Gib eine ganze Zahl von {{min}} bis {{max}} ein.",
     "assistant": {
       "none": "Noch kein Anbieter eingerichtet.",
       "summary_one": "{{count}} Anbieter, Standard: {{name}}",

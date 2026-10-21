@@ -5,7 +5,8 @@ import { win32 } from 'node:path';
 import { Client } from 'ssh2';
 import type { ClientChannel } from 'ssh2';
 import type { IPty, IPtyForkOptions, IWindowsPtyForkOptions } from 'node-pty';
-import type { ConnectionNode, LocalConnectionNode, LocalShellProtocol, SshConnectionNode, VaultNode } from '../../shared/vault/types';
+import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
+import type { ConnectionNode, ConnectionTimeouts, LocalConnectionNode, LocalShellProtocol, SshConnectionNode, VaultNode } from '../../shared/vault/types';
 import { AI_CLI_TOOLS, aiCliCommandLine } from '../../shared/ai-cli';
 import { locateCommand } from './locate';
 import type { SshEvent, SshPrepareRequest, SshStatus, SshStep, TerminalSize } from '../../shared/ssh';
@@ -18,6 +19,8 @@ import type { ConnectionErrorCode } from '../../shared/connection-errors';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import type { TerminalTarget } from '../../shared/containers';
 import { remoteCommand, sudoSetting, terminalArgv } from '../containers/commands';
+import { loginInput, rootShellCommand } from './login';
+import type { RootShellPlan } from './login';
 import type { SudoMode } from '../containers/commands';
 import { SUDO_NOT_CACHED, SUDO_REJECTED } from '../containers/parsers';
 import { connectionFingerprint, SudoRejections } from '../containers/sudo-rejections';
@@ -53,6 +56,8 @@ export interface SshDependencies {
   verifyHost: (host: string, port: number, key: Buffer, isActive: () => boolean) => Promise<boolean>;
   /** Opens logs or a shell of a pod through the cluster's live session; absent disables cluster terminals. */
   openKubeTerminal?: (clusterId: string, target: KubeTerminalTarget, size: TerminalSize, io: TerminalIo) => Promise<KubeStream>;
+  /** Effective timeouts of a connection; default () => DEFAULT_TIMEOUTS. */
+  getTimeouts?: (connection: ConnectionNode) => ConnectionTimeouts;
   emit: (ownerId: number, event: SshEvent) => void;
 }
 
@@ -82,10 +87,17 @@ interface Session {
   tail?: string;
   /** Set once the user sent input; later exits are the user's own. */
   typed?: boolean;
-  /** Container tab authenticating sudo with the stored password; removed at the ready marker. */
-  sudo?: { watcher: SudoWatcher; password?: string; fingerprint: string; release?: () => void; timer?: ReturnType<typeof setTimeout> };
+  /** Plain SSH terminal of a connection with a login block; never container, pod or local tabs. Commands are sent at most once. */
+  login?: { sudo: boolean; commands: string[]; sent?: boolean };
+  /** Container tab or root shell authenticating sudo; removed at the ready marker. manual: key/agent login, sudo asks
+   *  the user itself, input stays open, no gate, no timer, no stored password. */
+  sudo?: { watcher: SudoWatcher; password?: string; fingerprint: string; release?: () => void; timer?: ReturnType<typeof setTimeout>; manual?: boolean };
   /** sudo authenticated and the ready marker was seen. */
   sudoReady?: boolean;
+  /** Idle limit in ms (SSH and pod terminals only; 0 or unset = never), time of the last input or output, and the check timer. */
+  idleMs?: number;
+  lastIo?: number;
+  idleTimer?: ReturnType<typeof setTimeout>;
 }
 
 export function findConnection(nodes: VaultNode[], id: string): ConnectionNode | undefined {
@@ -219,13 +231,24 @@ export class SshSessionManager {
     try {
       if (session.connectionId === LOCAL_CONTAINER_HOST) { await this.startLocalContainer(session); return; }
       const connection = this.dependencies.getConnection(session.connectionId);
-      if (session.kube) { await this.startKubeTerminal(session, session.kube, connection); return; }
+      // Local shells never ask: they have no network to save and no idle limit.
+      const timeoutsOf = (): ConnectionTimeouts => (this.dependencies.getTimeouts ?? (() => DEFAULT_TIMEOUTS))(connection);
+      if (session.kube) {
+        session.idleMs = timeoutsOf().idleMinutes * 60_000;
+        await this.startKubeTerminal(session, session.kube, connection);
+        return;
+      }
       if (session.target && connection.protocol !== 'ssh') throw new AppError('ssh.connectionTypeChanged');
       if (connection.protocol === 'powershell' || connection.protocol === 'cmd' || connection.protocol === 'aicli') { await this.startLocalShell(session, connection); return; }
       if (connection.protocol !== 'ssh' || !session.client) throw new AppError('ssh.connectionTypeChanged');
+      const block = !session.target ? connection.login : undefined;
+      if (block && (block.sudo === true || (block.commands?.length ?? 0) > 0)) session.login = { sudo: block.sudo === true, commands: [...(block.commands ?? [])] };
+      const timeouts = timeoutsOf();
+      session.idleMs = timeouts.idleMinutes * 60_000;
       const client = session.client;
       // Decided before connecting, so an unusable password fails without contacting the host.
       const sudo = session.target ? this.sudoMode(session, connection) : undefined;
+      const root = session.login?.sudo ? this.rootShellPlan(session, connection) : undefined;
       let hostKeySeen = false;
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         if (!hostKeySeen) { hostKeySeen = true; this.step(session, 'hostkey'); }
@@ -238,7 +261,7 @@ export class SshSessionManager {
             this.fail(session, error);
             callback(false);
           });
-      });
+      }, timeouts);
       session.key = key;
       if (!this.active(session)) { this.clearKey(session); return; }
       client.once('ready', () => {
@@ -249,6 +272,7 @@ export class SshSessionManager {
           const pty = { term: 'xterm-256color', cols: session.size.cols, rows: session.size.rows };
           const attach = (error: Error | undefined, stream: ClientChannel) => this.attachStream(session, error, stream);
           if (session.target && sudo) client.exec(remoteCommand(terminalArgv(session.target), sudo), { pty }, attach);
+          else if (root) client.exec(rootShellCommand(root), { pty }, attach);
           else client.shell(pty, attach);
         }, error => this.fail(session, error));
       });
@@ -263,11 +287,11 @@ export class SshSessionManager {
    */
   private async awaitSudoTurn(session: Session): Promise<boolean> {
     const pending = session.sudo;
-    if (!pending) return true;
+    if (!pending || pending.manual) return true;
     const release = await this.sudoRejections.acquire(session.connectionId);
     if (!this.active(session) || session.sudo !== pending) { release(); return false; }
     pending.release = release;
-    if (this.sudoRejections.isRejected(session.connectionId, pending.fingerprint)) throw new AppError(SUDO_REJECTED);
+    if (this.sudoRejections.isRejected(session.connectionId, pending.fingerprint)) throw new AppError(session.target ? SUDO_REJECTED : 'ssh.loginSudoRejected');
     return true;
   }
 
@@ -276,14 +300,16 @@ export class SshSessionManager {
     if (error || !stream) { this.fail(session, error); return; }
     session.stream = stream;
     session.phase = 'connected';
+    this.armIdle(session);
     stream.on('data', (chunk: Buffer) => session.sudo ? this.sudoOutput(session, chunk) : this.output(session, chunk));
     stream.stderr.on('data', (chunk: Buffer) => this.output(session, chunk));
     stream.on('error', (error: Error) => this.fail(session, error));
     stream.stderr.on('error', (error: Error) => this.fail(session, error));
-    if (session.target) stream.on('exit', (code: number | null) => { session.exitCode = code; });
+    if (session.target || session.login) stream.on('exit', (code: number | null) => { session.exitCode = code; });
     stream.on('close', () => { this.releaseSudoHold(session); this.ended(session, true); });
-    if (session.sudo) session.sudo.timer = setTimeout(() => this.sudoGaveUp(session), this.dependencies.sudoReadyTimeoutMs ?? SUDO_READY_TIMEOUT);
+    if (session.sudo && !session.sudo.manual) session.sudo.timer = setTimeout(() => this.sudoGaveUp(session), this.dependencies.sudoReadyTimeoutMs ?? SUDO_READY_TIMEOUT);
     this.status(session, 'connected');
+    if (session.login && !session.login.sudo) this.sendLogin(session);
   }
 
   /** With a stored password, `sudo -v` prompts on the tty with a marker that Shellherd answers; otherwise sudo -n. */
@@ -299,17 +325,44 @@ export class SshSessionManager {
     return { kind: 'prompt', marker, ready, stdin: false };
   }
 
+  /** Key or agent login: sudo -n, else sudo prompts on the terminal and the user types; with a stored password the marker prompt is answered once. */
+  private rootShellPlan(session: Session, connection: SshConnectionNode): RootShellPlan {
+    const setting = sudoSetting(connection, true);
+    const fingerprint = connectionFingerprint(connection);
+    const ready = createSudoMarker('ready');
+    if (setting.kind === 'prompt') {
+      if (this.sudoRejections.isRejected(connection.id, fingerprint)) throw new AppError('ssh.loginSudoRejected');
+      const marker = createSudoMarker('sudo');
+      session.sudo = { watcher: new SudoWatcher({ prompt: marker, ready }), password: setting.password, fingerprint };
+      return { kind: 'password', marker, ready };
+    }
+    session.sudo = { watcher: new SudoWatcher({ ready }), fingerprint, manual: true };
+    return { kind: 'manual', ready, hint: mainT('terminal.sudoNeedsPassword') };
+  }
+
+  /** Types the start commands once: plain shell right after attach, root shell only at sudo's ready marker, never after sudoGaveUp. */
+  private sendLogin(session: Session): void {
+    const login = session.login;
+    if (!login || login.sent || !this.active(session) || !session.stream) return;
+    login.sent = true;
+    const commands = login.commands;
+    login.commands = [];
+    // Not counted as typed: ended() must still recognise "sudo: a password is required" (containers.sudoNotCached).
+    if (commands.length) session.stream.write(loginInput(commands));
+  }
+
   /** Before the ready marker only sudo writes; after it the watcher and password are gone and output is untouched. */
   private sudoOutput(session: Session, chunk: Buffer): void {
     const sudo = session.sudo!;
     const result = sudo.watcher.feed(chunk);
     if (result.ready) { this.dropSudo(session); session.sudoReady = true; }
     this.output(session, result.output);
-    if (result.ready || !result.prompts) return;
+    if (result.ready) { this.sendLogin(session); return; }
+    if (!result.prompts) return;
     // A second prompt means sudo refused the password; never send it twice.
     if (sudo.watcher.count > 1 || !sudo.password) {
       this.sudoRejections.markRejected(session.connectionId, sudo.fingerprint);
-      this.finish(session, 'error', { code: SUDO_REJECTED });
+      this.finish(session, 'error', { code: session.target ? SUDO_REJECTED : 'ssh.loginSudoRejected' });
       return;
     }
     const password = sudo.password;
@@ -321,7 +374,7 @@ export class SshSessionManager {
   private sudoGaveUp(session: Session): void {
     if (!this.active(session) || !session.sudo) return;
     this.releaseSudoHold(session);
-    this.output(session, Buffer.from(`\r\n${mainT('terminal.sudoGaveUp')}\r\n`, 'utf8'));
+    this.output(session, Buffer.from(`\r\n${session.login ? mainT('terminal.sudoGaveUpLogin') : mainT('terminal.sudoGaveUp')}\r\n`, 'utf8'));
   }
 
   private releaseSudoHold(session: Session): void {
@@ -429,7 +482,22 @@ export class SshSessionManager {
     if (!this.active(session)) { stream.close(); return; }
     session.kubeStream = stream;
     session.phase = 'connected';
+    this.armIdle(session);
     this.status(session, 'connected');
+  }
+
+  /** One timer per session; I/O only stamps `lastIo`, the timer re-arms itself for the remainder, so output floods cost nothing. */
+  private armIdle(session: Session): void {
+    const idleMs = session.idleMs;
+    if (!idleMs) return;
+    session.lastIo = Date.now();
+    const check = (): void => {
+      if (!this.active(session)) return;
+      const elapsed = Date.now() - (session.lastIo ?? 0);
+      if (elapsed >= idleMs) this.finish(session, 'closed', undefined, 'idle');
+      else session.idleTimer = setTimeout(check, idleMs - elapsed);
+    };
+    session.idleTimer = setTimeout(check, idleMs);
   }
 
   private clearKey(session: Session): void { session.key?.fill(0); session.key = undefined; }
@@ -451,7 +519,8 @@ export class SshSessionManager {
 
   private output(session: Session, chunk: Buffer): void {
     if (!this.active(session) || chunk.length === 0) return;
-    if (session.target) session.tail = ((session.tail ?? '') + chunk.subarray(-2048).toString('utf8')).slice(-2048);
+    session.lastIo = Date.now();
+    if (session.target || session.login) session.tail = ((session.tail ?? '') + chunk.subarray(-2048).toString('utf8')).slice(-2048);
     if (session.handover) {
       // Streams are paused; only chunks already in flight arrive here.
       if (session.handover.bytes + chunk.length > OUTPUT_LIMIT) { this.finish(session, 'error', { code: 'ssh.handoverFailed' }); return; }
@@ -487,10 +556,11 @@ export class SshSessionManager {
     const session = this.owned(ownerId, id);
     if (session.phase !== 'connected' || (!session.stream && !session.pty && !session.kubeStream)) throw new AppError('ssh.notConnected');
     // While sudo authenticates, keystrokes would end up in its password line.
-    if (session.sudo) return;
+    if (session.sudo && !session.sudo.manual) return;
     const bytes = Buffer.byteLength(data);
     if (bytes > 16_384 || session.inputBytes + bytes > INPUT_LIMIT) throw new AppError('ssh.tooMuchInput');
     if (!bytes) return;
+    session.lastIo = Date.now();
     session.inputBytes += bytes;
     session.typed = true;
     try {
@@ -552,6 +622,7 @@ export class SshSessionManager {
     if (!this.active(session)) return;
     this.sessions.delete(session.id);
     clearTimeout(session.timer);
+    clearTimeout(session.idleTimer);
     this.clearKey(session);
     this.dropSudo(session);
     session.outstanding.clear();

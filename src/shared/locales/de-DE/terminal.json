@@ -19,7 +19,9 @@
     "tooManySessions": "Ein Workspace darf höchstens {{max}} Sessions starten."
   },
   "tabs": {
+    "welcome": "Willkommen",
     "label": "SSH-Sessions",
+    "renameLabel": "Tab umbenennen",
     "editor": "Editor",
     "closeAria": "Tab {{label}} schließen",
     "closeTitle": "{{label}} schließen",
@@ -57,7 +59,7 @@
   "area": {
     "label": "Terminalbereiche",
     "emptyTitle": "Leerer Bereich",
-    "emptyHint": "Verbindung aus der Liste öffnen oder einen Tab hier ablegen.",
+    "emptyHint": "Verbindung aus der Liste öffnen, einen Tab hier ablegen oder über + die Willkommensseite zeigen.",
     "connectHere": "Hier verbinden",
     "sessionsLabel": "Sessions in Bereich {{number}}",
     "openFilesAria": "Dateien dieser SSH-Verbindung in Bereich {{number}} öffnen",
@@ -81,6 +83,9 @@
     "paneOption": "Bereich {{number}}",
     "toOwnView": "Als eigene Ansicht öffnen",
     "resizeHint": "Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben. Tabs auf eine Ansicht oben ziehen, um sie dorthin zu verschieben."
+  },
+  "tabMenu": {
+    "label": "Aktionen für {{name}}"
   },
   "viewMenu": {
     "label": "Aktionen für {{name}}",
@@ -146,6 +151,7 @@
     "reconnect": "Neu verbinden",
     "reasons": {
       "server": "der Server hat sie beendet",
+      "idle": "wegen Leerlauf",
       "session": "die Sitzung wurde beendet",
       "cancel": "abgebrochen"
     }
@@ -218,6 +224,11 @@
       "title": "Verbindung beendet",
       "body": "Der Server hat die Verbindung beendet.",
       "next": "Verbinde neu, wenn du weiterarbeiten willst."
+    },
+    "idle": {
+      "title": "Wegen Leerlauf getrennt",
+      "body": "Shellherd hat die Verbindung nach der eingestellten Leerlaufzeit beendet.",
+      "next": "Verbinde neu oder passe die Leerlauf-Trennung in den Einstellungen an."
     },
     "unknown": {
       "title": "Verbindung fehlgeschlagen",

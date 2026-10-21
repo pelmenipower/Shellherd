@@ -62,6 +62,23 @@ describe('SFTP sessions', () => {
     manager.closeAll();
   });
 
+  it('reports no auto-uploads in the state and looks up the binding before checking readiness', async () => {
+    const { manager } = setup();
+    const { sessionId } = manager.open(1, 'files');
+    expect(manager.state(1, sessionId).syncs).toEqual([]);
+    const binding = { id: '5b1d6f0e-3c1a-4c53-9f0e-0a6f4a1d9b11', localPath: 'C:\\x', remotePath: '/x', excludes: [], enabled: true };
+    nodes.synced = { ...nodes.files, id: 'synced', autoUpload: [binding] } as ConnectionNode;
+    const synced = manager.open(1, 'synced').sessionId;
+    // Unknown binding wins over "not ready"; a known one reaches the readiness check.
+    await expect(manager.syncStart(1, synced, '00000000-0000-4000-8000-000000000000')).rejects.toMatchObject({ code: 'files.syncNotFound' });
+    await expect(manager.syncStart(1, synced, binding.id)).rejects.toMatchObject({ code: 'files.sessionNotReady' });
+    expect(() => manager.syncForce(1, synced, binding.id)).toThrow(expect.objectContaining({ code: 'files.sessionNotReady' }));
+    expect(() => manager.syncStop(1, synced, binding.id)).not.toThrow();
+    expect(() => manager.syncStop(2, synced, binding.id)).toThrow(expect.objectContaining({ code: 'files.sessionUnavailable' }));
+    delete nodes.synced;
+    manager.closeAll();
+  });
+
   it('reads remote types, sizes and permissions', () => {
     expect(permissionText(0o100644)).toBe('-rw-r--r--');
     expect(permissionText(0o040755)).toBe('drwxr-xr-x');
@@ -121,5 +138,80 @@ describe('SFTP connection failures', () => {
     await vi.waitFor(() => expect(verifier).toBeDefined());
     verifier!(Buffer.from('key'), () => {});
     await vi.waitFor(() => expect(events.at(-1)).toMatchObject({ status: 'error', error: { code: 'files.hostKeyRejected' }, code: 'hostkey-rejected' }));
+  });
+});
+
+describe('SFTP idle disconnect', () => {
+  type Internals = { sessions: Map<string, { syncs?: unknown; edits?: unknown; running?: unknown }> };
+
+  async function connected(idleMinutes: number) {
+    const events: SftpEvent[] = [];
+    const client = Object.assign(new EventEmitter(), { destroy: vi.fn(), connect: vi.fn(),
+      sftp: vi.fn((callback: (error: undefined, sftp: EventEmitter & { end: () => void }) => void) => callback(undefined, Object.assign(new EventEmitter(), { end: vi.fn() }))) });
+    const manager = new SftpSessionManager({ getConnection: id => nodes[id], verifyHost: async () => true, emit: (_owner, event) => events.push(event),
+      local: localFileSystem, openFile: async () => {}, createClient: () => client as unknown as Client,
+      getTimeouts: () => ({ idleMinutes, keepaliveSeconds: 15, keepaliveCount: 3, connectSeconds: 120 }) });
+    const { sessionId } = manager.open(1, 'files');
+    await vi.waitFor(() => expect(client.connect).toHaveBeenCalled());
+    client.emit('ready');
+    const session = (manager as unknown as Internals).sessions.get(sessionId)!;
+    return { manager, events, session, sessionId };
+  }
+  const lastStatus = (events: SftpEvent[]) => events.filter(event => event.type === 'status').at(-1);
+
+  it('closes with code idle after the idle time and leaves no timer behind', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { events } = await connected(1);
+      expect(vi.getTimerCount()).toBe(1);
+      vi.advanceTimersByTime(60_000);
+      expect(lastStatus(events)).toMatchObject({ status: 'closed', code: 'idle' });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('is extended by server calls and sets no timer for idleMinutes 0', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { manager, events, sessionId } = await connected(1);
+      vi.advanceTimersByTime(59_000);
+      manager.state(1, sessionId);
+      vi.advanceTimersByTime(59_000);
+      expect(lastStatus(events)).toMatchObject({ status: 'connected' });
+      vi.advanceTimersByTime(1_000);
+      expect(lastStatus(events)).toMatchObject({ status: 'closed', code: 'idle' });
+    } finally { vi.useRealTimers(); }
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { manager } = await connected(0);
+      expect(vi.getTimerCount()).toBe(0);
+      manager.closeAll();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each([
+    ['a running job', (session: { running?: unknown }) => { session.running = {}; }],
+    ['a watching auto-upload', (session: { syncs?: unknown }) => { session.syncs = { list: () => [{ state: 'watching' }], closeAll: vi.fn() }; }],
+    ['an open edit', (session: { edits?: unknown }) => { session.edits = { list: () => [{}], closeAll: vi.fn() }; }],
+  ])('stays open while busy with %s', async (_name, makeBusy) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { manager, events, session } = await connected(1);
+      makeBusy(session);
+      vi.advanceTimersByTime(180_000);
+      expect(lastStatus(events)).toMatchObject({ status: 'connected' });
+      manager.closeAll();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('disconnects when the only auto-upload is in error', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      const { events, session } = await connected(1);
+      session.syncs = { list: () => [{ state: 'error' }], closeAll: vi.fn() };
+      vi.advanceTimersByTime(60_000);
+      expect(lastStatus(events)).toMatchObject({ status: 'closed', code: 'idle' });
+    } finally { vi.useRealTimers(); }
   });
 });

@@ -19,7 +19,9 @@
     "tooManySessions": "A workspace can start at most {{max}} sessions."
   },
   "tabs": {
+    "welcome": "Welcome",
     "label": "SSH sessions",
+    "renameLabel": "Rename tab",
     "editor": "Editor",
     "closeAria": "Close tab {{label}}",
     "closeTitle": "Close {{label}}",
@@ -57,7 +59,7 @@
   "area": {
     "label": "Terminal panes",
     "emptyTitle": "Empty pane",
-    "emptyHint": "Open a connection from the list or drop a tab here.",
+    "emptyHint": "Open a connection from the list, drop a tab here or show the welcome page via +.",
     "connectHere": "Connect here",
     "sessionsLabel": "Sessions in pane {{number}}",
     "openFilesAria": "Open files of this SSH connection in pane {{number}}",
@@ -81,6 +83,9 @@
     "paneOption": "Pane {{number}}",
     "toOwnView": "Open as its own view",
     "resizeHint": "Drag the dividers, or focus them and move them with the arrow keys. Drag tabs onto a view above to move them there."
+  },
+  "tabMenu": {
+    "label": "Actions for {{name}}"
   },
   "viewMenu": {
     "label": "Actions for {{name}}",
@@ -146,6 +151,7 @@
     "reconnect": "Reconnect",
     "reasons": {
       "server": "the server ended it",
+      "idle": "idle timeout",
       "session": "the session ended",
       "cancel": "cancelled"
     }
@@ -218,6 +224,11 @@
       "title": "Connection ended",
       "body": "The server ended the connection.",
       "next": "Reconnect when you want to keep working."
+    },
+    "idle": {
+      "title": "Disconnected while idle",
+      "body": "Shellherd ended the connection after the configured idle time.",
+      "next": "Reconnect or change the idle disconnect in the settings."
     },
     "unknown": {
       "title": "Connection failed",

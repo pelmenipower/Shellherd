@@ -27,6 +27,9 @@
 .empty-pane-title { flex: 1; padding: 0 var(--space-8); font-size: var(--fs-sm); color: var(--color-text-muted); }
 .split-terminal-stage > .terminal-panel { position: absolute; display: flex; flex-direction: column; min-width: 0; min-height: 0; box-sizing: border-box; padding: var(--space-4); margin: 0; overflow: hidden; background: var(--color-bg-stage); border: 0; border-radius: 0; }
 .split-terminal-stage > .terminal-panel[hidden] { display: none; }
+/* Welcome tab: page background and its own padding instead of the terminal stage. */
+.split-terminal-stage > .welcome-panel { padding: 0; background: var(--color-bg-app); }
+.terminal-tab[data-fixed] { cursor: default; }
 .split-terminal-stage .terminal-container { flex: 1; width: 100%; min-width: 0; min-height: 0; padding: 0; margin: 0; border: 0; border-radius: 0; overflow: hidden; }
 .terminal-live-status { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .terminal-panel { position: relative; }
@@ -69,6 +72,7 @@
 .connection-picker-hint { margin: 0; padding: var(--space-8); color: var(--color-text-muted); font-size: var(--fs-sm); }
 .connection-icon { flex: 0 0 16px; }
 .connection-picker-option .connection-picker-name { display: flex; align-items: center; gap: var(--space-6); }
+.connection-picker-welcome { flex-shrink: 0; border-top: 1px solid var(--color-border); border-radius: 0; }
 .connection-picker-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rdp-surface { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: var(--color-bg-stage); }
 .rdp-placeholder { max-width: 48ch; margin: 0; padding: var(--space-16); color: var(--color-text-muted); text-align: center; white-space: pre-line; }

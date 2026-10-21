@@ -44,11 +44,13 @@ export function ToastItem({ notice, paused }: { notice: Notice; paused: boolean 
         <strong className="toast-title">{title}</strong>
         {body && <span className="toast-body">{body}</span>}
       </div>
-      {action && (
-        <button type="button" className={`toast-action ${tone === 'error' ? 'danger-button' : 'secondary-button'}`}
-          onClick={() => { noticeStore.close(id); action.run(); }}>{action.label}</button>
-      )}
-      <button type="button" className="toast-close" aria-label={t('app:toast.closeAria')} onClick={() => noticeStore.close(id)}>{t('common:actions.close')}</button>
+      <div className="toast-buttons">
+        {action && (
+          <button type="button" className={`toast-action ${tone === 'error' ? 'danger-button' : 'secondary-button'}`}
+            onClick={() => { noticeStore.close(id); action.run(); }}>{action.label}</button>
+        )}
+        <button type="button" className="toast-close" aria-label={t('app:toast.closeAria')} onClick={() => noticeStore.close(id)}>{t('common:actions.close')}</button>
+      </div>
       {tone !== 'error' && (
         <span className="toast-bar" aria-hidden="true" onAnimationEnd={() => noticeStore.close(id)} />
       )}
