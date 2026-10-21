@@ -92,6 +92,11 @@
       "privateKey": "Private key"
     },
     "containerSudo": "Run container commands with sudo",
+    "login": {
+      "sudo": "Become root after login (sudo -i)",
+      "commands": "Start commands (one per line)",
+      "hint": "Typed after login, visible and in the shell history. Do not enter passwords; put a full-screen program only on the last line."
+    },
     "timeouts": {
       "hint": "Empty: default from the settings."
     },
@@ -128,6 +133,9 @@
     "hostMissing": "Enter a host or IP address.",
     "portInteger": "The port must be a whole number between 1 and 65535.",
     "portRange": "The port must be between 1 and 65535.",
+    "loginTooManyLines": "At most {{max}} start commands.",
+    "loginLineTooLong": "Line {{line}} is longer than {{max}} characters.",
+    "loginControlChars": "Line {{line}} contains a control character such as a tab. Only visible characters and spaces are allowed.",
     "timeoutRange": "Enter a whole number from {{min}} to {{max}} or leave the field empty.",
     "keyPathMissing": "Enter the path to the private key.",
     "domainTwice": "Give the domain either here or in the username (DOMAIN\\user or user@domain), not both.",

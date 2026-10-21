@@ -92,6 +92,11 @@
       "privateKey": "Privater Schlüssel"
     },
     "containerSudo": "Container-Befehle mit sudo ausführen",
+    "login": {
+      "sudo": "Nach dem Anmelden root werden (sudo -i)",
+      "commands": "Startbefehle (eine Zeile je Befehl)",
+      "hint": "Werden nach dem Anmelden eingetippt, sichtbar und in der Shell-History. Keine Passwörter eintragen; ein Vollbildprogramm nur als letzte Zeile."
+    },
     "timeouts": {
       "hint": "Leer: Vorgabe aus den Einstellungen."
     },
@@ -128,6 +133,9 @@
     "hostMissing": "Gib einen Host oder eine IP-Adresse ein.",
     "portInteger": "Der Port muss eine ganze Zahl zwischen 1 und 65535 sein.",
     "portRange": "Der Port muss zwischen 1 und 65535 liegen.",
+    "loginTooManyLines": "Höchstens {{max}} Startbefehle.",
+    "loginLineTooLong": "Zeile {{line}} ist länger als {{max}} Zeichen.",
+    "loginControlChars": "Zeile {{line}} enthält ein Steuerzeichen wie Tab. Erlaubt sind nur sichtbare Zeichen und Leerzeichen.",
     "timeoutRange": "Gib eine ganze Zahl von {{min}} bis {{max}} ein oder lass das Feld leer.",
     "keyPathMissing": "Gib den Pfad zum privaten Schlüssel ein.",
     "domainTwice": "Gib die Domäne entweder hier oder im Benutzernamen an (DOMÄNE\\Benutzer oder benutzer@domäne), nicht beides.",
