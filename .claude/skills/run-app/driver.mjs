@@ -31,7 +31,7 @@ const app = await electron.launch({
   executablePath: path.join(REPO, 'node_modules/electron/dist', exe),
   args: [APP_DIR],
   cwd: REPO,
-  env: { ...process.env, SHELLHERD_PROFILE: PROFILE, SHELLHERD_MAIN: pathToFileURL(path.join(REPO, 'out/main/index.js')).href },
+  env: { ...process.env, SHELLHERD_PROFILE: PROFILE, SHELLHERD_MAIN: process.env.SHELLHERD_MAIN ?? pathToFileURL(path.join(REPO, 'out/main/index.js')).href },
   timeout: 60_000,
 });
 
