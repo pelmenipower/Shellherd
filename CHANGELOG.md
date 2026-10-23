@@ -4,6 +4,10 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.18.1] – 2026-10-22
+
+- Der Installer ist rund 14 MB kleiner. Im Paket liegen nur noch die Chromium-Sprachpakete für Deutsch und Englisch, keine Sourcemaps, TypeScript-Quellen und doppelten Oberflächen-Bibliotheken mehr.
+
 ## [0.18.0] – 2026-10-21
 
 - Neu: Abgebrochene oder fehlgeschlagene Übertragungen lassen sich mit Fortsetzen an der Stelle wieder aufnehmen, an der sie stehen geblieben sind, auch nach Neu verbinden. Eine liegen gebliebene Teildatei wird beim erneuten Übertragen derselben Datei weiterverwendet, wenn sie zur Quelle passt.
