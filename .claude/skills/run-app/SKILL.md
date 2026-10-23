@@ -7,6 +7,7 @@ description: Shellherd (Electron) starten, per Playwright durchklicken und Scree
 
 Die App läuft aus `out/` unter Playwright. Ein kleiner HTTP-Treiber auf `127.0.0.1:9333` nimmt Befehle per `curl` oder `fetch` entgegen. Nichts davon berührt echte Daten:
 
+- **Gebautes Paket prüfen:** `SHELLHERD_MAIN=file:///…/dist/win-unpacked/resources/app.asar/out/main/index.js npm run drive` lädt das Main-Bundle samt `node_modules` aus der gebauten `app.asar` statt aus `out/`.
 - **Profil isoliert:** `appData`/`userData` liegen unter `%TEMP%\shellherd-run\profile` (Override: `SHELLHERD_RUN_DIR`). `%APPDATA%\Shellherd` (Hostschlüssel, zuletzt geöffneter Vault) bleibt unberührt.
 - **Nur synthetische Zugangsdaten:** Demo-Vault `demo.term` mit Passwort `synthetic-vault-demo`, Testserver `demo` / `synthetic-demo`. Nie einen echten Vault öffnen.
 - **Native Dialoge ersetzt:** Speichern/Öffnen liefern `profile\demo.term`, Nachfragen (auch „Unbekannter SSH-Server“) antworten mit ihrem letzten Knopf. Sonst gehen Windows-Dialoge auf dem echten Desktop auf und blockieren den Treiber. Abschalten mit `SHELLHERD_RUN_REAL_DIALOGS=1`.

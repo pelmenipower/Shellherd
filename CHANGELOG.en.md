@@ -4,6 +4,10 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.18.1] – 2026-10-22
+
+- The installer is about 14 MB smaller. The package ships only the German and English Chromium locale packs and no longer carries sourcemaps, TypeScript sources or duplicated UI libraries.
+
 ## [0.18.0] – 2026-10-21
 
 - New: Canceled or failed transfers can be resumed with Resume from where they stopped, also after Reconnect. A leftover partial file is reused when the same file is transferred again and it matches the source.

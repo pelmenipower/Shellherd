@@ -10,6 +10,14 @@ files:
   - out/**/*
   - '!out/rdp-host/**'
   - package.json
+  # Build leftovers nobody loads at runtime: sourcemaps, TypeScript sources, node-pty's C++ tree.
+  - '!**/node_modules/**/*.{map,ts,mts,cts}'
+  - '!**/node_modules/node-pty/{deps,third_party,src,scripts}/**'
+
+# Chromium's own UI strings only; the app ships its own catalogs in src/shared/locales.
+electronLanguages:
+  - de
+  - en-US
 
 # Read at runtime via process.resourcesPath (see src/main/brand.ts and src/main/rdp/ipc.ts).
 extraResources:

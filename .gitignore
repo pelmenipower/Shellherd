@@ -8,3 +8,6 @@ dist/
 .worktrees/
 
 resources/*.zip
+
+# brag-slim launch video workspace (frames, stills, audio); the finished video lives in docs/images
+brag-output/
