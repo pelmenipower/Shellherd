@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { connect as netConnect, createServer } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +12,8 @@ import type { SshEvent, TerminalSize } from '../../shared/ssh';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
 import { KubeApiError, type KubeStream, type TerminalIo } from '../kubernetes/api';
 import { agentSocket, classifyError, publicError, SshSessionManager, targetExitError } from './session';
+import type { SshDependencies } from './session';
+import { ForwardRegistry, SessionForwards } from './forwards';
 import { AppError } from '../../shared/errors';
 import { AgentError } from './client-config';
 import { ContainerInputError } from '../containers/commands';
@@ -39,6 +43,8 @@ let manualSudo: 'nopasswd' | 'prompt';
 let size: PseudoTtyOptions | undefined;
 let autoAck: boolean;
 let sudoRejections: SudoRejections;
+/** Answer the server expects to a keyboard-interactive question; undefined disables that method. */
+let twoFactorCode: string | undefined;
 const directories: string[] = [];
 
 async function waitFor(predicate: () => boolean): Promise<void> {
@@ -125,12 +131,16 @@ let openPrompts = new Set<ServerChannel>();
 let mostOpenPrompts = 0;
 
 beforeEach(async () => {
-  events = []; peers = []; shell = undefined; shells = []; execCommands = []; sudoInput = []; shellInput = []; loginSudo = 'prompt'; manualSudo = 'nopasswd'; size = undefined; autoAck = true; quietPrompt = undefined; quietCrash = undefined; openPrompts = new Set(); mostOpenPrompts = 0;
+  twoFactorCode = undefined; events = []; peers = []; shell = undefined; shells = []; execCommands = []; sudoInput = []; shellInput = []; loginSudo = 'prompt'; manualSudo = 'nopasswd'; size = undefined; autoAck = true; quietPrompt = undefined; quietCrash = undefined; openPrompts = new Set(); mostOpenPrompts = 0;
   sudoRejections = new SudoRejections();
   server = new Server({ hostKeys: [hostKey] }, peer => {
     peers.push(peer);
     peer.on('error', () => {});
     peer.on('authentication', context => {
+      if (twoFactorCode !== undefined && context.method === 'keyboard-interactive') {
+        context.prompt([{ prompt: 'Einmalcode: ', echo: true }], '', '', answers => { if (answers[0] === twoFactorCode) context.accept(); else context.reject(); });
+        return;
+      }
       if (context.username === 'synthetic-user' &&
         ((context.method === 'password' && context.password === 'synthetic-password') || context.method === 'publickey')) context.accept();
       else context.reject();
@@ -1116,5 +1126,135 @@ describe('classifyError', () => {
   });
   it('keeps publicError free of library text', () => {
     expect(publicError(raw({ code: 'ECONNREFUSED' }))).toEqual({ code: 'ssh.connectionRefused' });
+  });
+});
+
+/** Whether something accepts connections on the port; used to see if a forward listens. */
+function canConnect(port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const socket = netConnect(port, '127.0.0.1');
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('error', () => resolve(false));
+  });
+}
+
+describe('jump hosts, keyboard prompts and port forwards', () => {
+  const forwardId = randomUUID();
+  let registry: ForwardRegistry;
+  let freePort: number;
+
+  /** Replaces the manager with one that has the given extra dependencies; the test server stays. */
+  function rebuild(extra: Partial<SshDependencies>): void {
+    manager.closeAll();
+    manager = new SshSessionManager({ getConnection: id => {
+      if (id !== connection.id) throw new Error('Unknown saved connection');
+      return structuredClone(connection);
+    }, verifyHost: async () => true, spawnShell: noShell, sudoRejections, emit: (owner, event) => {
+      events.push(event);
+      if (event.type === 'data') manager.acknowledge(owner, event.sessionId, event.sequence);
+    }, ...extra });
+  }
+
+  /** A socket to the test server: stands in for the channel of a jump host. */
+  function throughServer(): Socket { return netConnect(connection.port, '127.0.0.1'); }
+
+  beforeEach(async () => {
+    registry = new ForwardRegistry();
+    freePort = await new Promise<number>(resolve => {
+      const probe = createServer().listen(0, '127.0.0.1', () => {
+        const { port } = probe.address() as AddressInfo;
+        probe.close(() => resolve(port));
+      });
+    });
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('reaches the target through the jump host channel and reports the jump step', async () => {
+    const sock = throughServer();
+    const openJump = vi.fn(async () => ({ name: 'Sprung', sock, close: () => sock.destroy() }));
+    connection = { ...connection, host: 'unreachable.invalid', jumpHost: 'jump-id' };
+    rebuild({ openJump });
+    const id = prepare();
+    await manager.connect(1, id);
+    await waitFor(() => hasStatus('connected'));
+    expect(openJump).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }), 1);
+    expect(events).toContainEqual({ type: 'step', sessionId: id, step: 'jump' });
+  });
+
+  it('closes the jump host when the session ends', async () => {
+    const sock = throughServer();
+    const close = vi.fn(() => sock.destroy());
+    connection = { ...connection, jumpHost: 'jump-id' };
+    rebuild({ openJump: async () => ({ name: 'Sprung', sock, close }) });
+    const id = prepare();
+    await manager.connect(1, id);
+    await waitFor(() => hasStatus('connected'));
+    manager.close(1, id);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('ends with the jump host error when the hop cannot be opened', async () => {
+    connection = { ...connection, jumpHost: 'jump-id' };
+    rebuild({ openJump: async () => { throw new AppError('ssh.jumpHostFailed', { name: 'Sprung' }); } });
+    const id = prepare();
+    await manager.connect(1, id);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'status', sessionId: id, status: 'error', code: 'unknown',
+      error: expect.objectContaining({ code: 'ssh.jumpHostFailed' }) }));
+  });
+
+  it('answers keyboard-interactive questions only when an ask function is given', async () => {
+    twoFactorCode = '123456';
+    connection = { ...connection, authentication: { method: 'password', password: 'wrong-password' } };
+    const plain = prepare();
+    await manager.connect(1, plain);
+    await waitFor(() => hasStatus('error'));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'status', sessionId: plain, status: 'error', error: expect.objectContaining({ code: 'ssh.authFailed' }) }));
+    const asked: Array<{ fields: unknown; ownerId?: number }> = [];
+    rebuild({ ask: async (request, options) => { asked.push({ fields: request.fields, ownerId: options.ownerId }); return ['123456']; } });
+    const withAsk = prepare();
+    await manager.connect(1, withAsk);
+    await waitFor(() => hasStatus('connected'));
+    expect(asked).toEqual([{ fields: [{ text: 'Einmalcode: ', echo: true }], ownerId: 1 }]);
+  });
+
+  it('starts automatic forwards after connecting and stops them when the session ends', async () => {
+    connection = { ...connection, forwards: [{ id: forwardId, kind: 'dynamic', localPort: freePort, auto: true }] };
+    rebuild({ forwardRegistry: registry });
+    const key = connection.id + ':' + forwardId;
+    const id = prepare();
+    await manager.connect(1, id);
+    await waitFor(() => events.some(event => event.type === 'forwards' && event.forwards[0]?.state === 'active'));
+    expect(registry.holder(key)).toBe(id);
+    expect(await canConnect(freePort)).toBe(true);
+    manager.close(1, id);
+    expect(registry.holder(key)).toBeUndefined();
+    expect(await canConnect(freePort)).toBe(false);
+  });
+
+  it('starts and stops a forward on request, only for the owner of a connected session', async () => {
+    connection = { ...connection, forwards: [{ id: forwardId, kind: 'dynamic', localPort: freePort, auto: false }] };
+    rebuild({ forwardRegistry: registry });
+    const id = prepare();
+    await expect(manager.forward(1, id, forwardId, true)).rejects.toMatchObject({ code: 'ssh.notAvailable' });
+    await manager.connect(1, id);
+    await waitFor(() => hasStatus('connected'));
+    await expect(manager.forward(2, id, forwardId, true)).rejects.toMatchObject({ code: 'ssh.notAvailable' });
+    await manager.forward(1, id, forwardId, true);
+    expect(await canConnect(freePort)).toBe(true);
+    await manager.forward(1, id, forwardId, false);
+    expect(await canConnect(freePort)).toBe(false);
+  });
+
+  it('keeps an idle session open while a forward has open connections', async () => {
+    const busy = vi.spyOn(SessionForwards.prototype, 'busy').mockReturnValue(true);
+    connection = { ...connection, forwards: [{ id: forwardId, kind: 'dynamic', localPort: freePort, auto: false }] };
+    rebuild({ forwardRegistry: registry, getTimeouts: () => ({ ...DEFAULT_TIMEOUTS, idleMinutes: 0.0002 }) });
+    const id = prepare();
+    await manager.connect(1, id);
+    await waitFor(() => hasStatus('connected'));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(hasStatus('closed')).toBe(false);
+    busy.mockReturnValue(false);
+    await waitFor(() => hasStatus('closed'));
   });
 });

@@ -6,7 +6,7 @@ import { Client } from 'ssh2';
 import type { ClientChannel } from 'ssh2';
 import type { IPty, IPtyForkOptions, IWindowsPtyForkOptions } from 'node-pty';
 import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
-import type { ConnectionNode, ConnectionTimeouts, LocalConnectionNode, LocalShellProtocol, SshConnectionNode, VaultNode } from '../../shared/vault/types';
+import type { ConnectionNode, ConnectionTimeouts, LocalConnectionNode, LocalShellProtocol, PortForward, SshConnectionNode, VaultNode } from '../../shared/vault/types';
 import { AI_CLI_TOOLS, aiCliCommandLine } from '../../shared/ai-cli';
 import { locateCommand } from './locate';
 import type { SshEvent, SshPrepareRequest, SshStatus, SshStep, TerminalSize } from '../../shared/ssh';
@@ -15,6 +15,10 @@ import type { CodedError } from '../../shared/errors';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { HostKeyError } from './known-hosts';
 import { AgentError, sshConnectConfig } from './client-config';
+import type { AskPrompts } from './auth-prompts';
+import type { Jump } from './jump';
+import { SessionForwards } from './forwards';
+import type { ForwardRegistry } from './forwards';
 import type { ConnectionErrorCode } from '../../shared/connection-errors';
 import { LOCAL_CONTAINER_HOST } from '../../shared/containers';
 import type { TerminalTarget } from '../../shared/containers';
@@ -59,6 +63,12 @@ export interface SshDependencies {
   /** Effective timeouts of a connection; default () => DEFAULT_TIMEOUTS. */
   getTimeouts?: (connection: ConnectionNode) => ConnectionTimeouts;
   emit: (ownerId: number, event: SshEvent) => void;
+  /** Keyboard-interactive questions of the user; absent, only the stored password answers. */
+  ask?: AskPrompts;
+  /** Opens the jump host hop of a connection; absent disables jump hosts. */
+  openJump?: (connection: SshConnectionNode, ownerId: number) => Promise<Jump | undefined>;
+  /** App-wide claims of port forwards; absent disables port forwards. */
+  forwardRegistry?: ForwardRegistry;
 }
 
 interface Session {
@@ -80,6 +90,11 @@ interface Session {
   /** Between a window transfer and the new window's attach: output is held, not emitted. */
   handover?: { held: Buffer[]; bytes: number };
   target?: TerminalTarget;
+  /** Hop through a jump host; closed with the session. */
+  jump?: Jump;
+  /** Port forwards as they were at connect (later vault changes apply to the next connection). */
+  forwardList?: PortForward[];
+  forwards?: SessionForwards;
   /** Cluster pod terminal (logs or shell); no SSH client, the stream comes from the cluster's session. */
   kube?: KubeTerminalTarget;
   kubeStream?: KubeStream;
@@ -243,12 +258,18 @@ export class SshSessionManager {
       if (connection.protocol !== 'ssh' || !session.client) throw new AppError('ssh.connectionTypeChanged');
       const block = !session.target ? connection.login : undefined;
       if (block && (block.sudo === true || (block.commands?.length ?? 0) > 0)) session.login = { sudo: block.sudo === true, commands: [...(block.commands ?? [])] };
+      if (!session.target && connection.forwards?.length) session.forwardList = structuredClone(connection.forwards);
       const timeouts = timeoutsOf();
       session.idleMs = timeouts.idleMinutes * 60_000;
       const client = session.client;
       // Decided before connecting, so an unusable password fails without contacting the host.
       const sudo = session.target ? this.sudoMode(session, connection) : undefined;
       const root = session.login?.sudo ? this.rootShellPlan(session, connection) : undefined;
+      if (connection.jumpHost && this.dependencies.openJump) {
+        this.step(session, 'jump');
+        session.jump = await this.dependencies.openJump(connection, session.ownerId);
+        if (!this.active(session)) { session.jump?.close(); return; }
+      }
       let hostKeySeen = false;
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         if (!hostKeySeen) { hostKeySeen = true; this.step(session, 'hostkey'); }
@@ -261,7 +282,11 @@ export class SshSessionManager {
             this.fail(session, error);
             callback(false);
           });
-      }, timeouts);
+      }, timeouts, {
+        client,
+        keyboard: this.dependencies.ask ? { ask: this.dependencies.ask, ownerId: session.ownerId, isActive: () => this.active(session) } : undefined,
+        sock: session.jump?.sock,
+      });
       session.key = key;
       if (!this.active(session)) { this.clearKey(session); return; }
       client.once('ready', () => {
@@ -309,6 +334,13 @@ export class SshSessionManager {
     stream.on('close', () => { this.releaseSudoHold(session); this.ended(session, true); });
     if (session.sudo && !session.sudo.manual) session.sudo.timer = setTimeout(() => this.sudoGaveUp(session), this.dependencies.sudoReadyTimeoutMs ?? SUDO_READY_TIMEOUT);
     this.status(session, 'connected');
+    if (session.forwardList && this.dependencies.forwardRegistry && session.client) {
+      const { forwardRegistry } = this.dependencies;
+      session.forwards = new SessionForwards({ client: session.client, connectionId: session.connectionId, sessionId: session.id,
+        forwards: session.forwardList, registry: forwardRegistry,
+        emit: list => { if (this.active(session)) this.dependencies.emit(session.ownerId, { type: 'forwards', sessionId: session.id, forwards: list }); } });
+      session.forwards.startAuto();
+    }
     if (session.login && !session.login.sudo) this.sendLogin(session);
   }
 
@@ -494,8 +526,8 @@ export class SshSessionManager {
     const check = (): void => {
       if (!this.active(session)) return;
       const elapsed = Date.now() - (session.lastIo ?? 0);
-      if (elapsed >= idleMs) this.finish(session, 'closed', undefined, 'idle');
-      else session.idleTimer = setTimeout(check, idleMs - elapsed);
+      if (elapsed >= idleMs && !session.forwards?.busy()) this.finish(session, 'closed', undefined, 'idle');
+      else session.idleTimer = setTimeout(check, elapsed >= idleMs ? idleMs : idleMs - elapsed);
     };
     session.idleTimer = setTimeout(check, idleMs);
   }
@@ -611,6 +643,15 @@ export class SshSessionManager {
     if (session.outputBytes < OUTPUT_HIGH) { session.stream?.resume(); session.stream?.stderr.resume(); session.pty?.resume(); session.kubeStream?.resume(); }
   }
 
+  /** Starts or stops one port forward of a connected terminal; the list is the connect-time snapshot. */
+  async forward(ownerId: number, id: string, forwardId: string, run: boolean): Promise<void> {
+    const session = this.owned(ownerId, id);
+    const forwards = session.forwards;
+    if (session.phase !== 'connected' || !forwards) throw new AppError('ssh.notAvailable');
+    if (run) await forwards.start(forwardId);
+    else forwards.stop(forwardId);
+  }
+
   closeAll(): void { for (const session of [...this.sessions.values()]) this.finish(session, 'closed'); }
   closeOwner(ownerId: number): void {
     for (const session of [...this.sessions.values()]) if (session.ownerId === ownerId) this.finish(session, 'closed');
@@ -628,6 +669,8 @@ export class SshSessionManager {
     session.outstanding.clear();
     session.kubeStream?.close();
     session.stream?.destroy();
+    session.forwards?.stopAll();
+    session.jump?.close();
     session.client?.destroy();
     try { session.pty?.kill(); } catch { /* already exited */ }
     this.status(session, status, error, code ?? (status === 'error' ? 'unknown' : undefined));

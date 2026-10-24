@@ -7,11 +7,15 @@ import { IPC_CHANNELS } from '../../shared/ipc';
 import { mainT } from '../i18n';
 import { vaultSessionManager } from '../vault/ipc';
 import { KnownHosts } from './known-hosts';
+import { openRemoteHost } from '../containers/runner';
+import { openJump } from './jump';
+import { ForwardRegistry } from './forwards';
+import type { AuthPrompts } from './auth-prompts';
 import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { findConnection, SshSessionManager } from './session';
 import type { SshDependencies } from './session';
 import { SudoRejections } from '../containers/sudo-rejections';
-import { AckSchema, InputSchema, PrepareSchema, ResizeSchema, SessionSchema, parseRequest } from './validation';
+import { AckSchema, AuthPromptAnswerSchema, ForwardSchema, InputSchema, PrepareSchema, ResizeSchema, SessionSchema, parseRequest } from './validation';
 
 export function requireSshSender(event: IpcMainInvokeEvent): number {
   const window = BrowserWindow.fromWebContents(event.sender);
@@ -37,11 +41,18 @@ export function createKnownHosts(): KnownHosts {
   });
 }
 
-export function registerSshIpcHandlers(knownHosts: KnownHosts, sudoRejections = new SudoRejections(),
+export function registerSshIpcHandlers(knownHosts: KnownHosts, prompts: AuthPrompts, sudoRejections = new SudoRejections(),
   openKubeTerminal?: SshDependencies['openKubeTerminal']): SshSessionManager {
   const manager = new SshSessionManager({
     sudoRejections,
     openKubeTerminal,
+    ask: prompts.ask,
+    forwardRegistry: new ForwardRegistry(),
+    openJump: (connection, ownerId) => openJump(connection, {
+      getConnection: id => findConnection(vaultSessionManager.getSnapshot().vault.nodes, id),
+      openRemote: (jump, owner) => openRemoteHost(jump, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
+        undefined, effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, jump), { ask: prompts.ask, ownerId: owner }),
+    }, ownerId),
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
       if (!connection) throw new AppError('ssh.connectionNotFound');
@@ -75,5 +86,11 @@ export function registerSshIpcHandlers(knownHosts: KnownHosts, sudoRejections = 
   });
   ipcMain.handle(IPC_CHANNELS.sshAttach, (event, request: unknown) => manager.attach(requireSshSender(event), parseRequest(SessionSchema, request).sessionId));
   ipcMain.handle(IPC_CHANNELS.sshClose, (event, request: unknown) => manager.close(requireSshSender(event), parseRequest(SessionSchema, request).sessionId));
+  ipcMain.handle(IPC_CHANNELS.sshForward, (event, request: unknown) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(ForwardSchema, request);
+    return manager.forward(ownerId, parsed.sessionId, parsed.forwardId, parsed.run);
+  });
+  ipcMain.handle(IPC_CHANNELS.sshAuthPromptAnswer, (event, request: unknown) => prompts.answer(requireSshSender(event), parseRequest(AuthPromptAnswerSchema, request)));
   return manager;
 }

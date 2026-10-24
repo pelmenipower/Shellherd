@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IpcMainInvokeEvent } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ipc';
+import { AuthPrompts } from './auth-prompts';
 import type { SshSessionManager } from './session';
 import { hostFingerprint } from './known-hosts';
 
@@ -28,7 +30,7 @@ beforeEach(() => {
   mocks.handlers.clear(); mocks.trustedWindow = true;
   mocks.getSnapshot.mockReturnValue({ vault: { nodes: [{ id: 'saved-id', type: 'connection', protocol: 'ssh', name: 'Synthetic',
     host: 'example.test', port: 22, username: 'synthetic-user', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [] }] } });
-  manager = registerSshIpcHandlers(createKnownHosts());
+  manager = registerSshIpcHandlers(createKnownHosts(), new AuthPrompts({ resolveTarget: () => undefined, isUnlocked: () => true }));
 });
 afterEach(() => manager.closeAll());
 
@@ -56,6 +58,17 @@ describe('SSH IPC authorization', () => {
     expect(() => prepare(sender(), { connectionId: 'unknown', cols: 80, rows: 24 })).toThrow(expect.objectContaining({ code: 'ssh.connectionNotFound' }));
     mocks.getSnapshot.mockImplementationOnce(() => { throw new Error('Vault gesperrt'); });
     expect(() => prepare(sender(), { connectionId: 'saved-id', cols: 80, rows: 24 })).toThrow('Vault gesperrt');
+  });
+});
+
+describe('auth prompt answers and port forwards', () => {
+  it('registers both channels and checks the sender and the request shape', async () => {
+    const answer = mocks.handlers.get('ssh:auth-prompt-answer')!;
+    expect(() => answer(sender(1, true), { promptId: randomUUID(), answers: null })).toThrow(expect.objectContaining({ code: 'ssh.senderNotAllowed' }));
+    expect(() => answer(sender(), { promptId: 'wrong', answers: null })).toThrow(expect.objectContaining({ code: 'ssh.invalidRequest' }));
+    const forward = mocks.handlers.get('ssh:forward')!;
+    await expect(forward(sender(), { sessionId: randomUUID(), forwardId: randomUUID(), run: true })).rejects.toMatchObject({ code: 'ssh.notAvailable' });
+    expect(() => forward(sender(), { sessionId: randomUUID(), forwardId: 'local-1', run: true })).toThrow(expect.objectContaining({ code: 'ssh.invalidRequest' }));
   });
 });
 
