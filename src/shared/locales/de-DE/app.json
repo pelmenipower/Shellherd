@@ -197,7 +197,8 @@
       "views": "Ansichten oben bündeln mehrere Bereiche; ein Workspace speichert alle Ansichten und Fenster.",
       "files": "Im Dateibrowser: F4 bearbeitet, F5 kopiert, Umschalt+F4 legt eine Datei an.",
       "settings": "Sprache, Dateiverknüpfung und KI-Anbieter stehen unter Einstellungen (Zahnrad oben rechts, {{shortcut}})."
-    }
+    },
+    "import": "Importieren"
   },
   "fileType": {
     "registered": "Shellherd ist mit .term-Dateien verknüpft.",
@@ -293,5 +294,15 @@
     "hint": "Die Antworten gehen nur an diesen Server und werden nicht gespeichert.",
     "submit": "Anmelden",
     "ariaLabel": "Anmeldeabfrage des Servers"
+  },
+  "update": {
+    "available": "Version {{version}} verfügbar",
+    "title": "Shellherd {{version}} ist verfügbar",
+    "notes": "Release-Notes ansehen",
+    "skip": "Diese Version überspringen",
+    "setting": {
+      "label": "Nach neuen Versionen suchen",
+      "hint": "Höchstens einmal am Tag fragt Shellherd nach dem Entsperren bei GitHub nach der neuesten Version und zeigt sie in der Statusleiste. Gesendet wird nur die Anfrage selbst, nichts aus dem Vault. Installieren musst du selbst."
+    }
   }
 }

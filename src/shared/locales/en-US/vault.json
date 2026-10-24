@@ -128,5 +128,74 @@
     "noMatch": "No matching connection.",
     "noneSaved": "No connection saved yet. Create one via “New”.",
     "welcome": "Welcome page"
+  },
+  "import": {
+    "heading": "Import",
+    "openssh": "From OpenSSH (~/.ssh/config)…",
+    "putty": "From PuTTY…",
+    "winscp": "From WinSCP…",
+    "mremoteng": "From mRemoteNG (confCons.xml)…",
+    "title": {
+      "openssh": "Import connections from OpenSSH",
+      "putty": "Import connections from PuTTY",
+      "winscp": "Import connections from WinSCP",
+      "mremoteng": "Import connections from mRemoteNG"
+    },
+    "reading": "Reading…",
+    "sourceFile": "Source: {{file}}",
+    "sourceRegistry": "Source: PuTTY sessions in the Windows registry",
+    "sourceRegistryWinscp": "Source: WinSCP sessions in the Windows registry",
+    "empty": "No SSH connections found.",
+    "selectAll": "Select all",
+    "duplicate": "Already saved",
+    "via": "via {{name}}",
+    "keyFile": "Key file",
+    "kind": {
+      "sftp": "Files (SFTP)",
+      "rdp": "Remote desktop"
+    },
+    "inFolder": "in {{path}}",
+    "forwards_one": "{{count}} forward",
+    "forwards_other": "{{count}} forwards",
+    "notes": {
+      "ppkKey": "A PuTTY key (.ppk) works only in format 2 with RSA. Otherwise export it as an OpenSSH key in PuTTYgen.",
+      "jumpUnsupported": "Jump host not imported: only one hop to a host from the same source.",
+      "proxyDropped": "Proxy not imported.",
+      "forwardsDropped": "Not all forwards imported.",
+      "keyUnresolved": "Key path with tokens not imported; signs in with the SSH agent.",
+      "scpAsSftp": "WinSCP session with SCP is imported as SFTP."
+    },
+    "skipped": {
+      "match_one": "{{count}} Match block skipped",
+      "match_other": "{{count}} Match blocks skipped",
+      "include_one": "{{count}} Include line not read",
+      "include_other": "{{count}} Include lines not read",
+      "notSsh_one": "{{count}} non-SSH session skipped (Telnet, Serial, Raw)",
+      "notSsh_other": "{{count}} non-SSH sessions skipped (Telnet, Serial, Raw)",
+      "invalid_one": "{{count}} entry without a valid host or port skipped",
+      "invalid_other": "{{count}} entries without a valid host or port skipped",
+      "tooMany_one": "{{count}} more entry not shown (at most 500)",
+      "tooMany_other": "{{count}} more entries not shown (at most 500)",
+      "unsupported_one": "{{count}} session with another protocol skipped (FTP, Telnet, VNC…)",
+      "unsupported_other": "{{count}} sessions with another protocol skipped (FTP, Telnet, VNC…)"
+    },
+    "target": "Target folder",
+    "targetNew": "New folder “{{name}}”",
+    "targetRoot": "Top level",
+    "folder": {
+      "openssh": "OpenSSH import",
+      "putty": "PuTTY import",
+      "winscp": "WinSCP import",
+      "mremoteng": "mRemoteNG import"
+    },
+    "hint": "Passwords are never imported. Key files stay where they are; Shellherd only stores the path. Forwards start only on click.",
+    "submit_one": "Import {{count}} connection",
+    "submit_other": "Import {{count}} connections",
+    "done_one": "{{count}} connection imported",
+    "done_other": "{{count}} connections imported",
+    "resultSkipped_one": "{{count}} skipped.",
+    "resultSkipped_other": "{{count}} skipped.",
+    "resultJumps_one": "{{count}} without jump host because the jump host was not selected.",
+    "resultJumps_other": "{{count}} without jump host because the jump host was not selected."
   }
 }

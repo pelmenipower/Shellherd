@@ -31,7 +31,13 @@
     "vaultOpen": {
       "title": "Shellherd-Vault auswählen"
     },
-    "vaultFilter": "Shellherd Vault"
+    "vaultFilter": "Shellherd Vault",
+    "importOpenSsh": {
+      "title": "OpenSSH-Konfiguration auswählen"
+    },
+    "importMRemoteNg": {
+      "title": "mRemoteNG-Verbindungsdatei auswählen"
+    }
   },
   "assistant": {
     "shells": {

@@ -128,5 +128,74 @@
     "noMatch": "Keine passende Verbindung.",
     "noneSaved": "Noch keine Verbindung gespeichert. Lege über „Neu“ eine Verbindung an.",
     "welcome": "Willkommensseite"
+  },
+  "import": {
+    "heading": "Importieren",
+    "openssh": "Aus OpenSSH (~/.ssh/config) …",
+    "putty": "Aus PuTTY …",
+    "winscp": "Aus WinSCP …",
+    "mremoteng": "Aus mRemoteNG (confCons.xml) …",
+    "title": {
+      "openssh": "Verbindungen aus OpenSSH importieren",
+      "putty": "Verbindungen aus PuTTY importieren",
+      "winscp": "Verbindungen aus WinSCP importieren",
+      "mremoteng": "Verbindungen aus mRemoteNG importieren"
+    },
+    "reading": "Wird gelesen …",
+    "sourceFile": "Quelle: {{file}}",
+    "sourceRegistry": "Quelle: PuTTY-Sitzungen in der Windows-Registry",
+    "sourceRegistryWinscp": "Quelle: WinSCP-Sitzungen in der Windows-Registry",
+    "empty": "Keine SSH-Verbindungen gefunden.",
+    "selectAll": "Alle auswählen",
+    "duplicate": "Schon vorhanden",
+    "via": "über {{name}}",
+    "keyFile": "Schlüsseldatei",
+    "kind": {
+      "sftp": "Dateien (SFTP)",
+      "rdp": "Remotedesktop"
+    },
+    "inFolder": "in {{path}}",
+    "forwards_one": "{{count}} Weiterleitung",
+    "forwards_other": "{{count}} Weiterleitungen",
+    "notes": {
+      "ppkKey": "PuTTY-Schlüssel (.ppk) funktioniert nur im Format 2 mit RSA. Sonst in PuTTYgen als OpenSSH-Schlüssel exportieren.",
+      "jumpUnsupported": "Sprunghost nicht übernommen: nur ein Hop zu einem Host aus derselben Quelle.",
+      "proxyDropped": "Proxy nicht übernommen.",
+      "forwardsDropped": "Nicht alle Weiterleitungen übernommen.",
+      "keyUnresolved": "Schlüsselpfad mit Platzhaltern nicht übernommen, Anmeldung über den SSH-Agent.",
+      "scpAsSftp": "WinSCP-Sitzung mit SCP wird als SFTP übernommen."
+    },
+    "skipped": {
+      "match_one": "{{count}} Match-Block übersprungen",
+      "match_other": "{{count}} Match-Blöcke übersprungen",
+      "include_one": "{{count}} Include-Zeile nicht gelesen",
+      "include_other": "{{count}} Include-Zeilen nicht gelesen",
+      "notSsh_one": "{{count}} Sitzung ohne SSH übersprungen (Telnet, Serial, Raw)",
+      "notSsh_other": "{{count}} Sitzungen ohne SSH übersprungen (Telnet, Serial, Raw)",
+      "invalid_one": "{{count}} Eintrag ohne gültigen Host oder Port übersprungen",
+      "invalid_other": "{{count}} Einträge ohne gültigen Host oder Port übersprungen",
+      "tooMany_one": "{{count}} weiterer Eintrag nicht gezeigt (höchstens 500)",
+      "tooMany_other": "{{count}} weitere Einträge nicht gezeigt (höchstens 500)",
+      "unsupported_one": "{{count}} Sitzung mit anderem Protokoll übersprungen (FTP, Telnet, VNC …)",
+      "unsupported_other": "{{count}} Sitzungen mit anderem Protokoll übersprungen (FTP, Telnet, VNC …)"
+    },
+    "target": "Zielordner",
+    "targetNew": "Neuer Ordner „{{name}}“",
+    "targetRoot": "Oberste Ebene",
+    "folder": {
+      "openssh": "OpenSSH-Import",
+      "putty": "PuTTY-Import",
+      "winscp": "WinSCP-Import",
+      "mremoteng": "mRemoteNG-Import"
+    },
+    "hint": "Passwörter werden nie importiert. Schlüsseldateien bleiben, wo sie sind; Shellherd speichert nur den Pfad. Weiterleitungen starten erst per Klick.",
+    "submit_one": "{{count}} Verbindung importieren",
+    "submit_other": "{{count}} Verbindungen importieren",
+    "done_one": "{{count}} Verbindung importiert",
+    "done_other": "{{count}} Verbindungen importiert",
+    "resultSkipped_one": "{{count}} übersprungen.",
+    "resultSkipped_other": "{{count}} übersprungen.",
+    "resultJumps_one": "{{count}} ohne Sprunghost, weil der Sprunghost nicht mit ausgewählt war.",
+    "resultJumps_other": "{{count}} ohne Sprunghost, weil der Sprunghost nicht mit ausgewählt war."
   }
 }

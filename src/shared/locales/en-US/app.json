@@ -197,7 +197,8 @@
       "views": "Views at the top group several panes; a workspace saves all views and windows.",
       "files": "In the file browser: F4 edits, F5 copies, Shift+F4 creates a file.",
       "settings": "Language, file association and AI providers are in Settings (gear at the top right, {{shortcut}})."
-    }
+    },
+    "import": "Import"
   },
   "fileType": {
     "registered": "Shellherd is associated with .term files.",
@@ -293,5 +294,15 @@
     "hint": "Your answers go only to this server and are not stored.",
     "submit": "Sign in",
     "ariaLabel": "Server sign-in prompt"
+  },
+  "update": {
+    "available": "Version {{version}} available",
+    "title": "Shellherd {{version}} is available",
+    "notes": "View release notes",
+    "skip": "Skip this version",
+    "setting": {
+      "label": "Check for new versions",
+      "hint": "At most once a day, after unlocking, Shellherd asks GitHub for the latest version and shows it in the status bar. Only the request itself is sent, nothing from the vault. You install updates yourself."
+    }
   }
 }
