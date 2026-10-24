@@ -41,10 +41,11 @@ async function waitFor(step, expression, { timeout = 20000, every = 250 } = {}) 
 }
 const count = selector => `document.querySelectorAll(${JSON.stringify(selector)}).length`;
 // The path comes from the driver; README images never show the real local container tree.
-const shot = async name => {
+// keepStatus: the update badge lives in the status bar, so those shots keep it (the vault path is a temp path).
+const shot = async (name, keepStatus = false) => {
   if (readme && README_SHOTS.has(name) && await evaluate(`!!document.querySelector('.local-containers')`))
     throw new Error('„Dieser Computer“ (lokale Container) in der Seitenleiste – kein README-Bild');
-  shots.push(await call('ss', undefined, `?name=${name}&crop=status`));
+  shots.push(await call('ss', undefined, `?name=${name}${keepStatus ? '' : '&crop=status'}`));
 };
 
 // Hovers the first occurrence of `link` in the visible terminal. xterm caches the link answer per row, so the mouse first
@@ -591,11 +592,11 @@ const blocks = {
       await waitFor('Entsperren', `!document.querySelector('dialog.lock-screen[open]') && document.querySelector('.vault-shell').inert === false`, { timeout: 30000 });
       await waitFor('Update-Knopf', `!!document.querySelector('.update-button')`, { timeout: 30000 });
       await pause(300);
-      await shot('update-hint');
+      await shot('update-hint', true);
       await click('.update-button');
       await waitFor('Update-Menü', `!!document.querySelector('.context-menu[role=menu]')`);
       await pause(300);
-      await shot('update-menu');
+      await shot('update-menu', true);
       fs.rmSync(UPDATE_FLAG, { force: true });
       await menuItem('Diese Version überspringen');
       await waitFor('Update-Knopf verschwunden', `!document.querySelector('.update-button')`);
