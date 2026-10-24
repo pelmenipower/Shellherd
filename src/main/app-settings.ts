@@ -19,7 +19,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = { language: 'system', theme: 'd
 
 const LanguageSchema = z.enum(LANGUAGE_SETTINGS);
 const ThemeSchema = z.enum(THEME_SETTINGS);
-const RecentVaultSchema = z.object({
+/** One recentVaults entry. Also checks the legacy start value from last-vault.json (recent-vaults.ts). */
+export const RecentVaultSchema = z.object({
   filePath: z.string().min(1).max(4096).refine(isAbsolute),
   openedAt: z.number().int().min(0),
 });

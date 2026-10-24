@@ -4,8 +4,12 @@ import { basename, dirname, posix, win32 } from 'node:path';
 
 import { AppError } from '../../shared/errors';
 import type { RecentVault } from '../../shared/ipc';
-import { MAX_RECENT_VAULTS, readAppSettings, writeAppSettings } from '../app-settings';
+import { MAX_RECENT_VAULTS, readAppSettings, RecentVaultSchema, writeAppSettings } from '../app-settings';
 import type { RecentVaultEntry } from '../app-settings';
+
+/** Returns the stat result or null; injectable for tests. */
+export type Probe = (filePath: string) => Promise<{ isFile(): boolean } | null>;
+const statOrNull: Probe = filePath => stat(filePath).catch(() => null);
 
 /** Dedup key: resolved path, case-insensitive on Windows. */
 export function recentKey(filePath: string, platform: NodeJS.Platform = process.platform): string {
@@ -36,20 +40,26 @@ export class RecentVaults {
     private readonly settingsFile: string,
     private readonly legacyFile: string,
     private readonly now: () => number = Date.now,
+    private readonly probe: Probe = statOrNull,
   ) {}
 
-  /** Newest first. missing = stat fails or is not a file. Never throws (unreadable settings → []). */
+  /** Newest first. missing = probe fails or is not a file; UNC paths are not probed (no SMB connection). Never throws (unreadable settings → []). */
   async list(): Promise<RecentVault[]> {
     const entries = await this.entries();
-    return Promise.all(entries.map(async entry => {
-      const info = await stat(entry.filePath).catch(() => null);
-      return toView(entry, !info?.isFile());
-    }));
+    return Promise.all(entries.map(async entry => toView(entry, await this.missing(entry.filePath))));
   }
 
-  /** filePath of the first entry that is not missing, or null. Replaces LastVaultFile.get(). */
+  /** filePath of the first entry that is not missing, or null. Checks one entry after the other and stops at the first hit. */
   async latest(): Promise<string | null> {
-    return (await this.list()).find(entry => !entry.missing)?.filePath ?? null;
+    for (const entry of await this.entries()) {
+      if (!await this.missing(entry.filePath)) return entry.filePath;
+    }
+    return null;
+  }
+
+  private async missing(filePath: string): Promise<boolean> {
+    if (filePath.startsWith('\\\\')) return false;
+    return !(await this.probe(filePath))?.isFile();
   }
 
   /** Moves/inserts filePath at the top with openedAt = now(), dedups by recentKey, keeps 8. Best effort: never throws. */
@@ -73,14 +83,14 @@ export class RecentVaults {
     return readAppSettings(this.settingsFile).recentVaults ?? this.seed();
   }
 
-  /** Start value from the old single-entry file; its mtime serves as the time. Never throws. */
+  /** Start value from the old single-entry file; its mtime serves as the time. Same schema as stored entries. Never throws. */
   private async seed(): Promise<RecentVaultEntry[]> {
     try {
       const data: unknown = JSON.parse(await readFile(this.legacyFile, 'utf8'));
       const filePath = (data as { filePath?: unknown } | null)?.filePath;
-      if (typeof filePath !== 'string' || filePath === '') return [];
       const { mtimeMs } = await stat(this.legacyFile);
-      return [{ filePath, openedAt: Math.round(mtimeMs) }];
+      const parsed = RecentVaultSchema.safeParse({ filePath, openedAt: Math.round(mtimeMs) });
+      return parsed.success ? [parsed.data] : [];
     } catch { return []; }
   }
 }

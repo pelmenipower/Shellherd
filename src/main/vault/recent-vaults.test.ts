@@ -142,4 +142,50 @@ describe('RecentVaults', () => {
     expect(await store().list()).toEqual([]);
     expect(await store().latest()).toBeNull();
   });
+
+  it('drops a legacy start value that is relative or longer than 4096 characters', async () => {
+    await writeFile(legacy, JSON.stringify({ filePath: 'relative.term' }));
+    expect(await store().list()).toEqual([]);
+    await writeFile(legacy, JSON.stringify({ filePath: join(dir, 'a'.repeat(4096)) }));
+    expect(await store().list()).toEqual([]);
+  });
+
+  describe('with an injected probe', () => {
+    const names = ['a.term', 'b.term', 'c.term'];
+    const probeOf = (present: string[], calls: string[]) => async (file: string) => {
+      calls.push(file);
+      return present.includes(file) ? { isFile: () => true } : null;
+    };
+    const writeEntries = async (): Promise<void> => {
+      const recentVaults = names.map((name, index) => ({ filePath: join(dir, name), openedAt: 100 - index }));
+      await writeFile(settings, JSON.stringify({ recentVaults }));
+    };
+
+    it('latest() stops at the first existing entry and does not probe the rest', async () => {
+      await writeEntries();
+      const calls: string[] = [];
+      const latest = await new RecentVaults(settings, legacy, now, probeOf([join(dir, 'a.term'), join(dir, 'b.term')], calls)).latest();
+      expect(latest).toBe(join(dir, 'a.term'));
+      expect(calls).toEqual([join(dir, 'a.term')]);
+    });
+
+    it('latest() skips missing entries and stops at the first present one', async () => {
+      await writeEntries();
+      const calls: string[] = [];
+      const latest = await new RecentVaults(settings, legacy, now, probeOf([join(dir, 'b.term')], calls)).latest();
+      expect(latest).toBe(join(dir, 'b.term'));
+      expect(calls).toEqual([join(dir, 'a.term'), join(dir, 'b.term')]);
+    });
+
+    it.skipIf(process.platform !== 'win32')('does not probe UNC paths and shows them as present', async () => {
+      const unc = '\\\\server\\share\\vault.term';
+      await writeFile(settings, JSON.stringify({ recentVaults: [{ filePath: unc, openedAt: 1 }] }));
+      const calls: string[] = [];
+      const store = new RecentVaults(settings, legacy, now, probeOf([], calls));
+      const list = await store.list();
+      expect(list[0]).toMatchObject({ filePath: unc, missing: false });
+      expect(await store.latest()).toBe(unc);
+      expect(calls).toEqual([]);
+    });
+  });
 });
