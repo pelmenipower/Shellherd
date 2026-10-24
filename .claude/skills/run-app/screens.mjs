@@ -347,8 +347,9 @@ const blocks = {
     await rclick('text=app-intern >> nth=0');
     await menuItem('Bearbeiten');
     await waitFor('Formular', `document.querySelector('details.editor-details > summary')`);
-    await click('details.editor-details:has(> summary:text-is("Weitere Angaben")) > summary');
-    await waitFor('Weitere Angaben geöffnet', `document.querySelector('details.editor-details:has(> summary:text-is("Weitere Angaben"))')?.open`);
+    await call('eval', `const details = [...document.querySelectorAll('details.editor-details')].find(d => d.querySelector('summary')?.textContent.includes('Weitere Angaben'));
+  if (!details) throw new Error('Abschnitt „Weitere Angaben“ fehlt'); details.open = true;`);
+    await waitFor('Weitere Angaben geöffnet', `[...document.querySelectorAll('details.editor-details')].find(d => d.querySelector('summary')?.textContent.includes('Weitere Angaben'))?.open`);
     await pause(300);
     await shot('jump-form');
   },

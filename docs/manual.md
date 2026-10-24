@@ -173,7 +173,8 @@ and contain the matching key. On Unix, `SSH_AUTH_SOCK` must be set.
 Agent forwarding is disabled.
 
 If the server asks for more information during sign-in (one-time code, PIN, second
-password), the dialog "Sign in to …" opens in the tab's window. Your answers go
+password), the dialog "Sign in to …" opens in the tab's window (terminal and file view); for containers, clusters and
+the connection test it opens in the most recently used Shellherd window. Your answers go
 only to this server; they are not stored and not logged. If the server asks
 exactly once for a password and the connection has a stored password, Shellherd
 enters it once automatically; every other question goes to the dialog. At most 6
@@ -273,11 +274,11 @@ They belong to a terminal session of this connection.
 
 - The "Port forwards" bar below the terminal shows each forward with its state and a
   button to start or stop it. It appears as soon as the connection is up.
-- With "Start on connect", Shellherd starts the forward after sign-in if the port is
-  free. This happens only for a connection you open yourself.
+- With "Start on connect", Shellherd starts the forward after sign-in if it is not
+  running in another tab. This happens only for a connection you open yourself.
 - A forward runs at most once across the app. If it runs in another tab, the bar
-  shows "running in another tab"; you can start it here only after the other tab
-  stops or closes it.
+  shows only "running in another tab". As soon as the other tab stops or closes it,
+  a "Start" button appears here.
 - Changes to the list apply from the next connection; `Reconnect` picks them up.
 - Ending the session (closing the tab, disconnecting, idle timeout) stops its
   forwards. Open connections through a forward keep the session from idling out.

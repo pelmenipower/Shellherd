@@ -174,7 +174,8 @@ und den passenden Schlüssel enthalten. Auf Unix muss `SSH_AUTH_SOCK` gesetzt se
 Agent-Forwarding ist deaktiviert.
 
 Fragt der Server bei der Anmeldung nach weiteren Angaben (Einmalcode, PIN, zweites
-Passwort), öffnet sich der Dialog „Anmeldung bei …“ im Fenster des Tabs. Die
+Passwort), öffnet sich der Dialog „Anmeldung bei …“ bei Terminal und Dateiansicht im Fenster des
+Tabs, bei Containern, Clustern und dem Verbindungstest im zuletzt benutzten Shellherd-Fenster. Die
 Antworten gehen nur an diesen Server, werden nicht gespeichert und nicht
 protokolliert. Fragt der Server genau einmal nach einem Passwort und hat die
 Verbindung ein gespeichertes Passwort, setzt Shellherd es einmal automatisch ein;
@@ -285,8 +286,8 @@ Unter `Weitere Angaben` einer SSH-Verbindung legst du Port-Weiterleitungen fest
   Anmelden, wenn sie frei ist. Das passiert nur bei einer Verbindung, die du selbst
   öffnest.
 - Eine Weiterleitung läuft app-weit höchstens einmal. Läuft sie in einem anderen
-  Tab, zeigt die Leiste „läuft in anderem Tab“; sie lässt sich hier erst starten,
-  wenn der andere Tab sie stoppt oder schließt.
+  Tab, zeigt die Leiste nur „läuft in anderem Tab“. Sobald der andere Tab sie stoppt
+  oder schließt, erscheint hier „Starten“.
 - Änderungen an der Liste gelten ab der nächsten Verbindung; `Neu verbinden`
   übernimmt sie.
 - Ende der Sitzung (Tab schließen, Trennen, Leerlauf) stoppt ihre Weiterleitungen.
