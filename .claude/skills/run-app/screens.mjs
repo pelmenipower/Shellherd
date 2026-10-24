@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|settings-terminal|tab-activity|broadcast …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -46,6 +46,25 @@ const shot = async name => {
     throw new Error('„Dieser Computer“ (lokale Container) in der Seitenleiste – kein README-Bild');
   shots.push(await call('ss', undefined, `?name=${name}&crop=status`));
 };
+
+// Hovers the first occurrence of `link` in the visible terminal. xterm caches the link answer per row, so the mouse first
+// rests on the bottom row (empty in these scenes); a move straight from the typed line would reuse the empty answer.
+async function hoverLink(link) {
+  const corner = await evaluate(`(() => { const r = document.querySelector('.terminal-panel:not([hidden]) .xterm-screen').getBoundingClientRect(); return { x: r.left + 5, y: r.bottom - 5 }; })()`);
+  await call('move', undefined, `?x=${corner.x}&y=${corner.y}`);
+  const point = await call('eval', `const rows = document.querySelector('.terminal-panel:not([hidden]) .xterm-rows');
+  const walker = document.createTreeWalker(rows, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const at = node.textContent.indexOf(${JSON.stringify(link)});
+    if (at < 0) continue;
+    const range = document.createRange();
+    range.setStart(node, at); range.setEnd(node, Math.min(node.textContent.length, at + ${link.length}));
+    const box = range.getBoundingClientRect();
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  }
+  throw new Error('Link nicht im Terminal gefunden');`);
+  await call('move', undefined, `?x=${point.x}&y=${point.y}`);
+}
 
 // Closes open dialogs and every terminal tab (confirming the close dialog if one appears) so each block starts from the same state.
 async function closeTabs() {
@@ -406,22 +425,25 @@ const blocks = {
     await call('type', 'cat ~/LIESMICH');
     await key('Enter');
     await waitFor('Link im Terminal', `(document.querySelector('.terminal-panel:not([hidden]) .xterm-rows')?.textContent ?? '').includes('https://intranet.demo/handbuch')`);
-    const link = 'https://intranet.demo/handbuch';
-    const point = await call('eval', `const rows = document.querySelector('.terminal-panel:not([hidden]) .xterm-rows');
-  const walker = document.createTreeWalker(rows, NodeFilter.SHOW_TEXT);
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const at = node.textContent.indexOf(${JSON.stringify(link)});
-    if (at < 0) continue;
-    const range = document.createRange();
-    range.setStart(node, at); range.setEnd(node, Math.min(node.textContent.length, at + ${link.length}));
-    const box = range.getBoundingClientRect();
-    return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-  }
-  throw new Error('Link nicht im Terminal gefunden');`);
-    await call('move', undefined, `?x=${point.x}&y=${point.y}`);
+    await hoverLink('https://intranet.demo/handbuch');
     await waitFor('Link-Hinweis', `!!document.querySelector('.terminal-link-hint')`);
     await pause(300);
     await shot('terminal-link');
+  },
+  // cat ~/LINKS prints an OSC-8 link: the text is intranet.demo, the target status.intranet.demo, so the hint must name the target host.
+  async 'terminal-link-osc8'() {
+    await click(web01);
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener web-01-Tab', `${web01Connected} === 1`);
+    await click('.xterm-helper-textarea >> nth=0');
+    await call('type', 'cat ~/LINKS');
+    await key('Enter');
+    await waitFor('OSC-8-Link im Terminal', `(document.querySelector('.terminal-panel:not([hidden]) .xterm-rows')?.textContent ?? '').includes('https://intranet.demo/login')`);
+    await hoverLink('https://intranet.demo/login');
+    await waitFor('Link-Hinweis mit Ziel-Host', `(document.querySelector('.terminal-link-hint')?.textContent ?? '').includes('status.intranet.demo')`);
+    await pause(300);
+    await shot('terminal-link-osc8');
   },
   // Terminal section of the settings dialog: font, size, scrollback, cursor and blink.
   async 'settings-terminal'() {
@@ -463,6 +485,9 @@ const blocks = {
     await waitFor('Layoutmenü', `document.querySelector('.pane-layout-menu')`);
     await menuButton('Nebeneinander teilen');
     await waitFor('zweiter Bereich', `document.querySelectorAll('.pane-chrome').length === 2`);
+    // The split leaves the old pane empty; "Hier verbinden" focuses it, so the next sidebar Enter connects there.
+    await waitFor('leerer Bereich', `!!document.querySelector('.empty-pane button')`);
+    await click('.empty-pane button');
     await click(web01);
     await key('Enter');
     await waitFor('zwei verbundene web-01-Tabs', `${web01Connected} === 2`, { timeout: 30000 });

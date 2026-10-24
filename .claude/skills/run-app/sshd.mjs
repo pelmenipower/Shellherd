@@ -28,6 +28,8 @@ const outputs = {
   'systemctl status nginx --no-pager | head -3': '\x1b[32m●\x1b[0m nginx.service - A high performance web server\r\n     Loaded: loaded (/lib/systemd/system/nginx.service; enabled)\r\n     Active: \x1b[32mactive (running)\x1b[0m since Fri 2026-10-16 08:02:11 CEST',
   'docker ps --format "table {{.Names}}\\t{{.Status}}"': 'NAMES          STATUS\r\napi            Up 3 days\r\nworker         Up 3 days\r\nredis          Up 9 days',
   'cat ~/LIESMICH': 'Handbuch: https://intranet.demo/handbuch\r\nStatus:   https://status.intranet.demo/',
+  // OSC 8: the visible text names another host than the target (the hover hint must show the target).
+  'cat ~/LINKS': '\x1b]8;;https://status.intranet.demo/\x1b\\https://intranet.demo/login\x1b]8;;\x1b\\',
 };
 
 const LISTS = { containers: CONTAINERS, images: IMAGES, volumes: VOLUMES, networks: NETWORKS };

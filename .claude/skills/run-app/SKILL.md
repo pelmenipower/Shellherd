@@ -21,7 +21,7 @@ npx electron-vite build          # out/ muss aktuell sein; nach jedem Build den 
 npm run drive:sshd               # Hintergrund: SSH/SFTP-Server, Kubernetes- und KI-Fake (drei "ready"-Zeilen)
 npm run drive                    # Hintergrund: App + Treiber, meldet "driver ready on 9333"
 node .claude/skills/run-app/demo-setup.mjs   # Demo-Vault anlegen oder entsperren
-node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|settings-terminal|tab-activity|broadcast …] [--readme]   # ohne Argument alle; sftp erzeugt zusätzlich sftp-typeahead.png, sftp-transfer-canceled.png, sftp-transfer.png, sftp-transfer-verified.png, sftp-auto-upload-dialog.png und sftp-auto-upload.png, settings erzeugt settings.png und ai-settings.png
+node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast …] [--readme]   # ohne Argument alle; sftp erzeugt zusätzlich sftp-typeahead.png, sftp-transfer-canceled.png, sftp-transfer.png, sftp-transfer-verified.png, sftp-auto-upload-dialog.png und sftp-auto-upload.png, settings erzeugt settings.png und ai-settings.png
 T="x-driver-token: $(cat "$TEMP/shellherd-run/token")"   # nach dem Start des Treibers
 curl -s -H "$T" "http://127.0.0.1:9333/ss?name=start&crop=status"
 curl -s -H "$T" http://127.0.0.1:9333/quit          # am Ende; Testserver-Prozess ebenfalls beenden
@@ -31,7 +31,7 @@ Bereitschaft abwarten: `for i in $(seq 1 60); do curl -sf -m 2 -H "x-driver-toke
 
 **Treiber-Token:** Der Treiber schreibt bei jedem Start ein neues Token nach `%TEMP%\shellherd-run\token`. Jede Anfrage braucht den Header `x-driver-token` (ohne Header oder mit `Origin`: 403), sonst könnte jede Website per `POST` an `127.0.0.1:9333` Code in der App ausführen. Alle `curl`-Beispiele unten verwenden `-H "$T"`.
 
-`screens.mjs` schreibt `sftp.png`, `sftp-typeahead.png`, `sftp-transfer-canceled.png`, `sftp-transfer.png`, `sftp-transfer-verified.png`, `sftp-auto-upload-dialog.png`, `sftp-auto-upload.png`, `containers.png`, `kubernetes.png`, `settings.png`, `ai-settings.png`, `assistant.png`, `lock-screen.png`, `lock-secondary.png`, `login-commands.png`, `tab-renamed.png`, `welcome.png`, `auth-prompt.png`, `jump-form.png`, `forwards.png`, `terminal-search.png`, `terminal-link.png`, `settings-terminal.png`, `tab-activity.png` und `broadcast.png`. Mit `--readme` landen `sftp`, `containers`, `kubernetes`, `settings` und `assistant` zusätzlich als `docs/images/screenshot-<name>.png` im Repo. Die drei älteren README-Bilder (Terminals, Fehlerkarte, Hinweis) entstanden von Hand per `/ss`. Endet der `lock`- oder `lock-secondary`-Block mit einem Fehler, bleibt die App gesperrt: dann `demo-setup.mjs` neu starten (die App neu starten, falls es das Passwortfeld nicht findet).
+`screens.mjs` schreibt `sftp.png`, `sftp-typeahead.png`, `sftp-transfer-canceled.png`, `sftp-transfer.png`, `sftp-transfer-verified.png`, `sftp-auto-upload-dialog.png`, `sftp-auto-upload.png`, `containers.png`, `kubernetes.png`, `settings.png`, `ai-settings.png`, `assistant.png`, `lock-screen.png`, `lock-secondary.png`, `login-commands.png`, `tab-renamed.png`, `welcome.png`, `auth-prompt.png`, `jump-form.png`, `forwards.png`, `terminal-search.png`, `terminal-link.png`, `terminal-link-osc8.png` (Hinweis mit Ziel-Host bei OSC-8-Link), `settings-terminal.png`, `tab-activity.png` und `broadcast.png`. Mit `--readme` landen `sftp`, `containers`, `kubernetes`, `settings` und `assistant` zusätzlich als `docs/images/screenshot-<name>.png` im Repo. Die drei älteren README-Bilder (Terminals, Fehlerkarte, Hinweis) entstanden von Hand per `/ss`. Endet der `lock`- oder `lock-secondary`-Block mit einem Fehler, bleibt die App gesperrt: dann `demo-setup.mjs` neu starten (die App neu starten, falls es das Passwortfeld nicht findet).
 
 Screenshots landen in `%TEMP%\shellherd-run\shots` (Override: `SCREENSHOT_DIR`). **Screenshot immer ansehen** (Read auf die PNG) – ein leeres Fenster ist ein Startfehler.
 
@@ -69,7 +69,7 @@ Der Testserver hat außerdem das Konto `mfa` (nur `keyboard-interactive`: erst d
 
 Beantwortete Exec-Befehle (Container- und Cluster-Erkennung): `for c in docker podman pct qm …` (Antwort `has:docker`), der Listen-Batch mit Marker `[terminus-list-…]`, `docker container inspect <name>` und der Kubeconfig-Abruf (`KUBECONFIG%%`). Alles andere: Exit 127, nichts wird ausgeführt.
 
-Im Testserver beendet `exit` die Sitzung, `sudo reboot` simuliert einen Abbruch durch den Server (Leiste „Verbindung getrennt“). `cat ~/LIESMICH` druckt zwei `https`-Links (Hinweis „Strg+Klick“ beim Überfahren), `sleep 3; echo fertig` antwortet erst nach 3 s (Aktivitätsring bei einem Hintergrund-Tab).
+Im Testserver beendet `exit` die Sitzung, `sudo reboot` simuliert einen Abbruch durch den Server (Leiste „Verbindung getrennt“). `cat ~/LIESMICH` druckt zwei `https`-Links (Hinweis „Strg+Klick“ beim Überfahren), `cat ~/LINKS` einen OSC-8-Link, dessen Text `https://intranet.demo/login` ein anderes Ziel `https://status.intranet.demo/` hat, `sleep 3; echo fertig` antwortet erst nach 3 s (Aktivitätsring bei einem Hintergrund-Tab).
 
 ## Befehle des Treibers
 
@@ -93,7 +93,8 @@ Häufige Wege:
 - **Verbinden:** `POST /click` mit `text=web-01 >> nth=0`, dann `GET /key?k=Enter`.
 - **Im Terminal tippen:** `POST /click` mit `.xterm-helper-textarea >> nth=0` (Bereich wählen), dann `/type` und `/key?k=Enter`.
 - **Menüeinträge** tragen Hinweise in Unter-Spans; per `/eval` über den Textanfang klicken: `[...document.querySelectorAll('[role=menuitem]')].find(i => i.textContent.trim().startsWith('Alle verbinden')).click()`.
-- **Bereich teilen:** Knopf `aria-label^="Layout für Bereich"`, dann Knopf mit Text „Nebeneinander teilen“.
+- **Bereich teilen:** Knopf `aria-label^="Layout für Bereich"`, dann Knopf mit Text „Nebeneinander teilen“. Der alte Bereich bleibt danach leer: `.empty-pane button` („Hier verbinden“) fokussiert ihn, dann in der Seitenleiste Enter.
+- **Link-Hinweis:** Links erscheinen erst beim Überfahren, und xterm merkt sich die Link-Abfrage je Zeile. Liegt die Maus schon auf der Zeile, in die die Ausgabe den Link schreibt, zeigt ein waagerechtes `/move` nichts. Die Szenen parken die Maus deshalb zuerst unten links im `.xterm-screen` (andere Zeile), dann folgt `/move` auf den Link (Helfer `hoverLink` in `screens.mjs`).
 
 ## Stolpersteine
 

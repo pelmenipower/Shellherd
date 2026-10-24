@@ -217,7 +217,7 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect(await new Promise(resolve => client.unforwardIn('localhost', 2345, error => resolve(!error)))).toBe(true);
   });
 
-  it('delays the sleep reply in the shell and prints the demo links for cat ~/LIESMICH', async () => {
+  it('delays the sleep reply in the shell and prints the demo links for cat ~/LIESMICH and cat ~/LINKS', async () => {
     const { port } = await start('shell');
     const client = await sshClient(port);
     const stream = await new Promise((resolve, reject) => client.shell({ term: 'xterm' }, (error, value) => (error ? reject(error) : resolve(value))));
@@ -241,6 +241,10 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     stream.write('cat ~/LIESMICH\r');
     await until('Status:   https://status.intranet.demo/');
     expect(text).toContain('Handbuch: https://intranet.demo/handbuch');
+
+    // OSC 8 link whose visible text names another host than its target.
+    stream.write('cat ~/LINKS\r');
+    await until('\x1b]8;;https://status.intranet.demo/\x1b\\https://intranet.demo/login\x1b]8;;\x1b\\');
   });
 
   // Demo user logged in with the password, for the tcpip and forward tests.
