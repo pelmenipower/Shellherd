@@ -1,4 +1,5 @@
-import { connect } from 'node:net';
+import { connect, createServer } from 'node:net';
+import type { AddressInfo } from 'node:net';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { openTunnel } from './tunnel';
@@ -27,5 +28,24 @@ describe('openTunnel', () => {
     tunnel.close();
     const socket = connect(tunnel.port, '127.0.0.1');
     await expect(new Promise((_, reject) => socket.once('error', reject))).rejects.toThrow();
+  });
+  it('listens on the given port', async () => {
+    const probe = createServer();
+    await new Promise<void>(resolve => probe.listen(0, '127.0.0.1', resolve));
+    const { port } = probe.address() as AddressInfo;
+    probe.close();
+    const tunnel = await openTunnel(async () => new PassThrough(), { host: 'h', port: 1 }, port);
+    expect(tunnel.port).toBe(port);
+    tunnel.close();
+  });
+  it('rejects with the raw listen error when the port is taken', async () => {
+    const blocker = createServer();
+    await new Promise<void>(resolve => blocker.listen(0, '127.0.0.1', resolve));
+    const { port } = blocker.address() as AddressInfo;
+    try {
+      await expect(openTunnel(async () => new PassThrough(), { host: 'h', port: 1 }, port)).rejects.toMatchObject({ code: 'EADDRINUSE' });
+    } finally {
+      blocker.close();
+    }
   });
 });

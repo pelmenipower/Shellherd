@@ -5,8 +5,8 @@ import { AppError } from '../../shared/errors';
 
 export interface Tunnel { readonly port: number; close(): void }
 
-/** Local listener on 127.0.0.1 that carries every connection through the SSH host to target. */
-export function openTunnel(forward: (host: string, port: number) => Promise<Duplex>, target: { host: string; port: number }): Promise<Tunnel> {
+/** Local listener on 127.0.0.1 (port 0 = any free port) that carries every connection through the SSH host to target. */
+export function openTunnel(forward: (host: string, port: number) => Promise<Duplex>, target: { host: string; port: number }, port = 0): Promise<Tunnel> {
   const sockets = new Set<Socket>();
   const server = createServer(socket => {
     sockets.add(socket);
@@ -24,7 +24,7 @@ export function openTunnel(forward: (host: string, port: number) => Promise<Dupl
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(port, '127.0.0.1', () => {
       const address = server.address();
       if (!address || typeof address === 'string') { server.close(); reject(new AppError('kubernetes.tunnelFailed')); return; }
       resolve({ port: address.port, close() { server.close(); for (const socket of sockets) socket.destroy(); } });
