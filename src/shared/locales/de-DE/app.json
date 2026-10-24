@@ -304,5 +304,17 @@
       "label": "Nach neuen Versionen suchen",
       "hint": "Höchstens einmal am Tag fragt Shellherd nach dem Entsperren bei GitHub nach der neuesten Version und zeigt sie in der Statusleiste. Gesendet wird nur die Anfrage selbst, nichts aus dem Vault. Installieren musst du selbst."
     }
+  },
+  "recent": {
+    "title": "Zuletzt benutzt",
+    "missing": "Datei nicht gefunden",
+    "removeAria": "„{{name}}“ aus der Liste entfernen"
+  },
+  "theme": {
+    "label": "Darstellung",
+    "aria": "Farbschema der Oberfläche",
+    "system": "System",
+    "dark": "Dunkel",
+    "light": "Hell"
   }
 }

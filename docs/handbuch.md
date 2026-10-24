@@ -61,6 +61,10 @@ Home/End zwischen Tabs. Das Schließen eines Tabs beendet nur seine Session.
 Sperren trennt nicht: Die Sitzungen laufen im Hintergrund weiter, und nach dem Entsperren sind alle Tabs wieder da. Neue Verbindungen und `Neu verbinden` gehen erst nach dem Entsperren. `Andere Vault-Datei` im Sperrbildschirm fragt immer nach und trennt alles. Gespeicherte Workspaces lassen sich nach
 dem Entsperren gezielt öffnen; dabei starten neue SSH-Sessions.
 
+### Zuletzt benutzte Vaults
+
+`Vault öffnen` zeigt unter `Zuletzt benutzt` bis zu acht Vault-Dateien, die du zuletzt geöffnet, angelegt oder gespeichert hast, die neueste oben, mit Datum und Ordner. Ein Klick wählt die Datei aus, danach fehlt nur das Passwort. Beim Start ist die neueste vorhandene Datei vorausgewählt. Ist eine Datei nicht mehr da (verschoben, gelöscht oder Netzlaufwerk getrennt), steht `Datei nicht gefunden` darunter, und der Eintrag lässt sich nicht wählen; er bleibt, bis du ihn entfernst. Das `×` neben einem Eintrag nimmt ihn nur aus der Liste, die Datei bleibt unberührt. Die Liste enthält nur Pfade und Zeitpunkte, nie Passwörter oder Inhalte, und liegt in `settings.json` im Benutzerdatenordner. Die Pfade zeigen den Ordner und damit oft deinen Windows-Benutzernamen; denk daran, bevor du einen Screenshot des Startbildschirms teilst.
+
 ### Sperren und Willkommens-Tab
 
 Der Sperrknopf in der Kopfzeile sperrt ohne Rückfrage. Ein undurchsichtiger Sperrbildschirm deckt das Fenster ab; die Tastatur erreicht nichts dahinter. Nebenfenster werden mitgesperrt und zeigen ihren eigenen Sperrbildschirm (ohne Passwortfeld); entsperrt wird im Hauptfenster.
@@ -108,7 +112,7 @@ Im Menü des Bereichskopfs schaltet `Eingabe an alle Bereiche senden` ein; der E
 
 ## Einstellungen
 
-Das Zahnrad rechts in der Kopfzeile öffnet die Einstellungen, ebenso `Strg+,`. Vor dem Entsperren führt der Link `Einstellungen` unten auf der Startkarte dorthin. Alle Werte gelten sofort, ein „Speichern“ gibt es nicht. Nebenfenster haben keine eigenen Einstellungen; Sprache und Vault-Einstellung gelten dort trotzdem. Hat eine RDP-Sitzung den Fokus, gehen Tastenkürzel an den entfernten Rechner, auch `Strg+,`.
+Das Zahnrad rechts in der Kopfzeile öffnet die Einstellungen, ebenso `Strg+,`. Vor dem Entsperren führt der Link `Einstellungen` unten auf der Startkarte dorthin. Alle Werte gelten sofort, ein „Speichern“ gibt es nicht. Nebenfenster haben keine eigenen Einstellungen; Sprache, Darstellung und Vault-Einstellung gelten dort trotzdem. Hat eine RDP-Sitzung den Fokus, gehen Tastenkürzel an den entfernten Rechner, auch `Strg+,`.
 
 ### Sprache
 
@@ -117,6 +121,10 @@ Shellherd gibt es auf Deutsch und Englisch. Standard ist die Systemsprache: Bei 
 Die Einstellung `Sprache` unter Einstellungen → Allgemein bietet `System`, `Deutsch` und `English`. Der Wechsel gilt sofort in allen Fenstern, ohne Neustart; offene Sitzungen laufen weiter. Die Wahl liegt in `settings.json` im Benutzerdatenordner (`%APPDATA%\Shellherd`).
 
 Fehlermeldungen, Dialoge und Fenstertitel folgen der Sprache, ebenso Datum, Zahlen, Dateigrößen, Sortierung und Suche. Der KI-Assistent antwortet in der gewählten Sprache. Ausgaben im Stil von `kubectl` (etwa `Beschreiben` in der Cluster-Ansicht) und Rohstatus von Servern bleiben englisch. Der Installer folgt der Windows-Sprache.
+
+### Darstellung
+
+`Darstellung` unter Einstellungen → Allgemein bietet `System`, `Dunkel` und `Hell`; Standard ist `Dunkel`. `System` folgt dem Windows-Farbmodus für Apps und wechselt mit, wenn du ihn umstellst. Der Wechsel gilt sofort in allen Fenstern, ohne Neustart; offene Sitzungen laufen weiter. Fensterrahmen und Windows-Dialoge folgen ebenfalls. Im hellen Modus sind auch Terminal, Manifeste und Code hell; zu blasse Terminalfarben hebt Shellherd dort auf mindestens 4,5:1 Kontrast an. Das Bild einer Remotedesktop-Sitzung bleibt unverändert. Die Wahl liegt wie die Sprache in `settings.json` im Benutzerdatenordner, nicht im Vault, damit sie schon vor dem Entsperren gilt.
 
 ### Dateiverknüpfung
 
@@ -172,6 +180,40 @@ Unter Einstellungen → Terminal (nach dem Entsperren) stehen Schriftart, Schrif
 ### KI-Anbieter
 
 Unter Einstellungen → KI-Assistent stehen Zahl und Standard der eingerichteten Anbieter. `Anbieter verwalten` öffnet die Anbieterliste, `Fertig` führt zurück in die Einstellungen. Dieselbe Liste öffnet auch das Zahnrad im Assistenten-Panel; die Schlüssel liegen verschlüsselt im Vault.
+
+## Workflows
+
+Workflows sind gespeicherte Befehle, die Shellherd für dich in ein Terminal tippt. Sie liegen verschlüsselt im Vault (höchstens 1.000) und stehen in allen Fenstern bereit.
+
+### Palette
+
+`Strg+Umschalt+Leertaste` oder der Knopf `Workflows` in der Kopfzeile öffnet die Palette, dasselbe Kürzel schließt sie wieder. Sie geht nur bei entsperrtem Vault, auch im Nebenfenster. Die Überschrift nennt den Ziel-Tab (`Workflows → web-01`) oder `kein Terminal ausgewählt`.
+
+Die Suche prüft Name, Tags, Beschreibung und Befehl ohne Rücksicht auf Groß- und Kleinschreibung; bei mehreren Wörtern muss jedes vorkommen. Workflows für die Shell des aktiven Tabs und für alle Shells stehen oben, alphabetisch; Workflows für eine andere Shell folgen blasser und bleiben wählbar. `↑` und `↓` wählen, `Enter` oder ein Klick nimmt den Workflow, `Esc` oder ein Klick neben die Palette schließt sie.
+
+Ohne Platzhalter tippt Shellherd den Befehl sofort ein und schließt die Palette. Ausgeführt wird nichts: `Enter` drückst du selbst. Workflows nehmen nur verbundene SSH-, PowerShell- und CMD-Tabs sowie die Shell eines Pods an; Dateiansicht, Container- und Cluster-Ansicht, Remotedesktop und Willkommensseite nicht. Ist das Terminal getrennt oder läuft darin ein Vollbildprogramm wie `vim`, `less` oder `top`, bleibt die Palette offen und nennt den Grund. `Eingabe an alle` gilt für Workflows nicht; sie gehen immer nur in den aktiven Tab.
+
+### Platzhalter
+
+`{{name}}` im Befehl ist ein Platzhalter. Erlaubt sind Buchstaben, Ziffern, Leerzeichen, `_`, `.` und `-`, höchstens 40 Zeichen. Hat ein Workflow Platzhalter, fragt die Palette jeden Namen einmal ab, in der Reihenfolge des ersten Vorkommens; derselbe Name an mehreren Stellen bekommt denselben Wert. Darunter zeigt eine Vorschau den fertigen Befehl. Zeilenumbrüche und Steuerzeichen in den Werten entfernt Shellherd, ein leeres Feld bleibt eine leere Stelle. `Eintippen` (oder `Enter`) tippt den Befehl ein, `Kopieren` legt ihn in die Zwischenablage und schließt die Palette, `Zurück` oder `Esc` führt zur Liste zurück.
+
+### Workflows verwalten
+
+`Workflows verwalten` unten in der Palette öffnet die Liste, nur im Hauptfenster. `Neuer Workflow` legt einen an, `Bearbeiten` ändert ihn, `Löschen` entfernt ihn sofort und ohne Rückfrage. `Fertig` schließt die Liste. Jede Änderung wird gleich verschlüsselt im Vault gespeichert.
+
+| Feld | Regel |
+|---|---|
+| `Name` | Pflicht, höchstens 120 Zeichen |
+| `Befehl (eine Zeile)` | Pflicht, eine Zeile, höchstens 4.000 Zeichen; mehrere Befehle verbindest du mit `&&` oder `;` |
+| `Beschreibung (optional)` | höchstens 2.000 Zeichen, steht in der Palette unter dem Befehl |
+| `Tags (durch Komma getrennt)` | höchstens 20 Tags mit je bis zu 40 Zeichen; doppelte fallen weg |
+| `Für Shell` | `Alle`, `SSH`, `PowerShell` oder `CMD`; ordnet die Palette, sperrt aber nichts |
+
+Unter dem Befehlsfeld nennt das Formular die erkannten Platzhalter.
+
+### Aus dem Assistenten
+
+Schlägt der KI-Assistent einen Befehl vor, öffnet `Als Workflow` das Formular mit diesem Befehl. Name und übrige Felder ergänzt du; `Speichern` legt den Workflow an, `Abbrechen` verwirft ihn. `Als Workflow` gibt es nur im Hauptfenster.
 
 ## Split-Ansichten und Workspaces
 

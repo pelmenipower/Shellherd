@@ -50,7 +50,7 @@ Shellherd keeps all your servers, desktops and clusters in one window. Connectio
 - **Kubernetes** – set up a cluster from an existing SSH connection; live nodes, workloads, pods and events with drill-down, logs, shell, YAML and describe. Production clusters ask you to type the resource name before any change.
 - **German and English UI** – follows the Windows language by default; switch any time without a restart. Dates, numbers and sorting follow the language too.
 - **Lock screen** – lock by hand or automatically after a set time without input; sessions keep running behind it and are back after unlocking. Idle disconnect, keepalive and connection timeout are set per vault and can be overridden per connection.
-- **Settings in one place** – gear in the header or `Ctrl+,`: language, `.term` file association, confirmation before disconnecting, auto-lock, connection timeouts and the AI providers.
+- **Settings in one place** – gear in the header or `Ctrl+,`: language, light or dark appearance, `.term` file association, confirmation before disconnecting, auto-lock, connection timeouts and the AI providers.
 - **Terminal comfort** – search in the terminal with `Ctrl+Shift+F`, links opened with Ctrl+click (http and https only), tab shortcuts, a mark on background tabs with new output, input to all panes, and font, scrollback and cursor settings.
 - **Local shells** – PowerShell and CMD tabs next to your remote sessions.
 - **Import** – connections from OpenSSH (`~/.ssh/config`), PuTTY, WinSCP and mRemoteNG, shown as a preview with checkboxes before anything is saved. Passwords are never imported; key files stay where they are and only their path is stored.

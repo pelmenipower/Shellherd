@@ -62,6 +62,10 @@ Home/End switch between tabs. Closing a tab only ends its session.
 Locking does not disconnect: sessions keep running in the background, and all tabs are back after unlocking. New connections and `Reconnect` work only after unlocking. `Other vault file` on the lock screen always asks and disconnects everything. Saved workspaces can be opened selectively after
 unlocking; this starts new SSH sessions.
 
+### Recently used vaults
+
+`Open vault` lists up to eight vault files under `Recently used` that you opened, created or saved last, newest first, with date and folder. A click selects the file; only the password is left. At start the newest file that still exists is preselected. If a file is gone (moved, deleted or network drive disconnected), it shows `File not found` and cannot be selected; it stays until you remove it. The `×` next to an entry only takes it off the list, the file stays untouched. The list holds paths and times only, never passwords or contents, and lives in `settings.json` in the user data folder. Paths show the folder and therefore often your Windows user name; keep that in mind before you share a screenshot of the start screen.
+
 ### Locking and the welcome tab
 
 The lock button in the header locks without a confirmation. An opaque lock screen covers the window; the keyboard reaches nothing behind it. Detached windows are locked too and show their own lock screen (without a password field); you unlock in the main window.
@@ -109,13 +113,17 @@ In the pane header menu, `Send input to all panes` turns it on; the entry appear
 
 ## Settings
 
-The gear on the right of the header opens the settings, as does `Ctrl+,`. Before unlocking, the `Settings` link at the bottom of the start card leads there. Every value applies immediately; there is no “Save”. Detached windows have no settings of their own; language and the vault setting still apply there. While an RDP session has the focus, shortcuts go to the remote computer, `Ctrl+,` included.
+The gear on the right of the header opens the settings, as does `Ctrl+,`. Before unlocking, the `Settings` link at the bottom of the start card leads there. Every value applies immediately; there is no “Save”. Detached windows have no settings of their own; language, appearance and vault settings still apply there. While an RDP session has the focus, shortcuts go to the remote computer, `Ctrl+,` included.
 
 ### Language
 
 Shellherd follows the system language by default: German on a German Windows, English otherwise. The `Language` setting under Settings → General offers `System`, `Deutsch` and `English`. A change takes effect immediately in all windows, without a restart. The choice is stored in `settings.json` in the user data folder (`%APPDATA%\Shellherd\settings.json`), not in the vault.
 
 The AI assistant answers in the selected language. kubectl-like output and raw status values stay in English. The installer follows the Windows language.
+
+### Appearance
+
+`Appearance` under Settings → General offers `System`, `Dark` and `Light`; the default is `Dark`. `System` follows the Windows app color mode and changes along when you switch it. The change applies to all windows at once, without a restart; open sessions keep running. Window frames and Windows dialogs follow too. In light mode the terminal, manifests and code are light as well; Shellherd lifts terminal colors that are too faint to at least 4.5:1 contrast. The picture of a Remote Desktop session stays unchanged. Like the language, the choice is stored in `settings.json` in the user data folder, not in the vault, so it applies before unlocking.
 
 ### File association
 
@@ -171,6 +179,40 @@ Under Settings → Terminal (after unlocking) there are font, font size, scrollb
 ### AI providers
 
 Settings → AI assistant shows the number and the default of the configured providers. `Manage providers` opens the provider list, `Done` returns to the settings. The gear in the assistant panel opens the same list; keys are stored encrypted in the vault.
+
+## Workflows
+
+Workflows are saved commands that Shellherd types into a terminal for you. They are stored encrypted in the vault (at most 1,000) and are available in every window.
+
+### Palette
+
+`Ctrl+Shift+Space` or the `Workflows` button in the header opens the palette; the same shortcut closes it. It only works while the vault is unlocked, in secondary windows too. The title names the target tab (`Workflows → web-01`) or `no terminal selected`.
+
+The search looks at name, tags, description and command, ignoring case; with several words, each must match. Workflows for the shell of the active tab and for all shells come first, alphabetically; workflows for another shell follow dimmed and can still be chosen. `↑` and `↓` select, `Enter` or a click takes the workflow, `Esc` or a click outside the palette closes it.
+
+Without placeholders Shellherd types the command at once and closes the palette. Nothing runs: you press `Enter` yourself. Workflows go only into connected SSH, PowerShell and CMD tabs and pod shells; not into the file view, container and cluster views, Remote Desktop or the welcome page. If the terminal is disconnected or runs a full-screen program such as `vim`, `less` or `top`, the palette stays open and tells you why. `Send input to all panes` does not apply to workflows; they always go into the active tab only.
+
+### Placeholders
+
+`{{name}}` in a command is a placeholder. Letters, digits, spaces, `_`, `.` and `-` are allowed, up to 40 characters. If a workflow has placeholders, the palette asks for each name once, in order of first use; the same name in several places gets the same value. A preview below shows the finished command. Shellherd removes line breaks and control characters from the values; an empty field stays an empty spot. `Type in` (or `Enter`) types the command, `Copy` puts it on the clipboard and closes the palette, `Back` or `Esc` returns to the list.
+
+### Managing workflows
+
+`Manage workflows` at the bottom of the palette opens the list, in the main window only. `New workflow` adds one, `Edit` changes it, `Delete` removes it at once without asking. `Done` closes the list. Every change is saved encrypted in the vault right away.
+
+| Field | Rule |
+|---|---|
+| `Name` | required, at most 120 characters |
+| `Command (single line)` | required, one line, at most 4,000 characters; join several commands with `&&` or `;` |
+| `Description (optional)` | at most 2,000 characters, shown in the palette below the command |
+| `Tags (comma-separated)` | at most 20 tags of up to 40 characters each; duplicates are dropped |
+| `For shell` | `All`, `SSH`, `PowerShell` or `CMD`; orders the palette but blocks nothing |
+
+Below the command field the form lists the placeholders it found.
+
+### From the assistant
+
+When the AI assistant suggests a command, `As workflow` opens the form with that command. Fill in the name and the other fields; `Save` adds the workflow, `Cancel` discards it. `As workflow` is available in the main window only.
 
 ## Split views and workspaces
 
