@@ -1,24 +1,25 @@
 import { useEffect, useState } from 'react';
-import type { UpdateStatus } from '../../../shared/ipc';
 import { errorText } from '../error-text';
 import { notify } from '../notice-store';
 import { useT } from '../i18n';
+import { updateStore, useUpdateStatus } from '../update-store';
 import { ContextMenu } from './ContextMenu';
 
 /** Status bar hint for a newer release; the menu opens the release notes or skips this version. */
 export function UpdateBadge() {
   const { t } = useT();
-  const [status, setStatus] = useState<UpdateStatus | null>(null);
+  const status = useUpdateStatus();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
-    let current = true;
-    void window.desktopApi.updateStatus().then(value => { if (current) setStatus(value); }).catch(() => {});
-    return () => { current = false; };
+    // Asked again on every unlock, so a long-running session sees new releases.
+    const load = (): void => { void window.desktopApi.updateStatus().then(value => updateStore.set(value)).catch(() => {}); };
+    load();
+    return window.desktopApi.onVaultUnlocked(load);
   }, []);
   const available = status?.available;
   if (!available) return null;
   const skip = (): void => {
-    void window.desktopApi.updateSkip(available.version).then(value => setStatus({ ...value, available: null })).catch(() => {});
+    void window.desktopApi.updateSkip(available.version).then(value => updateStore.set({ ...value, available: null })).catch(() => {});
   };
   return (
     <>

@@ -1,22 +1,21 @@
 import { useEffect, useId, useState } from 'react';
-import type { UpdateStatus } from '../../../shared/ipc';
 import { errorText } from '../error-text';
 import { useT } from '../i18n';
+import { updateStore, useUpdateStatus } from '../update-store';
 
 /** Update check on or off. Works without a vault: the stored setting is read and saved in the main process. */
 export function UpdateSetting() {
   const { t } = useT();
   const id = useId();
-  const [state, setState] = useState<UpdateStatus | null>(null);
+  const state = useUpdateStatus();
   const [failure, setFailure] = useState<string | null>(null);
   useEffect(() => {
-    let current = true;
-    void window.desktopApi.updateStatus().then(value => { if (current) setState(value); }).catch(() => {});
-    return () => { current = false; };
+    void window.desktopApi.updateStatus().then(value => updateStore.set(value)).catch(() => {});
   }, []);
   if (!state) return null;
+  // The store is shared with the badge, so turning the check off hides it at once.
   const change = (enabled: boolean): void => {
-    void window.desktopApi.updateSetEnabled(enabled).then(value => { setFailure(null); setState(value); }).catch(error => setFailure(errorText(error)));
+    void window.desktopApi.updateSetEnabled(enabled).then(value => { setFailure(null); updateStore.set(value); }).catch(error => setFailure(errorText(error)));
   };
   return (
     <>
