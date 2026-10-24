@@ -63,7 +63,7 @@ const ALIASES = ['--ui-bg', '--ui-panel', '--ui-raised', '--ui-border', '--ui-te
   '--ui-radius', '--ui-control-height', '--ui-input-height'];
 const COLORS = ['bg-stage', 'bg-app', 'bg-panel', 'bg-raised', 'bg-hover', 'bg-input', 'bg-selected', 'bg-active', 'bg-drop', 'bg-tint',
   'overlay', 'backdrop', 'border', 'border-strong', 'text', 'text-muted', 'text-code', 'accent', 'accent-hover', 'on-accent',
-  'selection-bg', 'selection-text', 'ok', 'warn', 'warn-border', 'danger', 'danger-strong', 'danger-text', 'danger-bg',
+  'selection-bg', 'selection-text', 'ok', 'warn', 'warn-border', 'warn-bg', 'ok-bg', 'danger', 'danger-strong', 'danger-text', 'danger-bg',
   'danger-bg-hover', 'danger-border'].map(name => `--color-${name}`);
 
 const SPACES = [2, 4, 6, 8, 10, 12, 16, 20, 24, 32];
@@ -191,6 +191,18 @@ function lint(file: string, css: string, shared: ReadonlySet<string> = new Set()
     }
     for (const name of COLORS) {
       if (!declared.has(name)) add('R9', ':root', name, 'missing');
+    }
+    // R19: the light block gives every dark colour token a value and declares nothing else but color-scheme and the shadow
+    const isLightBlock = (block: Block): boolean => block.ancestors.some(item => item.replace(/\s+/g, ' ') === '@media (prefers-color-scheme: light)');
+    const darkColours = blocks.filter(block => block.selector === ':root' && !isLightBlock(block))
+      .flatMap(block => block.declarations.map(item => item.property)).filter(name => name.startsWith('--color-'));
+    const lightNames = new Set(blocks.filter(isLightBlock).flatMap(block => block.declarations.map(item => item.property)));
+    const allowedInLight = new Set(['color-scheme', '--shadow-overlay', ...darkColours]);
+    for (const name of darkColours) {
+      if (!lightNames.has(name)) add('R19', ':root', name, 'no light value');
+    }
+    for (const name of lightNames) {
+      if (!allowedInLight.has(name)) add('R19', ':root', name, 'not allowed in the light block');
     }
     for (const [name, value] of Object.entries(LOCKED)) {
       if (declared.get(name) !== value) add('R17', ':root', name, declared.get(name) ?? 'missing');
@@ -335,6 +347,17 @@ describe('design tokens lint', () => {
     for (const css of ['.app-status { flex: 0 0 var(--bar-sm); }', '.view-bar { flex-basis: var(--bar-md); }', '.other { flex: 0 0 26px; }']) {
       expect(lint('fixture.css', css), css).toEqual([]);
     }
+  });
+
+  it('R19 needs a light value for every dark colour token and nothing else in the light block', () => {
+    const dark = ':root { --color-text: #fff; --color-warn-bg: #000; --shadow-overlay: none; }';
+    const missing = lint('tokens.css', `${dark} @media (prefers-color-scheme: light) { :root { color-scheme: light; --color-text: #111; --shadow-overlay: none; } }`);
+    expect(missing.some(line => line.includes(' R19 ') && line.includes('--color-warn-bg'))).toBe(true);
+    const extra = lint('tokens.css', `${dark} @media (prefers-color-scheme: light) { :root { color-scheme: light; --color-text: #111; --color-warn-bg: #fff; --shadow-overlay: none; --space-8: 8px; --color-extra: #222; } }`);
+    expect(extra.some(line => line.includes(' R19 ') && line.includes('--color-extra'))).toBe(true);
+    expect(extra.some(line => line.includes(' R19 ') && line.includes('--space-8'))).toBe(true);
+    const complete = lint('tokens.css', `${dark} @media (prefers-color-scheme: light) { :root { color-scheme: light; --color-text: #111; --color-warn-bg: #fff; --shadow-overlay: none; } }`);
+    expect(complete.filter(line => line.includes(' R19 '))).toEqual([]);
   });
 
   it('accepts the negative fixture', () => {
