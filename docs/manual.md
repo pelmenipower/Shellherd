@@ -526,6 +526,14 @@ Secret data is masked in the YAML view.
 
 Typing in the file list jumps to the next entry whose name starts that way. The search follows the order shown, folders first. When you type quickly, Shellherd searches for the whole prefix (`no` finds `notes.md`); the same letter repeated moves to the next match each time. After a one-second pause the search starts over. Upper and lower case do not matter. This works on the local and the server side. The space bar, combinations with `Ctrl` or `Alt` and characters that need `AltGr` (such as `@`) do not jump.
 
+`Ctrl+L` in the file list, a double-click on the path bar or ⚙ → `Go to…` turns the path bar into an input field. `Enter` opens the folder, `Esc` cancels. On the server, `~` and `~/…` lead to the home folder; a path without a leading `/` starts from the current folder. Locally, drive paths (`D:\Projects`, also with `/`), network shares (`\\server\share`), `~` and paths starting from the current folder work; device paths such as `\\?\` do not. If the folder is missing, is a file or you lack the rights, the error appears under the field and the previous folder stays.
+
+`Ctrl+F` in the list or ⚙ → `Filter…` shows a filter field. It shows only entries whose name contains the text; upper and lower case do not matter. `Enter` or `↓` returns to the list. `Esc`, `×` or a folder change removes the filter.
+
+⚙ → `Hide hidden files` hides names that start with a dot (`.bashrc`, `.git`). This applies separately to the local and the server side and is remembered for all connections. Locally only the dot counts, not the Windows attribute “Hidden”. The default is to show everything.
+
+Hidden and filtered-out entries cannot be selected, copied, moved or deleted; `Ctrl+A` selects only what is visible. A folder is always copied or deleted completely, including the hidden files inside it. The status line shows how many entries are hidden (`4 hidden`). Nothing from the file view can be dragged into Explorer. To download, select the target folder on the left (for example with `Ctrl+L`) and press `F5`.
+
 Running transfers show their speed next to the progress after the first second (`12 MB/s`), smoothed over the last few seconds. While the question about an existing file is open and on finished transfers no speed is shown. Auto-upload shows none. Shellherd keeps just under four megabytes of requests in flight and copies up to four files of a folder in parallel; the row names the files currently running.
 
 Canceled or failed transfers can be resumed with `Resume`, also after `Reconnect`. This applies to uploads and downloads. Each file is first written as `name.part` and replaces the target only at the end. If you transfer the same file again later, Shellherd resumes automatically; there is no automatic reconnecting.
