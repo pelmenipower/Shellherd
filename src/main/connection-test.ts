@@ -5,7 +5,7 @@ import { connect } from 'node:net';
 import { Client } from 'ssh2';
 import type { ConnectionNode, SftpConnectionNode, SshConnectionNode } from '../shared/vault/types';
 import type { ConnectionTestResult, ConnectionTestStep } from '../shared/connection-test';
-import type { CodedError } from '../shared/errors';
+import { AppError, type CodedError } from '../shared/errors';
 import { isRemoteConnection } from '../shared/vault/connections';
 import { sshConnectConfig } from './ssh/client-config';
 import type { AskPrompts } from './ssh/auth-prompts';
@@ -76,8 +76,7 @@ export async function testConnection(node: ConnectionNode, dependencies: Connect
   if (!node.host.trim()) { steps.push({ step: 'hostGiven', ok: false, note: { code: 'core.testHostMissing' } }); return done(); }
   // Behind a jump host the far side resolves the target, so no local lookup (spec 4.4).
   const sshNode = node.protocol === 'ssh' || node.protocol === 'sftp' ? node : undefined;
-  const openJump = sshNode?.jumpHost ? dependencies.openJump : undefined;
-  if (!openJump) {
+  if (!sshNode?.jumpHost) {
     try {
       const address = await (dependencies.resolve ?? resolveHost)(node.host);
       steps.push({ step: 'nameResolved', ok: true, detail: address === node.host ? undefined : `${node.host} → ${address}` });
@@ -90,12 +89,20 @@ export async function testConnection(node: ConnectionNode, dependencies: Connect
     return done();
   }
   if (!node.username?.trim()) { steps.push({ step: 'userGiven', ok: false, note: { code: 'core.testUserMissing' } }); return done(); }
-  if (sshNode?.jumpHost && openJump) {
+  if (sshNode?.jumpHost) {
     const name = sshNode.jumpHost;
+    const openJump = dependencies.openJump;
+    // Never connect around a jump host we cannot open (spec 6: no silent switch to direct).
+    if (!openJump) { steps.push({ step: 'jumpHost', ok: false, params: { name }, note: { code: 'ssh.jumpHostUnusable', params: { name } } }); return done(); }
     let jump: Jump | undefined;
     try { jump = await openJump(sshNode); }
-    catch (error) { steps.push({ step: 'jumpHost', ok: false, params: { name }, note: publicError(error) }); return done(); }
-    if (!jump) { steps.push({ step: 'jumpHost', ok: false, params: { name }, note: { code: 'ssh.jumpHostMissing', params: { id: name } } }); return done(); }
+    catch (error) {
+      // Show the vault name the opener put into the error; the id only when it carries none.
+      const vaultName = error instanceof AppError && (error.code === 'ssh.jumpHostUnusable' || error.code === 'ssh.jumpHostFailed') ? error.params?.name : undefined;
+      steps.push({ step: 'jumpHost', ok: false, params: { name: typeof vaultName === 'string' ? vaultName : name }, note: publicError(error) });
+      return done();
+    }
+    if (!jump) { steps.push({ step: 'jumpHost', ok: false, params: { name }, note: { code: 'ssh.jumpHostUnusable', params: { name } } }); return done(); }
     steps.push({ step: 'jumpHost', ok: true, params: { name: jump.name } });
     await testSsh(sshNode, dependencies, steps, jump);
     return done();

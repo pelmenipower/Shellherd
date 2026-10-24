@@ -126,10 +126,30 @@ describe('connection test through a jump host', () => {
 
   it('stops after a failed jump host without connecting to the target', async () => {
     const connect = fakeConnect();
-    const openJump = async (): Promise<Jump | undefined> => { throw new AppError('ssh.jumpHostFailed', { name: 'bastion-id' }); };
+    const openJump = async (): Promise<Jump | undefined> => { throw new AppError('ssh.jumpHostFailed', { name: 'Bastion' }); };
     const result = await testConnection(jumped(), { ...noLookup, openJump });
     expect(result.ok).toBe(false);
-    expect(result.steps).toEqual([{ step: 'jumpHost', ok: false, params: { name: 'bastion-id' }, note: { code: 'ssh.jumpHostFailed', params: { name: 'bastion-id' } } }]);
+    expect(result.steps).toEqual([{ step: 'jumpHost', ok: false, params: { name: 'Bastion' }, note: { code: 'ssh.jumpHostFailed', params: { name: 'Bastion' } } }]);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('names the jump host by its id when the error carries no name', async () => {
+    const openJump = async (): Promise<Jump | undefined> => { throw new AppError('ssh.jumpHostFailed'); };
+    const result = await testConnection(jumped(), { ...noLookup, openJump });
+    expect(result.steps).toEqual([{ step: 'jumpHost', ok: false, params: { name: 'bastion-id' }, note: { code: 'ssh.jumpHostFailed' } }]);
+  });
+
+  it('refuses a jump host it cannot open instead of connecting directly', async () => {
+    const connect = fakeConnect();
+    const result = await testConnection(jumped(), noLookup);
+    expect(result.steps).toEqual([{ step: 'jumpHost', ok: false, params: { name: 'bastion-id' }, note: { code: 'ssh.jumpHostUnusable', params: { name: 'bastion-id' } } }]);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('refuses the jump host when the opener yields none', async () => {
+    const connect = fakeConnect();
+    const result = await testConnection(jumped(), { ...noLookup, openJump: async () => undefined });
+    expect(result.steps).toEqual([{ step: 'jumpHost', ok: false, params: { name: 'bastion-id' }, note: { code: 'ssh.jumpHostUnusable', params: { name: 'bastion-id' } } }]);
     expect(connect).not.toHaveBeenCalled();
   });
 
