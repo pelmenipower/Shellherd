@@ -16,9 +16,9 @@
 </div>
 
 <p align="center">
-  <a href="docs/images/brag.mp4"><img src="docs/images/brag-poster.jpg" alt="22-second tour of Shellherd: SSH terminals, Kubernetes, SFTP and the AI assistant in one window" width="100%"></a>
+  <img src="docs/images/brag.gif" alt="22-second tour of Shellherd: SSH terminals, Kubernetes, SFTP and the AI assistant in one window" width="100%">
 </p>
-<p align="center"><sub>22-second tour, click to play</sub></p>
+<p align="center"><sub>22-second tour · <a href="docs/images/brag.mp4?raw=1">with sound (MP4)</a></sub></p>
 
 <p align="center">
   <img src="docs/images/screenshot-terminals.png" alt="Shellherd with two SSH sessions side by side and the connection tree on the left" width="100%">
