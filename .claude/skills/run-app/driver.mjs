@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { writeImportFixtures } from './import-fixtures.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
 const WORK = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
@@ -25,13 +26,24 @@ for (const dir of [PROFILE, SHOTS, APP_DIR]) fs.mkdirSync(dir, { recursive: true
 const { version, productName } = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
 fs.writeFileSync(path.join(APP_DIR, 'package.json'), JSON.stringify({ name: 'shellherd', productName, version, type: 'module', main: 'boot.mjs' }));
 fs.copyFileSync(path.join(import.meta.dirname, 'boot.mjs'), path.join(APP_DIR, 'boot.mjs'));
+// Import sources and the update check stay synthetic: no registry read, no GitHub call.
+const imports = writeImportFixtures(path.join(WORK, 'import'));
+const AI_PORT = Number(process.env.AI_FAKE_PORT ?? 9335);
 
 const exe = process.platform === 'win32' ? 'electron.exe' : 'electron';
 const app = await electron.launch({
   executablePath: path.join(REPO, 'node_modules/electron/dist', exe),
   args: [APP_DIR],
   cwd: REPO,
-  env: { ...process.env, SHELLHERD_PROFILE: PROFILE, SHELLHERD_MAIN: process.env.SHELLHERD_MAIN ?? pathToFileURL(path.join(REPO, 'out/main/index.js')).href },
+  env: {
+    ...process.env,
+    SHELLHERD_PROFILE: PROFILE,
+    SHELLHERD_MAIN: process.env.SHELLHERD_MAIN ?? pathToFileURL(path.join(REPO, 'out/main/index.js')).href,
+    SHELLHERD_PUTTY_REG_FILE: imports.puttyReg,
+    SHELLHERD_WINSCP_REG_FILE: imports.winscpReg,
+    // served by ai-fake.mjs (npm run drive:sshd)
+    SHELLHERD_UPDATE_URL: `http://127.0.0.1:${AI_PORT}/releases/latest`,
+  },
   timeout: 60_000,
 });
 
