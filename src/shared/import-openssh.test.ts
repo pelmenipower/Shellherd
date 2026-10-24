@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { AppError } from './errors';
 import { globMatch, parseOpenSshConfig } from './import-openssh';
 
 const HOME = 'C:\\Users\\demo';
@@ -237,8 +238,61 @@ describe('parseOpenSshConfig', () => {
     const { value, ms } = timed(() => parse(lines));
     expect(ms).toBeLessThan(2000);
     expect(value.candidates).toHaveLength(500);
-    // 95,000 ignored blocks (beyond 5,000) plus 4,500 aliases beyond 500 among the collected ones.
+    // 95,001 ignored Host lines (from the 5,000th on, the 5,000th exhausts the pattern budget) plus 4,499 aliases beyond 500.
     expect(skipped(value)).toEqual({ tooMany: 99_500 });
+  });
+
+  it('keeps 5,000 patterns over all blocks and counts one tooMany for the Host line that overflows', () => {
+    const line = `Host ${Array.from({ length: 5_001 }, (_, i) => `p${i}`).join(' ')}`;
+    const result = parse([line]);
+    expect(result.candidates).toHaveLength(500);
+    // 4,999 concrete aliases (the * block takes one slot): 4,499 beyond 500, plus the overflow line.
+    expect(skipped(result)).toEqual({ tooMany: 4_500 });
+  });
+
+  it('ignores patterns over 255 characters silently and counts aliases over 255 as invalid', () => {
+    const result = parse([`Host ${'a'.repeat(256)} ${'b'.repeat(253)} ${'*'.repeat(256)} w`, '  User demo']);
+    expect(result.candidates.map(c => c.key)).toEqual(['b'.repeat(253), 'w']);
+    expect(skipped(result)).toEqual({ invalid: 1 });
+  });
+
+  it('stays under 1 s with 500 aliases and one Host line of 1,000,000 patterns', () => {
+    const lines = [
+      ...Array.from({ length: 500 }, (_, i) => `Host h${i + 1}`),
+      `Host ${'?x '.repeat(1_000_000).trimEnd()}`,
+    ];
+    const { value, ms } = timed(() => parse(lines));
+    expect(ms).toBeLessThan(1000);
+    expect(value.candidates).toHaveLength(500);
+    expect(skipped(value)).toEqual({ tooMany: 1 });
+  });
+
+  it('stays under 1 s with 500 aliases of 2,000 characters and 200 patterns of 1,000 characters', () => {
+    const lines = [
+      ...Array.from({ length: 500 }, (_, i) => `Host ${String(i).padEnd(2_000, 'x')}`),
+      `Host ${Array.from({ length: 200 }, () => `*a${'a'.repeat(997)}b`).join(' ')}`,
+    ];
+    const { value, ms } = timed(() => parse(lines));
+    expect(ms).toBeLessThan(1000);
+    expect(value.candidates).toEqual([]);
+    expect(skipped(value)).toEqual({ invalid: 500 });
+  });
+
+  it('throws core.importTooLarge when the glob steps of one parse run exceed the budget', () => {
+    const lines = [
+      ...Array.from({ length: 500 }, (_, i) => `Host ${'a'.repeat(200)}${i}`),
+      `Host ${Array.from({ length: 200 }, () => `*${'a'.repeat(200)}b`).join(' ')}`,
+    ];
+    const start = performance.now();
+    let caught: unknown;
+    try {
+      parse(lines);
+    } catch (error) {
+      caught = error;
+    }
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(caught).toBeInstanceOf(AppError);
+    expect((caught as AppError).toCoded().code).toBe('core.importTooLarge');
   });
 });
 

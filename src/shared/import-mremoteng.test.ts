@@ -158,3 +158,53 @@ describe('parseMRemoteNg on hostile input', () => {
     expect(ms).toBeLessThan(1000);
   });
 });
+
+describe('parseMRemoteNg bounded keys and folders', () => {
+  it('makes 500 identical connections with a 7000 character name unique in under 1 s', () => {
+    const name = 'n'.repeat(7000);
+    const nodes = Array.from({ length: 500 }, () => `<Node Name="${name}" Type="Connection" Hostname="h.test" Protocol="SSH2"/>`).join('\n');
+    const start = performance.now();
+    const result = parseMRemoteNg(`<Connections>\n${nodes}\n</Connections>`);
+    const ms = performance.now() - start;
+    expect(result.candidates).toHaveLength(500);
+    expect(new Set(result.candidates.map((c) => c.key)).size).toBe(500);
+    expect(result.candidates[0].name.length).toBeLessThanOrEqual(255);
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it('parses 60k nested containers with 30k identical connections below in under 1 s and keeps the 500 limit', () => {
+    const text = '<Node Name="x" Type="Container">'.repeat(60_000)
+      + '<Node Name="s" Type="Connection" Hostname="h.test" Protocol="SSH2"/>'.repeat(30_000);
+    const start = performance.now();
+    const result = parseMRemoteNg(text);
+    const ms = performance.now() - start;
+    expect(result.candidates).toHaveLength(500);
+    expect(result.skipped).toEqual([{ code: 'tooMany', count: 29_500 }]);
+    expect(new Set(result.candidates.map((c) => c.key)).size).toBe(500);
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it('keeps folders at most 32 deep and each segment at most 255 characters', () => {
+    const segment = 's'.repeat(300);
+    const nested = Array.from({ length: 40 }, () => `<Node Name="${segment}" Type="Container">`).join('');
+    const result = parseMRemoteNg(`<Connections>${nested}<Node Name="deep" Type="Connection" Hostname="h.test" Protocol="SSH2"/></Connections>`);
+    expect(result.candidates).toHaveLength(1);
+    const folder = result.candidates[0].folder;
+    expect(folder).toHaveLength(32);
+    expect(folder.every((s) => s.length === 255)).toBe(true);
+  });
+
+  it('truncates a long Id to 1024 characters', () => {
+    const result = parseMRemoteNg(`<Connections><Node Id="${'i'.repeat(5000)}" Name="a" Type="Connection" Hostname="h.test" Protocol="SSH2"/></Connections>`);
+    expect(result.candidates[0].key).toHaveLength(1024);
+  });
+
+  it('skips a suffix that is already taken by a real key', () => {
+    const result = parseMRemoteNg(`<Connections>
+  <Node Id="x" Name="a" Type="Connection" Hostname="a.test" Protocol="SSH2"/>
+  <Node Id="x" Name="b" Type="Connection" Hostname="b.test" Protocol="SSH2"/>
+  <Node Id="x#2" Name="c" Type="Connection" Hostname="c.test" Protocol="SSH2"/>
+</Connections>`);
+    expect(result.candidates.map((c) => c.key)).toEqual(['x', 'x#2', 'x#2#2']);
+  });
+});

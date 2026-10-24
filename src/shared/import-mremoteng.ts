@@ -14,6 +14,10 @@ const ATTR = /(?:^|\s)(\w+)="([^"]*)"/g;
 const READ = new Set(['Type', 'Name', 'Id', 'Protocol', 'Hostname', 'Port', 'Username', 'Domain', 'FullFileEncryption']);
 const ENTITY = /&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);/g;
 const NAMED: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+/** Hostile-file bounds: deeper containers and longer names are cut, not rejected. */
+const MAX_FOLDER_DEPTH = 32;
+const MAX_SEGMENT = 255;
+const MAX_KEY = 1024;
 
 /** Pure; text of confCons.xml. Throws AppError('core.importEncrypted') when FullFileEncryption="true". */
 export function parseMRemoteNg(text: string): Omit<ImportPreview, 'source' | 'file'> {
@@ -24,6 +28,8 @@ export function parseMRemoteNg(text: string): Omit<ImportPreview, 'source' | 'fi
   const skipped = new Map<ImportSkipCode, number>();
   const skip = (code: ImportSkipCode) => skipped.set(code, (skipped.get(code) ?? 0) + 1);
   const keys = new Set<string>();
+  // Next free suffix per base, so duplicates never rescan earlier keys.
+  const next = new Map<string, number>();
   // Open nodes (true = named container) and the names of the named containers among them.
   const stack: boolean[] = [];
   const folder: string[] = [];
@@ -38,9 +44,9 @@ export function parseMRemoteNg(text: string): Omit<ImportPreview, 'source' | 'fi
     const name = attrs.get('Name') ?? '';
     // Self-closing nodes have no children, so they never sit on the stack.
     if (slash !== '/') {
-      const named = type === 'Container' && name !== '';
+      const named = type === 'Container' && name !== '' && folder.length < MAX_FOLDER_DEPTH;
       stack.push(named);
-      if (named) folder.push(name);
+      if (named) folder.push(clip(name, MAX_SEGMENT));
     }
     if (type !== 'Connection') continue;
 
@@ -49,15 +55,25 @@ export function parseMRemoteNg(text: string): Omit<ImportPreview, 'source' | 'fi
     else if (candidates.length >= MAX_IMPORT_CANDIDATES) skip('tooMany');
     else {
       // Keys must be unique: they identify the selected candidates.
-      const base = attrs.get('Id') || [...folder, candidate.name].join('/');
-      let key = base;
-      for (let n = 2; keys.has(key); n++) key = `${base}#${n}`;
+      const base = clip(attrs.get('Id') || [...folder, candidate.name].join('/'), MAX_KEY);
+      // The while loop runs only for a real collision with a key already taken.
+      let n = next.get(base) ?? 1;
+      let key = n === 1 ? base : `${base}#${n}`;
+      while (keys.has(key)) key = `${base}#${++n}`;
+      next.set(base, n + 1);
       keys.add(key);
       candidates.push({ ...candidate, folder: [...folder], key });
     }
   }
 
   return { candidates, skipped: [...skipped].map(([code, count]) => ({ code, count })) };
+}
+
+/** Cuts to max code units without leaving a lone high surrogate at the end. */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const last = text.charCodeAt(max - 1);
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
 }
 
 /** Attributes of one tag, entities decoded; only the READ names are kept. */
@@ -89,7 +105,7 @@ function readConnection(attrs: Map<string, string>): Omit<ImportCandidate, 'key'
   if (port === undefined) return 'invalid';
 
   const candidate: Omit<ImportCandidate, 'key' | 'folder'> = {
-    name: attrs.get('Name') || host,
+    name: clip(attrs.get('Name') || host, MAX_SEGMENT),
     protocol: rdp ? 'rdp' : 'ssh',
     host,
     port,

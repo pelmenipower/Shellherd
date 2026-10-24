@@ -1,4 +1,5 @@
 import type { ImportCandidate, ImportForward, ImportNoteCode, ImportPreview, ImportSkipCode } from './import';
+import { AppError } from './errors';
 import { MAX_IMPORT_CANDIDATES, validImportHost } from './import';
 import { MAX_FORWARDS } from './vault/schema';
 
@@ -6,26 +7,36 @@ import { MAX_FORWARDS } from './vault/schema';
 const FORWARD_KEYS = new Set(['localforward', 'remoteforward', 'dynamicforward']);
 
 interface Option { key: string; args: string[] }
-interface Pattern { raw: string; negated: boolean; glob: string }
+// chars: lowercase code points of the glob without `!`, prepared once per pattern.
+interface Pattern { raw: string; negated: boolean; chars: string[] }
 interface Block { patterns: Pattern[]; options: Option[] }
+interface StepBudget { left: number }
 
 // Host blocks collected at most; further Host lines are ignored and each counts as tooMany.
 const MAX_HOST_BLOCKS = 5_000;
+// Patterns over all blocks; a Host line that runs out counts one tooMany, the rest of its patterns are ignored.
+const MAX_PATTERNS = 5_000;
+// Code points; longer patterns are ignored silently, longer aliases count as invalid.
+const MAX_NAME_LENGTH = 255;
+// Character comparisons of all glob matches in one parse run together; beyond that the import is too large.
+const GLOB_STEP_BUDGET = 20_000_000;
 
 /** Splits at whitespace; a "quoted part" stays inside one argument without its quotes. */
 function tokenize(text: string): string[] {
   return (text.match(/(?:[^\s"]+|"[^"]*")+/g) ?? []).map(token => token.replace(/"/g, ''));
 }
 
-/** OpenSSH glob: * any run, ? one character, whole string, case-insensitive. No regex, so no backtracking blowup. */
-export function globMatch(pattern: string, text: string): boolean {
-  const p = [...pattern.toLowerCase()];
-  const t = [...text.toLowerCase()];
+const codePoints = (text: string): string[] => [...text.toLowerCase()];
+
+/** Matches prepared code points; each comparison and each call costs one budget step. */
+function matchChars(p: string[], t: string[], budget: StepBudget): boolean {
+  if (--budget.left < 0) throw new AppError('core.importTooLarge');
   let pi = 0;
   let ti = 0;
   let star = -1; // index of the last * in the pattern
   let mark = 0; // text index up to which the last * has absorbed characters
   while (ti < t.length) {
+    if (--budget.left < 0) throw new AppError('core.importTooLarge');
     if (pi < p.length && p[pi] === '*') { star = pi++; mark = ti; }
     else if (pi < p.length && (p[pi] === '?' || p[pi] === t[ti])) { pi++; ti++; }
     else if (star >= 0) { pi = star + 1; ti = ++mark; }
@@ -35,9 +46,16 @@ export function globMatch(pattern: string, text: string): boolean {
   return pi === p.length;
 }
 
-function toPattern(raw: string): Pattern {
+/** OpenSSH glob: * any run, ? one character, whole string, case-insensitive. No regex, so no backtracking blowup. */
+export function globMatch(pattern: string, text: string): boolean {
+  return matchChars(codePoints(pattern), codePoints(text), { left: Infinity });
+}
+
+/** undefined for a glob over MAX_NAME_LENGTH characters, which is ignored. A long plain name stays: it is an alias and counts as invalid. */
+function toPattern(raw: string): Pattern | undefined {
   const negated = raw.startsWith('!');
-  return { raw, negated, glob: negated ? raw.slice(1) : raw };
+  const chars = codePoints(negated ? raw.slice(1) : raw);
+  return chars.length > MAX_NAME_LENGTH && /[*?]/.test(raw) ? undefined : { raw, negated, chars };
 }
 
 // eslint-disable-next-line no-control-regex
@@ -141,9 +159,10 @@ export function parseOpenSshConfig(text: string, home: string): Omit<ImportPrevi
 
   // Blocks in file order; lines before the first Host form the * block.
   // `current` is undefined inside an ignored Host block, so its options are dropped, not attached to the previous one.
-  const blocks: Block[] = [{ patterns: [toPattern('*')], options: [] }];
+  const blocks: Block[] = [{ patterns: [{ raw: '*', negated: false, chars: ['*'] }], options: [] }];
   let current: Block | undefined = blocks[0];
   let hostBlocks = 0;
+  let patternCount = 1; // the implicit * block
   let skipping = false;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
@@ -156,7 +175,15 @@ export function parseOpenSshConfig(text: string, home: string): Omit<ImportPrevi
       skipping = false;
       if (hostBlocks < MAX_HOST_BLOCKS) {
         hostBlocks++;
-        current = { patterns: args.map(toPattern), options: [] };
+        const patterns: Pattern[] = [];
+        for (const arg of args) {
+          const pattern = toPattern(arg);
+          if (!pattern) continue; // over 255 characters: ignored silently
+          if (patternCount === MAX_PATTERNS) { count('tooMany'); break; } // one count per Host line
+          patternCount++;
+          patterns.push(pattern);
+        }
+        current = { patterns, options: [] };
         blocks.push(current);
       } else {
         count('tooMany'); // one count per ignored block, keeps the scan linear
@@ -190,11 +217,17 @@ export function parseOpenSshConfig(text: string, home: string): Omit<ImportPrevi
   }
 
   // Options of every block that applies to the alias: a positive pattern matches and no negated one.
-  const optionsOf = (alias: string): Option[] => blocks
-    .filter(block => block.patterns.some(p => !p.negated && globMatch(p.glob, alias))
-      && !block.patterns.some(p => p.negated && globMatch(p.glob, alias)))
+  const budget: StepBudget = { left: GLOB_STEP_BUDGET };
+  const optionsOf = (alias: string[]): Option[] => blocks
+    .filter(block => block.patterns.some(p => !p.negated && matchChars(p.chars, alias, budget))
+      && !block.patterns.some(p => p.negated && matchChars(p.chars, alias, budget)))
     .flatMap(block => block.options);
-  const optsByAlias = new Map(aliases.slice(0, MAX_IMPORT_CANDIDATES).map(alias => [alias, optionsOf(alias)] as const));
+  const optsByAlias = new Map<string, Option[]>();
+  for (const alias of aliases.slice(0, MAX_IMPORT_CANDIDATES)) {
+    const chars = codePoints(alias);
+    if (chars.length > MAX_NAME_LENGTH) { count('invalid'); continue; } // before any option lookup
+    optsByAlias.set(alias, optionsOf(chars));
+  }
 
   const valid = new Map<string, ImportCandidate>();
   for (const [alias, opts] of optsByAlias) {
