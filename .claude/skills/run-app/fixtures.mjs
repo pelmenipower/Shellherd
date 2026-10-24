@@ -1,4 +1,6 @@
 // Synthetic Docker inventory and SFTP tree for the local SSH test server. Nothing here is real data.
+// Synthetic one-time code of the mfa demo user (sshd.mjs).
+export const DEMO_TOTP = '246810';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

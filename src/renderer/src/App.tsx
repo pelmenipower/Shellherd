@@ -68,6 +68,7 @@ import { findNode } from './vault-selection';
 import { errorText } from './error-text';
 import { useT } from './i18n';
 import { SettingsDialog } from './components/SettingsDialog';
+import { AuthPromptDialog } from './components/AuthPromptDialog';
 import { settingsShortcutAction } from './shortcut-match';
 import mark from '../../../resources/mark-64.png';
 
@@ -942,6 +943,7 @@ export default function App() {
         <button type="button" className="version-button" title={t('app:status.whatsNew')} onClick={() => setShowReleaseNotes(true)}>v{version}</button></footer>
       {showReleaseNotes && <ReleaseNotesDialog version={version} onClose={() => setShowReleaseNotes(false)} />}
     </main>
+    <AuthPromptDialog locked={locked !== null} />
     {locked && <LockScreen vaultName={vault.name} minutes={locked.minutes} running={runningCount} onUnlock={unlockFromLock} onSwitch={() => switchVault()} />}
     </>;
   }
@@ -951,6 +953,7 @@ export default function App() {
       {fileDropHint}
       <ToastStack />
       {settingsDialog}
+      <AuthPromptDialog locked={locked !== null} />
       <section className="welcome-card">
         <div className="brand large-brand">
           <img className="brand-mark" src={mark} alt="" />

@@ -5,10 +5,10 @@ import { IPC_CHANNELS } from '../../shared/ipc';
 import { KubeActionRequestSchema, KubeDetailRequestSchema, KubeOpenRequestSchema, KubeProbeRequestSchema, KubeSubscribeRequestSchema, KubeViewRequestSchema } from '../../shared/kubernetes-schema';
 import type { KubeProbeResult } from '../../shared/kubernetes';
 import type { ConnectionNode, SshConnectionNode } from '../../shared/vault/types';
-import { openRemoteHost } from '../containers/runner';
+import { openRemoteWithJump } from '../containers/ipc';
 import type { SudoRejections } from '../containers/sudo-rejections';
-import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { vaultSessionManager } from '../vault/ipc';
+import type { AuthPrompts } from '../ssh/auth-prompts';
 import type { KnownHosts } from '../ssh/known-hosts';
 import { requireSshSender } from '../ssh/ipc';
 import { findConnection, publicError } from '../ssh/session';
@@ -32,11 +32,9 @@ function handle(channel: string, handler: Handler): void {
   });
 }
 
-export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, sudoRejections: SudoRejections): KubeSessions {
+export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, prompts: AuthPrompts, sudoRejections: SudoRejections): KubeSessions {
   const getConnection = (id: string): ConnectionNode | undefined => findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
-  const openRemote = (connection: SshConnectionNode) =>
-    openRemoteHost(connection, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive), undefined,
-      effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, connection));
+  const openRemote = (connection: SshConnectionNode) => openRemoteWithJump(connection, knownHosts, prompts);
 
   const sessions = new KubeSessions({
     getCluster: id => {
@@ -89,4 +87,3 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, sudoReject
   });
   return sessions;
 }
-

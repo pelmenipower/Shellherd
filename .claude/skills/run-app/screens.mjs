@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -331,6 +331,39 @@ const blocks = {
     await pause(300);
     if (await uptimes() !== before) throw new Error('Umbenennen hat die Sitzung neu gestartet');
     await shot('tab-renamed');
+  },
+  // mfa-01 has a stored password, so only the second round (verification code) reaches the dialog; Escape cancels it.
+  async 'auth-prompt'() {
+    await click('text=mfa-01 >> nth=0');
+    await key('Enter');
+    await waitFor('Anmeldedialog', `document.querySelector('dialog[open] input[type=password]')`, { timeout: 30000 });
+    await pause(300);
+    await shot('auth-prompt');
+    await key('Escape');
+    await waitFor('Anmeldedialog geschlossen', `!document.querySelector('dialog[open] input[type=password]')`);
+  },
+  // Edit form of app-intern with "Weitere Angaben" open: jump host selection and port forward editor.
+  async 'jump-form'() {
+    await rclick('text=app-intern >> nth=0');
+    await menuItem('Bearbeiten');
+    await waitFor('Formular', `document.querySelector('details.editor-details > summary')`);
+    await call('eval', `const details = [...document.querySelectorAll('details.editor-details')].find(d => d.querySelector('summary')?.textContent.includes('Weitere Angaben'));
+  if (!details) throw new Error('Abschnitt „Weitere Angaben“ fehlt'); details.open = true;`);
+    await waitFor('Weitere Angaben geöffnet', `[...document.querySelectorAll('details.editor-details')].find(d => d.querySelector('summary')?.textContent.includes('Weitere Angaben'))?.open`);
+    // The section sits below the fold; show the jump host and the forwards together.
+    await call('eval', `[...document.querySelectorAll('label')].find(l => l.textContent.trim().startsWith('Sprunghost'))?.scrollIntoView({ block: 'start' });`);
+    await pause(300);
+    await shot('jump-form');
+  },
+  // app-intern through web-01: the bar shows the automatic local forward as active and the SOCKS forward as off.
+  async forwards() {
+    await click('text=app-intern >> nth=0');
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener app-intern-Tab', `[...document.querySelectorAll('.terminal-tab:not([data-fixed])')].some(b => b.querySelector('.tab-name')?.textContent === 'app-intern' && b.querySelector('.tab-status-connected'))`, { timeout: 30000 });
+    await waitFor('Weiterleitungsleiste', `(document.querySelector('.terminal-panel:not([hidden])')?.innerText ?? '').includes('localhost:15432') && (document.querySelector('.terminal-panel:not([hidden])')?.innerText ?? '').includes('aktiv')`, { timeout: 30000 });
+    await pause(300);
+    await shot('forwards');
   },
   async welcome() {
     await click('.terminal-tab-add');

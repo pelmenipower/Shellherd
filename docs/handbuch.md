@@ -170,8 +170,22 @@ Die Terminals unterstützen Passwort, privaten Schlüssel mit optionaler
 Passphrase sowie SSH-Agent. Unter Windows wird ohne `SSH_AUTH_SOCK` der
 OpenSSH-Agent unter `\\.\pipe\openssh-ssh-agent` verwendet; der Dienst muss laufen
 und den passenden Schlüssel enthalten. Auf Unix muss `SSH_AUTH_SOCK` gesetzt sein.
-Agent-Forwarding ist deaktiviert. Interaktive MFA-/Keyboard-Interactive-Anmeldung
-folgt in einem weiteren Schritt.
+
+Agent-Forwarding ist deaktiviert.
+
+Fragt der Server bei der Anmeldung nach weiteren Angaben (Einmalcode, PIN, zweites
+Passwort), öffnet sich der Dialog „Anmeldung bei …“ bei Terminal und Dateiansicht im Fenster des
+Tabs, bei Containern, Clustern und dem Verbindungstest im zuletzt benutzten Shellherd-Fenster. Die
+Antworten gehen nur an diesen Server, werden nicht gespeichert und nicht
+protokolliert. Fragt der Server genau einmal nach einem Passwort und hat die
+Verbindung ein gespeichertes Passwort, setzt Shellherd es einmal automatisch ein;
+jede andere Frage kommt in den Dialog. Höchstens 6 Abfragen je Verbindung, danach
+bricht sie mit einer Meldung ab. Abbrechen im Dialog beendet den Versuch. Die
+Verbindungszeit (Einstellungen → Verbindungen) läuft während der Rückfrage weiter;
+bei 2FA den Verbindungs-Timeout auf mindestens 60 s setzen. Der Dialog erscheint
+nie über dem Sperrbildschirm; beim Sperren wird eine offene Rückfrage abgebrochen.
+Mehrere Tabs mit Rückfragen fragen nacheinander.
+
 
 ### Nach dem Anmelden
 
@@ -216,6 +230,77 @@ Rechtsklick auf einen Tab (Shift+F10 oder die Menütaste gehen auch) bietet
 `Umbenennen`. Der Name gilt nur für diesen Tab, nicht für die gespeicherte
 Verbindung, und er wandert mit dem Tab in andere Fenster. Ein leerer Name
 stellt den Verbindungsnamen wieder her. Ein Workspace speichert ihn nicht.
+
+## Sprunghost
+
+Eine SSH- oder SFTP-Verbindung kann über eine andere SSH-Verbindung laufen
+(Sprunghost, Bastion). Im Formular wählst du unter `Weitere Angaben` bei
+`Sprunghost` die Verbindung. Shellherd verbindet zuerst mit dem Sprunghost und
+von dort mit Host und Port aus dem Formular; diese gelten vom Sprunghost aus.
+
+- Genau ein Hop. Der Sprunghost darf selbst keinen Sprunghost haben und nicht die
+  Verbindung selbst sein. Ketten gehen noch nicht. Das Formular lehnt beides ab,
+  Shellherd prüft es beim Verbinden noch einmal.
+- Deaktivierte SSH-Verbindungen sind markiert; als Sprunghost gewählt, lässt sich
+  die Verbindung nicht speichern.
+- Der Sprunghost nutzt seine eigenen Zugangsdaten, Timeouts und seine
+  Host-Schlüssel-Prüfung. Fragt er nach 2FA, nennt der Dialog seinen Namen.
+- Der Sprunghost wirkt bei Terminal, Dateiansicht, Container, Cluster und
+  Verbindungstest. Der Verbindungstest zeigt dafür den Schritt „Sprunghost … verbunden“.
+- Löschen: Die Auswahl in den anderen Verbindungen bleibt stehen, der Löschdialog
+  nennt ihre Zahl. Diese Verbindungen scheitern mit einer Meldung, bis du dort einen
+  anderen Sprunghost oder `Keiner` wählst. Shellherd stellt nicht stillschweigend
+  auf direkte Verbindung um, denn das würde am Bastion vorbeiführen.
+- Ein geänderter Schlüssel des Sprunghosts erscheint als Ursache in der Fehlerkarte,
+  ohne Fingerabdrücke. `Verbindung testen` am Sprunghost zeigt sie.
+
+Risiken:
+
+- **known-hosts:** Dieselbe interne Adresse (z. B. `10.0.0.5:22`) hinter zwei
+  verschiedenen Sprunghosts teilt sich in Shellherd einen Schlüssel-Eintrag. Die
+  zweite Verbindung meldet dann „Schlüssel geändert“. Shellherd kennt keinen Alias
+  wie OpenSSH `HostKeyAlias`. Verbindungen mit gleicher Zieladresse hinter
+  verschiedenen Sprunghosts deshalb vermeiden.
+- **Mehrere 2FA-Hosts:** Öffnest du einen Workspace mit vielen Verbindungen über
+  2FA-Sprunghosts, kommen die Rückfragen nacheinander. Hintere Sitzungen können
+  über den Verbindungs-Timeout ablaufen; dann hilft `Neu verbinden`.
+- **Keine Teilung:** Jeder Tab baut seinen Sprunghost-Hop selbst auf und fragt
+  dessen 2FA erneut.
+- **Ältere Versionen** (0.18 und älter) entfernen das Feld beim Speichern.
+
+## Port-Weiterleitungen
+
+Unter `Weitere Angaben` einer SSH-Verbindung legst du Port-Weiterleitungen fest
+(höchstens 16). Sie gehören zu einer Terminal-Sitzung dieser Verbindung.
+
+| Art | Was passiert |
+|---|---|
+| Lokal (-L) | Lauscht nur auf 127.0.0.1 dieses Computers. Das Ziel (Host und Port) gilt vom Server aus. |
+| Entfernt (-R) | Lauscht auf dem Server an `localhost`. Andere Rechner erreichen den Port nur mit `GatewayPorts` in der `sshd_config`. Das Ziel gilt von diesem Computer aus. |
+| Dynamisch (-D) | SOCKS5-Proxy ohne Anmeldung auf 127.0.0.1. Im Browser oder Programm als SOCKS-Proxy eintragen. Nur TCP, kein UDP. |
+
+- Die Leiste „Weiterleitungen“ unter dem Terminal zeigt jede Weiterleitung mit ihrem
+  Zustand und einem Knopf zum Starten oder Stoppen. Sie erscheint, sobald die
+  Verbindung steht.
+- Mit „Beim Verbinden starten“ startet Shellherd die Weiterleitung nach dem
+  Anmelden, wenn sie frei ist. Das passiert nur bei einer Verbindung, die du selbst
+  öffnest.
+- Eine Weiterleitung läuft app-weit höchstens einmal. Läuft sie in einem anderen
+  Tab, zeigt die Leiste nur „läuft in anderem Tab“. Sobald der andere Tab sie stoppt
+  oder schließt, erscheint hier „Starten“.
+- Änderungen an der Liste gelten ab der nächsten Verbindung; `Neu verbinden`
+  übernimmt sie.
+- Ende der Sitzung (Tab schließen, Trennen, Leerlauf) stoppt ihre Weiterleitungen.
+  Offene Verbindungen über eine Weiterleitung halten die Sitzung gegen Leerlauf wach.
+- Gesperrt laufen bestehende Weiterleitungen weiter, Starten geht nicht.
+- Ist der Port auf diesem Computer belegt, sagt die Leiste das. Lehnt der Server
+  ab, liegt es meist an `AllowTcpForwarding` oder einem belegten Port auf dem Server.
+- Pods und Services im Cluster sind hier nicht enthalten; der Cluster-Bereich zeigt
+  weiter den `kubectl port-forward`-Befehl zum Kopieren.
+- **Risiko entfernt:** Mit `GatewayPorts yes` auf dem Server ist der Port für das
+  Netz erreichbar. Shellherd verhindert das nicht; ohne diese Einstellung bleibt er
+  auf `localhost` des Servers.
+- **Ältere Versionen** (0.18 und älter) entfernen die Weiterleitungen beim Speichern.
 
 ## Container und VMs
 

@@ -11,6 +11,9 @@ import { writeFile } from 'node:fs/promises';
 import type { KnownHosts } from '../ssh/known-hosts';
 import { requireSshSender } from '../ssh/ipc';
 import { findConnection } from '../ssh/session';
+import type { AuthPrompts } from '../ssh/auth-prompts';
+import { openJump } from '../ssh/jump';
+import { openRemoteHost } from '../containers/runner';
 import { vaultSessionManager } from '../vault/ipc';
 import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { FileError, fileError, localFileSystem, localPlaces } from './file-system';
@@ -69,7 +72,7 @@ function handle<T>(channel: string, schema: z.ZodType<T>, run: (ownerId: number,
   });
 }
 
-export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionManager {
+export function registerFileIpcHandlers(knownHosts: KnownHosts, prompts: AuthPrompts): SftpSessionManager {
   const manager = new SftpSessionManager({
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
@@ -78,6 +81,12 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
     },
     getTimeouts: connection => effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, connection),
     verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
+    ask: prompts.ask,
+    openJump: (connection, ownerId, active) => openJump(connection, {
+      getConnection: id => findConnection(vaultSessionManager.getSnapshot().vault.nodes, id),
+      openRemote: (jump, owner, active) => openRemoteHost(jump, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive), undefined,
+        effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, jump), { ask: prompts.ask, ownerId: owner, isActive: active }),
+    }, ownerId, active),
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);
       if (owner && !owner.isDestroyed()) owner.send(IPC_CHANNELS.sftpEvent, event);

@@ -7,7 +7,7 @@ export const WAIT_MS = 400;
 /** After this long in one step the footer switches to a hint. */
 export const SLOW_MS = 1500;
 const STEP_KEYS = {
-  reach: 'terminal:timeline.steps.reach', hostkey: 'terminal:timeline.steps.hostkey', auth: 'terminal:timeline.steps.auth', shell: 'terminal:timeline.steps.shell',
+  jump: 'terminal:timeline.steps.jump', reach:'terminal:timeline.steps.reach', hostkey: 'terminal:timeline.steps.hostkey', auth: 'terminal:timeline.steps.auth', shell: 'terminal:timeline.steps.shell',
 } as const satisfies Record<SshStep, string>;
 export function stepLabel(step: SshStep): string { return t(STEP_KEYS[step]); }
 

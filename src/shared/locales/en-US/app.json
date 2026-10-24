@@ -261,5 +261,13 @@
     "cloud": "Cloud",
     "network": "Network",
     "files": "Files"
+  },
+  "authPrompt": {
+    "title": "Sign in to {{name}}",
+    "server": "{{host}} asks for more information.",
+    "field": "Answer {{index}}",
+    "hint": "Your answers go only to this server and are not stored.",
+    "submit": "Sign in",
+    "ariaLabel": "Server sign-in prompt"
   }
 }

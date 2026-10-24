@@ -72,6 +72,18 @@ const LoginLineSchema = z.string().min(1).max(LOGIN_LIMITS.length).refine(line =
 const autoUpload = z.array(AutoUploadBindingSchema).max(16)
     .refine(list => new Set(list.map(binding => binding.id)).size === list.length).optional();
 
+/** Port forwards of an SSH connection; see docs/superpowers/specs/2026-10-24-ssh-pro-design.md 5.1. */
+export const MAX_FORWARDS = 16;
+const portSchema = z.number().int().min(1).max(65_535);
+const forwardHost = z.string().min(1).max(253).refine(host => !/[\s\x00-\x1f\x7f]/.test(host));
+export const PortForwardSchema = z.discriminatedUnion('kind', [
+    z.object({ id: z.string().uuid(), kind: z.literal('local'), localPort: portSchema, targetHost: forwardHost, targetPort: portSchema, auto: z.boolean() }),
+    z.object({ id: z.string().uuid(), kind: z.literal('remote'), remotePort: portSchema, targetHost: forwardHost, targetPort: portSchema, auto: z.boolean() }),
+    z.object({ id: z.string().uuid(), kind: z.literal('dynamic'), localPort: portSchema, auto: z.boolean() }),
+]); // not .strict(), like AutoUploadBindingSchema
+const forwards = z.array(PortForwardSchema).max(MAX_FORWARDS)
+    .refine(list => new Set(list.map(forward => forward.id)).size === list.length).optional();
+
 const remoteTarget = {
     host: z.string(),
     port: z.number().int().min(1).max(65_535),
@@ -85,6 +97,8 @@ export const SshConnectionNodeSchema = z.object({
     authentication: AuthenticationSchema,
     containers: z.object({ sudo: z.boolean().optional() }).optional(),
     autoUpload,
+    jumpHost: z.string().min(1).max(256).optional(),
+    forwards,
     timeouts: ConnectionTimeoutsSchema.partial().optional(),
     login: z.object({
         sudo: z.boolean().optional(),
@@ -98,6 +112,7 @@ export const SftpConnectionNodeSchema = z.object({
     ...remoteTarget,
     authentication: AuthenticationSchema,
     autoUpload,
+    jumpHost: z.string().min(1).max(256).optional(),
     timeouts: ConnectionTimeoutsSchema.partial().optional(),
 });
 

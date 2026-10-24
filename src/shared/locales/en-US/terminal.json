@@ -114,6 +114,7 @@
   },
   "timeline": {
     "steps": {
+      "jump": "Connect jump host",
       "reach": "Reaching server",
       "hostkey": "Checking server key",
       "auth": "Signing in",
@@ -128,6 +129,25 @@
     "slowGeneric": "Taking longer than usual…",
     "agoSeconds": "{{seconds}} s ago",
     "agoMinutes": "{{minutes}} min ago"
+  },
+  "forwards": {
+    "label": "Port forwards",
+    "local": "localhost:{{port}} → {{target}}",
+    "remote": "Server:{{port}} → {{target}}",
+    "dynamic": "SOCKS proxy localhost:{{port}}",
+    "state": {
+      "active": "active",
+      "stopped": "off",
+      "starting": "starting…",
+      "elsewhere": "running in another tab"
+    },
+    "start": "Start",
+    "stop": "Stop",
+    "startLabel": "Start {{forward}}",
+    "stopLabel": "Stop {{forward}}",
+    "open_one": "{{count}} connection open",
+    "open_other": "{{count}} connections open",
+    "failedTitle": "Port forward not changed"
   },
   "statusWord": {
     "short": {
