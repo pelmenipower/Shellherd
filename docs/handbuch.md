@@ -78,7 +78,7 @@ Servers. Die üblichen Kopier- und Einfüge-Tastenkürzel bleiben verfügbar.
 
 Im Terminal suchst du mit `Strg+Umschalt+F`. `Enter` sucht weiter, `Umschalt+Enter` zurück, `Esc` schließt die Suche. Groß- und Kleinschreibung spielen keine Rolle. Treffer werden über die Auswahl markiert und nicht in die Zwischenablage kopiert. In den Terminals der Docks in Container- und Cluster-Ansicht gibt es keine Suche; dort geht `Strg+Umschalt+F` an das Terminal.
 
-Links öffnest du mit `Strg+Klick`. Erlaubt sind nur `http`- und `https`-Adressen bis 2048 Zeichen ohne Benutzername und Passwort; alles andere bleibt Text. Beim Überfahren eines Links zeigt das Terminal einen Hinweis.
+Links öffnest du mit `Strg+Klick`. Erlaubt sind nur `http`- und `https`-Adressen bis 2048 Zeichen ohne Benutzername und Passwort; alles andere bleibt Text. Beim Überfahren eines Links zeigt das Terminal einen Hinweis, der das Ziel nennt: „Strg+Klick öffnet <Host> im Browser“. Erscheint ein Link unter der ruhenden Maus, bewege die Maus kurz auf eine andere Zeile.
 
 Ein Tab, dessen Terminal gerade nicht sichtbar ist, zeigt mit neuer Ausgabe einen Ring nach dem Namen; der Name wird hell und fett. Sobald du den Tab siehst, verschwindet die Markierung.
 

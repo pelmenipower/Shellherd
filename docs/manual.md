@@ -79,7 +79,7 @@ The usual copy and paste shortcuts remain available.
 
 Search in the terminal with `Ctrl+Shift+F`. `Enter` finds the next match, `Shift+Enter` the previous one, `Esc` closes the search. Upper and lower case do not matter. Matches are highlighted by the selection and are not copied to the clipboard. The terminals in the container and cluster docks have no search; there `Ctrl+Shift+F` goes to the terminal.
 
-Open links with `Ctrl+click`. Only `http` and `https` addresses up to 2048 characters without user name or password are allowed; everything else stays text. Hovering over a link shows a hint in the terminal.
+Open links with `Ctrl+click`. Only `http` and `https` addresses up to 2048 characters without user name or password are allowed; everything else stays text. Hovering over a link shows a hint in the terminal that names the target: “Ctrl+click opens <host> in your browser”. If a link appears under the resting mouse, move the mouse briefly to another line.
 
 A tab whose terminal is not visible shows a ring after its name when new output arrives; the name turns bold and brighter. The mark disappears once you see the tab.
 

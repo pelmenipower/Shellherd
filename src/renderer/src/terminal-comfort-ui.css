@@ -1,6 +1,6 @@
 /* Terminal comfort: search bar, link hint, tab activity, input to all panes. No motion: keyboard-triggered or frequent. */
 .terminal-search { flex: none; display: flex; align-items: center; gap: var(--space-4); min-height: var(--control-sm); box-sizing: border-box; padding: var(--space-2) var(--space-8); border-bottom: 1px solid var(--color-border); background: var(--color-bg-panel); font-size: var(--fs-sm); }
-.terminal-search input { flex: 0 1 240px; min-width: 0; height: var(--control-xs); min-height: var(--control-xs); }
+.terminal-search input { flex: 0 1 var(--width-search); min-width: 0; height: var(--control-xs); min-height: var(--control-xs); }
 .terminal-search button { display: grid; place-items: center; flex: 0 0 var(--control-xs); width: var(--control-xs); height: var(--control-xs); min-height: var(--control-xs); padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--color-text-muted); background: transparent; }
 .terminal-search button:hover { color: var(--color-text); background: var(--color-bg-hover); }
 .terminal-search-status { color: var(--color-text-muted); }

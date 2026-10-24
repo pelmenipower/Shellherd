@@ -66,7 +66,7 @@ function NumberSetting({ id, label, unit, value, limits, format = String, busy, 
         onChange={event => setDraft(event.target.value)} onBlur={commit}
         onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); } }} />
       <span id={`${id}-unit`}>{unit}</span>
-      {invalid && <p className="field-error" id={`${id}-error`} role="alert">{t('app:settings.rangeError', { min: limits[0], max: limits[1] })}</p>}
+      {invalid && <p className="field-error" id={`${id}-error`} role="alert">{t('app:settings.rangeError', { min: format(limits[0]), max: format(limits[1]) })}</p>}
     </div>
   );
 }

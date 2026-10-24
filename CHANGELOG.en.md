@@ -11,7 +11,7 @@ Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails 
 - New: Tab shortcuts in the focused pane: `Ctrl+Tab` and `Ctrl+Shift+Tab` switch the tab, `Ctrl+Shift+T` opens the connection picker, `Ctrl+Shift+W` closes the active tab with the usual confirmation. `Ctrl+F`, `Ctrl+T` and `Ctrl+W` stay with the shell (one character forward, swap characters, delete word), which is why the Shift variants are used.
 - New: Settings → Terminal (after unlocking) for font, font size (8 to 32 pixels, default 14), scrollback (1,000 to 50,000 lines, default 5,000), cursor shape and blinking. The values apply at once to all open terminals of the vault; a smaller scrollback trims open terminals.
 - New: When closed, the main window remembers its size, position and maximized state in `settings.json`, not in the vault. The next start restores them if the place is still visible. A window closed while minimized keeps the saved position.
-- New: A tab whose terminal is not visible shows a ring after its name when new output arrives; the name turns bold and light. Making the tab visible removes the mark.
+- New: A tab whose terminal is not visible shows a ring after its name when new output arrives; the name turns bold and light. As soon as the tab becomes visible, the mark disappears.
 - New: Input to all panes, in the pane header menu (from two panes). What you type goes to all connected SSH and local terminals of the shown view. Containers, pods, RDP, SFTP, clusters and the welcome page stay out. The panes show a warning line and the button “To all”, which stops the input. It ends when you switch views, and also when fewer than two terminals remain.
 - Note: Older Shellherd versions remove the terminal settings when saving.
 
