@@ -29,7 +29,7 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 | Name | Rolle | Wert | Beispiel |
 |---|---|---|---|
 | `--color-bg-stage` | Terminal, Code, Manifest | `#0b1018` | `.terminal-panel` |
-| `--color-bg-app` | Fensterhintergrund, View-Leiste | `#0e141e` | `body` |
+| `--color-bg-app` | Fensterhintergrund, View-Leiste (hell `#f1eee9`) | `#0e141e` | `body` |
 | `--color-bg-panel` | Leisten, Seitenleiste, Dialoge, Menüs | `#151d2a` | `.confirm-dialog` |
 | `--color-bg-raised` | Controls, Zeilen-Hover | `#1c2635` | `button` |
 | `--color-bg-hover` | Button-, Tab-Hover, „an“-Chips | `#253043` | `button:hover` |
@@ -42,6 +42,7 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 | `--color-backdrop` | Hintergrund hinter Dialogen | `rgb(5 8 13 / 72%)` | `.confirm-dialog::backdrop` |
 | `--color-border` | Standardlinie | `#2e3a4c` | Leistenränder |
 | `--color-border-strong` | Hover-Rand, aktiver Tab | `#4d5b70` | `button:hover` |
+| `--color-border-control` | Rand von Eingaben, mindestens 3:1 auf Eingabe und Panel | `#637389` | `input`, `select`, `textarea` |
 | `--color-text` | Text | `#ebe7e2` | Fließtext |
 | `--color-text-muted` | gedämpfter Text | `#aeb3bc` | Beschriftungen |
 | `--color-text-code` | Code-Text | `#e6e2dc` | Manifest |
@@ -71,8 +72,8 @@ Main setzt `nativeTheme.themeSource` aus `settings.json`. Der Renderer liest das
 | `--color-bg-stage` | `#ffffff` | Bühne hell (R-B4); Code-Text 16,6, Text 17,5 |
 | `--color-bg-app` | `#f1eee9` | warmes Grau, Basis; Text 15,1, gedämpft 6,5 |
 | `--color-bg-panel` | `#f8f6f3` | Leisten/Dialoge heben sich hell vom App-Grund ab; Text 16,2, gedämpft 7,0, Akzent 6,2 |
-| `--color-bg-raised` | `#ebe7e1` | Controls/Zeilen-Hover eine Stufe dunkler als Panel; Text 14,2, gedämpft 6,2, Akzent/ok/warn/Gefahr ≥ 5,3 |
-| `--color-bg-hover` | `#e4dfd8` | Hover und „an“-Chips; Text 13,2, gedämpft 5,7, Akzenttext 5,0, ok/warn/Gefahr ≥ 4,96 |
+| `--color-bg-raised` | `#ebe7e1` | Controls/Zeilen-Hover eine Stufe dunkler als Panel; Text 14,2, gedämpft 6,2, Akzent 5,4, ok 5,4, Gefahr 5,3, warn 5,2 |
+| `--color-bg-hover` | `#e4dfd8` | Hover und „an“-Chips; Text 13,2, gedämpft 5,7, Akzenttext 5,0, ok 5,0, Gefahr 4,96, warn 4,8 |
 | `--color-bg-input` | `#ffffff` | Eingaben weiß wie die Bühne; Text 17,5 |
 | `--color-bg-selected` | `#f5dfcc` | ein opakes helles Kupfer; Text 13,6, gedämpft 5,9, Akzent 5,2 |
 | `--color-bg-active` | `rgb(148 70 26 / 12%)` | Tönung aus hellem Akzent, auf Panel ≈ `#ece1d9`; Text 13,6, Akzent 5,2 |
@@ -82,10 +83,11 @@ Main setzt `nativeTheme.themeSource` aus `settings.json`. Der Renderer liest das
 | `--color-backdrop` | `rgb(29 25 21 / 40%)` | dimmt, ohne den Dialog zu erschlagen; Sperrbildschirm nutzt opakes `--color-bg-app` (unberührt) |
 | `--color-border` | `#d6cfc6` | Haarlinie, Kontrast 1,43 auf Panel wie dunkel (1,47): Rolle „Linie“, kein alleiniger Control-Rand |
 | `--color-border-strong` | `#8a7f73` | Hover-Rand/aktiver Tab; 3,6 auf Panel, 3,2 auf erhöht (≥ 3:1, besser als dunkel 2,45) |
-| `--color-text` | `#1d1915` | warmes Fast-Schwarz; ≥ 12,0 auf jeder Fläche |
-| `--color-text-muted` | `#5a534b` | ≥ 5,7 auf jeder Fläche einschließlich Hover |
+| `--color-border-control` | `#857a6d` | Rand von Eingaben; 4,2 auf Weiß, 3,9 auf Panel (≥ 3:1) |
+| `--color-text` | `#1d1915` | warmes Fast-Schwarz; ≥ 11,9 auf jeder Fläche |
+| `--color-text-muted` | `#5a534b` | ≥ 5,2 auf jeder Fläche (kleinster Wert auf Drop-Tönung und Textauswahl), auf Hover 5,7 |
 | `--color-text-code` | `#221e1a` | 16,6 auf Bühne |
-| `--color-accent` | `#94461a` | Berner Kupfer, abgedunkelt: `#e8935a` hätte auf Weiß nur 2,4. Ton bleibt Kupfer (≈ 22°); Link/Text ≥ 5,0 auf allen Flächen, Fokusring ≥ 3 überall |
+| `--color-accent` | `#94461a` | Berner Kupfer, abgedunkelt: `#e8935a` hätte auf Weiß nur 2,4. Ton bleibt Kupfer (≈ 22°); Link/Text ≥ 5,0 auf Panel, erhöht und Hover, auf Drop-Tönung 4,6 (Panel) bzw. 4,3 (App-Grund), auf Textauswahl 4,6; Fokusring ≥ 3 überall |
 | `--color-accent-hover` | `#7a3a12` | hell wird Hover dunkler (mehr Gewicht); 8,0 auf Panel |
 | `--color-on-accent` | `#ffffff` | Text auf Primärknopf: 6,7 auf Akzent, 8,6 auf Akzent-Hover |
 | `--color-selection-bg` | `#f2cfb3` | Textauswahl und xterm-Auswahl, helles Kupfer |
@@ -327,7 +329,7 @@ Die Suchleiste (`.terminal-search`) sitzt oben im Terminal-Panel und hat keine B
   - `ConnectionIcon.tsx:17`: die vom Nutzer gewählte Verbindungsfarbe (Daten).
   - `ConnectionForm.tsx:136`: der Startwert `#aeb3bc` für `input[type=color]`, der Hex braucht und `--color-text-muted` entspricht.
   - `terminal-theme.ts`: die xterm-Farben kommen aus den Tokens; die Fallbacks sind die Tokenwerte und werden vom Test geprüft.
-  - `src/main/index.ts`: `backgroundColor` des Fensters vor dem ersten Frame (`#0b1120` dunkel, `#f1eee9` hell).
+  - `src/main/index.ts`: `backgroundColor` des Fensters vor dem ersten Frame (`#0e141e` dunkel = `--color-bg-app`, `#f1eee9` hell).
 - Benannte Farben (`red`, `white` und so weiter) prüft der Lint nicht, sie sind trotzdem verboten.
 
 ## Prüfung

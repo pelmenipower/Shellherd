@@ -12,7 +12,7 @@ button { min-height: var(--control-md); padding: var(--space-4) var(--space-10);
 button:hover:not(:disabled) { background: var(--color-bg-hover); border-color: var(--color-border-strong); }
 button:disabled { opacity: .45; cursor: not-allowed; }
 button:focus-visible, summary:focus-visible, [tabindex]:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-offset); }
-input, textarea, select { width: 100%; min-width: 0; padding: var(--space-8); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-input); }
+input, textarea, select { width: 100%; min-width: 0; padding: var(--space-8); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); background: var(--color-bg-input); }
 input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']), select { height: var(--control-lg); }
 input[type='checkbox'], input[type='radio'] { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--color-accent); }
 input[type='range'] { padding: 0; accent-color: var(--color-accent); }

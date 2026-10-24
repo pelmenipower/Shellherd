@@ -19,6 +19,8 @@
   /* Lines */
   --color-border: #2e3a4c;
   --color-border-strong: #4d5b70;
+  /* Input border: >= 3:1 on --color-bg-input (#0f1520, 3.78) and on --color-bg-panel (#151d2a, 3.50) */
+  --color-border-control: #637389;
 
   /* Text */
   --color-text: #ebe7e2;
@@ -116,6 +118,8 @@
 
     --color-border: #d6cfc6;
     --color-border-strong: #8a7f73;
+    /* Input border: >= 3:1 on --color-bg-input (#ffffff, 4.20) and on --color-bg-panel (#f8f6f3, 3.89) */
+    --color-border-control: #857a6d;
 
     --color-text: #1d1915;
     --color-text-muted: #5a534b;

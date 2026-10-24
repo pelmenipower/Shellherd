@@ -94,7 +94,7 @@ function closeSecondaryWindows(): void {
 }
 
 // Shown before the first paint; matches --color-bg-app of the active scheme.
-const windowBackground = (): string => nativeTheme.shouldUseDarkColors ? '#0b1120' : '#f1eee9';
+const windowBackground = (): string => nativeTheme.shouldUseDarkColors ? '#0e141e' : '#f1eee9';
 
 function createWindow(role: WindowRole, bounds?: Rectangle, maximized = false): BrowserWindow {
   const icon = brandIconPath();
