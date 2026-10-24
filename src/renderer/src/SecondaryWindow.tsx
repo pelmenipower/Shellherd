@@ -19,6 +19,7 @@ import { useCtrlShiftShortcut } from './hooks/useShortcut';
 import { WorkflowPalette } from './components/WorkflowPalette';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { LockScreen } from './components/LockScreen';
+import { AuthPromptDialog } from './components/AuthPromptDialog';
 import { decodeError } from '../../shared/errors';
 import { disabledNotice, disabledTitle, sessionLimitNotice, skippedNotice } from './vault-notices';
 
@@ -133,6 +134,7 @@ export function SecondaryWindow() {
       onConfirm={() => { setPendingClose(null); terminals.close(closingTab.id); }} />}
     <ToastStack />
   </main>
+  <AuthPromptDialog locked={locked} />
   {locked && <LockScreen running={terminals.tabs.filter(isRunning).length} />}
   </>;
 }

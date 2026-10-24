@@ -261,5 +261,13 @@
     "cloud": "Cloud",
     "network": "Netzwerk",
     "files": "Dateien"
+  },
+  "authPrompt": {
+    "title": "Anmeldung bei {{name}}",
+    "server": "{{host}} fragt nach weiteren Angaben.",
+    "field": "Antwort {{index}}",
+    "hint": "Die Antworten gehen nur an diesen Server und werden nicht gespeichert.",
+    "submit": "Anmelden",
+    "ariaLabel": "Anmeldeabfrage des Servers"
   }
 }
