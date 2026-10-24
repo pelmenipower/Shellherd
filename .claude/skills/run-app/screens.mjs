@@ -672,8 +672,17 @@ const blocks = {
       await click('text=files-01 >> nth=0');
       await key('Enter');
       await waitFor('SFTP-Liste', `${count('.file-pane-remote [role=row][data-name]')} >= 5`);
-      await pause(300);
-      await shot('light-sftp');
+      // Local pane on the synthetic folder, as the sftp block does; without a safe folder the shot is skipped, never the real user folder.
+      let local = null;
+      try { local = localTarget(); } catch (error) { console.log(`light-sftp übersprungen: ${error.message}`); }
+      if (local) {
+        await evaluate(`document.querySelector('.file-pane-local nav[aria-label="Pfad"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
+        await fill('.file-pane-local input[aria-label="Pfad"]', local.target);
+        await key('Enter');
+        await waitFor('lokale Spalte', `document.querySelector('.file-pane-local nav[aria-label="Pfad"]')?.textContent.includes(${JSON.stringify(local.segment)})`);
+        await pause(300);
+        await shot('light-sftp');
+      }
       if (await evaluate(`document.body.innerText.includes('prod-k8s')`)) {
         await click('text=prod-k8s >> nth=0');
         await key('Enter');
