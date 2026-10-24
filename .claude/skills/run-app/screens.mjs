@@ -632,7 +632,7 @@ const blocks = {
     await waitFor('Wechsel-Rückfrage', `document.querySelector('dialog.compact-confirm[open]')`);
     await call('main', `electron.dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });`);
     try {
-      await click('dialog.compact-confirm[open] .primary-button');
+      await click('dialog.compact-confirm[open] .primary-button, dialog.compact-confirm[open] .danger-button');
       await waitFor('Liste „Zuletzt benutzt“', `${count('.recent-vault-open')} === 3`);
       await pause(300);
       await shot('start-recent');
