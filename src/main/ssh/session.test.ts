@@ -1177,7 +1177,7 @@ describe('jump hosts, keyboard prompts and port forwards', () => {
     const id = prepare();
     await manager.connect(1, id);
     await waitFor(() => hasStatus('connected'));
-    expect(openJump).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }), 1);
+    expect(openJump).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }), 1, expect.any(Function));
     expect(events).toContainEqual({ type: 'step', sessionId: id, step: 'jump' });
   });
 
@@ -1200,6 +1200,36 @@ describe('jump hosts, keyboard prompts and port forwards', () => {
     await manager.connect(1, id);
     expect(events).toContainEqual(expect.objectContaining({ type: 'status', sessionId: id, status: 'error', code: 'unknown',
       error: expect.objectContaining({ code: 'ssh.jumpHostFailed' }) }));
+  });
+
+  it('tells the hop that it is no longer wanted when the session ends during the hop', async () => {
+    const sock = throughServer();
+    const close = vi.fn(() => sock.destroy());
+    let hopActive: (() => boolean) | undefined;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    connection = { ...connection, host: 'unreachable.invalid', jumpHost: 'jump-id' };
+    rebuild({ openJump: async (_connection, _ownerId, isActive) => { hopActive = isActive; await gate; return { name: 'Sprung', sock, close }; } });
+    const id = prepare();
+    const connecting = manager.connect(1, id);
+    expect(hopActive!()).toBe(true);
+    manager.close(1, id);
+    expect(hopActive!()).toBe(false);
+    release();
+    await connecting;
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(hasStatus('connected')).toBe(false);
+  });
+
+  it('fails instead of connecting directly when the jump host cannot be used', async () => {
+    connection = { ...connection, host: 'unreachable.invalid', jumpHost: 'jump-id' };
+    rebuild({});
+    const id = prepare();
+    await manager.connect(1, id);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'status', sessionId: id, status: 'error',
+      error: expect.objectContaining({ code: 'ssh.jumpHostUnusable', params: { name: 'jump-id' } }) }));
+    expect(events).not.toContainEqual(expect.objectContaining({ type: 'step', sessionId: id, step: 'reach' }));
+    expect(hasStatus('connected')).toBe(false);
   });
 
   it('answers keyboard-interactive questions only when an ask function is given', async () => {
@@ -1256,5 +1286,23 @@ describe('jump hosts, keyboard prompts and port forwards', () => {
     expect(hasStatus('closed')).toBe(false);
     busy.mockReturnValue(false);
     await waitFor(() => hasStatus('closed'));
+  });
+
+  it('sends the forward list to the new owner when a window attaches', async () => {
+    connection = { ...connection, forwards: [{ id: forwardId, kind: 'dynamic', localPort: freePort, auto: true }] };
+    const owned: Array<{ owner: number; event: SshEvent }> = [];
+    rebuild({ forwardRegistry: registry, emit: (owner, event) => {
+      owned.push({ owner, event });
+      events.push(event);
+      if (event.type === 'data') manager.acknowledge(owner, event.sessionId, event.sequence);
+    } });
+    const id = prepare();
+    await manager.connect(1, id);
+    await waitFor(() => events.some(event => event.type === 'forwards' && event.forwards[0]?.state === 'active'));
+    manager.transferOwner(1, id, 2);
+    manager.attach(2, id);
+    expect(owned.filter(entry => entry.owner === 2).at(-1)).toEqual({ owner: 2, event: { type: 'forwards', sessionId: id,
+      forwards: [expect.objectContaining({ id: forwardId, state: 'active' })] } });
+    manager.close(2, id);
   });
 });

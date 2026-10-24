@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
@@ -267,5 +267,52 @@ describe('openRemoteHost extras', () => {
     expect(seen[0]).toMatchObject({ tryKeyboard: true, sock });
     expect(seen[1]).toMatchObject({ tryKeyboard: false });
     expect(seen[1]).not.toHaveProperty('sock');
+  });
+});
+
+describe('openRemoteHost session state', () => {
+  /** Fake client: records the connect config, the test emits the ssh2 events. */
+  function fakeClient(seen: Record<string, any>[]) {
+    const fake = Object.assign(new EventEmitter(), {
+      connect(given: Record<string, any>) { seen.push(given); },
+      destroy() { if (fake.listenerCount('error') > 0) fake.emit('error', new Error('destroyed')); },
+      end() {},
+    });
+    return fake;
+  }
+
+  it('gives the host key check the session state of the caller', async () => {
+    const seen: Record<string, any>[] = [];
+    const fake = fakeClient(seen);
+    let session = true;
+    let isActive: (() => boolean) | undefined;
+    const pending = openRemoteHost(connection, async (_h, _p, _k, active) => { isActive = active; return false; },
+      () => fake as unknown as Client, undefined, { isActive: () => session });
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    seen[0].hostVerifier(Buffer.alloc(0), () => {});
+    expect(isActive!()).toBe(true);
+    session = false;
+    expect(isActive!()).toBe(false);
+    fake.emit('error', new Error('closed'));
+    await expect(pending).rejects.toThrow();
+  });
+
+  it('gives the keyboard prompt the session state of the caller', async () => {
+    const seen: Record<string, any>[] = [];
+    const fake = fakeClient(seen);
+    let session = true;
+    const asked: Array<() => boolean> = [];
+    // Never answers: the prompt stays open until the session check fails.
+    const ask = async (_request: unknown, options: { isActive: () => boolean }) => { asked.push(options.isActive); return new Promise<null>(() => {}); };
+    const pending = openRemoteHost(connection, async () => true, () => fake as unknown as Client, undefined,
+      { ask, ownerId: 3, isActive: () => session });
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    fake.emit('keyboard-interactive', 'Login', '', '', [{ prompt: 'Code: ', echo: true }], () => {});
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0]()).toBe(true);
+    session = false;
+    expect(asked[0]()).toBe(false);
+    fake.emit('error', new Error('closed'));
+    await expect(pending).rejects.toThrow();
   });
 });

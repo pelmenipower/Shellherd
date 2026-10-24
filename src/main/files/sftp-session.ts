@@ -4,7 +4,7 @@ import { pipeline } from 'node:stream/promises';
 import { posix } from 'node:path';
 import { Client } from 'ssh2';
 import type { SFTPWrapper } from 'ssh2';
-import { limitError, type CodedError } from '../../shared/errors';
+import { AppError, limitError, type CodedError } from '../../shared/errors';
 import type { ConnectionNode, ConnectionTimeouts, SftpConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
 import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
@@ -43,8 +43,8 @@ export interface SftpDependencies {
   createClient?: () => Client;
   /** Keyboard-interactive questions; without it the server gets no keyboard answers. */
   ask?: AskPrompts;
-  /** Opens the hop named by `jumpHost`; undefined without one. */
-  openJump?: (connection: SshConnectionNode | SftpConnectionNode, ownerId: number) => Promise<Jump | undefined>;
+  /** Opens the hop named by `jumpHost`; undefined without one. `isActive` turns false once the session ended. */
+  openJump?: (connection: SshConnectionNode | SftpConnectionNode, ownerId: number, isActive: () => boolean) => Promise<Jump | undefined>;
 }
 
 interface Job {
@@ -99,8 +99,10 @@ export class SftpSessionManager {
     const timeouts = (this.dependencies.getTimeouts ?? (() => DEFAULT_TIMEOUTS))(connection);
     session.idleMs = timeouts.idleMinutes * 60_000;
     try {
-      if (connection.jumpHost && this.dependencies.openJump) {
-        session.jump = await this.dependencies.openJump(connection, session.ownerId);
+      if (connection.jumpHost) {
+        // Without an opener the host would be reached directly, which the spec forbids.
+        if (!this.dependencies.openJump) throw new AppError('ssh.jumpHostUnusable', { name: connection.jumpHost });
+        session.jump = await this.dependencies.openJump(connection, session.ownerId, () => this.active(session));
         // The session may have ended while the hop opened; finish could not close it then.
         if (!this.active(session)) { session.jump?.close(); return; }
       }

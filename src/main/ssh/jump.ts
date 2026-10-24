@@ -8,7 +8,7 @@ export interface Jump { readonly name: string; readonly sock: Duplex; close(): v
 export interface JumpDependencies {
   getConnection(id: string): ConnectionNode | undefined;
   /** openRemote with the jump connection's own timeouts, host-key check and keyboard prompts. */
-  openRemote(connection: SshConnectionNode, ownerId?: number): Promise<RemoteHost>;
+  openRemote(connection: SshConnectionNode, ownerId?: number, isActive?: () => boolean): Promise<RemoteHost>;
 }
 
 /** Same classification as publicError in session.ts; a copy avoids an import cycle once session.ts uses this module. */
@@ -19,7 +19,7 @@ function causeOf(error: unknown): CodedError {
 
 /** Opens one hop through `connection.jumpHost`; undefined without one (spec 4.1 and 4.2). */
 export async function openJump(connection: SshConnectionNode | SftpConnectionNode, dependencies: JumpDependencies,
-  ownerId?: number): Promise<Jump | undefined> {
+  ownerId?: number, isActive?: () => boolean): Promise<Jump | undefined> {
   const id = connection.jumpHost;
   if (!id) return undefined;
   const jump = dependencies.getConnection(id);
@@ -30,9 +30,14 @@ export async function openJump(connection: SshConnectionNode | SftpConnectionNod
   }
   let host: RemoteHost;
   try {
-    host = await dependencies.openRemote(jump, ownerId);
+    host = await dependencies.openRemote(jump, ownerId, isActive);
   } catch (error) {
     throw new AppError('ssh.jumpHostFailed', { name: jump.name }, undefined, [{ label: jump.name, error: causeOf(error) }]);
+  }
+  // The session may have closed during the jump host login: no forward for nobody.
+  if (isActive && !isActive()) {
+    host.close();
+    throw new AppError('ssh.jumpHostFailed', { name: jump.name }, undefined, [{ label: jump.name, error: { code: 'ssh.promptCancelled' } }]);
   }
   let channel: Duplex;
   try {

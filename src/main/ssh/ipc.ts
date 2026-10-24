@@ -48,11 +48,11 @@ export function registerSshIpcHandlers(knownHosts: KnownHosts, prompts: AuthProm
     openKubeTerminal,
     ask: prompts.ask,
     forwardRegistry: new ForwardRegistry(),
-    openJump: (connection, ownerId) => openJump(connection, {
+    openJump: (connection, ownerId, isActive) => openJump(connection, {
       getConnection: id => findConnection(vaultSessionManager.getSnapshot().vault.nodes, id),
-      openRemote: (jump, owner) => openRemoteHost(jump, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
-        undefined, effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, jump), { ask: prompts.ask, ownerId: owner }),
-    }, ownerId),
+      openRemote: (jump, owner, active) => openRemoteHost(jump, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
+        undefined, effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, jump), { ask: prompts.ask, ownerId: owner, isActive: active }),
+    }, ownerId, isActive),
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
       if (!connection) throw new AppError('ssh.connectionNotFound');

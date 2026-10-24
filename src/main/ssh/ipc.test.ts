@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IpcMainInvokeEvent } from 'electron';
 import { randomUUID } from 'node:crypto';
+import { AppError } from '../../shared/errors';
 import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ipc';
 import { AuthPrompts } from './auth-prompts';
 import type { SshSessionManager } from './session';
@@ -20,6 +21,9 @@ vi.mock('electron', () => ({
   webContents: { fromId: () => undefined },
 }));
 vi.mock('../vault/ipc', () => ({ vaultSessionManager: { getSnapshot: mocks.getSnapshot } }));
+const hopMocks = vi.hoisted(() => ({ openJump: vi.fn(), openRemoteHost: vi.fn() }));
+vi.mock('./jump', () => ({ openJump: hopMocks.openJump }));
+vi.mock('../containers/runner', () => ({ openRemoteHost: hopMocks.openRemoteHost }));
 
 function sender(id = 1, subframe = false): IpcMainInvokeEvent {
   const frame = {};
@@ -69,6 +73,27 @@ describe('auth prompt answers and port forwards', () => {
     const forward = mocks.handlers.get('ssh:forward')!;
     await expect(forward(sender(), { sessionId: randomUUID(), forwardId: randomUUID(), run: true })).rejects.toMatchObject({ code: 'ssh.notAvailable' });
     expect(() => forward(sender(), { sessionId: randomUUID(), forwardId: 'local-1', run: true })).toThrow(expect.objectContaining({ code: 'ssh.invalidRequest' }));
+  });
+});
+
+describe('jump host wiring', () => {
+  it('gives the hop the owner and the session activity, and the remote host the same', async () => {
+    const credentials = { method: 'password' as const, password: 'synthetic-secret' };
+    const hop = { id: 'jump-id', type: 'connection', protocol: 'ssh', name: 'Sprung', host: 'jump.test', port: 22, username: 'synthetic-user', authentication: credentials, tags: [] };
+    const target = { ...hop, id: 'target-id', name: 'Ziel', host: 'target.test', jumpHost: 'jump-id' };
+    mocks.getSnapshot.mockReturnValue({ vault: { settings: {}, nodes: [target, hop] } });
+    let activeInHop: boolean | undefined;
+    hopMocks.openJump.mockImplementation(async (_connection: unknown, deps: { openRemote: (node: unknown, owner: number, active: () => boolean) => Promise<unknown> }, owner: number, active: () => boolean) => {
+      activeInHop = active();
+      await deps.openRemote(hop, owner, active);
+      throw new AppError('ssh.jumpHostFailed', { name: 'Sprung' });
+    });
+    const id = (mocks.handlers.get('ssh:prepare')!(sender(), { connectionId: 'target-id', cols: 80, rows: 24 }) as { sessionId: string }).sessionId;
+    await mocks.handlers.get('ssh:connect')!(sender(), { sessionId: id });
+    expect(activeInHop).toBe(true);
+    expect(hopMocks.openJump).toHaveBeenCalledWith(expect.objectContaining({ id: 'target-id' }), expect.any(Object), 1, expect.any(Function));
+    expect(hopMocks.openRemoteHost).toHaveBeenCalledWith(expect.objectContaining({ id: 'jump-id' }), expect.any(Function), undefined, expect.any(Object),
+      expect.objectContaining({ ownerId: 1, isActive: expect.any(Function) }));
   });
 });
 

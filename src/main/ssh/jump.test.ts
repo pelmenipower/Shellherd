@@ -18,7 +18,7 @@ function fakeHost(forward: () => Promise<PassThrough>) {
 }
 
 function dependencies(nodes: ConnectionNode[], host = fakeHost(async () => new PassThrough())) {
-  const openRemote = vi.fn(async (_connection: SshConnectionNode, _ownerId?: number) => host);
+  const openRemote = vi.fn(async (_connection: SshConnectionNode, _ownerId?: number, _isActive?: () => boolean) => host);
   const deps: JumpDependencies = {
     getConnection: id => nodes.find(node => node.id === id),
     openRemote,
@@ -69,7 +69,7 @@ describe('openJump', () => {
       code: 'ssh.jumpHostFailed', params: { name: 'Bastion' },
       causes: [{ label: 'Bastion', error: { code: 'containers.hostKeyRejected' } }],
     });
-    expect(openRemote).toHaveBeenCalledWith(bastion, 7);
+    expect(openRemote).toHaveBeenCalledWith(bastion, 7, undefined);
   });
 
   it('maps a plain login failure of the jump host to a generic cause', async () => {
@@ -106,5 +106,29 @@ describe('openJump', () => {
     jump!.close();
     expect(destroy).toHaveBeenCalledTimes(1);
     expect(host.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('openJump session state', () => {
+  it('passes the session check on to openRemote', async () => {
+    const { deps, openRemote } = dependencies([bastion]);
+    const isActive = () => true;
+    await openJump(target, deps, 7, isActive);
+    expect(openRemote).toHaveBeenCalledWith(bastion, 7, isActive);
+  });
+
+  it('closes the jump host and forwards nothing when the session ends during the login', async () => {
+    const host = fakeHost(async () => new PassThrough());
+    const { deps } = dependencies([bastion], host);
+    let active = true;
+    // The session closes while the jump host still asks for its 2FA code.
+    deps.openRemote = vi.fn(async () => { active = false; return host; });
+    const error = await failure(openJump(target, deps, 7, () => active));
+    expect(error).toMatchObject({
+      code: 'ssh.jumpHostFailed', params: { name: 'Bastion' },
+      causes: [{ label: 'Bastion', error: { code: 'ssh.promptCancelled' } }],
+    });
+    expect(host.close).toHaveBeenCalledTimes(1);
+    expect(host.forward).not.toHaveBeenCalled();
   });
 });

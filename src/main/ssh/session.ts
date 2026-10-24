@@ -65,8 +65,8 @@ export interface SshDependencies {
   emit: (ownerId: number, event: SshEvent) => void;
   /** Keyboard-interactive questions of the user; absent, only the stored password answers. */
   ask?: AskPrompts;
-  /** Opens the jump host hop of a connection; absent disables jump hosts. */
-  openJump?: (connection: SshConnectionNode, ownerId: number) => Promise<Jump | undefined>;
+  /** Opens the jump host hop of a connection; isActive turns false when the session ends during the hop. Absent: a connection with a jump host fails. */
+  openJump?: (connection: SshConnectionNode, ownerId: number, isActive: () => boolean) => Promise<Jump | undefined>;
   /** App-wide claims of port forwards; absent disables port forwards. */
   forwardRegistry?: ForwardRegistry;
 }
@@ -265,9 +265,14 @@ export class SshSessionManager {
       // Decided before connecting, so an unusable password fails without contacting the host.
       const sudo = session.target ? this.sudoMode(session, connection) : undefined;
       const root = session.login?.sudo ? this.rootShellPlan(session, connection) : undefined;
+      // Never connects directly when the jump host cannot be used (spec 6: no silent switch to direct).
+      if (connection.jumpHost && !this.dependencies.openJump) {
+        this.fail(session, new AppError('ssh.jumpHostUnusable', { name: connection.jumpHost }));
+        return;
+      }
       if (connection.jumpHost && this.dependencies.openJump) {
         this.step(session, 'jump');
-        session.jump = await this.dependencies.openJump(connection, session.ownerId);
+        session.jump = await this.dependencies.openJump(connection, session.ownerId, () => this.active(session));
         if (!this.active(session)) { session.jump?.close(); return; }
       }
       let hostKeySeen = false;
@@ -641,6 +646,8 @@ export class SshSessionManager {
     session.handover = undefined;
     for (const chunk of handover.held) this.output(session, chunk);
     if (session.outputBytes < OUTPUT_HIGH) { session.stream?.resume(); session.stream?.stderr.resume(); session.pty?.resume(); session.kubeStream?.resume(); }
+    // The new window starts with no forward list; resend it so the bar shows the running forwards.
+    if (session.forwards && this.active(session)) this.dependencies.emit(session.ownerId, { type: 'forwards', sessionId: session.id, forwards: session.forwards.list() });
   }
 
   /** Starts or stops one port forward of a connected terminal; the list is the connect-time snapshot. */

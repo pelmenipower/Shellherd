@@ -82,11 +82,11 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts, prompts: AuthPro
     getTimeouts: connection => effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, connection),
     verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
     ask: prompts.ask,
-    openJump: (connection, ownerId) => openJump(connection, {
+    openJump: (connection, ownerId, active) => openJump(connection, {
       getConnection: id => findConnection(vaultSessionManager.getSnapshot().vault.nodes, id),
-      openRemote: (jump, owner) => openRemoteHost(jump, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive), undefined,
-        effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, jump), { ask: prompts.ask, ownerId: owner }),
-    }, ownerId),
+      openRemote: (jump, owner, active) => openRemoteHost(jump, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive), undefined,
+        effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, jump), { ask: prompts.ask, ownerId: owner, isActive: active }),
+    }, ownerId, active),
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);
       if (owner && !owner.isDestroyed()) owner.send(IPC_CHANNELS.sftpEvent, event);
