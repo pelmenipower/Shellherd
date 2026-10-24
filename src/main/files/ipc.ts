@@ -5,6 +5,7 @@ import { extname, win32 } from 'node:path';
 import { z } from 'zod';
 import { parseRequest } from '../ssh/validation';
 import { AppError } from '../../shared/errors';
+import { AUTO_UPLOAD_LOCAL_PATH } from '../../shared/vault/schema';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import type { EditorChoice } from '../../shared/sftp';
 import { writeFile } from 'node:fs/promises';
@@ -35,6 +36,8 @@ const TransferSchema = z.discriminatedUnion('direction', [
 const JobSchema = z.object({ ...session, jobId: z.string().uuid() }).strict();
 const ConflictSchema = z.object({ ...session, conflictId: z.string().uuid(), choice: z.enum(['overwrite', 'skip', 'newer', 'cancel']), applyToAll: z.boolean() }).strict();
 const LocalPathSchema = z.object({ path: localPath }).strict();
+// Typed paths reach this channel: drive or UNC only, never device paths (\\?\, \\.\).
+const LocalListSchema = z.object({ path: localPath.refine(value => AUTO_UPLOAD_LOCAL_PATH.test(value)) }).strict();
 const LocalRenameSchema = z.object({ from: localPath, to: localPath }).strict();
 const LocalDeleteSchema = z.object({ paths: z.array(localPath).min(1).max(1000) }).strict();
 
@@ -119,7 +122,7 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts, prompts: AuthPro
   handle(IPC_CHANNELS.sftpClose, SessionSchema, (ownerId, request) => manager.close(ownerId, request.sessionId));
 
   handle(IPC_CHANNELS.localPlaces, z.undefined(), () => localPlaces());
-  handle(IPC_CHANNELS.localList, LocalPathSchema, async (_ownerId, request) => {
+  handle(IPC_CHANNELS.localList, LocalListSchema, async (_ownerId, request) => {
     const path = win32.resolve(request.path);
     return { path, entries: await localFileSystem.list(path) };
   });

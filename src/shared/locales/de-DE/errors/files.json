@@ -22,6 +22,7 @@
     "connectionNotFound": "Die Verbindung wurde nicht gefunden.",
     "invalidRequest": "Ungültige Dateianfrage.",
     "notFound": "Die Datei oder der Ordner wurde nicht gefunden.",
+    "notADirectory": "Das ist kein Ordner.",
     "accessDenied": "Zugriff verweigert.",
     "notEmpty": "Der Ordner ist nicht leer.",
     "noSpace": "Auf dem Ziel ist nicht genug Speicherplatz frei.",

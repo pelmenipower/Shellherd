@@ -188,7 +188,14 @@ export class SftpSessionManager {
   async list(ownerId: number, id: string, path: string): Promise<DirectoryListing> {
     const fs = this.remote(ownerId, id);
     const resolved = await fs.realpath(path);
-    return { path: resolved, entries: await fs.list(resolved) };
+    try {
+      return { path: resolved, entries: await fs.list(resolved) };
+    } catch (error) {
+      // Servers answer a file path with "no such file" (OpenSSH) or a plain failure; only then ask what it is.
+      const entry = await fs.stat(resolved).catch(() => null);
+      if (entry && entry.type !== 'directory') throw new FileError('files.notADirectory');
+      throw error;
+    }
   }
 
   mkdir(ownerId: number, id: string, path: string): Promise<void> { return this.remote(ownerId, id).mkdir(path); }
