@@ -1,5 +1,5 @@
 import { t } from './i18n';
-import { compareText, formatDateTime, formatNumber } from '../../shared/format';
+import { compareText, foldCase, formatDateTime, formatNumber } from '../../shared/format';
 import type { FileEntry, TransferJob } from '../../shared/sftp';
 
 export type FileSide = 'local' | 'remote';
@@ -74,6 +74,37 @@ export function nameError(side: FileSide, name: string): string | null {
     return side === 'remote' ? t('files:names.slash') : t('files:names.chars');
   }
   return null;
+}
+
+/** Entries the pane shows: dot names only if `showHidden`; then names containing the trimmed `filter`, ignoring case. Keeps the order. */
+export function visibleEntries(entries: FileEntry[], showHidden: boolean, filter: string): FileEntry[] {
+  const needle = foldCase(filter.trim());
+  return entries.filter(entry => (showHidden || !entry.name.startsWith('.')) && (!needle || foldCase(entry.name).includes(needle)));
+}
+
+/** Target of the "Gehe zu" field. */
+export type GoTo = { path: string } | { unsupported: true };
+
+/** Remote: `~` and `~/…` start at `home`, other relative input at `current`. Local: `/` becomes `\`, `D:` becomes `D:\`,
+ *  `\x` uses the drive of `current`, `~` the home folder, other relative input starts at `current`; device paths are refused.
+ *  Null for empty input. `..` is left to the server's realpath and Main's win32.resolve. */
+export function resolveGoTo(side: FileSide, input: string, current: string, home: string | null): GoTo | null {
+  const text = input.trim();
+  if (!text) return null;
+  const base = home ?? current;
+  if (side === 'remote') {
+    if (text === '~') return { path: base };
+    if (text.startsWith('~/')) return { path: joinPath('remote', base, text.slice(2)) };
+    return { path: text.startsWith('/') ? text : joinPath('remote', current, text) };
+  }
+  const value = text.replace(/\//g, '\\');
+  if (/^\\\\[?.](\\|$)/.test(value)) return { unsupported: true };
+  if (value === '~') return { path: base };
+  if (value.startsWith('~\\')) return { path: joinPath('local', base, value.slice(2)) };
+  if (/^[A-Za-z]:/.test(value)) return { path: value[2] === '\\' ? value : `${value.slice(0, 2)}\\${value.slice(2)}` };
+  if (value.startsWith('\\\\')) return { path: value };
+  if (value.startsWith('\\')) return { path: /^[A-Za-z]:/.test(current) ? `${current.slice(0, 2)}${value}` : joinPath('local', current, value.slice(1)) };
+  return { path: joinPath('local', current, value) };
 }
 
 /** Explorer-style selection: click selects one, Ctrl toggles, Shift selects a range from the anchor. */
