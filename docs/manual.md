@@ -77,7 +77,35 @@ Right-click pastes the clipboard text into the terminal you clicked.
 Pasting goes through xterm and respects the server's bracketed paste mode.
 The usual copy and paste shortcuts remain available.
 
+Search in the terminal with `Ctrl+Shift+F`. `Enter` finds the next match, `Shift+Enter` the previous one, `Esc` closes the search. Upper and lower case do not matter. Matches are highlighted by the selection and are not copied to the clipboard. The terminals in the container and cluster docks have no search; there `Ctrl+Shift+F` goes to the terminal.
+
+Open links with `Ctrl+click`. Only `http` and `https` addresses up to 2048 characters without user name or password are allowed; everything else stays text. Hovering over a link shows a hint in the terminal.
+
+A tab whose terminal is not visible shows a ring after its name when new output arrives; the name turns bold and brighter. The mark disappears once you see the tab.
+
+When closed, the main window remembers its size, position and maximized state. The values are stored in `settings.json` in the user data folder, not in the vault. A window closed while minimized keeps its previous position.
+
 File view: `Edit` opens only text, configuration and source files in the default program, everything else in Notepad.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+,` | Open settings |
+| `Ctrl+Shift+K` | Show or hide the AI assistant |
+| `Ctrl+Shift+Space` | Open the workflow palette |
+| `Ctrl+Shift+F` | Search in the terminal |
+| `Ctrl+click` | Open a link in the terminal (http and https only) |
+| `Ctrl+Tab` | Next tab in the focused pane |
+| `Ctrl+Shift+Tab` | Previous tab in the focused pane |
+| `Ctrl+Shift+T` | Open the connection picker of the focused pane |
+| `Ctrl+Shift+W` | Close the active tab of the focused pane (with confirmation) |
+
+`Ctrl+F`, `Ctrl+T` and `Ctrl+W` stay with the shell (one character forward, swap characters, delete word), which is why the Shift variants are used. The tab shortcuts do nothing while a dialog is open or while you type in a text field; in the terminal itself they work. `Ctrl+Shift+T` and `Ctrl+Shift+W` do not repeat when you hold the keys down.
+
+### Input to all panes
+
+In the pane header menu, `Send input to all panes` turns it on; the entry appears from two panes. What you type then goes to all connected SSH and local terminals of the shown view. Containers, pods, RDP, SFTP, clusters and the welcome page stay out. Workflows and the assistant still type into one tab only. Member panes show a warning line and the button `To all`; a click on it stops the input. It also ends when you switch views or when fewer than two terminals remain.
 
 ## Settings
 
@@ -120,6 +148,21 @@ Settings → Connections (after unlocking only) holds four values for SSH and SF
 - **Idle:** Input or output resets the time. Afterwards the bar shows “idle timeout” and `Reconnect` (`Enter`). This applies to SSH terminals, container tabs, pod terminals and the file view. Local shells, RDP and cluster views have no idle limit. A file view with a running transfer, active auto-upload or an open edit does not disconnect when idle.
 - **Per connection:** Under `More options` of an SSH or SFTP connection, the four values can be overridden one by one (`Idle disconnect (min)`, `Keepalive (s)`, `Keepalive misses`, `Connection timeout (s)`). Empty means: default from the settings. Containers and clusters inherit the values of the SSH node they use.
 - **Short connection timeout:** It keeps running while the host key prompt is open. With a very short value, accepting a new key fails if you read for longer. Accept new keys through `Test connection` (its timer pauses in the prompt) or set a larger value.
+
+### Terminal
+
+Under Settings → Terminal (after unlocking) there are font, font size, scrollback, cursor shape and blinking. The values apply at once to all open terminals of this vault and are saved with it. Older Shellherd versions remove them when saving.
+
+| Value | Default | Limits |
+|---|---|---|
+| `Font` | Consolas | at most 64 characters: letters, digits, spaces, `.`, `_`, `-` |
+| `Font size` | 14 pixels | 8 to 32 |
+| `Scrollback` | 5,000 lines | 1,000 to 50,000 |
+| `Cursor` | Block | Block, Bar or Underline |
+| `Cursor blinks` | yes | yes or no |
+
+- **Font:** A name, not a list of installed fonts. Empty or not installed on this computer, Shellherd uses Consolas, then Cascadia Mono and a standard monospace font.
+- **Scrollback:** Every line takes memory; 10,000 lines need about 15 MB per terminal, up to 240 MB with 16 open terminals. A smaller value trims the scrollback of open terminals.
 
 ### AI providers
 
