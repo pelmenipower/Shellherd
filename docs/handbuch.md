@@ -191,7 +191,7 @@ Workflows sind gespeicherte Befehle, die Shellherd für dich in ein Terminal tip
 
 Die Suche prüft Name, Tags, Beschreibung und Befehl ohne Rücksicht auf Groß- und Kleinschreibung; bei mehreren Wörtern muss jedes vorkommen. Workflows für die Shell des aktiven Tabs und für alle Shells stehen oben, alphabetisch; Workflows für eine andere Shell folgen blasser und bleiben wählbar. `↑` und `↓` wählen, `Enter` oder ein Klick nimmt den Workflow, `Esc` oder ein Klick neben die Palette schließt sie.
 
-Ohne Platzhalter tippt Shellherd den Befehl sofort ein und schließt die Palette. Ausgeführt wird nichts: `Enter` drückst du selbst. Workflows nehmen nur verbundene SSH-, PowerShell- und CMD-Tabs sowie die Shell eines Pods an; Dateiansicht, Container- und Cluster-Ansicht, Remotedesktop und Willkommensseite nicht. Ist das Terminal getrennt oder läuft darin ein Vollbildprogramm wie `vim`, `less` oder `top`, bleibt die Palette offen und nennt den Grund. `Eingabe an alle` gilt für Workflows nicht; sie gehen immer nur in den aktiven Tab.
+Ohne Platzhalter tippt Shellherd den Befehl sofort ein und schließt die Palette. Ausgeführt wird nichts: `Enter` drückst du selbst. Workflows nehmen nur verbundene SSH-, PowerShell- und CMD-Tabs sowie die Shell eines Containers oder Pods an; Dateiansicht, Container-Ansicht selbst, Cluster-Ansicht, Remotedesktop und Willkommensseite nicht. Ist das Terminal getrennt oder läuft darin ein Vollbildprogramm wie `vim`, `less` oder `top`, bleibt die Palette offen und nennt den Grund. `Eingabe an alle` gilt für Workflows nicht; sie gehen immer nur in den aktiven Tab.
 
 ### Platzhalter
 
