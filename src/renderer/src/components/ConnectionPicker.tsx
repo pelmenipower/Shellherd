@@ -15,9 +15,11 @@ interface Props {
   onConnect: (id: string) => void;
   /** Opens the welcome tab; absent (secondary windows) = no entry. */
   onWelcome?: () => void;
+  /** Changes open the picker; 0 or undefined never opens. */
+  openRequest?: number;
 }
 
-export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, onConnect, onWelcome }: Props) {
+export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, onConnect, onWelcome, openRequest }: Props) {
   const { t } = useT();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -56,6 +58,9 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
     setQuery('');
     popover.current.showPopover();
   };
+  useEffect(() => {
+    if ((openRequest ?? 0) > 0 && !disabled && !popover.current?.matches(':popover-open')) toggle();
+  }, [openRequest]);
 
   return <>
     <button ref={trigger} className="terminal-tab-add" type="button" disabled={disabled}

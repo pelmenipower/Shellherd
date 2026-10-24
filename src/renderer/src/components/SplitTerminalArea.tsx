@@ -26,6 +26,9 @@ import type { AutoUploadBinding, VaultNode } from '../../../shared/vault/types';
 import { findNode } from '../vault-selection';
 import { MAX_SSH_SESSIONS } from '../../../shared/ssh';
 import { searchVaultNodes } from '../vault-search';
+import { useCtrlShiftShortcut, useCtrlShortcut } from '../hooks/useShortcut';
+import { broadcastEligible, broadcastGroup } from '../terminal-broadcast';
+import { notify } from '../notice-store';
 import '../terminal-ui.css';
 
 interface Props {
@@ -214,6 +217,41 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     return () => { document.removeEventListener('keydown', escape); window.removeEventListener('blur', cancelDrag); };
   }, [cancelDrag]);
   const selectTab = (paneId: string, tabId: string | null) => { onFocus(paneId); onSelect(tabId); };
+  // Keys are swallowed even when blocked, so a blocked Ctrl+Tab never reaches the terminal.
+  const shortcutBlocked = (): boolean => {
+    if (busy || !visible || draggedTabId) return true;
+    if (document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return true;
+    const active = document.activeElement;
+    return !!active?.matches('input, textarea, select, [contenteditable]') && !active.matches('textarea.xterm-helper-textarea');
+  };
+  const focusTerminal = (tabId: string) => requestAnimationFrame(() =>
+    document.querySelector<HTMLElement>(`#terminal-${CSS.escape(tabId)} textarea.xterm-helper-textarea`)?.focus());
+  const cycleTab = (step: 1 | -1): void => {
+    if (shortcutBlocked()) return;
+    const ids = focusedPane.tabIds;
+    if (ids.length < 2) return;
+    const index = ids.indexOf(focusedPane.activeTabId ?? '');
+    const next = ids[(index + step + ids.length) % ids.length];
+    selectTab(focusedPane.id, next);
+    focusTerminal(next);
+  };
+  useCtrlShortcut('Tab', () => cycleTab(1), true);
+  useCtrlShiftShortcut('Tab', () => cycleTab(-1));
+  useCtrlShiftShortcut('KeyW', () => { if (!shortcutBlocked() && focusedPane.activeTabId) onClose(focusedPane.activeTabId); }, false);
+  const [pickerRequest, setPickerRequest] = useState<{ paneId: string; count: number }>({ paneId: '', count: 0 });
+  useCtrlShiftShortcut('KeyT', () => { if (!shortcutBlocked()) setPickerRequest(current => ({ paneId: focusedPane.id, count: current.count + 1 })); }, false);
+  // Input to all panes: members are the active tabs of the shown panes that can take it.
+  const [broadcast, setBroadcast] = useState(false);
+  const candidates = shownRegions.flatMap(region => {
+    const tab = tabs.find(item => item.id === region.pane.activeTabId);
+    return tab && broadcastEligible(tab) ? [tab.id] : [];
+  });
+  const members = broadcast ? candidates : [];
+  const memberKey = members.join('|');
+  useEffect(() => { if (broadcast && candidates.length < 2) setBroadcast(false); }, [broadcast, candidates.length]);
+  useEffect(() => { broadcastGroup.set(memberKey ? memberKey.split('|') : []); }, [memberKey]);
+  useEffect(() => () => broadcastGroup.set([]), []);
+  useEffect(() => { setBroadcast(false); }, [viewControls?.activeViewId]);
   const previewLayout = hover && draggedTabId ? dockTab(layout, draggedTabId, hover.paneId, hover.zone, 'dock-preview', hover.beforeTabId) : null;
   const previewRegion = previewLayout && previewLayout !== layout && draggedTabId
     ? paneRects(previewLayout).find(region => region.pane.tabIds.includes(draggedTabId)) : undefined;
@@ -366,7 +404,7 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
     <div className={`split-terminal-stage${draggedTabId ? ' is-dragging-tab' : ''}`} ref={stage}
       onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={cancelDrag}
       onLostPointerCapture={event => { if (drag.current?.pointerId === event.pointerId) cancelDrag(); }}>
-      {shownRegions.map((region, index) => <div key={`chrome-${region.pane.id}`} data-pane-id={region.pane.id} className={`pane-chrome${region.pane.id === focusedPane.id ? ' pane-focused' : ''}`} style={rectangle(region)}>
+      {shownRegions.map((region, index) => <div key={`chrome-${region.pane.id}`} data-pane-id={region.pane.id} className={`pane-chrome${region.pane.id === focusedPane.id ? ' pane-focused' : ''}${members.includes(region.pane.activeTabId ?? '') ? ' is-broadcast' : ''}`} style={rectangle(region)}>
         <div className="pane-header" onPointerDown={event => {
           onFocus(region.pane.id);
           if (region.pane.activeTabId && !(event.target as HTMLElement).closest('button, input, select')) beginTabDrag(region.pane.activeTabId, event);
@@ -382,8 +420,11 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
             }} />
             : <span className="empty-pane-title">{t('terminal:area.emptyTitle')}</span>}
           <ConnectionPicker nodes={nodes} disabled={busy} limitReached={tabs.length >= MAX_SSH_SESSIONS} paneNumber={index + 1}
-            onConnect={id => onConnect(id, region.pane.id)} onWelcome={onWelcome ? () => onWelcome(region.pane.id) : undefined} />
+            onConnect={id => onConnect(id, region.pane.id)} onWelcome={onWelcome ? () => onWelcome(region.pane.id) : undefined}
+            openRequest={pickerRequest.paneId === region.pane.id ? pickerRequest.count : 0} />
           <span className="pane-header-spacer" />
+          {members.includes(region.pane.activeTabId ?? '') && <button type="button" className="broadcast-chip" title={t('terminal:broadcast.chipTitle', { number: members.length })}
+            aria-label={t('terminal:broadcast.chipTitle', { number: members.length })} onClick={() => setBroadcast(false)}>{t('terminal:broadcast.chip')}</button>}
           {/* i18n-ignore: arrow functions, not text */}{tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.protocol === 'ssh' && tabs.find(tab => tab.id === region.pane.activeTabId)?.connection.view !== 'containers' && <button type="button" className="pane-action" disabled={busy || tabs.length >= MAX_SSH_SESSIONS}
             aria-label={t('terminal:area.openFilesAria', { number: index + 1 })} title={t('terminal:area.openFilesTitle')}
             onClick={() => onConnect(tabs.find(tab => tab.id === region.pane.activeTabId)!.connection.id, region.pane.id, true)}>
@@ -408,10 +449,17 @@ export function SplitTerminalArea({ nodes, onConnect, tabs, selected, layout, fo
         </div>
         {menuPane === region.pane.id && <div className="pane-layout-menu" role="group" aria-label={t('terminal:layoutMenu.label')}>
           <p>{t('terminal:layoutMenu.dragHint')}</p>
+          <p>{t('terminal:layoutMenu.shortcutsHint')}</p>
           {(['horizontal', 'vertical'] as const).map(direction => <button key={direction} type="button" disabled={busy || paneList.length >= 4 || welcomeActive(region.pane)} onClick={() => {
             const id = crypto.randomUUID(); onLayout(splitPane(layout, region.pane.id, direction, id)); onFocus(`${id}-pane`); setMenuPane(null); setMaximized(null);
           }}>{direction === 'horizontal' ? t('terminal:layoutMenu.splitHorizontal') : t('terminal:layoutMenu.splitVertical')}</button>)}
           {paneList.length > 1 && <>
+            <button type="button" aria-pressed={broadcast} disabled={busy || (!broadcast && candidates.length < 2)} onClick={() => {
+              if (broadcast) { setBroadcast(false); return; }
+              setBroadcast(true); setMenuPane(null);
+              notify.info(t('terminal:broadcast.startedTitle'), { body: t('terminal:broadcast.startedBody', { number: candidates.length }) });
+            }}>{broadcast ? t('terminal:broadcast.stop') : t('terminal:broadcast.start')}</button>
+            {!broadcast && candidates.length < 2 && <p>{t('terminal:broadcast.needsTwo')}</p>}
             <button type="button" disabled={busy} onClick={() => { const next = mergePane(layout, region.pane.id); onLayout(next); onFocus(panes(next)[0].id); setMenuPane(null); setMaximized(null); }}>{t('terminal:layoutMenu.merge')}</button>
             {region.pane.activeTabId && !welcomeActive(region.pane) && <label>{t('terminal:layoutMenu.moveTab')}<select aria-label={t('terminal:layoutMenu.moveTab')} value={region.pane.id} disabled={busy}
               onChange={event => { onLayout(moveTab(layout, region.pane.activeTabId!, event.target.value)); selectTab(event.target.value, region.pane.activeTabId); setMenuPane(null); setMaximized(null); }}>
