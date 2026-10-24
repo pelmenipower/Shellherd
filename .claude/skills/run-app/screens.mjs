@@ -350,6 +350,8 @@ const blocks = {
     await call('eval', `const details = [...document.querySelectorAll('details.editor-details')].find(d => d.querySelector('summary')?.textContent.includes('Weitere Angaben'));
   if (!details) throw new Error('Abschnitt „Weitere Angaben“ fehlt'); details.open = true;`);
     await waitFor('Weitere Angaben geöffnet', `[...document.querySelectorAll('details.editor-details')].find(d => d.querySelector('summary')?.textContent.includes('Weitere Angaben'))?.open`);
+    // The section sits below the fold; show the jump host and the forwards together.
+    await call('eval', `[...document.querySelectorAll('label')].find(l => l.textContent.trim().startsWith('Sprunghost'))?.scrollIntoView({ block: 'start' });`);
     await pause(300);
     await shot('jump-form');
   },
