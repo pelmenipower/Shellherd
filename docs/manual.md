@@ -345,12 +345,12 @@ They belong to a terminal session of this connection.
 
 - **OpenSSH:** the file `~/.ssh/config`, chosen in the file dialog (default `%USERPROFILE%\.ssh\config`).
 - **PuTTY:** the sessions under `HKCU\Software\SimonTatham\PuTTY\Sessions`, read only, via `reg.exe export`.
-- **WinSCP:** the sessions under `HKCU\Software\Martin Prikryl\WinSCP 2\Sessions`, also read only. SFTP sessions become file connections, SCP sessions become SFTP.
-- **mRemoteNG:** the file `confCons.xml`, chosen in the file dialog (default `%APPDATA%\mRemoteNG\confCons.xml`). If the file is fully encrypted, the import stops with a note.
+- **WinSCP:** the sessions under `HKCU\Software\Martin Prikryl\WinSCP 2\Sessions`, also read only. Sessions from a portable `WinSCP.ini` are not read. SFTP sessions become file connections, SCP sessions become SFTP.
+- **mRemoteNG:** the file `confCons.xml`, chosen in the file dialog (default `%APPDATA%\mRemoteNG\confCons.xml`). If the file is fully encrypted, the import stops with a note. RDP connections arrive as remote desktop connections with a domain, without a password.
 
 Imported are host, port, user name, key path, port forwards and, for WinSCP and mRemoteNG, the folders. Not imported are passwords, passphrases and key contents. Key files are never opened; Shellherd stores only the path. PuTTY keys (`.ppk`) get a hint, because Shellherd reads only format 2 with RSA.
 
-- **Duplicates:** a connection with the same host, port and user name as an existing SSH or SFTP connection is marked and unchecked in advance. You can still select it.
+- **Duplicates:** a connection with the same host, port and user name as an existing SSH or SFTP connection is marked and unchecked in advance; RDP is compared with RDP. You can still select it.
 - **Jump host:** imported only if it is exactly one hop to another entry of the same source and is selected too. WinSCP and mRemoteNG import no jump host.
 - **Port forwards** do not start automatically after the import, only by click.
 - **Target folder:** by default a new folder “OpenSSH import”, “PuTTY import”, “WinSCP import” or “mRemoteNG import” at the top level. You can also choose an existing folder or the top level. A new import folder can be taken back with one delete.

@@ -9,7 +9,7 @@
 .import-row:last-child { border-bottom: 0; }
 .import-row:hover { background: var(--color-bg-raised); }
 .import-row > .field-hint { flex-basis: 100%; }
-.import-main { display: flex; align-items: center; gap: var(--space-8); flex: 1 1 200px; min-width: 0; cursor: pointer; }
+.import-main { display: flex; align-items: center; gap: var(--space-8); flex: 1 1 var(--import-name-min); min-width: 0; cursor: pointer; }
 .import-text { display: flex; flex-direction: column; min-width: 0; }
 .import-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text); }
 .import-address { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--color-text-muted); }

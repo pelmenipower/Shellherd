@@ -71,6 +71,8 @@
   --bar-sm: 24px; --bar-md: 32px; --bar-lg: 44px;
   /* Import preview list: about ten rows, then it scrolls */
   --import-list-max: 320px;
+  /* Import row: basis of the name column, below it the row wraps */
+  --import-name-min: 200px;
 
   /* Layers */
   --layer-sticky: 1; --layer-handle: 10; --layer-chrome: 25; --layer-drag: 45;

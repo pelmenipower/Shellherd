@@ -145,7 +145,7 @@
     "sourceFile": "Source: {{file}}",
     "sourceRegistry": "Source: PuTTY sessions in the Windows registry",
     "sourceRegistryWinscp": "Source: WinSCP sessions in the Windows registry",
-    "empty": "No SSH connections found.",
+    "empty": "No connections found.",
     "selectAll": "Select all",
     "duplicate": "Already saved",
     "via": "via {{name}}",
