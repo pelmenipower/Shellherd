@@ -5,12 +5,14 @@ import { posix } from 'node:path';
 import { Client } from 'ssh2';
 import type { SFTPWrapper } from 'ssh2';
 import { limitError, type CodedError } from '../../shared/errors';
-import type { ConnectionNode, ConnectionTimeouts } from '../../shared/vault/types';
+import type { ConnectionNode, ConnectionTimeouts, SftpConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
 import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
 import type { EditorChoice } from '../../shared/sftp';
 import type { ConflictChoice, DirectoryListing, SftpEvent, SftpSessionState, SftpStatus, SftpTransferRequest, TransferConflict, TransferJob } from '../../shared/sftp';
 import { sshConnectConfig } from '../ssh/client-config';
+import type { AskPrompts } from '../ssh/auth-prompts';
+import type { Jump } from '../ssh/jump';
 import { classifyError } from '../ssh/session';
 import type { ConnectionErrorCode } from '../../shared/connection-errors';
 import { FileError, fileError } from './file-system';
@@ -39,6 +41,10 @@ export interface SftpDependencies {
   getTimeouts?: (connection: ConnectionNode) => ConnectionTimeouts;
   /** Injected so tests never open network connections. */
   createClient?: () => Client;
+  /** Keyboard-interactive questions; without it the server gets no keyboard answers. */
+  ask?: AskPrompts;
+  /** Opens the hop named by `jumpHost`; undefined without one. */
+  openJump?: (connection: SshConnectionNode | SftpConnectionNode, ownerId: number) => Promise<Jump | undefined>;
 }
 
 interface Job {
@@ -63,6 +69,7 @@ interface Session {
   running?: Job;
   conflict?: { conflict: TransferConflict; resolve: (answer: { choice: ConflictChoice; applyToAll: boolean }) => void };
   key?: Buffer;
+  jump?: Jump;
   idleMs?: number;
   lastIo?: number;
   idleTimer?: ReturnType<typeof setTimeout>;
@@ -92,13 +99,23 @@ export class SftpSessionManager {
     const timeouts = (this.dependencies.getTimeouts ?? (() => DEFAULT_TIMEOUTS))(connection);
     session.idleMs = timeouts.idleMinutes * 60_000;
     try {
+      if (connection.jumpHost && this.dependencies.openJump) {
+        session.jump = await this.dependencies.openJump(connection, session.ownerId);
+        // The session may have ended while the hop opened; finish could not close it then.
+        if (!this.active(session)) { session.jump?.close(); return; }
+      }
+      const { ask } = this.dependencies;
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
           .then(valid => {
             if (!valid && this.active(session)) this.finish(session, 'error', { code: 'files.hostKeyRejected' }, 'hostkey-rejected');
             callback(valid && this.active(session));
           }).catch(error => { this.fail(session, error); callback(false); });
-      }, timeouts);
+      }, timeouts, {
+        client: session.client,
+        keyboard: ask ? { ask, ownerId: session.ownerId, isActive: () => this.active(session) } : undefined,
+        sock: session.jump?.sock,
+      });
       session.key = key;
       if (!this.active(session)) { this.clearKey(session); return; }
       session.client.once('ready', () => {
@@ -375,6 +392,7 @@ export class SftpSessionManager {
     session.conflict?.resolve({ choice: 'cancel', applyToAll: false });
     session.edits?.closeAll();
     session.client.destroy();
+    session.jump?.close();
     session.status = status;
     this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error: limitError(error) } : {}), ...(code ? { code } : {}) });
   }
