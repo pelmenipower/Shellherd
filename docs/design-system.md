@@ -120,6 +120,7 @@ Die Meldungsdauern heißen bewusst nicht `--dur-*`, denn R4 begrenzt jedes `--du
 | `--bar-sm` | `24px` |
 | `--bar-md` | `32px` |
 | `--bar-lg` | `44px` |
+| `--import-list-max` | `320px` (Höhe der Vorschauliste im Import, danach scrollt sie) |
 
 ### Kopplungen
 
