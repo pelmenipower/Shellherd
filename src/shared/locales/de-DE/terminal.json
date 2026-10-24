@@ -268,7 +268,7 @@
     "none": "Keine Treffer"
   },
   "links": {
-    "hint": "Strg+Klick öffnet den Link im Browser",
+    "hintTarget": "Strg+Klick öffnet {{host}} im Browser",
     "failedTitle": "Link nicht geöffnet",
     "failed": "Der Link konnte nicht an den Browser übergeben werden."
   },

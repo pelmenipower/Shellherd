@@ -12,9 +12,9 @@ import { liveSessions } from '../session-registry';
 import { terminalAccess } from '../terminal-access';
 import { xtermTheme } from '../terminal-theme';
 import { terminalPrefs, xtermOptions } from '../terminal-prefs';
-import { openTerminalLink } from '../terminal-links';
+import { linkHintHost, openTerminalLink } from '../terminal-links';
 import { tabActivity } from '../terminal-activity';
-import { broadcastGroup } from '../terminal-broadcast';
+import { broadcastable, broadcastGroup } from '../terminal-broadcast';
 import { matchesShortcut } from '../shortcut-match';
 import { TerminalSearchBar } from './TerminalSearchBar';
 import { useT } from '../i18n';
@@ -68,7 +68,8 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
   const searchQuery = useRef('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchFocus, setSearchFocus] = useState(0);
-  const [linkHint, setLinkHint] = useState(false);
+  // Host of the hovered link, shown as Ctrl+click target; null when no link is hovered.
+  const [linkTarget, setLinkTarget] = useState<string | null>(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
   const focusedRef = useRef(focused);
@@ -102,7 +103,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     }
     const styles = getComputedStyle(document.documentElement);
     const term = new Terminal({ ...xtermOptions(terminalPrefs.get()), screenReaderMode: true, allowProposedApi: false,
-      linkHandler: { activate: (event, uri) => openTerminalLink(event, uri), hover: () => setLinkHint(true), leave: () => setLinkHint(false), allowNonHttpProtocols: false },
+      linkHandler: { activate: (event, uri) => openTerminalLink(event, uri), hover: (_event, uri) => setLinkTarget(linkHintHost(uri)), leave: () => setLinkTarget(null), allowNonHttpProtocols: false },
       theme: xtermTheme(name => styles.getPropertyValue(name)) });
     const fit = new FitAddon();
     const serialize = new SerializeAddon();
@@ -113,7 +114,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     term.loadAddon(fit);
     term.loadAddon(serialize);
     term.loadAddon(search);
-    term.loadAddon(new WebLinksAddon((event, uri) => openTerminalLink(event, uri), { hover: () => setLinkHint(true), leave: () => setLinkHint(false) }));
+    term.loadAddon(new WebLinksAddon((event, uri) => openTerminalLink(event, uri), { hover: (_event, uri) => setLinkTarget(linkHintHost(uri)), leave: () => setLinkTarget(null) }));
     // Ctrl+Shift+F only in the main window; dock panels pass it on to xterm.
     term.attachCustomKeyEventHandler(event => {
       if (!embedded && event.type === 'keydown' && matchesShortcut(event, { ctrl: true, shift: true, code: 'KeyF' })) {
@@ -213,8 +214,8 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     };
     const input = term.onData(data => {
       enqueue(data);
-      // "To all" group: the same keystrokes go to the other members, through their own queues.
-      for (const other of broadcastGroup.others(tabId)) liveSessions.get(other)?.input?.(data);
+      // "To all" group: the same keystrokes go to the other members, through their own queues. Terminal replies stay local.
+      if (broadcastable(data)) for (const other of broadcastGroup.others(tabId)) liveSessions.get(other)?.input?.(data);
     });
     const resize = term.onResize(size => {
       if (sessionId) void window.desktopApi.sshResize({ sessionId, cols: Math.min(500, size.cols), rows: Math.min(300, size.rows) }).catch(() => {});
@@ -347,7 +348,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       <span className="terminal-live-status" role="status">{statusWord(status, 'long', { name: connection.name })}</span>
       {searchOpen && !embedded && <TerminalSearchBar onFind={onFind} onClose={closeSearch} focusRequest={searchFocus} />}
       <div ref={container} className="terminal-container" />
-      {linkHint && <div className="terminal-link-hint" aria-hidden="true">{t('terminal:links.hint')}</div>}
+      {linkTarget && <div className="terminal-link-hint" aria-hidden="true">{t('terminal:links.hintTarget', { host: linkTarget })}</div>}
       {status === 'connected' && forwardList && forwardList.forwards.length > 0 && (
         <ForwardBar sessionId={forwardList.sessionId} forwards={forwardList.forwards} />
       )}

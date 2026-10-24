@@ -268,7 +268,7 @@
     "none": "No matches"
   },
   "links": {
-    "hint": "Ctrl+click opens the link in your browser",
+    "hintTarget": "Ctrl+click opens {{host}} in your browser",
     "failedTitle": "Link not opened",
     "failed": "The link could not be passed to the browser."
   },

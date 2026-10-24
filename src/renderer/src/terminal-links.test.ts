@@ -1,10 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openTerminalLink } from './terminal-links';
+import { linkHintHost, openTerminalLink } from './terminal-links';
 
 const openExternal = vi.fn(() => Promise.resolve());
 Object.assign(globalThis, { window: { desktopApi: { openExternal } } });
 
 afterEach(() => openExternal.mockClear());
+
+describe('linkHintHost', () => {
+  it('names the host the link really opens', () => {
+    expect(linkHintHost('https://intranet.firma/login')).toBe('intranet.firma');
+    expect(linkHintHost('http://h:8080/x')).toBe('h:8080');
+  });
+
+  it('is null for links that would not open', () => {
+    expect(linkHintHost('javascript:alert(1)')).toBeNull();
+    expect(linkHintHost('https://u:p@h/')).toBeNull();
+  });
+});
 
 describe('openTerminalLink', () => {
   it('opens http(s) links only with Ctrl held', () => {

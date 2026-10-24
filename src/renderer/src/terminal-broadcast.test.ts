@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import type { TerminalTab } from './terminal-tabs';
-import { broadcastEligible, broadcastGroup } from './terminal-broadcast';
+import { broadcastable, broadcastEligible, broadcastGroup } from './terminal-broadcast';
+
+describe('broadcastable', () => {
+  it('passes typed input and pastes', () => {
+    expect(broadcastable('ls\r')).toBe(true);
+    expect(broadcastable('\x1b[A')).toBe(true);
+    expect(broadcastable('\x03')).toBe(true);
+    expect(broadcastable('line 1\nline 2')).toBe(true);
+  });
+
+  it('drops terminal replies and reports', () => {
+    expect(broadcastable('\x1b[24;1R')).toBe(false);
+    expect(broadcastable('\x1b[?1;2c')).toBe(false);
+    expect(broadcastable('\x1b[I')).toBe(false);
+    expect(broadcastable('\x1b[O')).toBe(false);
+    expect(broadcastable('\x1b[<0;10;5M')).toBe(false);
+  });
+});
 
 const tab = (connection: Partial<TerminalTab['connection']>, status: TerminalTab['status'] = 'connected') =>
   ({ connection: { id: 'h', name: 'n', protocol: 'ssh', address: 'a', ...connection }, status }) as Pick<TerminalTab, 'connection' | 'status'>;
