@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { parseOpenSshConfig } from './import-openssh';
+import { globMatch, parseOpenSshConfig } from './import-openssh';
 
 const HOME = 'C:\\Users\\demo';
 const parse = (lines: string[], eol = '\n') => parseOpenSshConfig(lines.join(eol), HOME);
+const timed = <T>(fn: () => T): { value: T; ms: number } => {
+  const start = performance.now();
+  const value = fn();
+  return { value, ms: performance.now() - start };
+};
 const find = (result: ReturnType<typeof parse>, key: string) => {
   const candidate = result.candidates.find(c => c.key === key);
   if (!candidate) throw new Error(`no candidate ${key}`);
@@ -218,5 +223,54 @@ describe('parseOpenSshConfig', () => {
 
   it('returns nothing for empty text', () => {
     expect(parse([])).toEqual({ candidates: [], skipped: [] });
+  });
+
+  it('stays under 100 ms with a pathological glob next to a long alias', () => {
+    const alias = `Host ${'a'.repeat(40)}`;
+    const { value, ms } = timed(() => parse(['Host *a*a*a*a*a*a*a*a*a*a*b', alias]));
+    expect(ms).toBeLessThan(100);
+    expect(value.candidates.map(c => c.key)).toEqual(['a'.repeat(40)]);
+  });
+
+  it('stays under 2 s with 100,000 Host lines and counts the ignored blocks as tooMany', () => {
+    const lines = Array.from({ length: 100_000 }, (_, i) => `Host h${i + 1}`);
+    const { value, ms } = timed(() => parse(lines));
+    expect(ms).toBeLessThan(2000);
+    expect(value.candidates).toHaveLength(500);
+    // 95,000 ignored blocks (beyond 5,000) plus 4,500 aliases beyond 500 among the collected ones.
+    expect(skipped(value)).toEqual({ tooMany: 99_500 });
+  });
+});
+
+describe('globMatch', () => {
+  it('matches * as any run, including empty, and ? as exactly one character', () => {
+    expect(globMatch('*', '')).toBe(true);
+    expect(globMatch('*', 'abc')).toBe(true);
+    expect(globMatch('a*c', 'ac')).toBe(true);
+    expect(globMatch('a?c', 'abc')).toBe(true);
+    expect(globMatch('a?c', 'ac')).toBe(false);
+    expect(globMatch('a?c', 'abbc')).toBe(false);
+  });
+
+  it('matches the whole string, case-insensitively, with dots literal', () => {
+    expect(globMatch('web', 'webx')).toBe(false);
+    expect(globMatch('web*', 'WEB-01')).toBe(true);
+    expect(globMatch('a.b', 'axb')).toBe(false);
+    expect(globMatch('', '')).toBe(true);
+    expect(globMatch('', 'a')).toBe(false);
+  });
+
+  it('backtracks to the last * only and treats a literal * in the text as a character', () => {
+    expect(globMatch('*a*b', 'xaxab')).toBe(true);
+    expect(globMatch('*a*b', 'xaxa')).toBe(false);
+    expect(globMatch('a*b*c', 'abxbxc')).toBe(true);
+    expect(globMatch('a*', 'a*')).toBe(true);
+    expect(globMatch('a?', 'a*')).toBe(true);
+  });
+
+  it('stays fast on a pathological pattern', () => {
+    const { value, ms } = timed(() => globMatch(`${'*a'.repeat(10)}*b`, 'a'.repeat(40)));
+    expect(value).toBe(false);
+    expect(ms).toBeLessThan(100);
   });
 });

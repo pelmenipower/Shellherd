@@ -7,13 +7,18 @@ const SESSIONS = 'HKEY_CURRENT_USER\\Software\\SimonTatham\\PuTTY\\Sessions';
 
 type RegValues = Map<string, string | number>;
 
+/** Value names the parser reads; `ProxyPassword` and friends are never stored. */
+const PUTTY_VALUES: ReadonlySet<string> = new Set(['HostName', 'PortNumber', 'UserName', 'Protocol', 'PublicKeyFile', 'ProxyMethod', 'PortForwardings']);
+
 /**
  * Sections directly below `prefix` (without trailing separator) in a decoded `.reg` text.
  * `raw` is the last key segment, still encoded; prefix match is case-insensitive.
+ * Only values named in `wanted` are stored (name match is case-insensitive), so secrets never enter the map.
  */
-export function parseRegSections(text: string, prefix: string): { raw: string; values: RegValues }[] {
+export function parseRegSections(text: string, prefix: string, wanted: ReadonlySet<string>): { raw: string; values: RegValues }[] {
   const sections: { raw: string; values: RegValues }[] = [];
   const head = `${prefix}\\`.toLowerCase();
+  const keep = new Set([...wanted].map(w => w.toLowerCase()));
   let current: RegValues | null = null;
   let continued = false;
   for (const physical of text.split(/\r?\n/)) {
@@ -31,8 +36,10 @@ export function parseRegSections(text: string, prefix: string): { raw: string; v
     }
     if (!current) continue;
     const m = /^"((?:[^"\\]|\\.)*)"=(?:"((?:[^"\\]|\\.)*)"|dword:([0-9a-fA-F]{1,8}))$/.exec(line);
-    if (!m || current.has(unescapeReg(m[1]))) continue;
-    current.set(unescapeReg(m[1]), m[2] !== undefined ? unescapeReg(m[2]) : parseInt(m[3], 16));
+    if (!m) continue;
+    const name = unescapeReg(m[1]);
+    if (!keep.has(name.toLowerCase()) || current.has(name)) continue;
+    current.set(name, m[2] !== undefined ? unescapeReg(m[2]) : parseInt(m[3], 16));
   }
   return sections;
 }
@@ -100,7 +107,7 @@ export function parsePuttyReg(input: string): Omit<ImportPreview, 'source' | 'fi
   const skipped = new Map<ImportSkipCode, number>();
   const skip = (code: ImportSkipCode) => skipped.set(code, (skipped.get(code) ?? 0) + 1);
 
-  for (const { raw, values } of parseRegSections(input, SESSIONS)) {
+  for (const { raw, values } of parseRegSections(input, SESSIONS, PUTTY_VALUES)) {
     const name = decodeName(raw);
     if (name === 'Default Settings') continue;
     const protocol = values.get('Protocol');

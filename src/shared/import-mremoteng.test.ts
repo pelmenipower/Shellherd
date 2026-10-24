@@ -113,3 +113,48 @@ describe('parseMRemoteNg', () => {
     expect(parseMRemoteNg('')).toEqual({ candidates: [], skipped: [] });
   });
 });
+
+describe('parseMRemoteNg on hostile input', () => {
+  /** Parses and reports the duration; a rejected input is an acceptable outcome, a hang is not. */
+  function timed(text: string): { ms: number; candidates: number } {
+    const start = performance.now();
+    let candidates = 0;
+    try {
+      candidates = parseMRemoteNg(text).candidates.length;
+    } catch {
+      // Rejecting the input is fine; only the running time matters here.
+    }
+    return { ms: performance.now() - start, candidates };
+  }
+
+  it('parses 700k unclosed <Node tags in linear time', () => {
+    const { ms, candidates } = timed('<Node '.repeat(700_000));
+    expect(candidates).toBe(0);
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it('parses 300k unclosed <Connections tags in linear time', () => {
+    const { ms, candidates } = timed('<Connections '.repeat(300_000));
+    expect(candidates).toBe(0);
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it('reads a 4 MiB attribute value in linear time', () => {
+    const { ms, candidates } = timed(`<Node Type="Connection" Hostname="a.test" Protocol="SSH2" Name="${'a'.repeat(4_000_000)}"/>`);
+    expect(candidates).toBe(1);
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it('scans a 4 MiB run of word characters without a closing quote in linear time', () => {
+    expect(timed(`<Node Name="${'a'.repeat(4_000_000)}`).ms).toBeLessThan(1000);
+    expect(timed(`<Node ${'a'.repeat(4_000_000)}`).ms).toBeLessThan(1000);
+    expect(timed(`<Node Name=${'a'.repeat(4_000_000)}`).ms).toBeLessThan(1000);
+  });
+
+  it('handles many unsupported connections below deeply nested containers in linear time', () => {
+    const text = '<Node Type="Container">'.repeat(50_000) + '<Node Type="Connection" Protocol="VNC"/>'.repeat(50_000);
+    const { ms, candidates } = timed(text);
+    expect(candidates).toBe(0);
+    expect(ms).toBeLessThan(1000);
+  });
+});

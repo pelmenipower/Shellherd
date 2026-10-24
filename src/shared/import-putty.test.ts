@@ -6,6 +6,9 @@ const reg = (...lines: string[]) => ['Windows Registry Editor Version 5.00', '',
 /** Parses one session section with the given value lines. */
 const one = (...lines: string[]) => parsePuttyReg(reg(`[${SESSIONS}\\s]`, ...lines));
 
+/** Value names the PuTTY parser reads; everything else (ProxyPassword, Password, ...) is dropped. */
+const WANTED = new Set(['HostName', 'PortNumber', 'UserName', 'Protocol', 'PublicKeyFile', 'ProxyMethod', 'PortForwardings']);
+
 const sample = reg(
   `[${SESSIONS}\\Default%20Settings]`,
   '"HostName"=""',
@@ -46,7 +49,7 @@ describe('parseRegSections', () => {
       `[${SESSIONS.toUpperCase()}\\UPPER]`,
       '"HostName"="d"',
     );
-    const sections = parseRegSections(text, SESSIONS);
+    const sections = parseRegSections(text, SESSIONS, WANTED);
     expect(sections.map(s => s.raw)).toEqual(['web%2001', 'UPPER']);
     expect(sections[0].values.get('HostName')).toBe('a');
   });
@@ -58,7 +61,7 @@ describe('parseRegSections', () => {
       '"PortNumber"=dword:000008ae',
       '"Hex"=hex:01,02',
     );
-    const values = parseRegSections(text, SESSIONS)[0].values;
+    const values = parseRegSections(text, SESSIONS, new Set(['Quoted', 'PortNumber', 'Hex']))[0].values;
     expect(values.get('Quoted')).toBe('a"b\\c');
     expect(values.get('PortNumber')).toBe(0x8ae);
     expect(values.has('Hex')).toBe(false);
@@ -71,7 +74,20 @@ describe('parseRegSections', () => {
       '"HostName"="ignored.example"',
       '"HostName"="real.example"',
     );
-    expect(parseRegSections(text, SESSIONS)[0].values.get('HostName')).toBe('real.example');
+    expect(parseRegSections(text, SESSIONS, WANTED)[0].values.get('HostName')).toBe('real.example');
+  });
+
+  it('keeps only wanted values, matching names case-insensitively', () => {
+    const text = reg(
+      `[${SESSIONS}\\s]`,
+      '"ProxyPassword"="geheim1"',
+      '"Password"="geheim2"',
+      '"hostname"="h.example"',
+    );
+    const values = parseRegSections(text, SESSIONS, WANTED)[0].values;
+    expect(values.has('ProxyPassword')).toBe(false);
+    expect(values.has('Password')).toBe(false);
+    expect(values.get('hostname')).toBe('h.example');
   });
 });
 

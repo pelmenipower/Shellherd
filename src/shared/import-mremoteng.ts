@@ -2,10 +2,14 @@ import { AppError } from './errors';
 import type { ImportCandidate, ImportPreview, ImportSkipCode } from './import';
 import { MAX_IMPORT_CANDIDATES, validImportHost } from './import';
 
-/** Opening `<Node …>` / `<Node …/>` or closing `</Node>`; no XML library, regex scan only. */
-const NODE_TAG = /<Node\b([^>]*?)(\/?)>|<\/Node>/g;
-const ROOT_TAG = /<Connections\b([^>]*)>/;
-const ATTR = /(\w+)="([^"]*)"/g;
+/**
+ * Opening `<Node …>` / `<Node …/>` or closing `</Node>`; no XML library, regex scan only.
+ * Tag bodies exclude `<` and `>`, so a failed attempt ends at the next tag: linear time.
+ */
+const NODE_TAG = /<Node\b([^<>]*?)(\/?)>|<\/Node>/g;
+const ROOT_TAG = /<Connections\b([^<>]*)>/;
+/** Anchored to whitespace, so a word run is scanned once and never restarted mid-run. */
+const ATTR = /(?:^|\s)(\w+)="([^"]*)"/g;
 /** Only these attributes are read; Password is never touched. */
 const READ = new Set(['Type', 'Name', 'Id', 'Protocol', 'Hostname', 'Port', 'Username', 'Domain', 'FullFileEncryption']);
 const ENTITY = /&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);/g;
@@ -20,22 +24,27 @@ export function parseMRemoteNg(text: string): Omit<ImportPreview, 'source' | 'fi
   const skipped = new Map<ImportSkipCode, number>();
   const skip = (code: ImportSkipCode) => skipped.set(code, (skipped.get(code) ?? 0) + 1);
   const keys = new Set<string>();
-  const stack: { container: boolean; name: string }[] = [];
+  // Open nodes (true = named container) and the names of the named containers among them.
+  const stack: boolean[] = [];
+  const folder: string[] = [];
 
   for (const [whole, attrText, slash] of text.matchAll(NODE_TAG)) {
     if (whole.startsWith('</')) {
-      stack.pop();
+      if (stack.pop()) folder.pop();
       continue;
     }
     const attrs = readAttrs(attrText);
     const type = attrs.get('Type');
     const name = attrs.get('Name') ?? '';
     // Self-closing nodes have no children, so they never sit on the stack.
-    if (slash !== '/') stack.push({ container: type === 'Container', name });
+    if (slash !== '/') {
+      const named = type === 'Container' && name !== '';
+      stack.push(named);
+      if (named) folder.push(name);
+    }
     if (type !== 'Connection') continue;
 
-    const folder = stack.filter((entry) => entry.container && entry.name !== '').map((entry) => entry.name);
-    const candidate = readConnection(attrs, folder);
+    const candidate = readConnection(attrs);
     if (typeof candidate === 'string') skip(candidate);
     else if (candidates.length >= MAX_IMPORT_CANDIDATES) skip('tooMany');
     else {
@@ -44,7 +53,7 @@ export function parseMRemoteNg(text: string): Omit<ImportPreview, 'source' | 'fi
       let key = base;
       for (let n = 2; keys.has(key); n++) key = `${base}#${n}`;
       keys.add(key);
-      candidates.push({ ...candidate, key });
+      candidates.push({ ...candidate, folder: [...folder], key });
     }
   }
 
@@ -68,8 +77,8 @@ function decodeEntities(value: string): string {
   });
 }
 
-/** A candidate without key, or the skip code for an unsupported or invalid connection. */
-function readConnection(attrs: Map<string, string>, folder: string[]): Omit<ImportCandidate, 'key'> | ImportSkipCode {
+/** A candidate without key and folder, or the skip code for an unsupported or invalid connection. */
+function readConnection(attrs: Map<string, string>): Omit<ImportCandidate, 'key' | 'folder'> | ImportSkipCode {
   const protocol = attrs.get('Protocol');
   const rdp = protocol === 'RDP';
   if (!rdp && protocol !== 'SSH2' && protocol !== 'SSH1') return 'unsupported';
@@ -79,10 +88,9 @@ function readConnection(attrs: Map<string, string>, folder: string[]): Omit<Impo
   const port = readPort(attrs.get('Port'), rdp ? 3389 : 22);
   if (port === undefined) return 'invalid';
 
-  const candidate: Omit<ImportCandidate, 'key'> = {
+  const candidate: Omit<ImportCandidate, 'key' | 'folder'> = {
     name: attrs.get('Name') || host,
     protocol: rdp ? 'rdp' : 'ssh',
-    folder,
     host,
     port,
     forwards: [],

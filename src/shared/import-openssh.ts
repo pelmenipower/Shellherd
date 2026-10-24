@@ -6,23 +6,38 @@ import { MAX_FORWARDS } from './vault/schema';
 const FORWARD_KEYS = new Set(['localforward', 'remoteforward', 'dynamicforward']);
 
 interface Option { key: string; args: string[] }
-interface Pattern { raw: string; negated: boolean; re: RegExp }
+interface Pattern { raw: string; negated: boolean; glob: string }
 interface Block { patterns: Pattern[]; options: Option[] }
+
+// Host blocks collected at most; further Host lines are ignored and each counts as tooMany.
+const MAX_HOST_BLOCKS = 5_000;
 
 /** Splits at whitespace; a "quoted part" stays inside one argument without its quotes. */
 function tokenize(text: string): string[] {
   return (text.match(/(?:[^\s"]+|"[^"]*")+/g) ?? []).map(token => token.replace(/"/g, ''));
 }
 
-/** OpenSSH glob: * any run, ? one character, whole string, case-insensitive. */
-function globToRegExp(glob: string): RegExp {
-  const source = [...glob].map(c => (c === '*' ? '.*' : c === '?' ? '.' : c.replace(/[.+^${}()|[\]\\]/g, '\\$&'))).join('');
-  return new RegExp(`^${source}$`, 'i');
+/** OpenSSH glob: * any run, ? one character, whole string, case-insensitive. No regex, so no backtracking blowup. */
+export function globMatch(pattern: string, text: string): boolean {
+  const p = [...pattern.toLowerCase()];
+  const t = [...text.toLowerCase()];
+  let pi = 0;
+  let ti = 0;
+  let star = -1; // index of the last * in the pattern
+  let mark = 0; // text index up to which the last * has absorbed characters
+  while (ti < t.length) {
+    if (pi < p.length && p[pi] === '*') { star = pi++; mark = ti; }
+    else if (pi < p.length && (p[pi] === '?' || p[pi] === t[ti])) { pi++; ti++; }
+    else if (star >= 0) { pi = star + 1; ti = ++mark; }
+    else return false;
+  }
+  while (pi < p.length && p[pi] === '*') pi++;
+  return pi === p.length;
 }
 
 function toPattern(raw: string): Pattern {
   const negated = raw.startsWith('!');
-  return { raw, negated, re: globToRegExp(negated ? raw.slice(1) : raw) };
+  return { raw, negated, glob: negated ? raw.slice(1) : raw };
 }
 
 // eslint-disable-next-line no-control-regex
@@ -125,7 +140,10 @@ export function parseOpenSshConfig(text: string, home: string): Omit<ImportPrevi
   const count = (code: ImportSkipCode) => skips.set(code, (skips.get(code) ?? 0) + 1);
 
   // Blocks in file order; lines before the first Host form the * block.
+  // `current` is undefined inside an ignored Host block, so its options are dropped, not attached to the previous one.
   const blocks: Block[] = [{ patterns: [toPattern('*')], options: [] }];
+  let current: Block | undefined = blocks[0];
+  let hostBlocks = 0;
   let skipping = false;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
@@ -136,7 +154,14 @@ export function parseOpenSshConfig(text: string, home: string): Omit<ImportPrevi
     const args = tokenize(m[2]);
     if (key === 'host') {
       skipping = false;
-      blocks.push({ patterns: args.map(toPattern), options: [] });
+      if (hostBlocks < MAX_HOST_BLOCKS) {
+        hostBlocks++;
+        current = { patterns: args.map(toPattern), options: [] };
+        blocks.push(current);
+      } else {
+        count('tooMany'); // one count per ignored block, keeps the scan linear
+        current = undefined;
+      }
     } else if (key === 'match') {
       skipping = true;
       count('match');
@@ -145,7 +170,7 @@ export function parseOpenSshConfig(text: string, home: string): Omit<ImportPrevi
     } else if (key === 'include') {
       count('include');
     } else {
-      blocks[blocks.length - 1].options.push({ key, args });
+      current?.options.push({ key, args });
     }
   }
 
@@ -160,12 +185,14 @@ export function parseOpenSshConfig(text: string, home: string): Omit<ImportPrevi
       }
     }
   }
-  if (aliases.length > MAX_IMPORT_CANDIDATES) skips.set('tooMany', aliases.length - MAX_IMPORT_CANDIDATES);
+  if (aliases.length > MAX_IMPORT_CANDIDATES) {
+    skips.set('tooMany', (skips.get('tooMany') ?? 0) + aliases.length - MAX_IMPORT_CANDIDATES);
+  }
 
   // Options of every block that applies to the alias: a positive pattern matches and no negated one.
   const optionsOf = (alias: string): Option[] => blocks
-    .filter(block => block.patterns.some(p => !p.negated && p.re.test(alias))
-      && !block.patterns.some(p => p.negated && p.re.test(alias)))
+    .filter(block => block.patterns.some(p => !p.negated && globMatch(p.glob, alias))
+      && !block.patterns.some(p => p.negated && globMatch(p.glob, alias)))
     .flatMap(block => block.options);
   const optsByAlias = new Map(aliases.slice(0, MAX_IMPORT_CANDIDATES).map(alias => [alias, optionsOf(alias)] as const));
 
