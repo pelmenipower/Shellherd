@@ -1,8 +1,12 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor } from 'electron';
-import type { Rectangle } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, webContents } from 'electron';
+import type { Rectangle, WebContents } from 'electron';
 import { join } from 'node:path';
 
 import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
+import { AuthPrompts } from './ssh/auth-prompts';
+import type { PromptTarget } from './ssh/auth-prompts';
+import { openJump } from './ssh/jump';
+import { openRemoteHost } from './containers/runner';
 import { registerFileIpcHandlers } from './files/ipc';
 import { registerContainerIpcHandlers } from './containers/ipc';
 import { SudoRejections } from './containers/sudo-rejections';
@@ -10,6 +14,7 @@ import type { ContainerDiscovery } from './containers/discovery';
 import { registerKubernetesIpcHandlers } from './kubernetes/ipc';
 import type { KubeSessions } from './kubernetes/session';
 import type { SftpSessionManager } from './files/sftp-session';
+import { findConnection } from './ssh/session';
 import type { SshSessionManager } from './ssh/session';
 import { rdpSurfaceMode, registerRdpIpcHandlers } from './rdp/ipc';
 import type { RdpSessionManager } from './rdp/host';
@@ -23,6 +28,7 @@ import { testConnection } from './connection-test';
 import { registerAiIpcHandlers } from './ai/ipc';
 import type { AssistantService } from './ai/assistant';
 import { ConnectionNodeSchema } from '../shared/vault/schema';
+import { effectiveTimeouts } from '../shared/vault/timeouts';
 import { z } from 'zod';
 import { AppError } from '../shared/errors';
 import { LANGUAGE_SETTINGS, LOCALE_ARG } from '../shared/locale';
@@ -45,14 +51,30 @@ let rdpSessionManager: RdpSessionManager;
 let sftpSessionManager: SftpSessionManager;
 let assistant: AssistantService | undefined;
 let autoLock: AutoLock | undefined;
+let authPrompts: AuthPrompts | undefined;
+let lastFocusedId: number | undefined;
+
+/** Target of an auth prompt: the owner's window, else the last focused one, else the main window. */
+function resolvePromptTarget(ownerId?: number): PromptTarget | undefined {
+  const live = (contents: WebContents | undefined): WebContents | undefined =>
+    contents && !contents.isDestroyed() ? contents : undefined;
+  const focused = lastFocusedId !== undefined && windowRegistry.roleOf(lastFocusedId) ? webContents.fromId(lastFocusedId) : undefined;
+  const main = windowRegistry.main();
+  const contents = live(ownerId === undefined ? undefined : webContents.fromId(ownerId))
+    ?? live(focused)
+    ?? live(main && !main.isDestroyed() ? main.webContents : undefined);
+  if (!contents) return undefined;
+  return { id: contents.id, send: (channel, payload) => contents.send(channel, payload) };
+}
 
 // SSH, local shells, RDP and SFTP share every lifecycle path: crash, navigation, close, lock and quit.
 const closeOwnerSessions = (ownerId: number): void => {
+  authPrompts?.cancelOwner(ownerId);
   sshSessionManager.closeOwner(ownerId); rdpSessionManager.closeOwner(ownerId); sftpSessionManager.closeOwner(ownerId);
   kubeSessions?.closeOwner(ownerId);
   assistant?.cancelOwner(ownerId);
 };
-const closeAllSessions = (): void => { sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); assistant?.cancelAll(); containerDiscovery?.closeAll(); kubeSessions?.closeAll(); };
+const closeAllSessions = (): void => { authPrompts?.cancelAll(); sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); assistant?.cancelAll(); containerDiscovery?.closeAll(); kubeSessions?.closeAll(); };
 const hasOwnerSessions = (ownerId: number): boolean =>
   sshSessionManager.hasOwner(ownerId) || rdpSessionManager.hasOwner(ownerId) || sftpSessionManager.hasOwner(ownerId) || (kubeSessions?.hasOwner(ownerId) ?? false);
 const hasAnySessions = (): boolean => BrowserWindow.getAllWindows().some(window => !window.isDestroyed() && hasOwnerSessions(window.webContents.id));
@@ -86,6 +108,7 @@ function createWindow(role: WindowRole, bounds?: Rectangle): BrowserWindow {
     },
   });
   windowRegistry.register(window, role);
+  window.on('focus', () => { lastFocusedId = window.webContents.id; });
   // index.html has its own <title>; keep the localized window title.
   window.on('page-title-updated', event => event.preventDefault());
 
@@ -228,15 +251,17 @@ app.whenReady().then(() => {
   });
 
   const knownHosts = createKnownHosts();
+  const prompts = new AuthPrompts({ resolveTarget: resolvePromptTarget, isUnlocked: () => vaultSessionManager.isUnlocked() });
+  authPrompts = prompts;
   // One memory of refused sudo passwords for container lists and container tabs.
   const sudoRejections = new SudoRejections();
-  const kubes = registerKubernetesIpcHandlers(knownHosts, sudoRejections);
+  const kubes = registerKubernetesIpcHandlers(knownHosts, prompts, sudoRejections);
   kubeSessions = kubes;
-  sshSessionManager = registerSshIpcHandlers(knownHosts, sudoRejections,
+  sshSessionManager = registerSshIpcHandlers(knownHosts, prompts, sudoRejections,
     (clusterId, target, size, io) => kubes.openTerminal(clusterId, target, size, io));
-  containerDiscovery = registerContainerIpcHandlers(knownHosts, sudoRejections);
+  containerDiscovery = registerContainerIpcHandlers(knownHosts, prompts, sudoRejections);
   rdpSessionManager = registerRdpIpcHandlers();
-  sftpSessionManager = registerFileIpcHandlers(knownHosts);
+  sftpSessionManager = registerFileIpcHandlers(knownHosts, prompts);
   const ai = registerAiIpcHandlers(windowRegistry);
   assistant = ai.service;
   // Dry run with the form's current values; only the main window may test, nothing is stored or logged.
@@ -245,7 +270,15 @@ app.whenReady().then(() => {
     vaultSessionManager.getSnapshot();
     const parsed = ConnectionNodeSchema.safeParse(request);
     if (!parsed.success) throw new AppError('core.invalidConnectionData');
-    return testConnection(parsed.data, { verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive) });
+    return testConnection(parsed.data, {
+      verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
+      ask: prompts.ask,
+      openJump: node => openJump(node, {
+        getConnection: id => findConnection(vaultSessionManager.getSnapshot().vault.nodes, id),
+        openRemote: (jump, ownerId) => openRemoteHost(jump, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive), undefined,
+          effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, jump), { ask: prompts.ask, ownerId }),
+      }),
+    });
   });
   ipcMain.handle(IPC_CHANNELS.readClipboardText, event => {
     requireSshSender(event);
@@ -269,14 +302,14 @@ app.whenReady().then(() => {
   };
   registerVaultIpcHandlers({
     onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); },
-    onLock: () => announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo),
+    onLock: () => { authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo); },
     onUnlock: () => { autoLock?.touch(); announce(IPC_CHANNELS.vaultUnlocked); },
     onVaultChange: () => { broadcastCatalog(); ai.broadcast(); rdpSessionManager.prewarm(); },
     guard: event => windowRegistry.requireMain(event),
   });
   autoLock = new AutoLock({
     minutes: () => vaultSessionManager.isUnlocked() ? vaultSessionManager.getSnapshot().vault.settings.autoLockMinutes : 0,
-    lock: minutes => { try { vaultSessionManager.lock(); } finally { announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
+    lock: minutes => { try { vaultSessionManager.lock(); } finally { authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
     systemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
     rdpConnected: () => rdpSessionManager.hasConnected(),
   });
