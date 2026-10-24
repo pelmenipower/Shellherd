@@ -73,12 +73,17 @@ import { settingsShortcutAction } from './shortcut-match';
 import { terminalPrefs } from './terminal-prefs';
 import { effectiveTerminalSettings } from '../../shared/vault/terminal-settings';
 import mark from '../../../resources/mark-64.png';
+import './import-ui.css';
+import type { ImportSource } from '../../shared/import';
+import { ImportDialog } from './components/ImportDialog';
+import { UpdateBadge } from './components/UpdateBadge';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
 type LockState = { minutes?: number; vaultId: string };
 type AppDialog =
   | { kind: 'settings'; instant: boolean; focus: 'close' | 'manageAi' }
-  | { kind: 'ai'; backToSettings: boolean };
+  | { kind: 'ai'; backToSettings: boolean }
+  | { kind: 'import'; source: ImportSource };
 
 function createEmptyVault(name: string): Vault {
   const now = new Date().toISOString();
@@ -813,6 +818,13 @@ export default function App() {
     return persistVault({ ...vault, nodes: updateNode(vault.nodes, id, node => ({ ...node, name: name.trim() })) });
   }
 
+  // Full literals, so unused keys can be found by search.
+  const importLabels: Record<ImportSource, string> = {
+    openssh: t('vault:import.openssh'),
+    putty: t('vault:import.putty'),
+    winscp: t('vault:import.winscp'),
+    mremoteng: t('vault:import.mremoteng'),
+  };
   const settingsVault = screen === 'vault' ? vault : null;
   const settingsDialog = appDialog?.kind === 'settings' && <SettingsDialog vault={settingsVault} busy={busy}
     instant={appDialog.instant} initialFocus={appDialog.focus} onClose={closeDialogs}
@@ -880,6 +892,11 @@ export default function App() {
                 : { kind: 'item', label: protocolLabel(item.protocol), onSelect: () => newConnection(item.protocol as ConnectionProtocol) }),
               { kind: 'separator' },
               { kind: 'item', label: t('app:sidebar.newFolder'), disabled: !canCreateFolder, onSelect: () => setShowFolderForm(true) },
+              { kind: 'separator' },
+              { kind: 'heading', label: t('vault:import.heading') },
+              ...(['openssh', 'putty', 'winscp', 'mremoteng'] as const).map((source): ContextMenuEntry => ({
+                kind: 'item', label: importLabels[source], onSelect: () => setAppDialog({ kind: 'import', source }),
+              })),
             ]} />}
           </div>
           <button className="root-row" type="button" disabled={busy} aria-pressed={selectedNodeId === null}
@@ -908,7 +925,7 @@ export default function App() {
               viewControls={viewControls} onPopout={openPopout} onSnapshot={saveKubeView} onSaveAutoUpload={saveAutoUpload} onWelcome={openWelcome}
               welcomePanel={<WelcomePage vaultName={vault.name} version={version} onShowReleaseNotes={() => setShowReleaseNotes(true)} connectionCount={connectionCount}
                 workspaces={vault.workspaces} busy={busy} onNewConnection={protocol => newConnection(protocol)}
-                onOpenWorkspace={id => navigateEditor(() => openWorkspace(id))} />} />
+                onImport={source => setAppDialog({ kind: 'import', source })} onOpenWorkspace={id => navigateEditor(() => openWorkspace(id))} />} />
           </div>
           {editorOpen && <aside className="properties-panel" aria-label={t('app:properties.aria')}>
             <div className="properties-heading"><span>{editorDirty ? t('app:dialogs.unsaved.title') : t('app:properties.title')}</span>
@@ -939,10 +956,17 @@ export default function App() {
       {appDialog?.kind === 'ai' && <AiSettingsDialog settings={vault.ai} busy={busy}
         onClose={() => appDialog.backToSettings ? setAppDialog({ kind: 'settings', instant: true, focus: 'manageAi' }) : closeDialogs()}
         onSave={settings => persistVault({ ...vault, ai: settings })} />}
+      {appDialog?.kind === 'import' && <ImportDialog source={appDialog.source} nodes={vault.nodes} busy={busy} onClose={closeDialogs}
+        onImport={(list, parentId) => {
+          let next = vault.nodes;
+          for (const node of list) next = addNode(next, node, parentId);
+          return persistVault({ ...vault, nodes: next });
+        }} />}
       {settingsDialog}
       <ToastStack />
       <footer className="app-status"><span role="status">{busy ? t('common:status.saving') : saved ? t('app:status.saved') : t('app:status.open')}</span>
         <span>{t('app:status.activeSessions', { count: runningCount })}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>
+        <UpdateBadge />
         <button type="button" className="version-button" title={t('app:status.whatsNew')} onClick={() => setShowReleaseNotes(true)}>v{version}</button></footer>
       {showReleaseNotes && <ReleaseNotesDialog version={version} onClose={() => setShowReleaseNotes(false)} />}
     </main>

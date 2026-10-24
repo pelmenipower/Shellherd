@@ -245,7 +245,7 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 
 ### Ausnahmeliste für das Druck-Feedback
 
-Das Druck-Feedback steht als eine einzige Regel am Ende von `styles.css`. Sie nimmt diese flachen Elemente per `:not()` aus: `:disabled`, `[role='tab']` (Terminal-Tab, View-Tab, Kube-Art, Dock-Tab), `[role='menuitem']`, `.tree-toggle`, `.tree-node-button`, `.root-row`, `.welcome-list button`, `.kube-crumb`, `.kube-link`, `.kube-filter-chip`, `.kube-node`, `.kube-dock-format button`, `.link-button`, `.version-button`, `.connection-picker-option`, `.workspace-definition-actions button`, `.workspace-current-actions button`, `.pane-layout-menu button`, `.file-row-head button` und `.file-path nav button`. Es gibt keine Override-Regel und damit keinen Spezifitätswettlauf, denn `styles.css` steht im Bundle zuletzt. Neue flache Druckelemente kommen in diese Liste.
+Das Druck-Feedback steht als eine einzige Regel am Ende von `styles.css`. Sie nimmt diese flachen Elemente per `:not()` aus: `:disabled`, `[role='tab']` (Terminal-Tab, View-Tab, Kube-Art, Dock-Tab), `[role='menuitem']`, `.tree-toggle`, `.tree-node-button`, `.root-row`, `.welcome-list button`, `.kube-crumb`, `.kube-link`, `.kube-filter-chip`, `.kube-node`, `.kube-dock-format button`, `.link-button`, `.version-button`, `.update-button`, `.connection-picker-option`, `.workspace-definition-actions button`, `.workspace-current-actions button`, `.pane-layout-menu button`, `.file-row-head button` und `.file-path nav button`. Es gibt keine Override-Regel und damit keinen Spezifitätswettlauf, denn `styles.css` steht im Bundle zuletzt. Neue flache Druckelemente kommen in diese Liste.
 
 ## Meldungen
 
