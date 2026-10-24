@@ -122,6 +122,10 @@ Fehlermeldungen, Dialoge und Fenstertitel folgen der Sprache, ebenso Datum, Zahl
 
 `In Windows einbinden` unter Einstellungen → Allgemein verknüpft `.term`-Dateien mit Shellherd: Doppelklick im Explorer oder Rechtsklick → „Mit Shellherd öffnen“ öffnet den Vault. Die Verknüpfung gilt nur für den angemeldeten Benutzer (HKCU) und braucht keine Administratorrechte. `Verknüpfung entfernen` nimmt sie wieder heraus.
 
+### Updates
+
+`Nach neuen Versionen suchen` unter Einstellungen → Allgemein ist standardmäßig an. Höchstens einmal am Tag fragt Shellherd nach dem Entsperren bei GitHub nach der neuesten Version (`releases/latest`) und zeigt sie in der Statusleiste. Ein Klick öffnet die Release-Notes oder überspringt diese Version. Gesendet wird nur die Anfrage selbst, also deine IP-Adresse und `User-Agent: Shellherd/<Version>`, nichts aus dem Vault. Vor dem Entsperren gibt es keine Netzanfrage, bei abgeschaltetem Schalter gar keine. Der Schalter steht auch ohne Vault bereit. Shellherd installiert keine Updates; Download und Installation machst du selbst.
+
 ### Vault
 
 `Vor dem Trennen laufender Sitzungen nachfragen` (Standard: an) fragt nach, bevor das Schließen eines Tabs oder Fensters oder ein Workspace-Wechsel laufende Sitzungen beendet. Die Einstellung gehört zum Vault und wird verschlüsselt mit ihm gespeichert; sie erscheint erst nach dem Entsperren.
@@ -344,6 +348,23 @@ Unter `Weitere Angaben` einer SSH-Verbindung legst du Port-Weiterleitungen fest
   Netz erreichbar. Shellherd verhindert das nicht; ohne diese Einstellung bleibt er
   auf `localhost` des Servers.
 - **Ältere Versionen** (0.18 und älter) entfernen die Weiterleitungen beim Speichern.
+
+## Verbindungen importieren
+
+`Neu` → `Importieren` (oder die Willkommensseite) übernimmt Verbindungen aus anderen Programmen. Die Quelle wird erst nach dem Klick gelesen; eine Vorschau mit Häkchen zeigt alle Funde, bevor etwas gespeichert wird. Bestehende Verbindungen bleiben unverändert.
+
+- **OpenSSH:** die Datei `~/.ssh/config`, über den Dateidialog gewählt (Vorgabe `%USERPROFILE%\.ssh\config`).
+- **PuTTY:** die Sitzungen unter `HKCU\Software\SimonTatham\PuTTY\Sessions`, per `reg.exe export` nur gelesen.
+- **WinSCP:** die Sitzungen unter `HKCU\Software\Martin Prikryl\WinSCP 2\Sessions`, ebenfalls nur gelesen. SFTP-Sitzungen werden zu Dateiverbindungen, SCP-Sitzungen zu SFTP.
+- **mRemoteNG:** die Datei `confCons.xml`, über den Dateidialog gewählt (Vorgabe `%APPDATA%\mRemoteNG\confCons.xml`). Ist die Datei vollständig verschlüsselt, bricht der Import mit Hinweis ab.
+
+Übernommen werden Host, Port, Benutzer, Schlüsselpfad, Weiterleitungen und bei WinSCP und mRemoteNG die Ordner. Nicht übernommen werden Passwörter, Passphrasen und Schlüsselinhalte. Schlüsseldateien werden nie geöffnet; Shellherd speichert nur den Pfad. PuTTY-Schlüssel (`.ppk`) bekommen einen Hinweis, weil Shellherd nur Format 2 mit RSA liest.
+
+- **Duplikate:** Eine Verbindung mit gleichem Host, Port und Benutzer wie eine vorhandene SSH- oder SFTP-Verbindung ist markiert und vorab abgewählt. Du kannst sie trotzdem wählen.
+- **Sprunghost:** Er wird nur übernommen, wenn er genau ein Hop zu einem anderen Eintrag derselben Quelle ist und mit ausgewählt ist. Bei WinSCP und mRemoteNG entfällt er.
+- **Weiterleitungen** starten nach dem Import nicht automatisch, sondern erst per Klick.
+- **Zielordner:** standardmäßig ein neuer Ordner „OpenSSH-Import“, „PuTTY-Import“, „WinSCP-Import“ oder „mRemoteNG-Import“ auf oberster Ebene. Wahlweise geht es in einen vorhandenen Ordner oder auf die oberste Ebene. Ein neuer Importordner lässt sich mit einem Löschvorgang zurücknehmen.
+- **Nicht übernommen:** Sitzungen anderer Protokolle wie FTP, Telnet oder VNC. Die Vorschau nennt die Anzahl.
 
 ## Container und VMs
 

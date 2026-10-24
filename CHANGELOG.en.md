@@ -4,6 +4,14 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.21.0] – 2026-10-24
+
+- New: Import connections from OpenSSH (`~/.ssh/config`, choose the file), PuTTY and WinSCP (sessions from the Windows registry) and mRemoteNG (`confCons.xml`, choose the file). Find it under `New` → `Import` and on the welcome page. A preview shows all connections found with checkboxes before anything is saved. Existing connections stay unchanged.
+- New: Host, port, user name, key path, port forwards and the folders of WinSCP and mRemoteNG are imported. Passwords, passphrases and key contents are not: key files are never opened, only their path is stored. Enter the password once in the form. WinSCP sessions with SCP come in as SFTP; sessions of other protocols (such as FTP, Telnet or VNC) are left out. PuTTY keys (`.ppk`) get a hint, because Shellherd reads only format 2 with RSA.
+- New: Duplicates, that is connections with the same host, port and user name as an existing SSH or SFTP connection, are marked and unchecked in advance. A jump host is imported only if it is exactly one hop to another entry of the same source and is selected too; WinSCP and mRemoteNG import no jump host. Port forwards do not start automatically after the import, only by click.
+- New: The target folder is by default a new folder “OpenSSH import”, “PuTTY import”, “WinSCP import” or “mRemoteNG import” at the top level. You can also choose an existing folder or the top level. A new import folder can be taken back with one delete.
+- New: Update notice. At most once a day, after unlocking, Shellherd asks GitHub for the latest version and shows it in the status bar. There you open the release notes or skip this version. The notice is on by default and can be switched off under Settings → General. Only the request to GitHub is sent, with your IP address and the Shellherd version, nothing from the vault. There is no automatic update; you install updates yourself.
+
 ## [0.20.0] – 2026-10-24
 
 - New: Search in the terminal with `Ctrl+Shift+F`. `Enter` finds the next match, `Shift+Enter` the previous one, `Esc` closes the search. Upper and lower case do not matter. Matches are highlighted by the selection and are not copied to the clipboard. The terminals in the container and cluster docks have no search; there `Ctrl+Shift+F` goes to the terminal.

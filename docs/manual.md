@@ -121,6 +121,10 @@ The AI assistant answers in the selected language. kubectl-like output and raw s
 
 `Add to Windows` under Settings → General associates `.term` files with Shellherd: a double-click in Explorer or right-click → “Open with Shellherd” opens the vault. The association applies to the signed-in user only (HKCU) and needs no administrator rights. `Remove association` takes it out again.
 
+### Updates
+
+`Check for new versions` under Settings → General is on by default. At most once a day, after unlocking, Shellherd asks GitHub for the latest version (`releases/latest`) and shows it in the status bar. A click opens the release notes or skips this version. Only the request itself is sent, that is your IP address and `User-Agent: Shellherd/<version>`, nothing from the vault. Before unlocking there is no network request, and with the switch off there is none at all. The switch is also available without a vault. Shellherd does not install updates; you download and install them yourself.
+
 ### Vault
 
 `Ask before disconnecting running sessions` (default: on) asks before closing a tab or window or switching workspaces ends running sessions. The setting belongs to the vault and is saved encrypted with it; it appears only after unlocking.
@@ -334,6 +338,23 @@ They belong to a terminal session of this connection.
   the network. Shellherd does not prevent this; without that setting it stays on
   `localhost` of the server.
 - **Older versions** (0.18 and older) remove the forwards when saving.
+
+## Importing connections
+
+`New` → `Import` (or the welcome page) takes over connections from other programs. The source is read only after the click; a preview with checkboxes shows everything found before anything is saved. Existing connections stay unchanged.
+
+- **OpenSSH:** the file `~/.ssh/config`, chosen in the file dialog (default `%USERPROFILE%\.ssh\config`).
+- **PuTTY:** the sessions under `HKCU\Software\SimonTatham\PuTTY\Sessions`, read only, via `reg.exe export`.
+- **WinSCP:** the sessions under `HKCU\Software\Martin Prikryl\WinSCP 2\Sessions`, also read only. SFTP sessions become file connections, SCP sessions become SFTP.
+- **mRemoteNG:** the file `confCons.xml`, chosen in the file dialog (default `%APPDATA%\mRemoteNG\confCons.xml`). If the file is fully encrypted, the import stops with a note.
+
+Imported are host, port, user name, key path, port forwards and, for WinSCP and mRemoteNG, the folders. Not imported are passwords, passphrases and key contents. Key files are never opened; Shellherd stores only the path. PuTTY keys (`.ppk`) get a hint, because Shellherd reads only format 2 with RSA.
+
+- **Duplicates:** a connection with the same host, port and user name as an existing SSH or SFTP connection is marked and unchecked in advance. You can still select it.
+- **Jump host:** imported only if it is exactly one hop to another entry of the same source and is selected too. WinSCP and mRemoteNG import no jump host.
+- **Port forwards** do not start automatically after the import, only by click.
+- **Target folder:** by default a new folder “OpenSSH import”, “PuTTY import”, “WinSCP import” or “mRemoteNG import” at the top level. You can also choose an existing folder or the top level. A new import folder can be taken back with one delete.
+- **Not imported:** sessions of other protocols such as FTP, Telnet or VNC. The preview names their number.
 
 ## Containers and VMs
 

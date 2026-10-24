@@ -4,6 +4,14 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.21.0] – 2026-10-24
+
+- Neu: Verbindungen importieren aus OpenSSH (`~/.ssh/config`, Datei wählen), PuTTY und WinSCP (Sitzungen aus der Windows-Registry) und mRemoteNG (`confCons.xml`, Datei wählen). Zu finden unter `Neu` → `Importieren` und auf der Willkommensseite. Eine Vorschau zeigt alle gefundenen Verbindungen mit Häkchen, bevor etwas gespeichert wird. Bestehende Verbindungen bleiben unverändert.
+- Neu: Übernommen werden Host, Port, Benutzer, Schlüsselpfad, Weiterleitungen sowie die Ordner aus WinSCP und mRemoteNG. Nicht übernommen werden Passwörter, Passphrasen und Schlüsselinhalte: Schlüsseldateien werden nie geöffnet, nur ihr Pfad wird gespeichert. Das Passwort tippst du einmal im Formular ein. WinSCP-Sitzungen mit SCP kommen als SFTP, Sitzungen anderer Protokolle (etwa FTP, Telnet oder VNC) bleiben außen vor. PuTTY-Schlüssel (`.ppk`) bekommen einen Hinweis, weil Shellherd nur Format 2 mit RSA lesen kann.
+- Neu: Duplikate, also Verbindungen mit gleichem Host, Port und Benutzer wie eine vorhandene SSH- oder SFTP-Verbindung, sind markiert und vorab abgewählt. Ein Sprunghost wird nur übernommen, wenn er genau ein Hop zu einem anderen Eintrag derselben Quelle ist und mit ausgewählt ist; bei WinSCP und mRemoteNG entfällt er. Weiterleitungen starten nach dem Import nicht automatisch, sondern nur per Klick.
+- Neu: Zielordner ist standardmäßig ein neuer Ordner „OpenSSH-Import“, „PuTTY-Import“, „WinSCP-Import“ oder „mRemoteNG-Import“ auf oberster Ebene. Wahlweise geht es in einen vorhandenen Ordner oder auf die oberste Ebene. Ein neuer Importordner lässt sich mit einem Löschvorgang zurücknehmen.
+- Neu: Update-Hinweis. Höchstens einmal am Tag fragt Shellherd nach dem Entsperren bei GitHub nach der neuesten Version und zeigt sie in der Statusleiste. Dort öffnest du die Release-Notes oder überspringst diese Version. Der Hinweis ist standardmäßig an und lässt sich unter Einstellungen → Allgemein abschalten. Gesendet wird nur die Anfrage an GitHub mit deiner IP-Adresse und der Shellherd-Version, nichts aus dem Vault. Ein Auto-Update gibt es nicht; installieren musst du selbst.
+
 ## [0.20.0] – 2026-10-24
 
 - Neu: Suche im Terminal mit `Strg+Umschalt+F`. `Enter` sucht weiter, `Umschalt+Enter` zurück, `Esc` schließt die Suche. Groß- und Kleinschreibung spielen keine Rolle. Treffer werden über die Auswahl markiert und nicht in die Zwischenablage kopiert. In den Terminals der Container- und Cluster-Docks gibt es keine Suche; dort geht `Strg+Umschalt+F` an das Terminal.
