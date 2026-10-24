@@ -66,9 +66,9 @@ const formField = (label, value, index = 0) => call('eval', `const label = [...d
   }`);
 
 // app-intern: jump host web-01, local forward 15432 to db-internal:5432 (starts on connect), SOCKS 1080 (started by hand).
-// "Weitere Angaben" holds both; it is opened only when its jump host field is not visible yet.
 async function appInternAdvanced() {
-  if (!await call('eval', `return [...document.querySelectorAll('label')].some(l => l.textContent.trim().startsWith('Sprunghost') && l.offsetParent)`)) await click(':text-is("Weitere Angaben") >> nth=0');
+  // Open "Weitere Angaben" directly: a click can toggle it shut again when it is already open.
+  await call('eval', `const d = [...document.querySelectorAll('details.editor-details')].find(x => x.querySelector('summary').textContent.includes('Weitere Angaben')); d.open = true; return true`);
   await formField('Sprunghost', 'web-01');
   await click('button:has-text("Weiterleitung hinzufügen")');
   await formField('Lokaler Port', '15432', 0);
