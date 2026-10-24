@@ -1,5 +1,5 @@
-// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast …] [--readme]   (no argument = all)
+// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -93,6 +93,37 @@ function localTarget() {
   fs.writeFileSync(path.join(dir, 'deploy.sh'), '#!/bin/sh\necho deploy\n');
   fs.writeFileSync(path.join(dir, 'notes.md'), '# Notes\n\n- synthetic\n- demo\n');
   return { target: dir, segment: path.basename(dir) };
+}
+
+// Import and update scenes: sources from import-fixtures.mjs (the driver writes them to RUN_DIR/import).
+const IMPORT_DIR = path.join(RUN_DIR, 'import');
+const VAULT_FILE = path.join(RUN_DIR, 'profile', 'demo.term');
+const SETTINGS_FILE = path.join(RUN_DIR, 'profile', 'Shellherd', 'settings.json');
+const UPDATE_FLAG = path.join(RUN_DIR, 'update-available');
+// Replaces the native open dialog in the main process; the driver's stub answers with the demo vault.
+const setOpenDialog = file => call('main', `electron.dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [${JSON.stringify(file)}] });`);
+// Opens the import menu entry by its leading text and waits until the dialog shows its preview or error.
+async function openImport(menuLabel, step) {
+  await click('button:text-is("Neu")');
+  await menuItem(menuLabel);
+  await waitFor(`Import-Dialog ${step}`, `document.querySelector('dialog.import-dialog[open] .import-list, dialog.import-dialog[open] .field-error')`);
+  await pause(300);
+}
+// Cancel button of the import dialog (form actions, not the close button of the error state, which has the same class).
+const cancelImport = async () => {
+  await click('dialog.import-dialog[open] .form-actions .secondary-button');
+  await waitFor('Import-Dialog geschlossen', `!document.querySelector('dialog.import-dialog[open]')`);
+};
+// Earlier runs leave their import folder behind; its candidates would then all be duplicates and nothing is left to import.
+async function removeImportFolder(name) {
+  const present = `[...document.querySelectorAll('.vault-tree-row')].some(r => r.textContent.includes(${JSON.stringify(name)}))`;
+  if (!await evaluate(present)) return;
+  await click(`.vault-tree-row >> text=${name} >> nth=0`);
+  await waitFor('Ordner-Editor', `document.querySelector('section.node-editor details > summary')`);
+  await click('section.node-editor details > summary');
+  await click('section.node-editor .danger-button');
+  await click('dialog.compact-confirm[open] .primary-button, dialog.compact-confirm[open] .danger-button');
+  await waitFor(`Ordner ${name} entfernt`, `!${present}`);
 }
 
 const shots = [];
@@ -503,6 +534,70 @@ const blocks = {
     await shot('broadcast');
     await click('.broadcast-chip >> nth=0');
     await waitFor('Eingabe an alle beendet', `document.querySelectorAll('.broadcast-chip').length === 0`);
+  },
+  // Import menu for all four sources. Only OpenSSH is imported; the other dialogs are cancelled, so no registry or file beyond the fixtures is read.
+  async import() {
+    // Test hooks first: without them the PuTTY and WinSCP entries would read the real registry.
+    await call('main', `const missing = ['SHELLHERD_PUTTY_REG_FILE', 'SHELLHERD_WINSCP_REG_FILE'].filter(name => !process.env[name]);
+      if (missing.length) throw new Error('Import-Block abgebrochen, fehlt: ' + missing.join(', ') + ' (sonst läse der Block die echte Registry).');`);
+    try {
+      await removeImportFolder('OpenSSH-Import');
+      await setOpenDialog(path.join(IMPORT_DIR, 'ssh_config'));
+      await openImport('Aus OpenSSH', 'OpenSSH');
+      await shot('import-openssh');
+      await click('dialog.import-dialog[open] .form-actions .primary-button');
+      await waitFor('Import abgeschlossen', `!document.querySelector('dialog.import-dialog[open]')`);
+      await waitFor('Ergebnis-Meldung', `[...document.querySelectorAll('.toast-title')].some(t => t.textContent.includes('importiert'))`);
+      await waitFor('Importordner im Baum', `[...document.querySelectorAll('.vault-tree-row')].some(r => r.textContent.includes('OpenSSH-Import'))`);
+      await shot('import-result');
+      await openImport('Aus PuTTY', 'PuTTY');
+      await shot('import-putty');
+      await cancelImport();
+      await openImport('Aus WinSCP', 'WinSCP');
+      await shot('import-winscp');
+      await cancelImport();
+      await setOpenDialog(path.join(IMPORT_DIR, 'confCons.xml'));
+      await openImport('Aus mRemoteNG', 'mRemoteNG');
+      await shot('import-mremoteng');
+      await cancelImport();
+    } finally {
+      if (await evaluate(`!!document.querySelector('dialog.import-dialog[open]')`)) { await key('Escape'); await pause(300); }
+      await setOpenDialog(VAULT_FILE);
+      await removeImportFolder('OpenSSH-Import');
+    }
+  },
+  // Update hint: the fake release route offers the next minor version while RUN_DIR/update-available exists. The check runs at most once a day, so the settings lose checkedAt (and the skip from the last run) first.
+  async update() {
+    fs.writeFileSync(UPDATE_FLAG, '');
+    try {
+      if (fs.existsSync(SETTINGS_FILE)) {
+        const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+        if (settings.update) { delete settings.update.checkedAt; delete settings.update.skipped; }
+        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+      }
+      // Reply first, then reload; the page navigates away while the driver call would still wait for it.
+      await call('eval', `setTimeout(() => location.reload(), 0); return true;`);
+      await pause(3000);
+      await waitFor('Startbildschirm oder offener Vault', `!!document.querySelector('input[type=password], .workspace-save')`, { timeout: 30000 });
+      if (!await evaluate(`!!document.querySelector('.workspace-save')?.offsetParent`)) {
+        if (!await evaluate(`!!document.querySelector('input[type=password]')`)) await click('button:text-is("Vault öffnen")');
+        await fill('input[type=password]', 'synthetic-vault-demo');
+        await click('button:text-is("Vault öffnen") >> nth=-1');
+      }
+      await waitFor('Vault entsperrt', `!!document.querySelector('.workspace-save')?.offsetParent`, { timeout: 30000 });
+      await waitFor('Update-Knopf', `!!document.querySelector('.update-button')`, { timeout: 30000 });
+      await pause(300);
+      await shot('update-hint');
+      await click('.update-button');
+      await waitFor('Update-Menü', `!!document.querySelector('.context-menu[role=menu]')`);
+      await pause(300);
+      await shot('update-menu');
+      fs.rmSync(UPDATE_FLAG, { force: true });
+      await menuItem('Diese Version überspringen');
+      await waitFor('Update-Knopf verschwunden', `!document.querySelector('.update-button')`);
+    } finally {
+      fs.rmSync(UPDATE_FLAG, { force: true });
+    }
   },
 };
 
