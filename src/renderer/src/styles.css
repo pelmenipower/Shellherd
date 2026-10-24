@@ -111,6 +111,17 @@ label { font-size: var(--fs-sm); font-weight: 500; color: var(--color-text-muted
 .welcome-list button:hover:not(:disabled) { border-color: var(--color-border-strong); background: var(--color-bg-raised); }
 .welcome-list strong { font-size: var(--fs-md); font-weight: 600; }
 .welcome-list small { color: var(--color-text-muted); font-size: var(--fs-sm); }
+.recent-vaults { display: grid; gap: var(--space-6); margin: var(--space-12) 0; }
+.recent-vaults h3 { margin: 0; color: var(--color-text-muted); font-size: var(--fs-sm); font-weight: 600; }
+.recent-vaults ul { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+.recent-vaults li { display: flex; align-items: center; gap: var(--space-4); }
+.recent-vault-open { display: grid; flex: 1; min-width: 0; gap: var(--space-2); padding: var(--space-6) var(--space-10); text-align: left; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-panel); color: var(--color-text); }
+.recent-vault-open:hover:not(:disabled) { border-color: var(--color-border-strong); background: var(--color-bg-raised); }
+.recent-vault-open[aria-pressed='true'] { border-color: var(--color-accent); background: var(--color-bg-selected); }
+.recent-vault-open strong, .recent-vault-open small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-vault-open strong { font-size: var(--fs-md); font-weight: 600; }
+.recent-vault-open small { color: var(--color-text-muted); font-size: var(--fs-sm); }
+.recent-vaults .field-error { margin: 0; color: var(--color-danger); font-size: var(--fs-sm); }
 .welcome-tips { display: grid; gap: var(--space-8); margin: 0 0 var(--space-16); padding-left: var(--space-20); color: var(--color-text-muted); font-size: var(--fs-md); line-height: 1.5; }
 .welcome-tips strong { color: var(--color-text); font-weight: 600; }
 
@@ -145,7 +156,7 @@ label { font-size: var(--fs-sm); font-weight: 500; color: var(--color-text-muted
   button:active:not(:disabled, [role='tab'], [role='menuitem'], .tree-toggle, .tree-node-button, .root-row, .welcome-list button,
     .kube-crumb, .kube-link, .kube-filter-chip, .kube-node, .kube-dock-format button, .link-button, .version-button, .update-button,
     .connection-picker-option, .workspace-definition-actions button, .workspace-current-actions button,
-    .pane-layout-menu button, .file-row-head button, .file-path nav button) { transform: scale(.97); }
+    .pane-layout-menu button, .file-row-head button, .file-path nav button, .recent-vault-open) { transform: scale(.97); }
   .confirm-dialog:not(.kube-confirm):not([data-instant])[open] { transition: opacity var(--dur-modal) var(--ease-out), transform var(--dur-modal) var(--ease-out); }
   .file-drop-hint { transition: opacity var(--dur-hint) var(--ease-out), transform var(--dur-hint) var(--ease-out); }
   @starting-style {

@@ -7,6 +7,7 @@ import { useNativeSurfaceBlock } from '../native-surface';
 import { t, useT } from '../i18n';
 import { aiProviderSummary, parseFontFamily, parseGroupedNumber, settingsSections, withAutoLockMinutes, withConfirmBeforeClosing, withTerminal, withTimeouts, type SettingsSection } from '../settings-sections';
 import { LanguageSetting } from './LanguageSetting';
+import { ThemeSetting } from './ThemeSetting';
 import { FileTypeSetting } from './FileTypeSetting';
 import { UpdateSetting } from './UpdateSetting';
 import '../settings-ui.css';
@@ -105,7 +106,7 @@ function FontSetting({ id, value, busy, hintId, onCommit }: FontSettingProps) {
   );
 }
 
-/** Language, file association, vault, terminal and AI provider entry points; every value applies immediately. */
+/** Language, colour scheme, file association, vault, terminal and AI provider entry points; every value applies immediately. */
 export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', onClose, onManageAi, onSaveSettings }: SettingsDialogProps) {
   const { t } = useT();
   const id = useId();
@@ -127,7 +128,7 @@ export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', o
       {settingsSections(vault).map(section => <section key={section} className="settings-section" aria-labelledby={`${id}-${section}`}>
         <h3 id={`${id}-${section}`}>{sectionTitle(section)}</h3>
         {section === 'general' && <>
-          <div className="settings-stack"><LanguageSetting /><FileTypeSetting /></div>
+          <div className="settings-stack"><LanguageSetting /><ThemeSetting /><FileTypeSetting /></div>
           <UpdateSetting />
           {!vault && <p className="settings-hint">{t('app:settings.locked')}</p>}
         </>}

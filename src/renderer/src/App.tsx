@@ -77,6 +77,7 @@ import './import-ui.css';
 import type { ImportSource } from '../../shared/import';
 import { ImportDialog } from './components/ImportDialog';
 import { UpdateBadge } from './components/UpdateBadge';
+import { RecentVaults } from './components/RecentVaults';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
 type LockState = { minutes?: number; vaultId: string };
@@ -150,6 +151,7 @@ export default function App() {
   const [formError, setFormError] = useState<string | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const folderInput = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -1096,6 +1098,10 @@ export default function App() {
 
             <p className="form-description">{t('app:open.description')}</p>
 
+            <RecentVaults selectedPath={selectedVaultPath} disabled={busy}
+              onSelect={filePath => { setFormError(null); setSelectedVaultPath(filePath); requestAnimationFrame(() => passwordInputRef.current?.focus()); }}
+              onRemoved={filePath => { if (filePath === selectedVaultPath) setSelectedVaultPath(''); }} />
+
             <button
               className="secondary-button"
               type="button"
@@ -1123,6 +1129,7 @@ export default function App() {
               <input
                 // With a preselected vault only the password is left to type.
                 key={selectedVaultPath ? 'with-file' : 'without-file'}
+                ref={passwordInputRef}
                 autoFocus={Boolean(selectedVaultPath)}
                 type={showPassword ? 'text' : 'password'}
                 value={password}
