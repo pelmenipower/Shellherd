@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, shell, webContents } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, powerMonitor, shell, webContents } from 'electron';
 import type { Rectangle, WebContents } from 'electron';
 import { join } from 'node:path';
 
@@ -34,6 +34,7 @@ import { readAppSettings, writeAppSettings } from './app-settings';
 import { z } from 'zod';
 import { AppError } from '../shared/errors';
 import { LANGUAGE_SETTINGS, LOCALE_ARG } from '../shared/locale';
+import { THEME_SETTINGS } from '../shared/theme';
 import { localeStore } from './locale';
 import { mainT, setMainLocale } from './i18n';
 import { localTestUrl, readImport } from './import-source';
@@ -92,6 +93,9 @@ function closeSecondaryWindows(): void {
   }
 }
 
+// Shown before the first paint; matches --color-bg-app of the active scheme.
+const windowBackground = (): string => nativeTheme.shouldUseDarkColors ? '#0b1120' : '#f1eee9';
+
 function createWindow(role: WindowRole, bounds?: Rectangle, maximized = false): BrowserWindow {
   const icon = brandIconPath();
   const window = new BrowserWindow({
@@ -100,7 +104,7 @@ function createWindow(role: WindowRole, bounds?: Rectangle, maximized = false): 
     minHeight: role === 'main' ? 600 : 320,
     title: mainT(role === 'main' ? 'window.main' : 'window.secondary'),
     ...(icon ? { icon } : {}),
-    backgroundColor: '#0b1120',
+    backgroundColor: windowBackground(),
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
@@ -229,6 +233,7 @@ app.whenReady().then(() => {
     systemLanguages: () => app.getPreferredSystemLanguages(),
   });
   setMainLocale(languageState.effective);
+  nativeTheme.themeSource = readAppSettings(settingsFile).theme;
   const association = new FileAssociation(process.execPath, process.defaultApp ? app.getAppPath() : null, brandIconPath());
   ipcMain.handle(IPC_CHANNELS.vaultLaunchFile, event => {
     windowRegistry.requireMain(event);
@@ -255,6 +260,23 @@ app.whenReady().then(() => {
     const parsed = z.enum(LANGUAGE_SETTINGS).safeParse(value);
     if (!parsed.success) throw new AppError('core.invalidRequest');
     return localeStore.set(parsed.data);
+  });
+  // Main window only, as in the spec for getTheme; main applies the scheme to every window.
+  ipcMain.handle(IPC_CHANNELS.appGetTheme, event => {
+    windowRegistry.requireMain(event);
+    return readAppSettings(settingsFile).theme;
+  });
+  ipcMain.handle(IPC_CHANNELS.appSetTheme, (event, value: unknown) => {
+    windowRegistry.requireMain(event);
+    const parsed = z.enum(THEME_SETTINGS).safeParse(value);
+    if (!parsed.success) throw new AppError('core.invalidRequest');
+    if (!writeAppSettings(settingsFile, { theme: parsed.data })) throw new AppError('core.settingsWriteFailed');
+    nativeTheme.themeSource = parsed.data;
+    return parsed.data;
+  });
+  // Background colour follows the scheme; the transparent drag ghost is not registered and is skipped.
+  nativeTheme.on('updated', () => {
+    for (const target of [windowRegistry.main(), ...windowRegistry.secondaries()]) if (target && !target.isDestroyed()) target.setBackgroundColor(windowBackground());
   });
   // Broadcast only to main/secondary windows (not the drag ghost window).
   localeStore.subscribe(state => {
