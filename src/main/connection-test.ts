@@ -8,6 +8,8 @@ import type { ConnectionTestResult, ConnectionTestStep } from '../shared/connect
 import type { CodedError } from '../shared/errors';
 import { isRemoteConnection } from '../shared/vault/connections';
 import { sshConnectConfig } from './ssh/client-config';
+import type { AskPrompts } from './ssh/auth-prompts';
+import type { Jump } from './ssh/jump';
 import { localShellCommand, publicError } from './ssh/session';
 import { locateCommand } from './ssh/locate';
 import { AI_CLI_TOOLS } from '../shared/ai-cli';
@@ -21,8 +23,12 @@ export interface ConnectionTestDependencies {
   resolve?: (host: string) => Promise<string>;
   probePort?: (host: string, port: number) => Promise<void>;
   locate?: (command: string) => Promise<string | null>;
-  /** SSH step timeout in ms; paused while the host key dialog is open. */
+  /** SSH step timeout in ms; paused while the host key dialog or a sign-in question is open. */
   timeout?: number;
+  /** Sign-in questions of the server; without it keyboard-interactive is not offered. */
+  ask?: AskPrompts;
+  /** Opens the jump host of the connection; undefined without one. */
+  openJump?: (node: SshConnectionNode | SftpConnectionNode) => Promise<Jump | undefined>;
 }
 
 function probe(host: string, port: number): Promise<void> {
@@ -68,10 +74,15 @@ export async function testConnection(node: ConnectionNode, dependencies: Connect
     return done();
   }
   if (!node.host.trim()) { steps.push({ step: 'hostGiven', ok: false, note: { code: 'core.testHostMissing' } }); return done(); }
-  try {
-    const address = await (dependencies.resolve ?? resolveHost)(node.host);
-    steps.push({ step: 'nameResolved', ok: true, detail: address === node.host ? undefined : `${node.host} → ${address}` });
-  } catch (error) { steps.push({ step: 'nameResolved', ok: false, note: networkError(error) }); return done(); }
+  // Behind a jump host the far side resolves the target, so no local lookup (spec 4.4).
+  const sshNode = node.protocol === 'ssh' || node.protocol === 'sftp' ? node : undefined;
+  const openJump = sshNode?.jumpHost ? dependencies.openJump : undefined;
+  if (!openJump) {
+    try {
+      const address = await (dependencies.resolve ?? resolveHost)(node.host);
+      steps.push({ step: 'nameResolved', ok: true, detail: address === node.host ? undefined : `${node.host} → ${address}` });
+    } catch (error) { steps.push({ step: 'nameResolved', ok: false, note: networkError(error) }); return done(); }
+  }
   if (node.protocol === 'rdp') {
     try { await (dependencies.probePort ?? probe)(node.host, node.port); steps.push({ step: 'portReachable', params: { port: node.port }, ok: true }); }
     catch (error) { steps.push({ step: 'portReachable', params: { port: node.port }, ok: false, note: networkError(error) }); return done(); }
@@ -79,11 +90,22 @@ export async function testConnection(node: ConnectionNode, dependencies: Connect
     return done();
   }
   if (!node.username?.trim()) { steps.push({ step: 'userGiven', ok: false, note: { code: 'core.testUserMissing' } }); return done(); }
+  if (sshNode?.jumpHost && openJump) {
+    const name = sshNode.jumpHost;
+    let jump: Jump | undefined;
+    try { jump = await openJump(sshNode); }
+    catch (error) { steps.push({ step: 'jumpHost', ok: false, params: { name }, note: publicError(error) }); return done(); }
+    if (!jump) { steps.push({ step: 'jumpHost', ok: false, params: { name }, note: { code: 'ssh.jumpHostMissing', params: { id: name } } }); return done(); }
+    steps.push({ step: 'jumpHost', ok: true, params: { name: jump.name } });
+    await testSsh(sshNode, dependencies, steps, jump);
+    return done();
+  }
   await testSsh(node, dependencies, steps);
   return done();
 }
 
-function testSsh(node: SshConnectionNode | SftpConnectionNode, dependencies: ConnectionTestDependencies, steps: ConnectionTestStep[]): Promise<void> {
+function testSsh(node: SshConnectionNode | SftpConnectionNode, dependencies: ConnectionTestDependencies, steps: ConnectionTestStep[],
+  jump?: Jump): Promise<void> {
   return new Promise(resolve => {
     const client = dependencies.createClient?.() ?? new Client();
     let finished = false;
@@ -97,6 +119,7 @@ function testSsh(node: SshConnectionNode | SftpConnectionNode, dependencies: Con
       key?.fill(0);
       if (failure) steps.push({ ...failure, ok: false });
       client.destroy();
+      jump?.close();
       resolve();
     };
     const fail = (error: unknown): void => {
@@ -107,6 +130,13 @@ function testSsh(node: SshConnectionNode | SftpConnectionNode, dependencies: Con
     const timeout = dependencies.timeout ?? TIMEOUT;
     const startTimer = (): NodeJS.Timeout => setTimeout(() => fail(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT', level: 'client-timeout' })), timeout);
     let timer = startTimer();
+    const resume = (): void => { if (!finished) timer = startTimer(); };
+    // A sign-in question may take as long as the user needs, like the host key dialog.
+    const ask = dependencies.ask;
+    const askPaused: AskPrompts | undefined = ask && ((request, options) => {
+      clearTimeout(timer);
+      return ask(request, options).finally(resume);
+    });
     client.on('connect', () => { reached = true; steps.push({ step: 'portReachable', params: { port: node.port }, ok: true }); });
     client.on('error', fail);
     client.on('close', () => finish());
@@ -122,7 +152,6 @@ function testSsh(node: SshConnectionNode | SftpConnectionNode, dependencies: Con
     });
     void sshConnectConfig(node, (hostKey, callback) => {
       clearTimeout(timer); // the user may take as long as needed in the dialog
-      const resume = (): void => { if (!finished) timer = startTimer(); };
       void dependencies.verifyHost(node.host, node.port, hostKey, () => !finished).then(valid => {
         resume();
         keyChecked = valid;
@@ -130,10 +159,11 @@ function testSsh(node: SshConnectionNode | SftpConnectionNode, dependencies: Con
         else finish({ step: 'hostKey', note: { code: 'core.testHostKeyRejected' } });
         callback(valid && !finished);
       }).catch(error => { resume(); finish({ step: 'hostKey', note: publicError(error) }); callback(false); });
-    }).then(({ config, key: privateKey }) => {
-      key = privateKey;
-      if (finished) { key?.fill(0); return; }
-      client.connect({ ...config, readyTimeout: 120_000, /* our timer governs; ssh2's would fire during the host key dialog */ keepaliveInterval: 0 });
-    }).catch(error => finish({ step: 'credentials', note: publicError(error) }));
+    }, undefined, { client, keyboard: askPaused ? { ask: askPaused, isActive: () => !finished } : undefined, sock: jump?.sock })
+      .then(({ config, key: privateKey }) => {
+        key = privateKey;
+        if (finished) { key?.fill(0); return; }
+        client.connect({ ...config, readyTimeout: 120_000, /* our timer governs; ssh2's would fire during the host key dialog */ keepaliveInterval: 0 });
+      }).catch(error => finish({ step: 'credentials', note: publicError(error) }));
   });
 }
