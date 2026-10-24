@@ -167,6 +167,46 @@ const blocks = {
     await key('n');
     await waitFor('Typeahead', `!!document.querySelector('.file-pane-remote .file-row.is-cursor[data-name="notes.md"]')`);
     await shot('sftp-typeahead');
+    // Go-to field, hidden files and filter (server pane only). The menu entry decides what a click does, so a leftover switch from an aborted run is fixed too.
+    const setServerHidden = async label => {
+      await click('.file-pane-remote button[aria-haspopup="menu"]');
+      if (await evaluate(`[...document.querySelectorAll('[role=menuitem]')].some(i => i.textContent.trim().startsWith(${JSON.stringify(label)}))`)) await menuItem(label);
+      else await key('Escape');
+    };
+    try {
+      // Go-to field: a missing folder keeps the field open with the error.
+      await click('.file-pane-remote [role=row][data-name="backups"]');
+      await key('Control+l');
+      await fill('.file-pane-remote input[aria-label="Pfad"]', '/etc/nginx/fehlt');
+      await key('Enter');
+      await waitFor('Fehler am Pfadfeld', `!!document.querySelector('.file-pane-remote .file-path .field-error')`);
+      await pause(300);
+      await shot('sftp-goto');
+      // Relative path, then "~" back to the home folder.
+      await fill('.file-pane-remote input[aria-label="Pfad"]', 'www');
+      await key('Enter');
+      await waitFor('Ordner www', `document.querySelector('.file-pane-remote nav[aria-label="Pfad"]')?.textContent.includes('www')`);
+      await key('Control+l');
+      await fill('.file-pane-remote input[aria-label="Pfad"]', '~');
+      await key('Enter');
+      await waitFor('Basisordner mit notes.md', `!!document.querySelector('.file-pane-remote [role=row][data-name="notes.md"]')`);
+      // Hidden files off: dot names gone, footer counts them.
+      await setServerHidden('Versteckte Dateien ausblenden');
+      await waitFor('ausgeblendete Dateien', `${count('.file-pane-remote [role=row][data-name=".bashrc"]')} === 0 && (document.querySelector('.file-pane-remote .file-pane-footer')?.textContent ?? '').includes('ausgeblendet')`);
+      await pause(300);
+      await shot('sftp-hidden');
+      // Filter "ba": only backups stays; .bashrc is hidden, so the footer counts four.
+      await click('.file-pane-remote [role=row][data-name="backups"]');
+      await key('Control+f');
+      await fill('.file-pane-remote .file-filter input', 'ba');
+      await waitFor('Filter ba', `${count('.file-pane-remote [role=row][data-name]')} === 1 && (document.querySelector('.file-pane-remote .file-pane-footer')?.textContent ?? '').includes('4 ausgeblendet')`);
+      await pause(300);
+      await shot('sftp-filter');
+    } finally {
+      // Back to the old state: no filter, hidden files shown (the demo profile keeps localStorage).
+      if (await evaluate(`${count('.file-pane-remote .file-filter input')} > 0`)) { await click('.file-pane-remote .file-filter input'); await key('Escape'); }
+      await setServerHidden('Versteckte Dateien anzeigen');
+    }
     // Transfer rate, cancel, resume, verify: a large random upload (random, so the content comparison means something); the rate vanishes at the end, so shots follow their wait at once.
     const queue = '.transfer-queue:not(.file-sync-list):not(.edit-list)';
     const bigLocal = path.join(target, 'big.bin');
