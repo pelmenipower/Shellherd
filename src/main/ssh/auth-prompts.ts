@@ -91,12 +91,15 @@ export class AuthPrompts {
     return new Promise<string[] | null>(resolve => {
       const settle = (answers: string[] | null): void => {
         if (entry.open?.promptId !== promptId) return;
+        clearInterval(timer);
         entry.open = undefined;
         const accepted = answers !== null && options.isActive();
         // Answers are never logged or kept; the window only needs to close.
         if (!accepted) sendTo(target, IPC_CHANNELS.sshAuthPromptClosed, { promptId });
         resolve(accepted ? answers : null);
       };
+      // Polled because a closed window sends no event that would tell us the question is moot.
+      const timer = setInterval(() => { if (!options.isActive()) settle(null); }, 500);
       entry.open = { promptId, target, fields: cleaned.fields.length, settle };
       if (!sendTo(target, IPC_CHANNELS.sshAuthPrompt, { promptId, ...cleaned })) settle(null);
     });

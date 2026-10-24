@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthPrompts, cleanPromptRequest } from './auth-prompts';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import type { AuthPromptRequest } from '../../shared/ssh';
@@ -190,5 +190,52 @@ describe('AuthPrompts cancellation', () => {
     prompts.cancelOwner(7);
     prompts.answer(7, { promptId, answers: ['late'] });
     await expect(pending).resolves.toBeNull();
+  });
+});
+
+describe('AuthPrompts liveness poll', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('ends an open prompt with null when the owner goes inactive and moves on to the next one', async () => {
+    const { prompts, send } = setup();
+    let active = true;
+    const first = prompts.ask(draft({ title: 'first' }), { ownerId: 7, isActive: () => active });
+    const second = prompts.ask(draft({ title: 'second' }), { ownerId: 7, isActive: () => true });
+    await vi.advanceTimersByTimeAsync(0);
+    const { promptId } = promptOf(send);
+    active = false;
+    await vi.advanceTimersByTimeAsync(500);
+    await expect(first).resolves.toBeNull();
+    expect(sentOf(send, IPC_CHANNELS.sshAuthPromptClosed)).toEqual([{ promptId }]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sentOf(send, IPC_CHANNELS.sshAuthPrompt)).toHaveLength(2);
+    prompts.answer(7, { promptId: promptOf(send, 1).promptId, answers: ['b'] });
+    await expect(second).resolves.toEqual(['b']);
+  });
+
+  it('leaves no timer behind after an answer, a cancel or cancelAll', async () => {
+    const { prompts, send } = setup();
+    const answered = prompts.ask(draft(), { ownerId: 7, isActive: () => true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(1);
+    prompts.answer(7, { promptId: promptOf(send).promptId, answers: ['1'] });
+    await expect(answered).resolves.toEqual(['1']);
+    expect(vi.getTimerCount()).toBe(0);
+
+    const cancelled = prompts.ask(draft(), { ownerId: 7, isActive: () => true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(1);
+    prompts.cancelOwner(7);
+    await expect(cancelled).resolves.toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+
+    const open = prompts.ask(draft(), { isActive: () => true });
+    const queued = prompts.ask(draft(), { isActive: () => true });
+    await vi.advanceTimersByTimeAsync(0);
+    prompts.cancelAll();
+    await expect(open).resolves.toBeNull();
+    await expect(queued).resolves.toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
