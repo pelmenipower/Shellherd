@@ -216,6 +216,11 @@ describe('autoUpload bindings', () => {
             { ...binding, localPath: 'app' },
             { ...binding, localPath: '\\\\?\\C:\\x' },
             { ...binding, localPath: '\\\\.\\C:\\x' },
+            { ...binding, localPath: '\\\\?/C:/x' },
+            { ...binding, localPath: '\\\\./pipe/x' },
+            { ...binding, localPath: '\\\\.\\pipe\\x' },
+            { ...binding, localPath: '\\\\?' },
+            { ...binding, localPath: '\\\\.' },
             { ...binding, remotePath: 'srv/app' },
             { ...binding, excludes: ['a\tb'] },
         ]) expect(ssh([bad]).success).toBe(false);

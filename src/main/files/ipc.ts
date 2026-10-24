@@ -38,6 +38,12 @@ const ConflictSchema = z.object({ ...session, conflictId: z.string().uuid(), cho
 const LocalPathSchema = z.object({ path: localPath }).strict();
 // Typed paths reach this channel: drive or UNC only, never device paths (\\?\, \\.\).
 const LocalListSchema = z.object({ path: localPath.refine(value => AUTO_UPLOAD_LOCAL_PATH.test(value)) }).strict();
+/** Resolves a local folder and checks the result again: normalisation must not turn it into a device path. */
+export function localListPath(value: string): string {
+  const resolved = win32.resolve(value);
+  if (!AUTO_UPLOAD_LOCAL_PATH.test(resolved)) throw new AppError('files.invalidRequest');
+  return resolved;
+}
 const LocalRenameSchema = z.object({ from: localPath, to: localPath }).strict();
 const LocalDeleteSchema = z.object({ paths: z.array(localPath).min(1).max(1000) }).strict();
 
@@ -123,7 +129,7 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts, prompts: AuthPro
 
   handle(IPC_CHANNELS.localPlaces, z.undefined(), () => localPlaces());
   handle(IPC_CHANNELS.localList, LocalListSchema, async (_ownerId, request) => {
-    const path = win32.resolve(request.path);
+    const path = localListPath(request.path);
     return { path, entries: await localFileSystem.list(path) };
   });
   handle(IPC_CHANNELS.localMkdir, LocalPathSchema, (_ownerId, request) => localFileSystem.mkdir(request.path));
