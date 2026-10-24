@@ -1,5 +1,5 @@
 // Creates the synthetic demo vault through the running driver (`npm run drive`), or unlocks it if it exists.
-// Entries: web-01 (SSH), ops-01 (SSH, root shell and start commands), files-01 (SFTP), prod-k8s (cluster via web-01), db-main (wrong password), legacy-app (closed port), folder Staging, AI provider Demo-KI.
+// Entries: web-01 (SSH), ops-01 (SSH, root shell and start commands), files-01 (SFTP), prod-k8s (cluster via web-01), db-main (wrong password), legacy-app (closed port), mfa-01 (SSH, password + code), app-intern (SSH via jump host web-01, port forwards), folder Staging, AI provider Demo-KI.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -29,14 +29,14 @@ async function waitFor(expression, timeout = 20000) {
 }
 const allConnections = () => call('eval', `[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Alle Verbindungen')?.click()`);
 
-async function addConnection(menuLabel, name, port, password, extra) {
+async function addConnection(menuLabel, name, port, password, extra, { host = '127.0.0.1', username = 'demo' } = {}) {
   await allConnections();
   await click('button:text-is("Neu")');
   await menuItem(menuLabel);
   await fill('input[id$="-name"]', name);
-  await fill('input[id$="-host"]', '127.0.0.1');
+  await fill('input[id$="-host"]', host);
   await fill('input[id$="-port"]', String(port));
-  await fill('input[id$="-username"]', 'demo');
+  await fill('input[id$="-username"]', username);
   await call('eval', `const select = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.text === 'Passwort'));
     const option = [...select.options].find(o => o.text === 'Passwort');
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, option.value);
@@ -48,6 +48,37 @@ async function addConnection(menuLabel, name, port, password, extra) {
 }
 const addSsh = (name, port, password) => addConnection('SSH', name, port, password);
 const addSftp = (name, port, password) => addConnection('SFTP (Dateien)', name, port, password);
+
+// Fills a form field by the start of its label (text-based). Strings pick an option text for selects, booleans set a checkbox; index picks among repeated labels.
+const formField = (label, value, index = 0) => call('eval', `const label = [...document.querySelectorAll('label')].filter(l => l.textContent.trim().startsWith(${JSON.stringify(label)}))[${index}];
+  const el = label?.control ?? label?.querySelector('input, select');
+  if (!el) throw new Error('Feld fehlt: ' + ${JSON.stringify(label)});
+  const value = ${JSON.stringify(value)};
+  if (typeof value === 'boolean') { if (el.checked !== value) el.click(); }
+  else if (el.tagName === 'SELECT') {
+    const option = [...el.options].find(o => o.text === value);
+    if (!option) throw new Error('Option fehlt: ' + value);
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, option.value);
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  } else {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }`);
+
+// app-intern: jump host web-01, local forward 15432 to db-internal:5432 (starts on connect), SOCKS 1080 (started by hand).
+// "Weitere Angaben" holds both; it is opened only when its jump host field is not visible yet.
+async function appInternAdvanced() {
+  if (!await call('eval', `return [...document.querySelectorAll('label')].some(l => l.textContent.trim().startsWith('Sprunghost') && l.offsetParent)`)) await click(':text-is("Weitere Angaben") >> nth=0');
+  await formField('Sprunghost', 'web-01');
+  await click('button:has-text("Weiterleitung hinzufügen")');
+  await formField('Lokaler Port', '15432', 0);
+  await formField('Ziel-Host', 'db-internal', 0);
+  await formField('Ziel-Port', '5432', 0);
+  await formField('Beim Verbinden starten', true, 0);
+  await click('button:has-text("Weiterleitung hinzufügen")');
+  await formField('Art', 'Dynamisch, SOCKS (-D)', 1);
+  await formField('Lokaler Port', '1080', 1);
+}
 
 // ops-01: root shell and start commands after login. Also added to an existing demo vault when missing.
 async function ensureOps() {
@@ -123,6 +154,9 @@ if (!vaultOpen) {
     const cluster = await addCluster();
     await addSsh('db-main', 2222, 'wrong-synthetic-pw');
     await addSsh('legacy-app', 1, 'synthetic-demo');
+    // mfa-01: the password is saved, only the code is asked. app-intern: after web-01 so the jump host select offers it.
+    await addConnection('SSH', 'mfa-01', 2222, 'synthetic-demo', undefined, { username: 'mfa' });
+    await addConnection('SSH', 'app-intern', 22, 'synthetic-demo', appInternAdvanced, { host: 'internal-01' });
     await ensureOps();
     await allConnections();
     await click('button:text-is("Neu")');
@@ -132,7 +166,7 @@ if (!vaultOpen) {
     await pause(800);
     await addAiProvider();
     await call('eval', `[...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? '').startsWith('Editor schlie'))?.click()`);
-    console.log(`Demo-Vault angelegt: web-01, files-01, ${cluster ? 'prod-k8s, ' : ''}db-main, legacy-app, ops-01, Ordner Staging, KI-Anbieter Demo-KI.`);
+    console.log(`Demo-Vault angelegt: web-01, files-01, ${cluster ? 'prod-k8s, ' : ''}db-main, legacy-app, ops-01, mfa-01, app-intern (Sprunghost web-01, Weiterleitungen 15432 und SOCKS 1080), Ordner Staging, KI-Anbieter Demo-KI.`);
   }
 } else {
   console.log('Kein Startbildschirm sichtbar – Vault ist vermutlich schon offen.');

@@ -18,7 +18,7 @@ import { openTunnel } from '../../../src/main/kubernetes/tunnel';
 import { createKubeApi } from '../../../src/main/kubernetes/client-api';
 import { streamChat } from '../../../src/main/ai/providers';
 import { startSshd } from './sshd.mjs';
-import { seedSftp } from './fixtures.mjs';
+import { DEMO_TOTP, seedSftp } from './fixtures.mjs';
 import { findOpenssl, startKubeFake } from './kube-fake.mjs';
 import { startAiFake } from './ai-fake.mjs';
 
@@ -162,4 +162,67 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect((await host.run(command('/home/demo/missing.bin'), 5000)).code).toBe(1);
     expect((await host.run(command('/../../x'), 5000)).code).toBe(1);
   });
+
+  // Tries one login with the given config and answers per keyboard-interactive round; reports the rounds seen.
+  const attempt = async (port, config, answers = []) => new Promise(resolve => {
+    const client = new ssh2.Client();
+    const prompts = [];
+    cleanup.push(async () => client.end());
+    client.on('keyboard-interactive', (name, instructions, lang, asked, finish) => {
+      prompts.push(asked.map(prompt => prompt.prompt));
+      finish(answers.shift() ?? []);
+    });
+    client.on('ready', () => resolve({ ok: true, prompts })).on('error', () => resolve({ ok: false, prompts }))
+      .connect({ host: '127.0.0.1', port, ...config });
+  });
+
+  it('asks mfa two keyboard-interactive rounds and refuses plain password logins', async () => {
+    const { port } = await start('mfa');
+    const mfa = { username: 'mfa', tryKeyboard: true };
+    expect(await attempt(port, mfa, [['synthetic-demo'], [DEMO_TOTP]])).toEqual({ ok: true, prompts: [['Password: '], ['Verification code: ']] });
+    expect(await attempt(port, mfa, [['synthetic-demo'], ['000000']])).toEqual({ ok: false, prompts: [['Password: '], ['Verification code: ']] });
+    expect(await attempt(port, mfa, [['wrong-synthetic-pw']])).toEqual({ ok: false, prompts: [['Password: ']] });
+    expect(await attempt(port, { username: 'mfa', password: 'synthetic-demo' })).toEqual({ ok: false, prompts: [] });
+  });
+
+  it('opens the extra tcpip targets and refuses unknown ones', async () => {
+    const { port } = await start('targets');
+    const client = await sshClient(port);
+    const open = (host, targetPort) => new Promise((resolve, reject) => client.forwardOut('127.0.0.1', 0, host, targetPort, (error, channel) => (error ? reject(error) : resolve(channel))));
+    // Collects channel output until it contains the expected text.
+    const readUntil = (channel, expected) => new Promise((resolve, reject) => {
+      let text = '';
+      channel.on('data', data => { text += data; if (text.includes(expected)) resolve(text); })
+        .on('close', () => reject(new Error(`closed before ${expected}: ${text}`)));
+    });
+
+    // internal-01:22 is this server again, so its SSH banner comes back through the channel.
+    expect(await readUntil(await open('internal-01', 22), 'SSH-2.0-')).toContain('SSH-2.0-');
+    const db = await open('db-internal', 5432);
+    db.write('ping');
+    expect(await readUntil(db, 'ping')).toContain('ping');
+    const web = await open('intranet.demo', 80);
+    web.write('GET / HTTP/1.0\r\nHost: intranet.demo\r\n\r\n');
+    expect(await readUntil(web, 'Synthetic intranet page')).toContain('Synthetic intranet page');
+    await expect(open('nowhere.demo', 22)).rejects.toBeDefined();
+  });
+
+  it('accepts remote forwards on localhost and 127.0.0.1 only', async () => {
+    const { port } = await start('forward');
+    const client = await sshClient(port);
+    const forwardIn = (address, bindPort) => new Promise(resolve => client.forwardIn(address, bindPort, error => resolve(!error)));
+    expect(await forwardIn('localhost', 2345)).toBe(true);
+    expect(await forwardIn('127.0.0.1', 2346)).toBe(true);
+    expect(await forwardIn('0.0.0.0', 2347)).toBe(false);
+    expect(await new Promise(resolve => client.unforwardIn('localhost', 2345, error => resolve(!error)))).toBe(true);
+  });
+
+  // Demo user logged in with the password, for the tcpip and forward tests.
+  async function sshClient(port) {
+    const client = new ssh2.Client();
+    cleanup.push(async () => client.end());
+    await new Promise((resolve, reject) => client.on('ready', resolve).on('error', reject)
+      .connect({ host: '127.0.0.1', port, username: 'demo', password: 'synthetic-demo' }));
+    return client;
+  }
 });
