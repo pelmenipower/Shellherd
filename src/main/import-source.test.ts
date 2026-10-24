@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({ app: { getPath: () => 'C:\\Temp' }, dialog: {} }));
 
-import { decodeImport, readImport } from './import-source';
+import { decodeImport, localTestUrl, readImport } from './import-source';
 import type { ImportDeps } from './import-source';
 import { MAX_IMPORT_BYTES } from '../shared/import';
 
@@ -13,8 +13,8 @@ const HOME = 'C:\\Users\\demo';
 const utf16 = (text: string): Buffer => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]);
 const PUTTY_TEXT = '[HKEY_CURRENT_USER\\Software\\SimonTatham\\PuTTY\\Sessions\\web%2001]\r\n"HostName"="10.0.0.1"\r\n"PortNumber"=dword:00000016\r\n';
 
-/** In-memory files, a fake reg.exe that writes `exported` (or fails) and logs of runs and removed paths. */
-function fakeDeps(files: Record<string, Buffer> = {}, options: { exported?: Buffer; exitError?: boolean; env?: Record<string, string>; size?: number } = {}) {
+/** In-memory files, a fake reg.exe that writes `exported` (or fails with `runError`) and logs of runs and removed paths. */
+function fakeDeps(files: Record<string, Buffer> = {}, options: { exported?: Buffer; runError?: Record<string, unknown>; env?: Record<string, string>; size?: number } = {}) {
   const store = new Map(Object.entries(files));
   const removed: string[] = [];
   const made: string[] = [];
@@ -26,7 +26,7 @@ function fakeDeps(files: Record<string, Buffer> = {}, options: { exported?: Buff
     showOpen: async () => ({ canceled: true, filePaths: [] }),
     run: async (file, args) => {
       runs.push({ file, args });
-      if (options.exitError) throw new Error('exit 1');
+      if (options.runError) throw Object.assign(new Error('reg.exe failed'), options.runError);
       if (options.exported) store.set(args[2], options.exported);
     },
     fs: {
@@ -108,10 +108,27 @@ describe('readImport from the registry', () => {
     expect(removed).toEqual(made);
   });
 
-  it('returns an empty preview when the key is missing (reg.exe exit != 0)', async () => {
-    const { deps, removed, made } = fakeDeps({}, { exitError: true });
+  it('returns an empty preview when the key is missing (normal reg.exe exit 1)', async () => {
+    const { deps, removed, made } = fakeDeps({}, { runError: { code: 1 } });
     await expect(readImport('putty', null, deps)).resolves.toEqual({ canceled: false, preview: { source: 'putty', candidates: [], skipped: [] } });
     expect(removed).toEqual(made);
+  });
+
+  it.each([
+    ['reg.exe missing (ENOENT)', { code: 'ENOENT' }],
+    ['timeout (killed)', { code: 1, killed: true }],
+    ['other failure without exit code', {}],
+  ])('maps %s to importUnreadable and still removes the temp folder', async (_case, runError) => {
+    const { deps, removed, made } = fakeDeps({}, { runError });
+    await expect(readImport('putty', null, deps)).rejects.toMatchObject({ code: 'core.importUnreadable' });
+    expect(removed).toEqual(made);
+  });
+
+  it('maps a failing temp folder to importUnreadable without running reg.exe', async () => {
+    const { deps, runs } = fakeDeps();
+    deps.fs.mkdtemp = async () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); };
+    await expect(readImport('winscp', null, deps)).rejects.toMatchObject({ code: 'core.importUnreadable' });
+    expect(runs).toHaveLength(0);
   });
 
   it('removes the temp folder even when the export is too large', async () => {
@@ -137,5 +154,22 @@ describe('readImport from the registry', () => {
     const { deps, runs, made } = fakeDeps({}, { exported: utf16('') });
     await readImport('winscp', null, deps);
     expect(runs[0].args).toEqual(['export', WINSCP_KEY, join(made[0], 'export.reg'), '/y']);
+  });
+});
+
+describe('localTestUrl', () => {
+  it('accepts a plain http URL on 127.0.0.1', () => {
+    expect(localTestUrl('http://127.0.0.1:9335/x')).toBe('http://127.0.0.1:9335/x');
+  });
+
+  it.each([
+    ['userinfo that points elsewhere', 'http://127.0.0.1:@evil.example/x'],
+    ['https', 'https://127.0.0.1/x'],
+    ['localhost', 'http://localhost:1/x'],
+    ['not a URL', 'not a url'],
+    ['credentials', 'http://user:pw@127.0.0.1:9335/x'],
+    ['undefined', undefined],
+  ])('rejects %s', (_case, value) => {
+    expect(localTestUrl(value)).toBeUndefined();
   });
 });

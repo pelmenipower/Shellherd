@@ -36,7 +36,7 @@ import { AppError } from '../shared/errors';
 import { LANGUAGE_SETTINGS, LOCALE_ARG } from '../shared/locale';
 import { localeStore } from './locale';
 import { mainT, setMainLocale } from './i18n';
-import { readImport } from './import-source';
+import { localTestUrl, readImport } from './import-source';
 import { UPDATE_URL, UpdateChecker } from './update-check';
 
 import { IPC_CHANNELS } from '../shared/ipc';
@@ -353,11 +353,11 @@ app.whenReady().then(() => {
   });
 
   // Test hook for the update URL: only a local fake server is accepted.
-  const testUpdateUrl = process.env.SHELLHERD_UPDATE_URL;
+  const testUpdateUrl = localTestUrl(process.env.SHELLHERD_UPDATE_URL);
   const updates = new UpdateChecker({
     current: app.getVersion(),
     settingsFile,
-    url: testUpdateUrl?.startsWith('http://127.0.0.1:') ? testUpdateUrl : UPDATE_URL,
+    url: testUpdateUrl ?? UPDATE_URL,
     now: Date.now,
     isUnlocked: () => vaultSessionManager.isUnlocked(),
     fetch: (url, init) => net.fetch(url, init),

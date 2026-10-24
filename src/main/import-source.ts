@@ -59,6 +59,26 @@ export function decodeImport(bytes: Buffer): string {
   return bytes.toString('utf8').replace(/^\uFEFF/, '');
 }
 
+/** True only for a regular non-zero exit: ENOENT, a timeout kill or a spawn error have no numeric code 1. */
+function isPlainExit1(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const { code, killed } = error as { code?: unknown; killed?: unknown };
+  return code === 1 && killed !== true;
+}
+
+/** The SHELLHERD_UPDATE_URL test hook, accepted only as plain http to 127.0.0.1 (no userinfo tricks). */
+export function localTestUrl(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return undefined;
+  }
+  const ok = url.protocol === 'http:' && url.hostname === '127.0.0.1' && !url.username && !url.password;
+  return ok ? value : undefined;
+}
+
 function parse(source: ImportSource, text: string, home: string): Parsed {
   switch (source) {
     case 'openssh': return parseOpenSshConfig(text, home);
@@ -108,13 +128,20 @@ async function readRegistry(source: 'putty' | 'winscp', deps: ImportDeps): Promi
   const hook = deps.env[source === 'putty' ? 'SHELLHERD_PUTTY_REG_FILE' : 'SHELLHERD_WINSCP_REG_FILE'];
   if (hook) return { canceled: false, preview: { source, ...parse(source, await readText(hook, deps), deps.home) } };
 
-  const dir = await deps.fs.mkdtemp(join(deps.tempRoot, 'shellherd-import-'));
+  let dir: string;
+  try {
+    dir = await deps.fs.mkdtemp(join(deps.tempRoot, 'shellherd-import-'));
+  } catch {
+    throw new AppError('core.importUnreadable');
+  }
   try {
     const file = join(dir, 'export.reg');
     try {
       // Fixed program and arguments, read-only use of one HKCU key. A missing key exits non-zero.
       await deps.run(join(deps.env.SystemRoot ?? 'C:\\Windows', 'System32', 'reg.exe'), ['export', source === 'putty' ? PUTTY_KEY : WINSCP_KEY, file, '/y']);
-    } catch {
+    } catch (error) {
+      // Only a plain exit 1 means "key missing". No reg.exe (ENOENT), a timeout or any other failure is unreadable.
+      if (!isPlainExit1(error)) throw new AppError('core.importUnreadable');
       return { canceled: false, preview: { source, candidates: [], skipped: [] } };
     }
     return { canceled: false, preview: { source, ...parse(source, await readText(file, deps), deps.home) } };
