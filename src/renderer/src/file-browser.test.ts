@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { FileEntry } from '../../shared/sftp';
 import { errorText } from './error-text';
 import { i18n, t } from './i18n';
-import { formatRate, formatSize, modeText, parseMode, joinPath, nameError, nextSelection, parentPath, formatDate, pathSegments, sortEntries, visibleEntries, resolveGoTo } from './file-browser';
+import { formatRate, formatSize, modeText, parseMode, joinPath, nameError, nameTaken, nextSelection, parentPath, formatDate, pathSegments, sortEntries, visibleEntries, resolveGoTo } from './file-browser';
 
 const file = (name: string, size = 0, modified = 0): FileEntry => ({ name, type: 'file', size, modified });
 const folder = (name: string): FileEntry => ({ name, type: 'directory', size: 0, modified: 0 });
@@ -120,11 +120,36 @@ describe('resolve go-to input', () => {
     expect(local('~')).toEqual({ path: 'C:\\Users\\me' });
   });
 
+  it('takes a leading backslash from the share root on a network share', () => {
+    expect(resolveGoTo('local', '\\x', '\\\\server\\share\\a', null)).toEqual({ path: '\\\\server\\share\\x' });
+    expect(resolveGoTo('local', '\\', '\\\\server\\share\\a', null)).toEqual({ path: '\\\\server\\share\\' });
+    expect(resolveGoTo('local', '\\x', 'C:\\Users\\me', null)).toEqual({ path: 'C:\\x' });
+  });
+
   it('refuses device paths locally', () => {
     expect(local('\\\\?\\C:\\x')).toEqual({ unsupported: true });
     expect(local('\\\\.\\pipe\\x')).toEqual({ unsupported: true });
     expect(local('\\\\?')).toEqual({ unsupported: true });
     expect(local('//?/C:/x')).toEqual({ unsupported: true });
+  });
+});
+
+describe('name clashes', () => {
+  it('ignores case locally, not on the server', () => {
+    expect(nameTaken('local', ['.env'], '.ENV')).toBe(true);
+    expect(nameTaken('remote', ['.env'], '.ENV')).toBe(false);
+    expect(nameTaken('remote', ['.env'], '.env')).toBe(true);
+  });
+
+  it('allows a case-only change of the same file', () => {
+    expect(nameTaken('local', ['a.txt'], 'A.txt', 'a.txt')).toBe(false);
+    expect(nameTaken('local', ['a.txt'], 'A.txt')).toBe(true);
+    expect(nameTaken('local', ['a.txt', 'b.txt'], 'B.txt', 'a.txt')).toBe(true);
+  });
+
+  it('allows a free new name', () => {
+    expect(nameTaken('local', ['a.txt'], 'neu.txt')).toBe(false);
+    expect(nameTaken('local', ['a.txt'], 'neu.txt', 'a.txt')).toBe(false);
   });
 });
 

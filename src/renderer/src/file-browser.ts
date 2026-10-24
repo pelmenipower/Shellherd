@@ -76,6 +76,15 @@ export function nameError(side: FileSide, name: string): string | null {
   return null;
 }
 
+/** Whether `name` clashes with an entry of the folder. Local names ignore case (NTFS); server names are exact.
+ *  A case-only change of `original` itself is no clash. `allNames` must hold every entry, hidden ones too. */
+export function nameTaken(side: FileSide, allNames: readonly string[], name: string, original?: string): boolean {
+  if (side === 'remote') return allNames.includes(name);
+  const key = foldCase(name);
+  if (original !== undefined && foldCase(original) === key) return false;
+  return allNames.some(existing => foldCase(existing) === key);
+}
+
 /** Entries the pane shows: dot names only if `showHidden`; then names containing the trimmed `filter`, ignoring case. Keeps the order. */
 export function visibleEntries(entries: FileEntry[], showHidden: boolean, filter: string): FileEntry[] {
   const needle = foldCase(filter.trim());
@@ -86,7 +95,7 @@ export function visibleEntries(entries: FileEntry[], showHidden: boolean, filter
 export type GoTo = { path: string } | { unsupported: true };
 
 /** Remote: `~` and `~/…` start at `home`, other relative input at `current`. Local: `/` becomes `\`, `D:` becomes `D:\`,
- *  `\x` uses the drive of `current`, `~` the home folder, other relative input starts at `current`; device paths are refused.
+ *  `\x` uses the drive or share of `current`, `~` the home folder, other relative input starts at `current`; device paths are refused.
  *  Null for empty input. `..` is left to the server's realpath and Main's win32.resolve. */
 export function resolveGoTo(side: FileSide, input: string, current: string, home: string | null): GoTo | null {
   const text = input.trim();
@@ -103,7 +112,11 @@ export function resolveGoTo(side: FileSide, input: string, current: string, home
   if (value.startsWith('~\\')) return { path: joinPath('local', base, value.slice(2)) };
   if (/^[A-Za-z]:/.test(value)) return { path: value[2] === '\\' ? value : `${value.slice(0, 2)}\\${value.slice(2)}` };
   if (value.startsWith('\\\\')) return { path: value };
-  if (value.startsWith('\\')) return { path: /^[A-Za-z]:/.test(current) ? `${current.slice(0, 2)}${value}` : joinPath('local', current, value.slice(1)) };
+  if (value.startsWith('\\')) {
+    const share = current.match(/^\\\\[^\\]+\\[^\\]+/)?.[0];
+    if (share) return { path: `${share}${value}` };
+    return { path: /^[A-Za-z]:/.test(current) ? `${current.slice(0, 2)}${value}` : joinPath('local', current, value.slice(1)) };
+  }
   return { path: joinPath('local', current, value) };
 }
 

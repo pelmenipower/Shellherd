@@ -6,7 +6,7 @@ import { useT } from '../i18n';
 import { ContextMenu } from './ContextMenu';
 import { isTypeaheadKey, typeahead } from '../file-typeahead';
 import type { Typeahead } from '../file-typeahead';
-import { formatDate, formatSize, isDirectory, joinPath, nameError, nextSelection, parentPath, pathSegments, resolveGoTo, sortEntries, visibleEntries } from '../file-browser';
+import { formatDate, formatSize, isDirectory, joinPath, nameError, nameTaken, nextSelection, parentPath, pathSegments, resolveGoTo, sortEntries, visibleEntries } from '../file-browser';
 import { useShowHidden } from '../hooks/useShowHidden';
 
 export const FILES_MIME = 'application/x-shellherd-files';
@@ -14,6 +14,8 @@ export const FILES_MIME = 'application/x-shellherd-files';
 export interface FileDrag { tabId: string; side: FileSide; dir: string; names: string[] }
 
 export interface FileListing { path: string | null; entries: FileEntry[]; loading: boolean; error: string | null }
+/** 'ok' listed; 'stale' not applied (a newer listing won, or no session); `error` failed and the folder stays. */
+export type GoToResult = 'ok' | 'stale' | { error: string };
 
 interface FilePaneProps {
   tabId: string;
@@ -28,8 +30,8 @@ interface FilePaneProps {
   drives?: string[];
   onActivate: () => void;
   onNavigate: (path: string) => void;
-  /** Lists a typed path; resolves to an error text (the folder stays) or null. */
-  onGoTo: (path: string) => Promise<string | null>;
+  /** Lists a typed path; see GoToResult. */
+  onGoTo: (path: string) => Promise<GoToResult>;
   onRefresh: () => void;
   onMkdir: (path: string) => Promise<boolean>;
   onRename: (from: string, to: string) => Promise<boolean>;
@@ -122,9 +124,12 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
     const target = resolveGoTo(side, value, path, home);
     if (!target) { setPathField(null); listRef.current?.focus(); return; }
     if ('unsupported' in target) { setPathField({ value, error: t('files:pane.goToUnsupported') }); return; }
-    const error = await onGoTo(target.path);
-    if (error) setPathField({ value, error });
-    else { setPathField(null); listRef.current?.focus(); }
+    const result = await onGoTo(target.path);
+    // Only the same open field is touched: closed meanwhile (blur) stays closed, a stale result changes nothing.
+    if (result === 'stale') return;
+    if (typeof result === 'object') { setPathField(current => current?.value === value ? { value, error: result.error } : current); return; }
+    setPathField(current => current?.value === value ? null : current);
+    listRef.current?.focus();
   };
   const submitPrompt = async (): Promise<void> => {
     if (!prompt || !path) return;
@@ -132,7 +137,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
     if (error) { setPrompt({ ...prompt, error }); return; }
     const name = prompt.value.trim();
     if (prompt.kind === 'rename' && name === prompt.original) { setPrompt(null); return; }
-    if (allNames.includes(name)) { setPrompt({ ...prompt, error: t('files:names.exists') }); return; }
+    if (nameTaken(side, allNames, name, prompt.kind === 'rename' ? prompt.original : undefined)) { setPrompt({ ...prompt, error: t('files:names.exists') }); return; }
     const done = prompt.kind === 'mkdir' ? await onMkdir(joinPath(side, path, name))
       : prompt.kind === 'file' ? await onCreateFile(joinPath(side, path, name))
       : await onRename(joinPath(side, path, prompt.original), joinPath(side, path, name));
@@ -208,7 +213,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
   };
   const onDragStart = (event: DragEvent, name: string): void => {
     if (disabled || !path) { event.preventDefault(); return; }
-    const list = selected.includes(name) ? selected : [name];
+    const list = selected.includes(name) ? selected.filter(n => names.includes(n)) : [name];
     if (!selected.includes(name)) { setSelected([name]); setAnchor(name); setCursor(name); }
     const drag: FileDrag = { tabId, side, dir: path, names: list };
     event.dataTransfer.setData(FILES_MIME, JSON.stringify(drag));

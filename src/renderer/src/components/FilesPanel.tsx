@@ -25,7 +25,7 @@ import { PermissionsDialog } from './PermissionsDialog';
 import { AutoUploadDialog } from './AutoUploadDialog';
 import { AutoUploadList } from './AutoUploadList';
 import { FilePane } from './FilePane';
-import type { FileListing } from './FilePane';
+import type { FileListing, GoToResult } from './FilePane';
 import '../files-ui.css';
 
 interface FilesPanelProps {
@@ -104,23 +104,23 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const sessionRef = useRef<string | null>(null);
 
   // quiet: the error is only returned (the "Gehe zu" field shows it), the listing keeps its own error.
-  const load = useCallback(async (side: FileSide, path: string, quiet = false): Promise<string | null> => {
+  const load = useCallback(async (side: FileSide, path: string, quiet = false): Promise<GoToResult> => {
     const id = sessionRef.current;
-    if (side === 'remote' && !id) return null;
+    if (side === 'remote' && !id) return 'stale';
     const request = ++requests.current[side];
     setListings(current => ({ ...current, [side]: { ...current[side], loading: true } }));
     try {
       const listing = side === 'local' ? await window.desktopApi.localList({ path }) : await window.desktopApi.sftpList({ sessionId: id!, path });
-      if (request !== requests.current[side]) return null;
+      if (request !== requests.current[side]) return 'stale';
       paths.current[side] = listing.path;
       setListings(current => ({ ...current, [side]: { path: listing.path, entries: listing.entries, loading: false, error: null } }));
-      return null;
+      return 'ok';
     } catch (error) {
-      if (request !== requests.current[side]) return null;
+      if (request !== requests.current[side]) return 'stale';
       const text = errorText(error, tRef.current('files:panel.openFolderFailed'));
       // The previous folder stays visible; only the message is new.
       setListings(current => ({ ...current, [side]: { ...current[side], loading: false, error: quiet ? current[side].error : text } }));
-      return text;
+      return { error: text };
     }
   }, []);
   const refresh = useCallback((side: FileSide): void => { const path = paths.current[side]; if (path) void load(side, path); }, [load]);
