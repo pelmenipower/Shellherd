@@ -6,6 +6,7 @@ import { useNativeSurfaceBlock } from '../native-surface';
 import { connectionAddress } from '../connection-labels';
 import { useT } from '../i18n';
 import { sessionLimitText } from '../vault-notices';
+import { shouldOpen } from '../open-request';
 
 interface Props {
   nodes: VaultNode[];
@@ -25,6 +26,8 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
   const trigger = useRef<HTMLButtonElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  // Last handled request; the initial value means a mount never opens the picker.
+  const handled = useRef(openRequest ?? 0);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   useNativeSurfaceBlock(open);
@@ -59,7 +62,9 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
     popover.current.showPopover();
   };
   useEffect(() => {
-    if ((openRequest ?? 0) > 0 && !disabled && !popover.current?.matches(':popover-open')) toggle();
+    if (!shouldOpen(handled.current, openRequest)) return;
+    handled.current = openRequest ?? 0;
+    if (!disabled && !popover.current?.matches(':popover-open')) toggle();
   }, [openRequest]);
 
   return <>
