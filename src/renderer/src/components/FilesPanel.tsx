@@ -103,20 +103,24 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const requests = useRef<Record<FileSide, number>>({ local: 0, remote: 0 });
   const sessionRef = useRef<string | null>(null);
 
-  const load = useCallback(async (side: FileSide, path: string): Promise<void> => {
+  // quiet: the error is only returned (the "Gehe zu" field shows it), the listing keeps its own error.
+  const load = useCallback(async (side: FileSide, path: string, quiet = false): Promise<string | null> => {
     const id = sessionRef.current;
-    if (side === 'remote' && !id) return;
+    if (side === 'remote' && !id) return null;
     const request = ++requests.current[side];
     setListings(current => ({ ...current, [side]: { ...current[side], loading: true } }));
     try {
       const listing = side === 'local' ? await window.desktopApi.localList({ path }) : await window.desktopApi.sftpList({ sessionId: id!, path });
-      if (request !== requests.current[side]) return;
+      if (request !== requests.current[side]) return null;
       paths.current[side] = listing.path;
       setListings(current => ({ ...current, [side]: { path: listing.path, entries: listing.entries, loading: false, error: null } }));
+      return null;
     } catch (error) {
-      if (request !== requests.current[side]) return;
+      if (request !== requests.current[side]) return null;
+      const text = errorText(error, tRef.current('files:panel.openFolderFailed'));
       // The previous folder stays visible; only the message is new.
-      setListings(current => ({ ...current, [side]: { ...current[side], loading: false, error: errorText(error, tRef.current('files:panel.openFolderFailed')) } }));
+      setListings(current => ({ ...current, [side]: { ...current[side], loading: false, error: quiet ? current[side].error : text } }));
+      return text;
     }
   }, []);
   const refresh = useCallback((side: FileSide): void => { const path = paths.current[side]; if (path) void load(side, path); }, [load]);
@@ -310,7 +314,7 @@ export function FilesPanel({ connection, tabId, visible, focused = true, style, 
   const pane = (side: FileSide) => <FilePane tabId={tabId} side={side} title={side === 'local' ? t('common:thisComputer') : `${connection.name} (${connection.address})`}
     listing={listings[side]} active={activeSide === side} disabled={busy || (side === 'remote' && !remoteReady)}
     notice={side === 'remote' ? remoteNotice : undefined} home={homes[side]} drives={side === 'local' ? drives : undefined}
-    onActivate={() => setActiveSide(side)} onNavigate={path => void load(side, path)} onRefresh={() => refresh(side)}
+    onActivate={() => setActiveSide(side)} onNavigate={path => void load(side, path)} onGoTo={path => load(side, path, true)} onRefresh={() => refresh(side)}
     onMkdir={path => run(() => side === 'local' ? window.desktopApi.localMkdir({ path }) : window.desktopApi.sftpMkdir({ sessionId: sessionId!, path }), side)}
     onRename={(from, to) => run(() => side === 'local' ? window.desktopApi.localRename({ from, to }) : window.desktopApi.sftpRename({ sessionId: sessionId!, from, to }), side)}
     onDelete={(paths, names) => setPendingDelete({ side, paths, names })}
