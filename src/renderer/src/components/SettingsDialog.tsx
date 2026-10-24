@@ -8,6 +8,7 @@ import { t, useT } from '../i18n';
 import { aiProviderSummary, parseFontFamily, parseGroupedNumber, settingsSections, withAutoLockMinutes, withConfirmBeforeClosing, withTerminal, withTimeouts, type SettingsSection } from '../settings-sections';
 import { LanguageSetting } from './LanguageSetting';
 import { FileTypeSetting } from './FileTypeSetting';
+import { UpdateSetting } from './UpdateSetting';
 import '../settings-ui.css';
 
 export interface SettingsDialogProps {
@@ -127,6 +128,7 @@ export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', o
         <h3 id={`${id}-${section}`}>{sectionTitle(section)}</h3>
         {section === 'general' && <>
           <div className="settings-stack"><LanguageSetting /><FileTypeSetting /></div>
+          <UpdateSetting />
           {!vault && <p className="settings-hint">{t('app:settings.locked')}</p>}
         </>}
         {section === 'vault' && vault && <>
