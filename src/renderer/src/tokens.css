@@ -55,6 +55,8 @@
   --toast-text-min: 200px;
   /* Short number inputs (settings): four digits plus padding and border */
   --input-number: calc(6ch + 2 * var(--space-8) + 2px);
+  /* Terminal search field: wide enough for a typical term, shrinks in narrow panes */
+  --width-search: 240px;
 
   /* Radii */
   --radius-sm: 4px; --radius-md: 5px; --radius-lg: 8px; --radius-pill: 999px;

@@ -214,6 +214,7 @@
       "general": "General",
       "vault": "Vault",
       "connections": "Connections",
+      "terminal": "Terminal",
       "assistant": "AI assistant"
     },
     "locked": "Vault settings and AI providers appear after unlocking.",
@@ -246,6 +247,29 @@
       "hint": "Applies to new SSH and SFTP connections of this vault, including container and cluster access over SSH. The connection timeout keeps running while the host key prompt is open. Single connections can differ under “More options”."
     },
     "rangeError": "Enter a whole number from {{min}} to {{max}}.",
+    "terminal": {
+      "font": {
+        "label": "Font",
+        "placeholder": "Consolas",
+        "error": "Letters, digits, spaces, dots, hyphens and underscores only, at most 64 characters."
+      },
+      "fontSize": {
+        "label": "Font size",
+        "unit": "pixels"
+      },
+      "scrollback": {
+        "label": "Scrollback",
+        "unit": "lines per terminal"
+      },
+      "cursor": {
+        "label": "Cursor",
+        "block": "Block",
+        "bar": "Bar",
+        "underline": "Underline"
+      },
+      "blink": "Blinking cursor",
+      "hint": "Applies at once to every open terminal of this vault. Empty or not installed on this computer: Consolas. Every scrollback line takes memory, 10,000 lines about 15 MB per terminal, up to 240 MB with 16 open terminals. A smaller value trims the scrollback of open terminals."
+    },
     "assistant": {
       "none": "No provider set up yet.",
       "summary_one": "{{count}} provider, default: {{name}}",
