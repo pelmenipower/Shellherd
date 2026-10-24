@@ -30,13 +30,13 @@ const codePoints = (text: string): string[] => [...text.toLowerCase()];
 
 /** Matches prepared code points; each comparison and each call costs one budget step. */
 function matchChars(p: string[], t: string[], budget: StepBudget): boolean {
-  if (--budget.left < 0) throw new AppError('core.importTooLarge');
+  if (--budget.left < 0) throw new AppError('core.importTooComplex');
   let pi = 0;
   let ti = 0;
   let star = -1; // index of the last * in the pattern
   let mark = 0; // text index up to which the last * has absorbed characters
   while (ti < t.length) {
-    if (--budget.left < 0) throw new AppError('core.importTooLarge');
+    if (--budget.left < 0) throw new AppError('core.importTooComplex');
     if (pi < p.length && p[pi] === '*') { star = pi++; mark = ti; }
     else if (pi < p.length && (p[pi] === '?' || p[pi] === t[ti])) { pi++; ti++; }
     else if (star >= 0) { pi = star + 1; ti = ++mark; }

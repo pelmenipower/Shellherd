@@ -1,10 +1,12 @@
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({ app: { getPath: () => 'C:\\Temp' }, dialog: {} }));
 
-import { decodeImport, localTestUrl, readImport } from './import-source';
-import type { ImportDeps } from './import-source';
+import { AppError } from '../shared/errors';
+import { decodeImport, localTestUrl, PARSE_TIMEOUT_MS, parseInWorker, readImport } from './import-source';
+import type { ImportDeps, WorkerLike } from './import-source';
+import { parseImport } from './import-parse';
 import { MAX_IMPORT_BYTES } from '../shared/import';
 
 const PUTTY_KEY = 'HKCU\\Software\\SimonTatham\\PuTTY\\Sessions';
@@ -23,6 +25,7 @@ function fakeDeps(files: Record<string, Buffer> = {}, options: { exported?: Buff
     env: options.env ?? {},
     home: HOME,
     tempRoot: 'C:\\Temp',
+    parse: async (source, text, home) => parseImport(source, text, home),
     showOpen: async () => ({ canceled: true, filePaths: [] }),
     run: async (file, args) => {
       runs.push({ file, args });
@@ -171,5 +174,88 @@ describe('localTestUrl', () => {
     ['undefined', undefined],
   ])('rejects %s', (_case, value) => {
     expect(localTestUrl(value)).toBeUndefined();
+  });
+});
+
+/** Fake worker: the test emits the events; posted messages are logged. */
+class FakeWorker implements WorkerLike {
+  readonly listeners = new Map<string, (value: unknown) => void>();
+  readonly posted: unknown[] = [];
+  terminated = 0;
+  postMessage(value: unknown) { this.posted.push(value); }
+  on(event: string, listener: (value: unknown) => void) { this.listeners.set(event, listener); return this; }
+  terminate() { this.terminated++; return Promise.resolve(1); }
+  emit(event: string, value?: unknown) { this.listeners.get(event)?.(value); }
+}
+
+describe('parseInWorker', () => {
+  const preview = { candidates: [], skipped: [] };
+  const paths: string[] = [];
+  let worker: FakeWorker;
+  const createWorker = (path: string): WorkerLike => { paths.push(path); return worker; };
+  const run = () => parseInWorker('putty', 'text', HOME, { path: 'worker.js', createWorker });
+
+  beforeEach(() => {
+    worker = new FakeWorker();
+    paths.length = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('posts the request to the given worker path and resolves with the reply', async () => {
+    const result = run();
+    expect(paths).toEqual(['worker.js']);
+    expect(worker.posted).toEqual([{ source: 'putty', text: 'text', home: HOME }]);
+    worker.emit('message', { ok: true, preview });
+    await expect(result).resolves.toEqual(preview);
+    expect(worker.terminated).toBe(1);
+  });
+
+  it('rejects with the coded error of an error reply and terminates the worker', async () => {
+    const result = run();
+    worker.emit('message', { ok: false, error: { code: 'core.importEncrypted' } });
+    const error = await result.catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AppError);
+    expect(error).toMatchObject({ code: 'core.importEncrypted' });
+    expect(worker.terminated).toBe(1);
+  });
+
+  it('terminates the worker and rejects with importTooComplex on timeout', async () => {
+    vi.useFakeTimers();
+    const result = run();
+    const check = expect(result).rejects.toMatchObject({ code: 'core.importTooComplex' });
+    await vi.advanceTimersByTimeAsync(PARSE_TIMEOUT_MS);
+    await check;
+    expect(worker.terminated).toBe(1);
+  });
+
+  it('rejects with importTooComplex when the worker exits without a reply', async () => {
+    const result = run();
+    worker.emit('exit', 1);
+    await expect(result).rejects.toMatchObject({ code: 'core.importTooComplex' });
+    expect(worker.terminated).toBe(1);
+  });
+
+  it('rejects with importTooComplex when the worker errors without a reply', async () => {
+    const result = run();
+    worker.emit('error', new Error('heap out of memory'));
+    await expect(result).rejects.toMatchObject({ code: 'core.importTooComplex' });
+  });
+
+  it('settles only once: a late exit or timeout after the reply changes nothing', async () => {
+    vi.useFakeTimers();
+    const result = run();
+    worker.emit('message', { ok: true, preview });
+    worker.emit('exit', 0);
+    await vi.advanceTimersByTimeAsync(PARSE_TIMEOUT_MS);
+    await expect(result).resolves.toEqual(preview);
+    expect(worker.terminated).toBe(1);
+  });
+
+  it('maps a worker that cannot be created to importUnreadable', async () => {
+    const result = parseInWorker('putty', 'text', HOME, { createWorker: () => { throw new Error('bad path'); } });
+    await expect(result).rejects.toMatchObject({ code: 'core.importUnreadable' });
   });
 });

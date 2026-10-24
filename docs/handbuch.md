@@ -351,7 +351,7 @@ Unter `Weitere Angaben` einer SSH-Verbindung legst du Port-Weiterleitungen fest
 
 ## Verbindungen importieren
 
-`Neu` → `Importieren` (oder die Willkommensseite) übernimmt Verbindungen aus anderen Programmen. Die Quelle wird erst nach dem Klick gelesen; eine Vorschau mit Häkchen zeigt alle Funde, bevor etwas gespeichert wird. Bestehende Verbindungen bleiben unverändert.
+`Neu` → `Importieren` (oder die Willkommensseite) übernimmt Verbindungen aus anderen Programmen. Die Quelle wird erst nach dem Klick gelesen; eine Vorschau mit Häkchen zeigt alle Funde, bevor etwas gespeichert wird. Bestehende Verbindungen bleiben unverändert. Das Lesen läuft getrennt vom Rest der App und bricht nach 5 Sekunden ab, damit eine beschädigte Datei Shellherd nicht blockiert.
 
 - **OpenSSH:** die Datei `~/.ssh/config`, über den Dateidialog gewählt (Vorgabe `%USERPROFILE%\.ssh\config`).
 - **PuTTY:** die Sitzungen unter `HKCU\Software\SimonTatham\PuTTY\Sessions`, per `reg.exe export` nur gelesen.

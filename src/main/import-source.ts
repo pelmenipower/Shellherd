@@ -3,28 +3,39 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { Worker } from 'node:worker_threads';
 import { app, dialog } from 'electron';
 import type { BrowserWindow, OpenDialogOptions } from 'electron';
 
 import { AppError } from '../shared/errors';
 import { MAX_IMPORT_BYTES } from '../shared/import';
 import type { ImportPreview, ImportReadResult, ImportSource } from '../shared/import';
-import { parseMRemoteNg } from '../shared/import-mremoteng';
-import { parseOpenSshConfig } from '../shared/import-openssh';
-import { parsePuttyReg } from '../shared/import-putty';
-import { parseWinScp } from '../shared/import-winscp';
 import { mainT } from './i18n';
+import type { ImportReply, ImportRequest } from './import-worker';
+import { IMPORT_WORKER_PATH } from './import-worker-path';
 
 const PUTTY_KEY = 'HKCU\\Software\\SimonTatham\\PuTTY\\Sessions';
 const WINSCP_KEY = 'HKCU\\Software\\Martin Prikryl\\WinSCP 2\\Sessions';
 
 type Parsed = Omit<ImportPreview, 'source' | 'file'>;
 
+/** Time limit of one parse; a file that takes longer counts as too complex. */
+export const PARSE_TIMEOUT_MS = 5000;
+
+/** The slice of worker_threads.Worker that parseInWorker uses; tests inject a fake. */
+export interface WorkerLike {
+  postMessage(value: unknown): void;
+  on(event: string, listener: (value: unknown) => void): unknown;
+  terminate(): unknown;
+}
+
 /** Process and file calls of the import, injectable for tests. */
 export interface ImportDeps {
   env: Record<string, string | undefined>;
   home: string;
   tempRoot: string;
+  /** Parses one text; the default runs the parser in a worker with a time and heap limit. */
+  parse: (source: ImportSource, text: string, home: string) => Promise<Parsed>;
   showOpen: (parent: BrowserWindow | null, options: OpenDialogOptions) => Promise<{ canceled: boolean; filePaths: string[] }>;
   /** Rejects on a non-zero exit. */
   run: (file: string, args: string[]) => Promise<unknown>;
@@ -42,6 +53,7 @@ export function defaultImportDeps(): ImportDeps {
     env: process.env,
     home: homedir(),
     tempRoot: app.getPath('temp'),
+    parse: parseInWorker,
     showOpen: (parent, options) => parent ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options),
     run: (file, args) => execFileAsync(file, args, { timeout: 10_000, windowsHide: true }),
     fs: {
@@ -79,13 +91,52 @@ export function localTestUrl(value: string | undefined): string | undefined {
   return ok ? value : undefined;
 }
 
-function parse(source: ImportSource, text: string, home: string): Parsed {
-  switch (source) {
-    case 'openssh': return parseOpenSshConfig(text, home);
-    case 'putty': return parsePuttyReg(text);
-    case 'winscp': return parseWinScp(text);
-    case 'mremoteng': return parseMRemoteNg(text);
-  }
+function startWorker(path: string): WorkerLike {
+  return new Worker(path, { resourceLimits: { maxOldGenerationSizeMb: 256 } });
+}
+
+/**
+ * Parses in a fresh worker, so a crafted file cannot freeze main. A timeout, a crash or an exit without
+ * reply means importTooComplex; an error reply keeps its code.
+ */
+export function parseInWorker(
+  source: ImportSource,
+  text: string,
+  home: string,
+  options: { path?: string; timeoutMs?: number; createWorker?: (path: string) => WorkerLike } = {},
+): Promise<Parsed> {
+  const path = options.path ?? IMPORT_WORKER_PATH;
+  const timeoutMs = options.timeoutMs ?? PARSE_TIMEOUT_MS;
+  const createWorker = options.createWorker ?? startWorker;
+  return new Promise<Parsed>((resolve, reject) => {
+    let worker: WorkerLike;
+    try {
+      worker = createWorker(path);
+    } catch {
+      reject(new AppError('core.importUnreadable'));
+      return;
+    }
+    let settled = false;
+    const finish = (action: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      void worker.terminate();
+      action();
+    };
+    const tooComplex = () => finish(() => reject(new AppError('core.importTooComplex')));
+    const timer = setTimeout(tooComplex, timeoutMs);
+    worker.on('message', (value: unknown) => finish(() => {
+      const reply = value as ImportReply | undefined;
+      if (reply?.ok) resolve(reply.preview);
+      else if (reply) reject(AppError.from(reply.error));
+      else reject(new AppError('core.importTooComplex'));
+    }));
+    worker.on('error', tooComplex);
+    worker.on('exit', tooComplex);
+    const request: ImportRequest = { source, text, home };
+    worker.postMessage(request);
+  });
 }
 
 /** Size check, then read and decode. Read failures become importUnreadable. */
@@ -120,13 +171,13 @@ async function readFromDialog(source: 'openssh' | 'mremoteng', parent: BrowserWi
   const file = result.filePaths[0];
   if (result.canceled || !file) return { canceled: true };
   const text = await readText(file, deps);
-  return { canceled: false, preview: { source, file, ...parse(source, text, deps.home) } };
+  return { canceled: false, preview: { source, file, ...(await deps.parse(source, text, deps.home)) } };
 }
 
 async function readRegistry(source: 'putty' | 'winscp', deps: ImportDeps): Promise<ImportReadResult> {
   // Test hook: read this file instead of exporting the real key.
   const hook = deps.env[source === 'putty' ? 'SHELLHERD_PUTTY_REG_FILE' : 'SHELLHERD_WINSCP_REG_FILE'];
-  if (hook) return { canceled: false, preview: { source, ...parse(source, await readText(hook, deps), deps.home) } };
+  if (hook) return { canceled: false, preview: { source, ...(await deps.parse(source, await readText(hook, deps), deps.home)) } };
 
   let dir: string;
   try {
@@ -144,7 +195,7 @@ async function readRegistry(source: 'putty' | 'winscp', deps: ImportDeps): Promi
       if (!isPlainExit1(error)) throw new AppError('core.importUnreadable');
       return { canceled: false, preview: { source, candidates: [], skipped: [] } };
     }
-    return { canceled: false, preview: { source, ...parse(source, await readText(file, deps), deps.home) } };
+    return { canceled: false, preview: { source, ...(await deps.parse(source, await readText(file, deps), deps.home)) } };
   } finally {
     // A failed cleanup must not turn a finished import into an error.
     await deps.fs.rm(dir).catch(() => {});

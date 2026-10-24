@@ -278,7 +278,7 @@ describe('parseOpenSshConfig', () => {
     expect(skipped(value)).toEqual({ invalid: 500 });
   });
 
-  it('throws core.importTooLarge when the glob steps of one parse run exceed the budget', () => {
+  it('throws core.importTooComplex when the glob steps of one parse run exceed the budget', () => {
     const lines = [
       ...Array.from({ length: 500 }, (_, i) => `Host ${'a'.repeat(200)}${i}`),
       `Host ${Array.from({ length: 200 }, () => `*${'a'.repeat(200)}b`).join(' ')}`,
@@ -292,7 +292,7 @@ describe('parseOpenSshConfig', () => {
     }
     expect(performance.now() - start).toBeLessThan(1000);
     expect(caught).toBeInstanceOf(AppError);
-    expect((caught as AppError).toCoded().code).toBe('core.importTooLarge');
+    expect((caught as AppError).toCoded().code).toBe('core.importTooComplex');
   });
 });
 

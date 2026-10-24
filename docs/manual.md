@@ -341,7 +341,7 @@ They belong to a terminal session of this connection.
 
 ## Importing connections
 
-`New` → `Import` (or the welcome page) takes over connections from other programs. The source is read only after the click; a preview with checkboxes shows everything found before anything is saved. Existing connections stay unchanged.
+`New` → `Import` (or the welcome page) takes over connections from other programs. The source is read only after the click; a preview with checkboxes shows everything found before anything is saved. Existing connections stay unchanged. Reading runs apart from the rest of the app and stops after 5 seconds, so a damaged file cannot block Shellherd.
 
 - **OpenSSH:** the file `~/.ssh/config`, chosen in the file dialog (default `%USERPROFILE%\.ssh\config`).
 - **PuTTY:** the sessions under `HKCU\Software\SimonTatham\PuTTY\Sessions`, read only, via `reg.exe export`.
