@@ -195,11 +195,11 @@ const blocks = {
       await waitFor('ausgeblendete Dateien', `${count('.file-pane-remote [role=row][data-name=".bashrc"]')} === 0 && (document.querySelector('.file-pane-remote .file-pane-footer')?.textContent ?? '').includes('ausgeblendet')`);
       await pause(300);
       await shot('sftp-hidden');
-      // Filter "ba": only backups stays; .bashrc is hidden, so the footer counts four.
+      // Filter "ba": only backups stays; .bashrc is hidden; the hidden count depends on what earlier runs uploaded.
       await click('.file-pane-remote [role=row][data-name="backups"]');
       await key('Control+f');
       await fill('.file-pane-remote .file-filter input', 'ba');
-      await waitFor('Filter ba', `${count('.file-pane-remote [role=row][data-name]')} === 1 && (document.querySelector('.file-pane-remote .file-pane-footer')?.textContent ?? '').includes('4 ausgeblendet')`);
+      await waitFor('Filter ba', `${count('.file-pane-remote [role=row][data-name]')} === 1 && (document.querySelector('.file-pane-remote .file-pane-footer')?.textContent ?? '').includes(' ausgeblendet')`);
       await pause(300);
       await shot('sftp-filter');
     } finally {
