@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, shell, webContents } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, shell, webContents } from 'electron';
 import type { Rectangle, WebContents } from 'electron';
 import { join } from 'node:path';
 
@@ -36,6 +36,8 @@ import { AppError } from '../shared/errors';
 import { LANGUAGE_SETTINGS, LOCALE_ARG } from '../shared/locale';
 import { localeStore } from './locale';
 import { mainT, setMainLocale } from './i18n';
+import { readImport } from './import-source';
+import { UPDATE_URL, UpdateChecker } from './update-check';
 
 import { IPC_CHANNELS } from '../shared/ipc';
 import type { VaultLockedInfo } from '../shared/ipc';
@@ -341,6 +343,39 @@ app.whenReady().then(() => {
   ipcMain.on(IPC_CHANNELS.vaultActivity, event => {
     if (windowRegistry.roleOf(event.sender.id) && event.senderFrame === event.sender.mainFrame) autoLock?.touch();
   });
+  // Import reads only after a click in the main window; the vault must be unlocked.
+  ipcMain.handle(IPC_CHANNELS.importRead, (event, source: unknown) => {
+    windowRegistry.requireMain(event);
+    vaultSessionManager.getSnapshot();
+    const parsed = z.enum(['openssh', 'putty', 'winscp', 'mremoteng']).safeParse(source);
+    if (!parsed.success) throw new AppError('core.invalidRequest');
+    return readImport(parsed.data, BrowserWindow.fromWebContents(event.sender));
+  });
+
+  // Test hook for the update URL: only a local fake server is accepted.
+  const testUpdateUrl = process.env.SHELLHERD_UPDATE_URL;
+  const updates = new UpdateChecker({
+    current: app.getVersion(),
+    settingsFile,
+    url: testUpdateUrl?.startsWith('http://127.0.0.1:') ? testUpdateUrl : UPDATE_URL,
+    now: Date.now,
+    isUnlocked: () => vaultSessionManager.isUnlocked(),
+    fetch: (url, init) => net.fetch(url, init),
+  });
+  ipcMain.handle(IPC_CHANNELS.updateStatus, event => { windowRegistry.requireMain(event); return updates.status(); });
+  ipcMain.handle(IPC_CHANNELS.updateSetEnabled, (event, enabled: unknown) => {
+    windowRegistry.requireMain(event);
+    const parsed = z.boolean().safeParse(enabled);
+    if (!parsed.success) throw new AppError('core.invalidRequest');
+    return updates.setEnabled(parsed.data);
+  });
+  ipcMain.handle(IPC_CHANNELS.updateSkip, (event, version: unknown) => {
+    windowRegistry.requireMain(event);
+    const parsed = z.string().regex(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/).safeParse(version);
+    if (!parsed.success) throw new AppError('core.invalidRequest');
+    return updates.skip(parsed.data);
+  });
+
   createMainWindow(settingsFile);
 
   app.on('activate', () => {
