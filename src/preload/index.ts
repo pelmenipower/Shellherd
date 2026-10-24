@@ -60,6 +60,7 @@ const desktopApi: DesktopApi = {
   onLocaleChanged: listener => subscribe('app:locale-changed', listener),
   readClipboardText: () => ipcRenderer.invoke('clipboard:read-text'),
   writeClipboardText: text => ipcRenderer.invoke('clipboard:write-text', text),
+  openExternal: url => ipcRenderer.invoke('app:open-external', url),
   sshPrepare: request => ipcRenderer.invoke('ssh:prepare', request),
   sshConnect: request => ipcRenderer.invoke('ssh:connect', request),
   sshInput: request => ipcRenderer.invoke('ssh:input', request),
