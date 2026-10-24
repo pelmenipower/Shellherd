@@ -118,7 +118,9 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
       setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : t('connection:form.saveFailed') });
       if (field) {
         if ((field === 'color' || field === 'jumpHost' || field === 'forwards' || field === 'workingDirectory' || field === 'idleMinutes' || field === 'keepaliveSeconds' || field === 'keepaliveCount' || field === 'connectSeconds') && detailsRef.current) detailsRef.current.open = true;
-        requestAnimationFrame(() => document.getElementById(`${prefix}-${field}`)?.focus());
+        // The forwards list has no id of its own; focus the port field of the first forward.
+        const target = field === 'forwards' ? `${prefix}-forward-${fields.forwards[0]?.id}-listenPort` : `${prefix}-${field}`;
+        requestAnimationFrame(() => document.getElementById(target)?.focus());
       }
     } finally { submittingRef.current = false; }
   }
@@ -247,8 +249,9 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
               <p className="editor-hint">{t('connection:form.timeouts.hint')}</p>
             </>}
             {protocol === 'ssh' && <>
-              <ForwardsEditor value={fields.forwards} onChange={setForwards} busy={busy} idPrefix={prefix} />
-              {error?.field === 'forwards' && <p className="field-error" role="alert">{error.message}</p>}
+              <ForwardsEditor value={fields.forwards} onChange={setForwards} busy={busy} idPrefix={prefix}
+                errorId={error?.field === 'forwards' ? `${prefix}-forwards-error` : undefined} />
+              {error?.field === 'forwards' && <p className="field-error" id={`${prefix}-forwards-error`} role="alert">{error.message}</p>}
             </>}
           </div>
         </details>

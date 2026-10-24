@@ -21,15 +21,17 @@ interface ForwardsEditorProps {
   onChange: (value: ForwardDraft[]) => void;
   busy: boolean;
   idPrefix: string;
+  /** Id of the error message for the list, referenced by aria-describedby. */
+  errorId?: string;
 }
 
-export function ForwardsEditor({ value, onChange, busy, idPrefix }: ForwardsEditorProps) {
+export function ForwardsEditor({ value, onChange, busy, idPrefix, errorId }: ForwardsEditorProps) {
   const { t } = useT();
   const update = (index: number, change: Partial<ForwardDraft>) =>
     onChange(value.map((draft, position) => position === index ? { ...draft, ...change } : draft));
   const kinds = new Set(value.map(draft => draft.kind));
   return (
-    <fieldset className="connection-appearance">
+    <fieldset className="connection-appearance" aria-describedby={errorId}>
       <legend>{t('connection:form.forwards.legend')}</legend>
       {value.map((draft, index) => {
         const id = `${idPrefix}-forward-${draft.id}`;

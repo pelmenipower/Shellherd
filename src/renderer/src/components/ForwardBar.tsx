@@ -15,8 +15,8 @@ const STATE_KEYS = {
 } as const satisfies Record<Exclude<ForwardState, 'error'>, string>;
 const BUTTON_KEYS = {
   active: 'terminal:forwards.stop', starting: 'terminal:forwards.stop', stopped: 'terminal:forwards.start',
-  error: 'terminal:forwards.start', elsewhere: 'terminal:forwards.startHere',
-} as const satisfies Record<ForwardState, string>;
+  error: 'terminal:forwards.start',
+} as const satisfies Record<Exclude<ForwardState, 'elsewhere'>, string>;
 
 /** Bar below the output of a connected session; it lists the port forwards and starts or stops them. */
 export function ForwardBar({ sessionId, forwards }: ForwardBarProps) {
@@ -46,7 +46,12 @@ export function ForwardBar({ sessionId, forwards }: ForwardBarProps) {
               ? <span className="forward-error">{errorText(forward.error)}</span>
               : <span className="forward-state">{t(STATE_KEYS[forward.state])}</span>}
             {forward.state === 'active' && forward.open > 0 && <span className="forward-open">{t('terminal:forwards.open', { count: forward.open })}</span>}
-            <button type="button" className="forward-button" onClick={() => void run(forward)}>{t(BUTTON_KEYS[forward.state])}</button>
+            {/* elsewhere: another tab holds the forward, so there is nothing to start or stop here */}
+            {forward.state !== 'elsewhere' && <button type="button" className="forward-button"
+              aria-label={forward.state === 'active' || forward.state === 'starting'
+                ? t('terminal:forwards.stopLabel', { forward: forwardText(forward) })
+                : t('terminal:forwards.startLabel', { forward: forwardText(forward) })}
+              onClick={() => void run(forward)}>{t(BUTTON_KEYS[forward.state])}</button>}
           </li>
         ))}
       </ul>

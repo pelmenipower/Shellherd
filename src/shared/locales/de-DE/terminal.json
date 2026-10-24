@@ -142,8 +142,9 @@
       "elsewhere": "läuft in anderem Tab"
     },
     "start": "Starten",
-    "startHere": "Hier starten",
     "stop": "Stoppen",
+    "startLabel": "{{forward}} starten",
+    "stopLabel": "{{forward}} stoppen",
     "open_one": "{{count}} Verbindung offen",
     "open_other": "{{count}} Verbindungen offen",
     "failedTitle": "Weiterleitung nicht geändert"

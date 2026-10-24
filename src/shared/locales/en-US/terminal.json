@@ -142,8 +142,9 @@
       "elsewhere": "running in another tab"
     },
     "start": "Start",
-    "startHere": "Start here",
     "stop": "Stop",
+    "startLabel": "Start {{forward}}",
+    "stopLabel": "Stop {{forward}}",
     "open_one": "{{count}} connection open",
     "open_other": "{{count}} connections open",
     "failedTitle": "Port forward not changed"
