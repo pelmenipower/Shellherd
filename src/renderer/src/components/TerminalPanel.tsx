@@ -11,7 +11,7 @@ import { xtermTheme } from '../terminal-theme';
 import { useT } from '../i18n';
 import { codedFrom } from '../../../shared/errors';
 import type { CodedError } from '../../../shared/errors';
-import type { SshStatus, SshStep } from '../../../shared/ssh';
+import type { ForwardStatus, SshStatus, SshStep } from '../../../shared/ssh';
 import type { ConnectionErrorCode } from '../../../shared/connection-errors';
 import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
 import { WAIT_MS } from '../connect-timeline';
@@ -21,6 +21,7 @@ import { statusWord } from '../status-words';
 import { ConnectingCard } from './ConnectingCard';
 import { ConnectionErrorCard } from './ConnectionErrorCard';
 import { DisconnectedBar, type DisconnectReason } from './DisconnectedBar';
+import { ForwardBar } from './ForwardBar';
 
 interface TerminalPanelProps {
   connection: TerminalConnection;
@@ -62,6 +63,8 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
   const [failure, setFailure] = useState<Failure | null>(null);
   const [closed, setClosed] = useState<Closed | null>(null);
   const [marks, setMarks] = useState<StepMark[]>([]);
+  // Last forwards event of this session; the bar shows it only while connected.
+  const [forwardList, setForwardList] = useState<{ sessionId: string; forwards: ForwardStatus[] } | null>(null);
   const [startedAt, setStartedAt] = useState(() => Date.now());
   const [attempt, setAttempt] = useState(0);
   const [showCard, setShowCard] = useState(false);
@@ -78,7 +81,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     cancelledRef.current = false;
     sessionRef.current = undefined;
     if (attempt > 0) {
-      setFailure(null); setClosed(null); setMarks([]); setStartedAt(Date.now());
+      setFailure(null); setClosed(null); setMarks([]); setForwardList(null); setStartedAt(Date.now());
       setStatus('connecting');
       onStatusChange(tabId, 'connecting');
     }
@@ -140,10 +143,13 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
         });
       } else if (event.type === 'step') {
         setMarks(previous => [...previous, { step: event.step, at: Date.now() }]);
+      } else if (event.type === 'forwards') {
+        setForwardList({ sessionId: event.sessionId, forwards: event.forwards });
       } else if (event.type === 'status') {
         // After cancelling, only the end of the session counts; a late 'connected' must not hide the bar.
         if (cancelledRef.current && event.status !== 'closed' && event.status !== 'error') return;
         connected = event.status === 'connected';
+        if (!connected) setForwardList(null);
         setStatus(event.status);
         onStatusChange(tabId, event.status);
         if (event.status === 'error') setFailure({ code: event.code ?? 'unknown', ...(event.error ? { error: event.error } : {}) });
@@ -266,13 +272,17 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     if (id) void window.desktopApi.sshClose({ sessionId: id }).catch(() => {});
   };
   const cardActive = focused && visible && !embedded;
-  const steps = connection.protocol === 'ssh' && !connection.kube && connection.id !== LOCAL_CONTAINER_HOST ? SSH2_STEPS : SHELL_STEPS;
+  const steps: readonly SshStep[] = connection.protocol === 'ssh' && !connection.kube && connection.id !== LOCAL_CONTAINER_HOST
+    ? (marks.some(mark => mark.step === 'jump') ? ['jump', ...SSH2_STEPS] : SSH2_STEPS) : SHELL_STEPS;
   const remote = (connection.protocol === 'ssh' || connection.protocol === 'sftp' || connection.protocol === 'rdp') && connection.id !== LOCAL_CONTAINER_HOST;
 
   return (
     <section className={`terminal-panel${focused ? ' focused-pane' : ''}`} style={style} onPointerDown={onFocus} onFocusCapture={onFocus} id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
       <span className="terminal-live-status" role="status">{statusWord(status, 'long', { name: connection.name })}</span>
       <div ref={container} className="terminal-container" />
+      {status === 'connected' && forwardList && forwardList.forwards.length > 0 && (
+        <ForwardBar sessionId={forwardList.sessionId} forwards={forwardList.forwards} />
+      )}
       {status === 'connecting' && showCard && (
         <ConnectingCard name={connection.name} address={connection.address} steps={steps} marks={marks} startedAt={startedAt}
           active={cardActive} ticking={visible} onCancel={cancel} />

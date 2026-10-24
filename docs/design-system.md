@@ -258,6 +258,8 @@ Drei Muster, je nach Ort der Ursache.
 
 Jede Meldung beantwortet Was, Warum und Was jetzt. Der Verbindungszustand liegt im Bereich: Verbindungskarte mit Schritten (`.connect-card`, nach 400 ms), Fehlerkarte (`.connect-error`) und Getrennt-Leiste (`.connect-closed`) mit „Neu verbinden“. Der Cluster zeigt das Neuverbinden in der Leiste `.kube-connbar` statt durch Ausgrauen.
 
+Die Leiste „Weiterleitungen“ (`.forward-bar`) steht unter der Ausgabe einer verbundenen SSH-Sitzung, mindestens `var(--control-sm)` hoch, ohne Bewegung.
+
 ## Regeln für neues CSS
 
 - Jede Fläche hat ihre Datei mit eigenem Präfix (`.kube-`, `.ctr-`, `.file-`, `.assistant-`, `.workflow-`, `.tree-`/`.vault-`, `.pane-`/`.view-`).
