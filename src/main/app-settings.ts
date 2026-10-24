@@ -4,10 +4,16 @@ import { z } from 'zod';
 import { LANGUAGE_SETTINGS } from '../shared/locale';
 import type { LanguageSetting } from '../shared/locale';
 
-export interface AppSettings { language: LanguageSetting }
+/** Normal (not maximized) bounds of the main window plus its maximized flag. */
+export interface MainWindowState { bounds: { x: number; y: number; width: number; height: number }; maximized: boolean }
+export interface AppSettings { language: LanguageSetting; mainWindow?: MainWindowState }
 export const DEFAULT_APP_SETTINGS: AppSettings = { language: 'system' };
 
 const LanguageSchema = z.enum(LANGUAGE_SETTINGS);
+const MainWindowStateSchema: z.ZodType<MainWindowState> = z.object({
+  bounds: z.object({ x: z.number().int(), y: z.number().int(), width: z.number().int().min(900).max(20_000), height: z.number().int().min(600).max(20_000) }),
+  maximized: z.boolean(),
+});
 
 function readRaw(file: string): Record<string, unknown> {
   try {
@@ -16,10 +22,15 @@ function readRaw(file: string): Record<string, unknown> {
   } catch { return {}; }
 }
 
-/** Sync. Missing, unreadable or non-object file → defaults; an invalid field → its default. */
+/** Sync. Missing, unreadable or non-object file → defaults; an invalid field → its default (mainWindow: omitted). */
 export function readAppSettings(file: string): AppSettings {
-  const language = LanguageSchema.safeParse(readRaw(file).language);
-  return { language: language.success ? language.data : DEFAULT_APP_SETTINGS.language };
+  const raw = readRaw(file);
+  const language = LanguageSchema.safeParse(raw.language);
+  const mainWindow = MainWindowStateSchema.safeParse(raw.mainWindow);
+  return {
+    language: language.success ? language.data : DEFAULT_APP_SETTINGS.language,
+    ...(mainWindow.success ? { mainWindow: mainWindow.data } : {}),
+  };
 }
 
 /** Sync, never throws; false when the file could not be written. Keeps unknown keys; writes `${file}.tmp` then renames. */
