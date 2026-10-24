@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -81,11 +81,13 @@ async function closeTabs() {
   }
 }
 
+// True when the path lies in the user's home directory (its names then show the Windows user name).
+const insideHome = p => { const rel = path.relative(os.homedir(), p); return !rel.startsWith('..') && !path.isAbsolute(rel); };
+
 // Local pane target: a synthetic folder whose path shows no user name (outside the home directory), else the block fails.
 function localTarget() {
-  const inside = p => { const rel = path.relative(os.homedir(), p); return !rel.startsWith('..') && !path.isAbsolute(rel); };
   const candidates = [path.join(RUN_DIR, 'local'), process.env.PUBLIC && path.join(process.env.PUBLIC, 'shellherd-demo-local')].filter(Boolean);
-  const dir = candidates.find(p => !inside(p));
+  const dir = candidates.find(p => !insideHome(p));
   if (!dir) throw new Error('Kein Ort für die lokale Spalte ohne Benutzernamen: SHELLHERD_RUN_DIR außerhalb des Benutzerordners setzen (z. B. C:\\shellherd-run).');
   fs.mkdirSync(dir, { recursive: true });
   // Leftover of an aborted run; auto-upload would otherwise upload it.
@@ -602,6 +604,92 @@ const blocks = {
       await waitFor('Update-Knopf verschwunden', `!document.querySelector('.update-button')`);
     } finally {
       fs.rmSync(UPDATE_FLAG, { force: true });
+    }
+  },
+  // Start list "Zuletzt benutzt": three synthetic entries (one missing), then demo.term is picked and unlocked. Main reads the list on every call,
+  // so settings.json is enough. The file dialog is cancelled for the switch, else it would answer with demo.term and skip the list.
+  async recent() {
+    if (readme) throw new Error('recent: Der Startbildschirm zeigt Pfade mit dem Benutzernamen – kein README-Bild (R-A8)');
+    if (insideHome(RUN_DIR)) console.warn(`Warnung: RUN_DIR liegt im Benutzerordner (${RUN_DIR}). Die Liste zeigt dann den Windows-Benutzernamen; Screenshot nicht teilen.`);
+    const vaults = path.join(RUN_DIR, 'vaults');
+    const teamOps = path.join(vaults, 'team-ops.term');
+    const archive = path.join(vaults, 'archiv-2025.term'); // deliberately absent: "Datei nicht gefunden"
+    fs.mkdirSync(vaults, { recursive: true });
+    if (!fs.existsSync(teamOps)) fs.writeFileSync(teamOps, '');
+    fs.rmSync(archive, { force: true });
+    const settings = fs.existsSync(SETTINGS_FILE) ? JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')) : {};
+    const now = Date.now();
+    settings.recentVaults = [
+      { filePath: teamOps, openedAt: now },
+      { filePath: VAULT_FILE, openedAt: now - 86400000 },
+      { filePath: archive, openedAt: now - 30 * 86400000 },
+    ];
+    fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    await click('.lock-button');
+    await waitFor('Sperrbildschirm', `document.querySelector('dialog.lock-screen[open]')`);
+    await click('.lock-screen .secondary-button');
+    await waitFor('Wechsel-Rückfrage', `document.querySelector('dialog.compact-confirm[open]')`);
+    await call('main', `electron.dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });`);
+    try {
+      await click('dialog.compact-confirm[open] .primary-button');
+      await waitFor('Liste „Zuletzt benutzt“', `${count('.recent-vault-open')} === 3`);
+      await pause(300);
+      await shot('start-recent');
+      await click('.recent-vault-open:has-text("demo.term")');
+      await waitFor('demo.term gewählt', `document.querySelector('.recent-vault-open[aria-pressed="true"]')?.textContent.includes('demo.term')`);
+      await fill('input[type=password]', 'synthetic-vault-demo');
+      await click('button.primary-button[type=submit]');
+      await waitFor('Vault entsperrt', `!!document.querySelector('.workspace-save')?.offsetParent`, { timeout: 30000 });
+    } finally {
+      await setOpenDialog(VAULT_FILE);
+    }
+  },
+  // Light scheme: setTheme sets nativeTheme.themeSource, and prefers-color-scheme must follow in the renderer (R-B3).
+  // If it stays dark, Playwright emulates the scheme (V2): the block names the main value and fails, since light shots would show dark.
+  async 'theme-light'() {
+    const setTheme = setting => call('eval', `await window.desktopApi.setTheme('${setting}'); return true;`);
+    try {
+      await setTheme('light');
+      try {
+        await waitFor('prefers-color-scheme: light', `matchMedia('(prefers-color-scheme: light)').matches`, { timeout: 5000 });
+      } catch {
+        const source = await call('main', 'return electron.nativeTheme.themeSource;');
+        throw new Error(source === 'light'
+          ? 'prefers-color-scheme bleibt dunkel, obwohl nativeTheme hell ist (Playwright-Emulation, V2): Treiber per colorScheme lösen, nicht im Produkt'
+          : `setTheme(light) setzt nativeTheme nicht auf hell (themeSource = ${source})`);
+      }
+      await click(web01);
+      await key('Enter');
+      await waitFor('Terminal', `document.querySelector('.xterm')`);
+      await waitFor('verbundener web-01-Tab', `${web01Connected} === 1`);
+      await click('.xterm-helper-textarea >> nth=0');
+      await call('type', 'cat ~/LIESMICH');
+      await key('Enter');
+      await waitFor('Ausgabe im Terminal', `(document.querySelector('.terminal-panel:not([hidden]) .xterm-rows')?.textContent ?? '').includes('https://intranet.demo/handbuch')`);
+      await pause(300);
+      await shot('light-terminal');
+      await click('text=files-01 >> nth=0');
+      await key('Enter');
+      await waitFor('SFTP-Liste', `${count('.file-pane-remote [role=row][data-name]')} >= 5`);
+      await pause(300);
+      await shot('light-sftp');
+      if (await evaluate(`document.body.innerText.includes('prod-k8s')`)) {
+        await click('text=prod-k8s >> nth=0');
+        await key('Enter');
+        await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
+        await pause(1500); // first metrics round
+        await shot('light-kubernetes');
+      } else console.log('Kubernetes übersprungen: prod-k8s fehlt im Baum.');
+      await click('.settings-button');
+      await waitFor('Einstellungsdialog', `document.querySelector('dialog.settings-dialog[open]')`);
+      await call('eval', `document.querySelector('dialog.settings-dialog select[aria-label="Farbschema der Oberfläche"]')?.scrollIntoView({ block: 'center' });`);
+      await pause(300);
+      await shot('light-settings');
+      await key('Escape');
+      await waitFor('Einstellungen schließen', `!document.querySelector('dialog.settings-dialog[open]')`);
+    } finally {
+      await setTheme('dark');
     }
   },
 };
