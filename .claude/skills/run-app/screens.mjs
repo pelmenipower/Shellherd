@@ -115,15 +115,22 @@ const cancelImport = async () => {
   await waitFor('Import-Dialog geschlossen', `!document.querySelector('dialog.import-dialog[open]')`);
 };
 // Earlier runs leave their import folder behind; its candidates would then all be duplicates and nothing is left to import.
+// Best effort: the import is already done, so a failed cleanup only warns and the block stays green.
 async function removeImportFolder(name) {
   const present = `[...document.querySelectorAll('.vault-tree-row')].some(r => r.textContent.includes(${JSON.stringify(name)}))`;
   if (!await evaluate(present)) return;
-  await click(`.vault-tree-row >> text=${name} >> nth=0`);
-  await waitFor('Ordner-Editor', `document.querySelector('section.node-editor details > summary')`);
-  await click('section.node-editor details > summary');
-  await click('section.node-editor .danger-button');
-  await click('dialog.compact-confirm[open] .primary-button, dialog.compact-confirm[open] .danger-button');
-  await waitFor(`Ordner ${name} entfernt`, `!${present}`);
+  try {
+    // A plain click only selects the row; the folder editor opens through the context menu entry "Bearbeiten".
+    await rclick(`.vault-tree-row >> text=${name} >> nth=0`);
+    await menuItem('Bearbeiten');
+    await waitFor(`Ordner-Editor ${name}`, `document.querySelector('section.node-editor .editor-management > summary')`);
+    await click('section.node-editor .editor-management > summary');
+    await click('section.node-editor .editor-management .danger-button');
+    await click('dialog.compact-confirm[open] .primary-button, dialog.compact-confirm[open] .danger-button');
+    await waitFor(`Ordner ${name} entfernt`, `!${present}`);
+  } catch (error) {
+    console.warn(`Warnung: Aufräumen von ${name} fehlgeschlagen (${error.message}). Der Importordner bleibt im Baum.`);
+  }
 }
 
 const shots = [];
@@ -566,25 +573,22 @@ const blocks = {
       await removeImportFolder('OpenSSH-Import');
     }
   },
-  // Update hint: the fake release route offers the next minor version while RUN_DIR/update-available exists. The check runs at most once a day, so the settings lose checkedAt (and the skip from the last run) first.
+  // Update hint: the fake release route offers the next minor version while RUN_DIR/update-available exists. The check runs at most once a day,
+  // so the settings lose checkedAt, latest and the skip from the last run first. A reload does not load the new bundle, so the vault is locked and unlocked
+  // instead: unlocking asks for the update again.
   async update() {
     fs.writeFileSync(UPDATE_FLAG, '');
     try {
       if (fs.existsSync(SETTINGS_FILE)) {
         const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-        if (settings.update) { delete settings.update.checkedAt; delete settings.update.skipped; }
+        if (settings.update) { delete settings.update.checkedAt; delete settings.update.skipped; delete settings.update.latest; }
         fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
       }
-      // Reply first, then reload; the page navigates away while the driver call would still wait for it.
-      await call('eval', `setTimeout(() => location.reload(), 0); return true;`);
-      await pause(3000);
-      await waitFor('Startbildschirm oder offener Vault', `!!document.querySelector('input[type=password], .workspace-save')`, { timeout: 30000 });
-      if (!await evaluate(`!!document.querySelector('.workspace-save')?.offsetParent`)) {
-        if (!await evaluate(`!!document.querySelector('input[type=password]')`)) await click('button:text-is("Vault öffnen")');
-        await fill('input[type=password]', 'synthetic-vault-demo');
-        await click('button:text-is("Vault öffnen") >> nth=-1');
-      }
-      await waitFor('Vault entsperrt', `!!document.querySelector('.workspace-save')?.offsetParent`, { timeout: 30000 });
+      await click('.lock-button');
+      await waitFor('Sperrbildschirm', `document.querySelector('dialog.lock-screen[open]')`);
+      await fill('.lock-screen input[type=password]', 'synthetic-vault-demo');
+      await click('.lock-screen .primary-button');
+      await waitFor('Entsperren', `!document.querySelector('dialog.lock-screen[open]') && document.querySelector('.vault-shell').inert === false`, { timeout: 30000 });
       await waitFor('Update-Knopf', `!!document.querySelector('.update-button')`, { timeout: 30000 });
       await pause(300);
       await shot('update-hint');
