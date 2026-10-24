@@ -5,6 +5,12 @@ import { AppError } from '../../shared/errors';
 
 export interface Tunnel { readonly port: number; close(): void }
 
+/** Destroys an ssh2 channel; it only emits close after end, which needs a read, so resume too. */
+export function dropChannel(channel: Duplex): void {
+  channel.destroy();
+  channel.resume();
+}
+
 /** Local listener on 127.0.0.1 (port 0 = any free port) that carries every connection through the SSH host to target. */
 export function openTunnel(forward: (host: string, port: number) => Promise<Duplex>, target: { host: string; port: number }, port = 0): Promise<Tunnel> {
   const sockets = new Set<Socket>();
@@ -14,9 +20,9 @@ export function openTunnel(forward: (host: string, port: number) => Promise<Dupl
     socket.on('error', () => socket.destroy());
     socket.pause();
     forward(target.host, target.port).then(channel => {
-      if (socket.destroyed) { channel.destroy(); return; }
+      if (socket.destroyed) { dropChannel(channel); return; }
       channel.on('error', () => socket.destroy());
-      socket.on('close', () => channel.destroy());
+      socket.on('close', () => dropChannel(channel));
       channel.on('close', () => socket.destroy());
       socket.pipe(channel).pipe(socket);
       socket.resume();

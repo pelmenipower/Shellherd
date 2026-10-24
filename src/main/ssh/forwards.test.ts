@@ -17,6 +17,21 @@ function fakeChannel(): FakeChannel {
   return { channel: Duplex.from({ writable: sent, readable: received }), sent, received };
 }
 
+/**
+ * Like an ssh2 channel: `destroy` only sends CLOSE, and `end` (so `close`, as emitClose is off)
+ * comes once the stream is read again.
+ */
+class LazyChannel extends Duplex {
+  constructor() {
+    super({ emitClose: false, read() { /* nothing to read until the server ends */ }, write(_chunk, _encoding, callback) { callback(); } });
+    this.on('end', () => this.emit('close'));
+  }
+  override destroy(): this {
+    this.push(null);
+    return this;
+  }
+}
+
 /** Records forwarding calls; forwardOut hands out a channel per call. */
 class FakeClient extends EventEmitter {
   channels: FakeChannel[] = [];
@@ -25,10 +40,14 @@ class FakeClient extends EventEmitter {
   unforwarded: number[] = [];
   refuseOut = false;
   refuseIn = false;
+  lazyChannels = false;
+  /** When set, forwardIn callbacks are collected here and run by the test. */
+  deferIn?: Array<() => void>;
 
   forwardOut(_src: string, _srcPort: number, host: string, port: number, callback: (error: Error | undefined, channel?: Duplex) => void): this {
     this.forwardCalls.push(`${host}:${port}`);
     if (this.refuseOut) { callback(new Error('refused')); return this; }
+    if (this.lazyChannels) { callback(undefined, new LazyChannel()); return this; }
     const fake = fakeChannel();
     this.channels.push(fake);
     callback(undefined, fake.channel);
@@ -36,6 +55,7 @@ class FakeClient extends EventEmitter {
   }
   forwardIn(_address: string, port: number, callback: (error: Error | undefined, port: number) => void): this {
     if (this.refuseIn) { callback(new Error('refused'), 0); return this; }
+    if (this.deferIn) { this.deferIn.push(() => { this.forwardedIn.push(port); callback(undefined, port); }); return this; }
     this.forwardedIn.push(port);
     callback(undefined, port);
     return this;
@@ -115,6 +135,19 @@ describe('local forward', () => {
     socket.destroy();
   });
 
+  it('frees the open count when the local client leaves, even though the channel only ends once read', async () => {
+    const client = new FakeClient();
+    client.lazyChannels = true;
+    const port = await freePort();
+    const forwards = session(client, [LOCAL(port)]);
+    await forwards.start('f-local');
+    const socket = await connected(port);
+    await vi.waitFor(() => expect(forwards.busy()).toBe(true));
+    socket.destroy();
+    await vi.waitFor(() => expect(forwards.busy()).toBe(false));
+    expect(forwards.list()[0].open).toBe(0);
+  });
+
   it('maps a taken local port to ssh.forwardPortInUse and keeps the error in the state', async () => {
     const blocker = createServer();
     await new Promise<void>(resolve => blocker.listen(0, '127.0.0.1', resolve));
@@ -176,6 +209,22 @@ describe('dynamic forward (SOCKS5)', () => {
     received.write('back');
     expect(String(await take(socket, 4))).toBe('back');
     socket.destroy();
+  });
+
+  it('frees a SOCKS connection when the client leaves, even though the channel only ends once read', async () => {
+    const client = new FakeClient();
+    client.lazyChannels = true;
+    const port = await freePort();
+    const forwards = session(client, [DYNAMIC(port)]);
+    await forwards.start('f-dyn');
+    const socket = await connected(port);
+    socket.write(Buffer.from([5, 1, 0]));
+    await take(socket, 2);
+    socket.write(Buffer.from([5, 1, 0, 1, 10, 0, 0, 1, 0, 80]));
+    await take(socket, 10);
+    await vi.waitFor(() => expect(forwards.busy()).toBe(true));
+    socket.destroy();
+    await vi.waitFor(() => expect(forwards.busy()).toBe(false));
   });
 
   it('answers 0x05 when the forward is refused', async () => {
@@ -256,6 +305,23 @@ describe('remote forward', () => {
     await vi.waitFor(() => expect(forwards.busy()).toBe(false));
     forwards.stop('f-remote');
     expect(client.unforwarded).toEqual([2222]);
+  });
+
+  it('lets a late start from before a stop leave the newer run and its connections intact', async () => {
+    const client = new FakeClient();
+    client.deferIn = [];
+    const forwards = session(client, [REMOTE(2222)], { connect: (() => new PassThrough()) as unknown as typeof connect });
+    const first = forwards.start('f-remote');
+    forwards.stop('f-remote');
+    const second = forwards.start('f-remote');
+    client.deferIn?.[1]?.();
+    await second;
+    client.emit('tcp connection', { srcIP: 'a', srcPort: 1, destIP: 'localhost', destPort: 2222 }, () => fakeChannel().channel, () => undefined);
+    await vi.waitFor(() => expect(forwards.busy()).toBe(true));
+    client.deferIn?.[0]?.();
+    await first;
+    expect(forwards.list()[0].state).toBe('active');
+    expect(forwards.busy()).toBe(true);
   });
 
   it('rejects connections for unknown remote ports', async () => {

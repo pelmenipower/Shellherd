@@ -6,7 +6,7 @@ import { AppError } from '../../shared/errors';
 import type { CodedError } from '../../shared/errors';
 import type { ForwardState, ForwardStatus } from '../../shared/ssh';
 import type { PortForward } from '../../shared/vault/types';
-import { openTunnel } from '../kubernetes/tunnel';
+import { dropChannel, openTunnel } from '../kubernetes/tunnel';
 import { parseGreeting, parseRequest, reply } from './socks5';
 
 const HANDSHAKE_MS = 10_000;
@@ -106,8 +106,9 @@ export class SessionForwards {
     entry.state = 'starting';
     entry.error = undefined;
     this.changed();
+    let close: () => void;
     try {
-      await this.open(entry);
+      close = await this.open(entry);
     } catch (error) {
       if (entry.run !== run) return; // stopped while opening; stop released the key
       entry.run = undefined;
@@ -115,7 +116,9 @@ export class SessionForwards {
       this.registry.release(entry.key, this.sessionId);
       throw this.fail(entry, error instanceof AppError ? error.toCoded() : { code: 'ssh.forwardFailed' });
     }
-    if (entry.run !== run) { this.halt(entry); return; } // stopped while opening
+    // A late run closes only what it opened; a newer run may own entry.close now.
+    if (entry.run !== run) { close(); return; }
+    entry.close = close;
     entry.state = 'active';
     this.changed();
   }
@@ -183,49 +186,47 @@ export class SessionForwards {
     const { close } = entry;
     entry.close = undefined;
     close?.();
-    for (const stream of entry.streams) stream.destroy();
+    for (const stream of entry.streams) dropChannel(stream); // sockets and channels alike
     entry.streams.clear();
     entry.channels.clear();
   }
 
-  private async open(entry: Entry): Promise<void> {
+  /** Opens the listener or binding and returns the function that closes exactly that. */
+  private async open(entry: Entry): Promise<() => void> {
     const { forward } = entry;
-    if (forward.kind === 'remote') return this.openRemote(entry, forward.remotePort);
+    if (forward.kind === 'remote') return this.openRemote(forward.remotePort);
     try {
       if (forward.kind === 'local') {
         const tunnel = await openTunnel(
           (host, port) => this.forwardChannel(host, port).then(channel => this.count(entry, channel)),
           { host: forward.targetHost, port: forward.targetPort }, forward.localPort);
-        entry.close = () => tunnel.close();
-      } else {
-        await this.openDynamic(entry, forward.localPort);
+        return () => tunnel.close();
       }
+      return await this.openDynamic(entry, forward.localPort);
     } catch (error) {
       throw listenFailure(error, forward.localPort);
     }
   }
 
-  private openRemote(entry: Entry, remotePort: number): Promise<void> {
+  private openRemote(remotePort: number): Promise<() => void> {
     return new Promise((resolve, reject) => {
       this.client.forwardIn('localhost', remotePort, error => {
         if (error) { reject(new AppError('ssh.forwardRemoteRefused', { port: remotePort })); return; }
-        entry.close = () => {
+        resolve(() => {
           try { this.client.unforwardIn('localhost', remotePort, () => undefined); } catch { /* client already gone */ }
-        };
-        resolve();
+        });
       });
     });
   }
 
-  private openDynamic(entry: Entry, port: number): Promise<void> {
+  private openDynamic(entry: Entry, port: number): Promise<() => void> {
     const server: Server = createServer(socket => this.handshake(entry, socket));
     return new Promise((resolve, reject) => {
       server.once('error', reject);
       server.listen(port, '127.0.0.1', () => {
         server.off('error', reject);
         server.on('error', () => this.stop(entry.forward.id));
-        entry.close = () => { server.close(); };
-        resolve();
+        resolve(() => { server.close(); });
       });
     });
   }
@@ -268,7 +269,7 @@ export class SessionForwards {
 
   private relay(entry: Entry, socket: Socket, host: string, port: number, rest: Buffer): void {
     this.forwardChannel(host, port).then(channel => {
-      if (socket.destroyed) { channel.destroy(); return; }
+      if (socket.destroyed) { dropChannel(channel); return; }
       socket.write(reply(0x00));
       if (rest.length > 0) channel.write(rest);
       this.bridge(entry, channel, socket);
@@ -285,11 +286,11 @@ export class SessionForwards {
   private bridge(entry: Entry, channel: Duplex, socket: Duplex): void {
     this.count(entry, channel);
     this.hold(entry, socket);
-    const end = () => { channel.destroy(); socket.destroy(); };
+    const end = () => { dropChannel(channel); socket.destroy(); };
     channel.on('error', end);
     socket.on('error', end);
     channel.on('close', () => socket.destroy());
-    socket.on('close', () => channel.destroy());
+    socket.on('close', () => dropChannel(channel));
     channel.pipe(socket);
     socket.pipe(channel);
   }
