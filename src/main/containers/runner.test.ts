@@ -250,3 +250,22 @@ describe('RemoteHost.forward', () => {
     await expect(host.forward('10.0.0.5', 6443)).rejects.toMatchObject({ code: 'containers.apiUnreachable', params: { host: '10.0.0.5', port: 6443 } });
   });
 });
+
+describe('openRemoteHost extras', () => {
+  it('passes the stream and the keyboard handler to ssh2, and neither without extras', async () => {
+    const seen: Record<string, unknown>[] = [];
+    const makeClient = () => {
+      const fake = Object.assign(new EventEmitter(), {
+        connect(given: Record<string, unknown>) { seen.push(given); queueMicrotask(() => fake.emit('ready')); },
+        destroy() {}, end() {},
+      });
+      return fake as unknown as Client;
+    };
+    const sock = new PassThrough();
+    (await openRemoteHost(connection, async () => true, makeClient, undefined, { ask: async () => null, ownerId: 3, sock })).close();
+    (await openRemoteHost(connection, async () => true, makeClient)).close();
+    expect(seen[0]).toMatchObject({ tryKeyboard: true, sock });
+    expect(seen[1]).toMatchObject({ tryKeyboard: false });
+    expect(seen[1]).not.toHaveProperty('sock');
+  });
+});

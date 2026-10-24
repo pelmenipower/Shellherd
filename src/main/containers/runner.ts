@@ -5,6 +5,7 @@ import { AppError } from '../../shared/errors';
 import type { ConnectionTimeouts, SshConnectionNode } from '../../shared/vault/types';
 import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
 import { sshConnectConfig } from '../ssh/client-config';
+import type { AskPrompts } from '../ssh/auth-prompts';
 import { BATCH_TOO_LARGE } from './parsers';
 import type { RunResult } from './parsers';
 import { SudoWatcher } from './sudo';
@@ -28,8 +29,11 @@ export interface RemoteHost {
   readonly closed: boolean;
 }
 
+/** Keyboard prompts and a stream from a jump host; without `ask` the server gets no keyboard answers. */
+export interface RemoteExtras { ask?: AskPrompts; ownerId?: number; sock?: Duplex }
+
 export async function openRemoteHost(connection: SshConnectionNode, verifyHost: VerifyHost, createClient = () => new Client(),
-  timeouts: ConnectionTimeouts = DEFAULT_TIMEOUTS): Promise<RemoteHost> {
+  timeouts: ConnectionTimeouts = DEFAULT_TIMEOUTS, extras: RemoteExtras = {}): Promise<RemoteHost> {
   const client = createClient();
   let closed = false;
   let rejectedKey = false;
@@ -37,7 +41,11 @@ export async function openRemoteHost(connection: SshConnectionNode, verifyHost: 
     void verifyHost(connection.host, connection.port, hostKey, () => !closed)
       .then(valid => { rejectedKey = !valid; callback(valid); })
       .catch(() => { rejectedKey = true; callback(false); });
-  }, timeouts);
+  }, timeouts, {
+    client,
+    sock: extras.sock,
+    keyboard: extras.ask ? { ask: extras.ask, ownerId: extras.ownerId, isActive: () => !closed } : undefined,
+  });
   // No shorter readyTimeout: it also spans the async host-key prompt the user may still be reading. The user's connect timeout spans the prompt too.
   try {
     await new Promise<void>((resolve, reject) => {
