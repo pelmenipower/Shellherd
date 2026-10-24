@@ -59,6 +59,12 @@ export interface AutoUploadBinding {
   enabled: boolean;
 }
 
+/** Port forward of an SSH connection; ids unique within the connection, see docs/superpowers/specs/2026-10-24-ssh-pro-design.md 5.1. */
+export type PortForward =
+  | { id: string; kind: 'local'; localPort: number; targetHost: string; targetPort: number; auto: boolean }
+  | { id: string; kind: 'remote'; remotePort: number; targetHost: string; targetPort: number; auto: boolean }
+  | { id: string; kind: 'dynamic'; localPort: number; auto: boolean };
+
 export interface SshConnectionNode extends ConnectionBase {
   protocol: 'ssh';
   host: string;
@@ -73,6 +79,10 @@ export interface SshConnectionNode extends ConnectionBase {
   timeouts?: Partial<ConnectionTimeouts>;
   /** Root shell and typed start commands after login; see docs/superpowers/specs/2026-10-21-login-commands-design.md. */
   login?: { sudo?: boolean; commands?: string[] };
+  /** Id of an SSH connection to hop through first; one hop only, see docs/superpowers/specs/2026-10-24-ssh-pro-design.md 4.1. */
+  jumpHost?: string;
+  /** Port forwards run by the terminal session; at most 16. */
+  forwards?: PortForward[];
 }
 
 /** File transfer over SSH; same target and authentication as an SSH connection. */
@@ -86,6 +96,8 @@ export interface SftpConnectionNode extends ConnectionBase {
   autoUpload?: AutoUploadBinding[];
   /** Per-connection override; absent keys fall back to the vault setting. */
   timeouts?: Partial<ConnectionTimeouts>;
+  /** Id of an SSH connection to hop through first; see SshConnectionNode.jumpHost. */
+  jumpHost?: string;
 }
 
 export interface RdpOptions {

@@ -1,4 +1,4 @@
-import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
+import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent, SshForwardRequest, AuthPromptRequest, AuthPromptAnswer } from './ssh';
 import type { AiProvider, ConnectionNode, Vault, WorkspaceLayout } from './vault/types';
 import type { AiAskRequest, AiCatalog, AiEvent } from './ai';
 import type { LanguageSetting, LanguageState, Locale } from './locale';
@@ -39,6 +39,10 @@ export const IPC_CHANNELS = {
   sshClose: 'ssh:close',
   sshAttach: 'ssh:attach',
   sshEvent: 'ssh:event',
+  sshAuthPrompt: 'ssh:auth-prompt',
+  sshAuthPromptClosed: 'ssh:auth-prompt-closed',
+  sshAuthPromptAnswer: 'ssh:auth-prompt-answer',
+  sshForward: 'ssh:forward',
   rdpOpen: 'rdp:open',
   rdpBounds: 'rdp:bounds',
   rdpVisible: 'rdp:visible',
@@ -176,6 +180,11 @@ export interface DesktopApi {
   /** Takes over a session transferred from another window. */
   sshAttach: (request: SshSessionRequest) => Promise<void>;
   onSshEvent: (listener: (event: SshEvent) => void) => () => void;
+  /** Server questions of a keyboard-interactive login; answered with answerAuthPrompt. */
+  onAuthPrompt: (listener: (request: AuthPromptRequest) => void) => () => void;
+  onAuthPromptClosed: (listener: (event: { promptId: string }) => void) => () => void;
+  answerAuthPrompt: (answer: AuthPromptAnswer) => Promise<void>;
+  sshForward: (request: SshForwardRequest) => Promise<void>;
   rdpOpen: (request: RdpOpenRequest) => Promise<{ sessionId: string }>;
   rdpBounds: (request: RdpBoundsRequest) => Promise<void>;
   rdpVisible: (request: RdpVisibleRequest) => Promise<void>;

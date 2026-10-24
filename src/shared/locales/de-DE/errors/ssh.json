@@ -47,6 +47,17 @@
     "containerNotFound": "Container „{{name}}“ wurde nicht gefunden.",
     "noShellInContainer": "Keine Shell im Container gefunden.",
     "serialConsoleUnavailable": "Die serielle Konsole ist nicht verfügbar. Serielle Schnittstelle in der VM-Hardware hinzufügen.",
-    "loginSudoRejected": "sudo hat das gespeicherte Passwort abgelehnt. Shellherd versucht es erst nach einer Änderung der Anmeldedaten wieder. Ohne Root-Shell verbinden: Rechtsklick auf den Tab, dann „Ohne Startbefehle verbinden“."
+    "loginSudoRejected": "sudo hat das gespeicherte Passwort abgelehnt. Shellherd versucht es erst nach einer Änderung der Anmeldedaten wieder. Ohne Root-Shell verbinden: Rechtsklick auf den Tab, dann „Ohne Startbefehle verbinden“.",
+    "promptCancelled": "Anmeldung abgebrochen.",
+    "promptInvalid": "Der Server hat zu viele oder ungültige Anmeldeabfragen geschickt.",
+    "jumpHostMissing": "Den Sprunghost „{{id}}“ gibt es nicht mehr.",
+    "jumpHostUnusable": "„{{name}}“ kann nicht als Sprunghost dienen. Es muss eine aktive SSH-Verbindung ohne eigenen Sprunghost sein.",
+    "jumpHostFailed": "Sprunghost „{{name}}“ nicht erreichbar.",
+    "jumpTargetUnreachable": "Der Sprunghost erreicht {{host}}:{{port}} nicht.",
+    "forwardPortInUse": "Port {{port}} ist auf diesem Computer schon belegt.",
+    "forwardPortDenied": "Port {{port}} darf auf diesem Computer nicht geöffnet werden.",
+    "forwardRemoteRefused": "Der Server lehnt die Weiterleitung von Port {{port}} ab (AllowTcpForwarding oder Port belegt).",
+    "forwardElsewhere": "Diese Weiterleitung läuft schon in einem anderen Tab.",
+    "forwardFailed": "Die Weiterleitung konnte nicht gestartet werden."
   }
 }
