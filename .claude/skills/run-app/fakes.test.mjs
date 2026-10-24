@@ -217,6 +217,32 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect(await new Promise(resolve => client.unforwardIn('localhost', 2345, error => resolve(!error)))).toBe(true);
   });
 
+  it('delays the sleep reply in the shell and prints the demo links for cat ~/LIESMICH', async () => {
+    const { port } = await start('shell');
+    const client = await sshClient(port);
+    const stream = await new Promise((resolve, reject) => client.shell({ term: 'xterm' }, (error, value) => (error ? reject(error) : resolve(value))));
+    cleanup.push(async () => stream.close());
+    let text = '';
+    stream.on('data', data => { text += data; });
+    // Polls the collected shell output until it contains the expected text.
+    const until = async expected => {
+      for (const end = Date.now() + 8000; !text.includes(expected); await new Promise(resolve => setTimeout(resolve, 50))) {
+        if (Date.now() > end) throw new Error(`timeout waiting for ${JSON.stringify(expected)}, output so far: ${JSON.stringify(text)}`);
+      }
+    };
+
+    await until('demo@web-01:~$ ');
+    const started = Date.now();
+    stream.write('sleep 3; echo fertig\r');
+    await until('\r\nfertig\r\n');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(2500);
+    expect(text).toContain('\r\nfertig\r\ndemo@web-01:~$ ');
+
+    stream.write('cat ~/LIESMICH\r');
+    await until('Status:   https://status.intranet.demo/');
+    expect(text).toContain('Handbuch: https://intranet.demo/handbuch');
+  });
+
   // Demo user logged in with the password, for the tcpip and forward tests.
   async function sshClient(port) {
     const client = new ssh2.Client();

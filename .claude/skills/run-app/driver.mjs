@@ -69,6 +69,8 @@ const routes = {
     return file;
   },
   key: async (_request, url) => { await page.keyboard.press(url.searchParams.get('k')); return 'ok'; },
+  // ?x=&y= in viewport pixels; moves the mouse, e.g. to show a hover hint
+  move: async (_request, url) => { await page.mouse.move(Number(url.searchParams.get('x')), Number(url.searchParams.get('y'))); return 'ok'; },
   type: async request => { await page.keyboard.type(await body(request)); return 'ok'; },
   // body: selector, newline, value
   fill: async request => { const [selector, ...value] = (await body(request)).split('\n'); await page.locator(selector).first().fill(value.join('\n'), { timeout: 5000 }); return 'ok'; },
