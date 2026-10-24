@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.19.0] – 2026-10-24
+
+- Neu: Server, die bei der Anmeldung nachfragen (Einmalcode, PIN, zweites Passwort, 2FA), öffnen einen Dialog „Anmeldung bei …“. Fragt der Server nur nach dem Passwort, setzt Shellherd das gespeicherte Passwort einmal automatisch ein. Antworten werden nie gespeichert.
+- Neu: Sprunghost für SSH- und SFTP-Verbindungen (genau ein Hop). Shellherd verbindet erst mit dem Sprunghost und von dort weiter, im Terminal, in der Dateiansicht, bei Containern, Clustern und im Verbindungstest. Die Auswahl steht unter „Weitere Angaben“.
+- Neu: Port-Weiterleitungen an SSH-Verbindungen: lokal (-L), entfernt (-R) und SOCKS-Proxy (-D). Lokal und SOCKS hören nur auf 127.0.0.1. Die Leiste „Weiterleitungen“ unter dem Terminal startet und stoppt sie; eine Weiterleitung läuft app-weit nur in einem Tab. Änderungen gelten ab der nächsten Verbindung.
+- Ältere Shellherd-Versionen entfernen Sprunghost und Weiterleitungen beim Speichern.
+
 ## [0.18.1] – 2026-10-22
 
 - Der Installer ist rund 14 MB kleiner. Im Paket liegen nur noch die Chromium-Sprachpakete für Deutsch und Englisch, keine Sourcemaps, TypeScript-Quellen und doppelten Oberflächen-Bibliotheken mehr.
