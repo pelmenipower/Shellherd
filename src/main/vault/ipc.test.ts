@@ -47,6 +47,12 @@ describe('vault path grants in the IPC handlers', () => {
     expect(mocks.read.mock.calls[0]?.[0]).toBe('c:\\DROP\\v.term');
   });
 
+  it('does not open a granted path through a Kelvin sign look-alike', async () => {
+    expect(await invoke(IPC_CHANNELS.vaultDropFile, 'C:\\\u212A\\kelvin\\v.term')).toBe('C:\\\u212A\\kelvin\\v.term');
+    await expect(invoke(IPC_CHANNELS.unlockVault, { filePath: 'C:\\k\\kelvin\\v.term', password: 'x' })).rejects.toMatchObject({ code: 'core.vaultPathNotAllowed' });
+    expect(mocks.read).not.toHaveBeenCalledWith('C:\\k\\kelvin\\v.term');
+  });
+
   it('grants the file picked in the native dialog, also on a share', async () => {
     mocks.showOpen.mockResolvedValue({ canceled: false, filePaths: ['\\\\srv\\share\\picked.term'] });
     expect(await invoke(IPC_CHANNELS.selectVaultFile)).toEqual({ canceled: false, filePath: '\\\\srv\\share\\picked.term' });

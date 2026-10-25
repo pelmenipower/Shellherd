@@ -18,6 +18,9 @@ export function recentKey(filePath: string, platform: NodeJS.Platform = process.
   return platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
+/** Grant key: resolved Windows path, ASCII letters folded only (Unicode look-alikes such as the Kelvin sign stay distinct). */
+export const grantKey = (p: string): string => win32.resolve(p).replace(/[A-Z]/g, c => c.toLowerCase());
+
 /** Stable id for the renderer: first 16 hex chars of sha256(recentKey(filePath)). */
 export function recentId(filePath: string, platform?: NodeJS.Platform): string {
   return createHash('sha256').update(recentKey(filePath, platform)).digest('hex').slice(0, 16);
@@ -63,10 +66,10 @@ export class RecentVaults {
     return !(await this.probe(filePath))?.isFile();
   }
 
-  /** True if filePath is in the stored list (same recentKey). Reads settings.json only, never the file itself. */
+  /** True if filePath is in the stored list (same grantKey). Reads settings.json only, never the file itself. */
   async has(filePath: string): Promise<boolean> {
-    const key = recentKey(filePath);
-    return (await this.entries()).some(entry => recentKey(entry.filePath) === key);
+    const key = grantKey(filePath);
+    return (await this.entries()).some(entry => grantKey(entry.filePath) === key);
   }
 
   /** Moves/inserts filePath at the top with openedAt = now(), dedups by recentKey, keeps 8. Best effort: never throws. */

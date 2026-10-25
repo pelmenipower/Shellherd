@@ -40,6 +40,18 @@ describe('VaultPathGrants', () => {
     expect(grants.has('c:\\a\\V.term')).toBe(true);
     expect(grants.has('C:\\b.term')).toBe(false);
   });
+
+  it('folds ASCII case only', () => {
+    const grants = new VaultPathGrants();
+    grants.grant('C:\\Vaults\\A.term');
+    expect(grants.has('c:\\vaults\\a.term')).toBe(true);
+  });
+
+  it('does not match a Kelvin sign for a k in a UNC share', () => {
+    const grants = new VaultPathGrants();
+    grants.grant('\\\\nas.k\\s\\v.term');
+    expect(grants.has('\\\\nas.\u212A\\s\\v.term')).toBe(false);
+  });
 });
 
 describe('vaultPathAllowed', () => {
@@ -53,6 +65,10 @@ describe('vaultPathAllowed', () => {
 
   it('allows the locked vault path in another spelling', async () => {
     expect(await vaultPathAllowed('c:\\a\\V.term', new VaultPathGrants(), 'C:\\A\\v.term', async () => false)).toBe(true);
+  });
+
+  it('does not allow the locked path with a Kelvin sign for a k', async () => {
+    expect(await vaultPathAllowed('\\\\nas.K\\s\\v.term', new VaultPathGrants(), '\\\\nas.k\\s\\v.term', async () => false)).toBe(false);
   });
 
   it('otherwise lets the recent list decide', async () => {

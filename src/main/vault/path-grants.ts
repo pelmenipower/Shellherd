@@ -1,12 +1,15 @@
 import { win32 } from 'node:path';
 import { isVaultFile } from '../file-association';
-import { recentKey } from './recent-vaults';
+import { grantKey } from './recent-vaults';
 
-/** Vault paths main may open in this run, keyed like the recent list (resolved, case-insensitive on Windows). */
+// Defined in recent-vaults (path-grants imports it, not the other way round); re-exported here for callers.
+export { grantKey };
+
+/** Vault paths main may open in this run, keyed by grantKey (resolved, ASCII case-insensitive). */
 export class VaultPathGrants {
   private readonly keys = new Set<string>();
-  grant(filePath: string): void { this.keys.add(recentKey(filePath)); }
-  has(filePath: string): boolean { return this.keys.has(recentKey(filePath)); }
+  grant(filePath: string): void { this.keys.add(grantKey(filePath)); }
+  has(filePath: string): boolean { return this.keys.has(grantKey(filePath)); }
 }
 
 /** Grants of this run: native dialog, Explorer argv and checked drops. */
@@ -23,6 +26,6 @@ export function droppedVaultPath(raw: unknown): string | null {
 export async function vaultPathAllowed(filePath: string, grants: VaultPathGrants, lockedPath: string | undefined,
   inRecent: (filePath: string) => Promise<boolean>): Promise<boolean> {
   if (grants.has(filePath)) return true;
-  if (lockedPath !== undefined && recentKey(lockedPath) === recentKey(filePath)) return true;
+  if (lockedPath !== undefined && grantKey(lockedPath) === grantKey(filePath)) return true;
   return inRecent(filePath);
 }

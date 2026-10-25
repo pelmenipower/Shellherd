@@ -3,7 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AppError } from '../../shared/errors';
-import { recentId, recentKey, RecentVaults } from './recent-vaults';
+import { grantKey, recentId, recentKey, RecentVaults } from './recent-vaults';
+
+describe('grantKey', () => {
+  it('folds ASCII letters only', () => {
+    expect(grantKey('C:\\Vaults\\A.term')).toBe(grantKey('c:\\vaults\\a.term'));
+    expect(grantKey('\\\\nas.k\\s\\v.term')).not.toBe(grantKey('\\\\nas.\u212A\\s\\v.term'));
+  });
+});
 
 describe('recentKey and recentId', () => {
   it('compares Windows paths case-insensitively', () => {
@@ -41,6 +48,12 @@ describe('RecentVaults', () => {
     await writeFile(file, 'x');
     return file;
   }
+
+  it('has() does not match a Kelvin sign for a k in a UNC share', async () => {
+    await store().touch('\\\\nas.k\\s\\v.term');
+    expect(await store().has('\\\\nas.K\\s\\v.term')).toBe(false);
+    expect(await store().has('\\\\NAS.K\\S\\V.TERM')).toBe(true);
+  });
 
   it('is empty before anything was opened', async () => {
     expect(await store().list()).toEqual([]);
