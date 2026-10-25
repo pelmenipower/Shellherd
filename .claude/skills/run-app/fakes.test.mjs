@@ -17,6 +17,8 @@ import { parseKubeconfig } from '../../../src/main/kubernetes/kubeconfig';
 import { openTunnel } from '../../../src/main/kubernetes/tunnel';
 import { createKubeApi } from '../../../src/main/kubernetes/client-api';
 import { KubeForwards } from '../../../src/main/kubernetes/forwards';
+import { KubeWorkloadLogs } from '../../../src/main/kubernetes/workload-logs';
+import { deniedAccess } from '../../../src/shared/kube-access';
 import { streamChat } from '../../../src/main/ai/providers';
 import { SecretMasker } from '../../../src/main/ai/secret-mask';
 import { startSshd } from './sshd.mjs';
@@ -158,6 +160,39 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     const noReady = await forwards.start(view, { kind: 'services', namespace: 'shop', name: 'checkout', port: 8080 }, 0);
     await get(noReady.localPort).catch(() => '');
     await until(noReady.id, forward => forward?.error?.code === 'kubernetes.portForwardNoReadyPod');
+  });
+
+  it.skipIf(!findOpenssl())('follows the logs of all api pods with timestamps and answers the rules review', async () => {
+    const kube = await startKubeFake({ port: 0, dir: join(base, 'kube-logs') });
+    cleanup.push(() => kube.close());
+    const { host } = await connect((await start('kube-logs', { kubeconfig: kube.kubeconfig, kubePort: kube.port })).port);
+    const parsed = parseKubeconfig(kube.kubeconfig);
+    const tunnel = await openTunnel((h, p) => host.forward(h, p), parsed.server);
+    cleanup.push(async () => tunnel.close());
+    const api = createKubeApi(parsed.build(tunnel.port));
+    const batches = [];
+    const logs = new KubeWorkloadLogs((_owner, _view, batch) => batches.push(batch));
+    cleanup.push(async () => logs.stopAll());
+    const lines = () => batches.flatMap(batch => batch.lines);
+    const until = async (what, test) => {
+      for (const end = Date.now() + 8000; !test(); await new Promise(resolve => setTimeout(resolve, 50))) if (Date.now() > end) throw new Error(what);
+    };
+
+    await logs.start({ ownerId: 1, viewId: 'v', api: async () => api }, { id: 'run', namespace: 'shop', selector: { app: 'api' }, format: 'raw' });
+    await until('three sources with their tails', () => (batches.at(-1)?.sources.length ?? 0) === 3 && lines().length >= 45);
+    expect(batches.at(-1).sources.map(source => source.pod)).toEqual(['api-6d8f9b7c5-h5t8w', 'api-6d8f9b7c5-q9m4d', 'api-6d8f9b7c5-x7k2p']);
+    for (const line of lines()) expect(line.time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z$/);
+    const count = lines().length;
+    await until('following brings new lines', () => lines().length > count);
+
+    const shop = await api.rulesReview('shop');
+    expect(shop.incomplete).toBe(false);
+    const denied = deniedAccess(shop.rules).map(item => item.id);
+    expect(denied).toEqual(expect.arrayContaining(['patchDeployments', 'patchStatefulSets', 'patchDaemonSets', 'patchNodes', 'deleteJobs']));
+    expect(denied).not.toContain('logsAll');
+    expect(denied).not.toContain('shell');
+    expect((await api.rulesReview('monitoring')).incomplete).toBe(true);
+    await expect(api.rulesReview('kube-system')).rejects.toMatchObject({ code: 403 });
   });
 
   it('streams the AI fake, checks the key and answers the connection test', async () => {

@@ -1,4 +1,4 @@
-// Synthetic Kubernetes API server for the run-app skill. HTTPS on 127.0.0.1 only, read-only (writes get 403); pods/portforward over WebSocket.
+// Synthetic Kubernetes API server for the run-app skill. HTTPS on 127.0.0.1 only, read-only (writes get 403); pods/portforward over WebSocket; pods/log with timestamps and follow; a SelfSubjectRulesReview.
 // The certificate is generated per start with openssl into the run dir; nothing secret lives in the repo.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { buildCluster } from './kube-fixtures.mjs';
+import { SHOP_RULES, buildCluster } from './kube-fixtures.mjs';
 
 export const KUBE_SERVER = 'https://k8s-cp1:6443';
 export const KUBE_TOKEN = 'synthetic-kube-token';
@@ -118,6 +118,23 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
     req.on('close', () => { clearTimeout(timer); open.delete(res); });
   };
 
+  // SelfSubjectRulesReview: shop has fixed rules, monitoring answers incomplete (like a webhook authorizer), every other namespace is forbidden.
+  const rulesReview = (req, res) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      let namespace;
+      try { namespace = JSON.parse(body).spec?.namespace; } catch { namespace = undefined; }
+      if (namespace !== 'shop' && namespace !== 'monitoring') {
+        return json(res, 403, status(403, 'Forbidden', `selfsubjectrulesreviews.authorization.k8s.io is forbidden in namespace "${namespace}"`));
+      }
+      const result = namespace === 'shop'
+        ? { incomplete: false, resourceRules: SHOP_RULES, nonResourceRules: [] }
+        : { incomplete: true, evaluationError: 'webhook authorizer does not support user rule resolution', resourceRules: [], nonResourceRules: [] };
+      json(res, 201, { apiVersion: 'authorization.k8s.io/v1', kind: 'SelfSubjectRulesReview', spec: { namespace }, status: result });
+    });
+  };
+
   const handle = (req, res) => {
     const url = new URL(req.url ?? '/', 'https://k8s-cp1');
     const pathname = url.pathname.toLowerCase();
@@ -125,6 +142,7 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
     if (req.headers.authorization !== `Bearer ${KUBE_TOKEN}`) return json(res, 401, status(401, 'Unauthorized'));
     const parts = pathname.split('/').filter(Boolean);
     const resourceName = /\/namespaces\/[^/]+\/([^/]+)/.exec(pathname)?.[1] ?? parts.find((_, i) => i >= (parts[0] === 'api' ? 2 : 3)) ?? '';
+    if (req.method === 'POST' && pathname === '/apis/authorization.k8s.io/v1/selfsubjectrulesreviews') return rulesReview(req, res);
     if (req.method !== 'GET') {
       const verb = VERBS[req.method ?? ''] ?? String(req.method).toLowerCase();
       const ns = /\/namespaces\/([^/]+)/.exec(pathname)?.[1];
@@ -164,6 +182,21 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
     if (log) {
       const pod = all.find(item => item.metadata.name === name);
       if (plural !== 'pods' || !pod) return json(res, 404, status(404, 'NotFound'));
+      // timestamps=true (logs of all pods): RFC 3339 with nine digits like the kubelet, tailLines respected, one new line every 2 s while following.
+      if (query.get('timestamps') === 'true') {
+        const podIndex = data.pods.indexOf(pod);
+        const base = Date.now() - 60_000;
+        const stamp = i => new Date(base + i * 4000 + podIndex * 900).toISOString().replace(/Z$/, '456789Z');
+        const text = i => `${stamp(i)} ${i % 5 === 4 ? 'ERROR' : 'INFO'} ${pod.metadata.name} handled request ${1000 + i} in ${12 + (i % 40)} ms\n`;
+        const tail = Math.min(Number(query.get('tailLines') ?? 15), 15);
+        const first = Array.from({ length: tail }, (_, k) => text(15 - tail + k)).join('');
+        if (query.get('follow') !== 'true') return json(res, 200, first, 'text/plain');
+        hold(res, req, 300, 'text/plain', first);
+        let next = 15;
+        const timer = setInterval(() => { if (!res.writableEnded) res.write(text(next++)); }, 2000);
+        res.on('close', () => clearInterval(timer));
+        return;
+      }
       const lines = Array.from({ length: 15 }, (_, i) => `2026-10-20T08:${String(10 + i).padStart(2, '0')}:00Z INFO ${pod.metadata.name} handled request ${1000 + i} in ${12 + i} ms\n`).join('');
       if (query.get('follow') === 'true') return hold(res, req, Number(query.get('timeoutSeconds') ?? 300), 'text/plain', lines);
       return json(res, 200, lines, 'text/plain');

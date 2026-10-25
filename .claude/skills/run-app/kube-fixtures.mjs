@@ -33,7 +33,7 @@ export function buildCluster(now = Date.now()) {
   const pods = [];
   const podMetrics = [];
   const addPod = ({ name, namespace = 'shop', node, labels = {}, owner, image, phase = 'Running', ready = true, restarts = 0, state, age, running = true, ports }) => {
-    const containerState = state ?? (phase === 'Succeeded' ? { terminated: { reason: 'Completed', exitCode: 0 } } : { running: { startedAt: ago(age) } });
+    const containerState = state ?? (phase === 'Succeeded' ? { terminated: { reason: 'Completed', exitCode: 0, startedAt: ago(age), finishedAt: ago(age - 2 * MIN) } } : { running: { startedAt: ago(age) } });
     pods.push({
       metadata: meta('pod', name, namespace, age, { labels, ...(owner ? { ownerReferences: [{ apiVersion: owner.apiVersion, kind: owner.kind, name: owner.name, uid: `uid-${owner.kind.toLowerCase()}-${owner.name}`, controller: true }] } : {}) }),
       spec: { nodeName: node, containers: [{ name: 'main', image, ...(ports ? { ports } : {}) }] },
@@ -124,3 +124,13 @@ export function buildCluster(now = Date.now()) {
 
   return { nodes, pods, deployments, statefulsets, daemonsets, jobs, cronjobs, services, ingresses, events, namespaces, nodeMetrics, podMetrics };
 }
+
+// Rules of the synthetic account in shop: read everything, logs, exec and port forward, delete pods, CronJobs.
+// No patch on Deployments, StatefulSets, DaemonSets and Nodes, no delete on Jobs: restart, scale, cordon and job delete are greyed out.
+export const SHOP_RULES = [
+  { verbs: ['get', 'list', 'watch'], apiGroups: ['*'], resources: ['*'] },
+  { verbs: ['create'], apiGroups: [''], resources: ['pods/exec', 'pods/portforward'] },
+  { verbs: ['delete'], apiGroups: [''], resources: ['pods'] },
+  { verbs: ['patch'], apiGroups: ['batch'], resources: ['cronjobs'] },
+  { verbs: ['create'], apiGroups: ['batch'], resources: ['jobs'] },
+];
