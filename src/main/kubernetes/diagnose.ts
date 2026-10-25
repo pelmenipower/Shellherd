@@ -317,21 +317,22 @@ async function readTail(api: KubeApi, target: LogReadTarget, previous: boolean):
   for (const lines of LOG_TAILS) {
     const raw = await api.readLog(target, { previous, tailLines: lines, limitBytes: DIAGNOSE_LOG_BYTES });
     // A cut multi-byte character decodes to U+FFFD (3 bytes), so a cut body is never shorter than the limit.
-    if (Buffer.byteLength(raw) < DIAGNOSE_LOG_BYTES) return { raw, lines };
+    // With one line the cut body still starts at that line's start, so its head is kept (logText cuts at a space).
+    if (Buffer.byteLength(raw) < DIAGNOSE_LOG_BYTES || lines === 1) return { raw, lines };
   }
-  // Even the newest line alone is over the limit. Its start would be an incomplete line, so it is dropped.
-  throw new Error('newest log line over the byte limit');
+  throw new Error('unreachable: the last tail is one line');
 }
 
 async function readLogSection(api: KubeApi, namespace: string, pod: string, container: string, previous: boolean): Promise<Section> {
   const id: KubeDiagnosePartId = previous ? 'previousLogs' : 'logs';
   const name = `${pod}/${container}`;
-  const title = (lines: number): string => `Logs ${name} (${previous ? 'previous container' : 'current container'}, last ${lines} lines)`;
+  const which = previous ? 'previous container' : 'current container';
+  const title = (lines: number): string => `Logs ${name} (${which}, last ${lines} ${lines === 1 ? 'line' : 'lines'})`;
   try {
     const { raw, lines } = await readTail(api, { namespace, pod, container }, previous);
     return section(id, title(lines), logText(raw), name, 'tail');
   } catch (error) {
-    return missing(id, title(DIAGNOSE_LOG_LINES), error, name);
+    return missing(id, `Logs ${name} (${which})`, error, name);
   }
 }
 

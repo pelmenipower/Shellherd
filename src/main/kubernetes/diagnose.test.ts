@@ -268,13 +268,21 @@ describe('buildDiagnosis: log tails (I-1)', () => {
     expect(result.text).not.toContain('line 0 ');
   });
 
-  it('names the logs as not readable when even the newest line exceeds the limit, and shows no part of it', async () => {
+  it('keeps the start of the newest line when it alone exceeds the limit', async () => {
     const api = setup(crashPod(POD.name, 0, true));
-    api.logs = () => `${'x'.repeat(DIAGNOSE_LOG_BYTES + 10)}`;
+    api.logs = () => `FATAL ${'x'.repeat(DIAGNOSE_LOG_BYTES + 10)}`;
     const result = await buildDiagnosis(api, POD);
-    expect(result.parts.find(part => part.id === 'logs')).toEqual({ id: 'logs', name: 'checkout-7f9c6b8d4-m2n5z/main', chars: 0, missing: 'failed' });
-    expect(result.text).toContain('(could not be read)');
-    expect(result.text).not.toContain('xxxxxxxx');
+    expect(result.parts.find(part => part.id === 'logs')?.missing).toBeUndefined();
+    expect(result.text).toContain('last 1 line)');
+    expect(result.text).toContain('FATAL');
+  });
+
+  it('names a failed log read without a line count', async () => {
+    const api = setup(crashPod(POD.name, 0, true));
+    api.logs = () => { throw new Error('boom'); };
+    const result = await buildDiagnosis(api, POD);
+    expect(result.text).toContain('## Logs checkout-7f9c6b8d4-m2n5z/main (current container)');
+    expect(result.text).not.toContain('last 100 lines');
   });
 });
 
