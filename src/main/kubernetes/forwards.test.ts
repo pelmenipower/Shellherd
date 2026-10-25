@@ -89,6 +89,13 @@ async function until(check: () => boolean): Promise<void> {
   }
 }
 
+/** Like `until`, but yields with setImmediate so it still works while setTimeout is faked. */
+async function settle(check: () => boolean): Promise<void> {
+  for (const end = Date.now() + 3000; !check(); await new Promise(resolve => setImmediate(resolve))) {
+    if (Date.now() > end) throw new Error('condition not reached');
+  }
+}
+
 describe('KubeForwards', () => {
   it('listens on 127.0.0.1 only and pipes a connection through the pod stream', async () => {
     const listen = vi.spyOn(Server.prototype, 'listen');
@@ -218,6 +225,33 @@ describe('KubeForwards', () => {
     expect(forwards.list('v2')).toEqual([]);
     expect(lists).toHaveLength(count);
     expect((await forwards.start(view, POD, other.localPort)).localPort).toBe(other.localPort);
+  });
+
+  it('gives up on a handshake that never answers after 30 seconds', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    cleanups.push(() => vi.useRealTimers());
+    const { fake, forwards, view, latest } = setup();
+    fake.hang = true;
+    const status = await forwards.start(view, POD, 0);
+    const client = await open(status.localPort);
+    const closed = new Promise(resolve => client.once('close', resolve));
+    await settle(() => fake.calls.length === 1);
+    vi.advanceTimersByTime(29_999);
+    expect(latest()?.error).toBeUndefined();
+    vi.advanceTimersByTime(1);
+    expect(latest()?.error).toEqual({ code: 'kubernetes.portForwardFailed' });
+    await closed;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('clears the handshake timer once the stream is open', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    cleanups.push(() => vi.useRealTimers());
+    const { forwards, view, latest } = setup();
+    const status = await forwards.start(view, POD, 0);
+    expect(await echo(status.localPort, 'ping')).toBe('ping');
+    expect(vi.getTimerCount()).toBe(0);
+    expect(latest()?.error).toBeUndefined();
   });
 });
 

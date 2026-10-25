@@ -10,6 +10,8 @@ import type { KubeApi, KubeObject } from './api';
 /** App-wide cap on running forwards, and per forward on connections open at once. */
 export const MAX_KUBE_FORWARDS = 10;
 export const MAX_FORWARD_CONNECTIONS = 32;
+/** Same deadline as the cluster reconnect wait (session.ts READY_WAIT_MS). */
+const HANDSHAKE_WAIT_MS = 30_000;
 
 type Dict = Record<string, unknown>;
 const rec = (value: unknown): Dict => (value && typeof value === 'object' && !Array.isArray(value) ? value as Dict : {});
@@ -180,14 +182,26 @@ export class KubeForwards {
       for (let attempt = 0; ; attempt++) {
         const hop = entry.hop ?? await resolveHop(api, target);
         if (socket.destroyed || entry.closed) { socket.destroy(); return; }
+        // A handshake that never answers would hold one of the 32 slots until the client gives up.
+        let expired = false;
+        const timer = setTimeout(() => {
+          expired = true;
+          socket.destroy();
+          this.fail(entry, { code: 'kubernetes.portForwardFailed' });
+        }, HANDSHAKE_WAIT_MS);
         try {
           await api.portForward(target.namespace, hop.pod, hop.port, socket);
         } catch (error) {
+          clearTimeout(timer);
+          if (expired) return;
           entry.hop = undefined;
           // A service gets one fresh lookup: its pod may have been replaced since the last connection.
           if (target.kind === 'services' && attempt === 0 && !socket.destroyed) continue;
           throw error;
         }
+        clearTimeout(timer);
+        // A handshake that answers after the deadline has already failed; its status must stay.
+        if (expired) return;
         if (target.kind === 'services') entry.hop = hop;
         const next: KubeForwardStatus = { ...entry.status, pod: hop.pod, podPort: hop.port };
         delete next.error;
