@@ -13,6 +13,7 @@ import { mainT } from '../i18n';
 import { toVaultAppError } from './ipc-error';
 import { vaultWriteCode } from '../../shared/vault/write-errors';
 import { VaultSessionManager, resumesLocked } from './session';
+import { droppedVaultPath, vaultPathAllowed, vaultPathGrants } from './path-grants';
 import { saveVault } from './storage';
 
 import type {
@@ -65,6 +66,12 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
   handle(IPC_CHANNELS.lastVaultFile, () => recent.latest());
   handle(IPC_CHANNELS.recentVaults, () => recent.list());
   handle(IPC_CHANNELS.removeRecentVault, (_event, id: unknown) => recent.remove(id));
+  handle(IPC_CHANNELS.vaultDropFile, (_event, raw: unknown) => {
+    const filePath = droppedVaultPath(raw);
+    if (!filePath) throw new AppError('core.vaultPathNotAllowed');
+    vaultPathGrants.grant(filePath);
+    return filePath;
+  });
 
   handle(IPC_CHANNELS.selectPrivateKeyFile, async (event): Promise<SelectVaultFileResult> => {
     vaultSessionManager.getSnapshot();
@@ -158,6 +165,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
         return { canceled: true };
       }
 
+      vaultPathGrants.grant(filePath);
       return {
         canceled: false,
         filePath,
@@ -182,6 +190,10 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
       }
 
       const previous = vaultSessionManager.lockedVault();
+      // Renderer paths are untrusted: a UNC path alone would send the Windows login hash to its server.
+      if (!await vaultPathAllowed(request.filePath, vaultPathGrants, previous?.filePath, path => recent.has(path))) {
+        throw new AppError('core.vaultPathNotAllowed');
+      }
       const snapshot = await vaultSessionManager.unlock(
         request.filePath,
         request.password,

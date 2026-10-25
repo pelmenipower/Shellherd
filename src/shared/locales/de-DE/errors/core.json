@@ -20,6 +20,7 @@
     "vaultFileNotFound": "Die Vault-Datei wurde nicht gefunden.",
     "vaultFileAccessDenied": "Auf die Vault-Datei kann nicht zugegriffen werden. Sie ist vielleicht gesperrt oder schreibgeschützt.",
     "vaultFileMissing": "Es wurde keine Vault-Datei ausgewählt.",
+    "vaultPathNotAllowed": "Shellherd öffnet diese Datei nur über „Vault-Datei auswählen“.",
     "vaultFileNotJson": "Die ausgewählte Datei enthält kein gültiges JSON.",
     "vaultBackupNameTaken": "Für die Vault-Sicherung wurde kein freier Dateiname gefunden.",
     "vaultDuplicateNodeId": "Der Vault ist inkonsistent: Die ID \"{{id}}\" wird mehrfach verwendet.",

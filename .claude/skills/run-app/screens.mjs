@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -47,6 +47,9 @@ const shot = async (name, keepStatus = false) => {
     throw new Error('„Dieser Computer“ (lokale Container) in der Seitenleiste – kein README-Bild');
   shots.push(await call('ss', undefined, `?name=${name}${keepStatus ? '' : '&crop=status'}`));
 };
+
+// Content protection of every visible window, read in the main process (one flag per window, main window first).
+const contentProtection = () => call('main', 'return electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed() && w.isVisible()).map(w => w.isContentProtected());');
 
 // Hovers the first occurrence of `link` in the visible terminal. xterm caches the link answer per row, so the mouse first
 // rests on the bottom row (empty in these scenes); a move straight from the typed line would reuse the empty answer.
@@ -329,6 +332,8 @@ const blocks = {
     await click('.lock-button');
     await waitFor('Sperrbildschirm', `document.querySelector('dialog.lock-screen[open]')`);
     if (!await evaluate(`document.querySelector('.vault-shell').inert === true`)) throw new Error('Shell ist nicht inert');
+    const protectedNow = await contentProtection();
+    if (!protectedNow.length || protectedNow.includes(false)) throw new Error(`Fensterschutz fehlt während der Sperre: ${JSON.stringify(protectedNow)}`);
     // Escape must not close the lock screen.
     await key('Escape'); await pause(300); await key('Escape'); await pause(300);
     if (!await evaluate(`!!document.querySelector('dialog.lock-screen[open]')`)) throw new Error('Escape schließt den Sperrbildschirm');
@@ -361,6 +366,7 @@ const blocks = {
     await click('.lock-screen .primary-button');
     await waitFor('Entsperren', `!document.querySelector('dialog.lock-screen[open]') && document.querySelector('.xterm[data-lock-probe]') && ${connectedTab}`, { timeout: 30000 });
     if (!await evaluate(`document.querySelector('.vault-shell').inert === false`)) throw new Error('Shell bleibt nach dem Entsperren inert');
+    if (!(await contentProtection()).every(v => v === false)) throw new Error('Fensterschutz bleibt nach dem Entsperren');
   },
   // Detached window: locks with the main window, shows a form-less lock screen, and is usable again after unlocking in the main window.
   async 'lock-secondary'() {
@@ -390,6 +396,8 @@ const blocks = {
       await use(secondary);
       await waitFor('Sperrbildschirm im Nebenfenster', `document.querySelector('dialog.lock-screen[open]')`);
       if (!await evaluate(`document.querySelector('.vault-shell').inert === true`)) throw new Error('Nebenfenster ist nicht inert');
+      const protectedNow = await contentProtection();
+      if (protectedNow.length < 2 || protectedNow.includes(false)) throw new Error(`Fensterschutz fehlt im gesperrten Nebenfenster: ${JSON.stringify(protectedNow)}`);
       if (!await evaluate(`!document.querySelector('.lock-screen form')`)) throw new Error('Sperrbildschirm im Nebenfenster zeigt ein Formular');
       await key('Control+Shift+Space'); await pause(500);
       if (!await evaluate(`!document.querySelector('dialog.workflow-palette[open]') && document.querySelectorAll('dialog[open]').length === 1`)) throw new Error('Workflow-Palette öffnet sich im gesperrten Nebenfenster');
@@ -402,6 +410,7 @@ const blocks = {
       await use(secondary);
       await waitFor('Nebenfenster entsperrt', `!document.querySelector('dialog.lock-screen[open]') && document.querySelector('.xterm[data-lock-probe]') && ${connectedTab}`, { timeout: 30000 });
       if (!await evaluate(`document.querySelector('.vault-shell').inert === false`)) throw new Error('Nebenfenster bleibt nach dem Entsperren inert');
+      if (!(await contentProtection()).every(v => v === false)) throw new Error('Fensterschutz bleibt nach dem Entsperren');
       await waitFor('Fokus im Nebenfenster-Terminal', `document.activeElement?.classList.contains('xterm-helper-textarea')`, { timeout: 5000 });
     } finally {
       // Closing the last tab closes the window, so the page may vanish mid-cleanup.
@@ -740,6 +749,75 @@ const blocks = {
     } finally {
       await setTheme('dark');
     }
+  },
+  // Vault path release (no screenshot): UNC and foreign paths are refused, a dropped local path is returned normalized. Only 127.0.0.1 is ever named.
+  async 'vault-path'() {
+    const result = await evaluate(`(async () => {
+      const msg = p => p.then(() => 'ok', e => String(e?.message ?? e));
+      return [
+        await msg(window.desktopApi.unlockVault({ filePath: '\\\\\\\\127.0.0.1\\\\nope\\\\x.term', password: 'x' })),
+        await msg(window.desktopApi.unlockVault({ filePath: '//127.0.0.1/nope/x.term', password: 'x' })),
+        await msg(window.desktopApi.unlockVault({ filePath: 'C:\\\\nope\\\\never-granted.term', password: 'x' })),
+        await msg(window.desktopApi.dropVaultFile('\\\\\\\\127.0.0.1\\\\nope\\\\x.term')),
+        await window.desktopApi.dropVaultFile('C:/nope/x.term'),
+      ];
+    })()`);
+    if (!result.slice(0, 4).every(text => text.includes('vaultPathNotAllowed'))) throw new Error(`Freigabeliste greift nicht: ${JSON.stringify(result)}`);
+    if (result[4] !== 'C:\\nope\\x.term') throw new Error(`Drop vom Laufwerk nicht freigegeben: ${result[4]}`);
+  },
+  // Server keys: the demo server is confirmed once, then the known_hosts fixture is imported (1 revoked, 3 skipped, a conflict on 127.0.0.1:2222).
+  // Imported and revoked entries are removed before and after the import; confirmed ones stay.
+  async 'host-keys'() {
+    const cleanup = () => evaluate(`(async () => { for (const h of await window.desktopApi.knownHostsList()) if (h.origin !== 'confirmed') await window.desktopApi.knownHostsRemove(h.id); })()`);
+    await cleanup();
+    if (!await evaluate(`(async () => (await window.desktopApi.knownHostsList()).some(h => h.origin === 'confirmed'))()`)) {
+      await click(web01);
+      await key('Enter');
+      await waitFor('Terminal', `document.querySelector('.xterm')`);
+      await waitFor('verbundener web-01-Tab', connectedTab);
+      await closeTabs();
+    }
+    await click('.settings-button');
+    await waitFor('Einstellungsdialog', `document.querySelector('dialog.settings-dialog[open]')`);
+    await click('dialog.settings-dialog button:has-text("Server-Schlüssel verwalten")');
+    await waitFor('Server-Schlüssel-Dialog', `document.querySelector('dialog.known-hosts-dialog[open]') && ${count('.known-hosts-list li')} >= 1`);
+    await pause(300);
+    await shot('host-keys');
+    const status = () => evaluate(`document.querySelector('.known-hosts-dialog [role=status]')?.textContent ?? ''`);
+    await setOpenDialog(path.join(IMPORT_DIR, 'known_hosts'));
+    try {
+      await click('dialog.known-hosts-dialog button:has-text("Aus known_hosts importieren")');
+      await waitFor('Import-Ergebnis', `(document.querySelector('.known-hosts-dialog [role=status]')?.textContent ?? '').includes('übersprungen')`);
+      // Either the demo server is confirmed (conflict on 127.0.0.1:2222) or it is not (5 new); the revoked and skipped counts are the same.
+      const message = await status();
+      const confirmedCase = message.includes('4 neu') && message.includes('1 schon bekannt') && message.includes('127.0.0.1:2222');
+      if (!(message.includes('1 widerrufen') && message.includes('3 übersprungen') && (confirmedCase || message.includes('5 neu')))) throw new Error(`Import-Zahlen weichen ab: ${message}`);
+      // Layout guard (I-1): only the list scrolls, and the close button stays inside the viewport.
+      const layout = await evaluate(`(() => {
+        const list = document.querySelector('.known-hosts-list');
+        const close = document.querySelector('dialog.known-hosts-dialog > .form-actions .primary-button');
+        return { overflowY: list ? getComputedStyle(list).overflowY : 'none', closeInView: !!close && close.getBoundingClientRect().bottom <= innerHeight };
+      })()`);
+      if (layout.overflowY !== 'auto' || !layout.closeInView) throw new Error(`Server-Schlüssel-Dialog scrollt falsch: ${JSON.stringify(layout)}`);
+      await pause(300);
+      await shot('host-keys-import');
+      await fill('dialog.known-hosts-dialog .known-hosts-tools input', 'build');
+      await waitFor('Suche nach build', `${count('.known-hosts-list li')} === 1`);
+      await pause(300);
+      await shot('host-keys-search');
+      await fill('dialog.known-hosts-dialog .known-hosts-tools input', '');
+      await waitFor('Liste ohne Suche', `${count('.known-hosts-list li')} > 1`);
+      const names = await evaluate(`document.querySelector('.known-hosts-list')?.textContent ?? ''`);
+      if (!names.includes('Gehashter Hostname') || !names.includes('Alle Hosts')) throw new Error(`Gehashter Hostname oder Alle Hosts fehlt in der Liste: ${names}`);
+    } finally {
+      await setOpenDialog(VAULT_FILE);
+      await cleanup();
+    }
+    // Closing the server key dialog returns to the settings, focus on its button (the settings dialog remounts).
+    await click('dialog.known-hosts-dialog > .form-actions .primary-button');
+    await waitFor('zurück in den Einstellungen', `document.querySelector('dialog.settings-dialog[open]') && !document.querySelector('dialog.known-hosts-dialog[open]') && document.activeElement?.textContent === 'Server-Schlüssel verwalten'`);
+    await key('Escape');
+    await waitFor('Einstellungen schließen', `!document.querySelector('dialog.settings-dialog[open]')`);
   },
 };
 

@@ -8,6 +8,8 @@
     "hostKeyChangedMeanwhile": "Der gespeicherte Server-Schlüssel wurde zwischenzeitlich geändert.",
     "hostKeySaveFailed": "Der Server-Schlüssel konnte nicht gespeichert werden. Verbindung abgebrochen.",
     "hostKeyRejected": "Der Server-Schlüssel wurde nicht bestätigt.",
+    "hostKeyRevoked": "Der Server-Schlüssel ist als widerrufen markiert (@revoked aus einer importierten known_hosts). Verbindung abgebrochen.",
+    "hostKeysSaveFailed": "Die Server-Schlüssel konnten nicht gespeichert werden.",
     "sessionLimit": "Maximal {{max}} Sessions gleichzeitig. Schließe zuerst einen Tab.",
     "notTerminal": "Diese Verbindung ist keine Terminalverbindung.",
     "clusterInTab": "Cluster öffnen sich im Cluster-Tab.",

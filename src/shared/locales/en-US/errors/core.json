@@ -20,6 +20,7 @@
     "vaultFileNotFound": "The vault file was not found.",
     "vaultFileAccessDenied": "The vault file cannot be accessed. It may be locked or read-only.",
     "vaultFileMissing": "No vault file was selected.",
+    "vaultPathNotAllowed": "Shellherd opens this file only via “Select vault file”.",
     "vaultFileNotJson": "The selected file does not contain valid JSON.",
     "vaultBackupNameTaken": "No free file name was found for the vault backup.",
     "vaultDuplicateNodeId": "The vault is inconsistent: the ID “{{id}}” is used more than once.",

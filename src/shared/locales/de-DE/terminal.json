@@ -204,7 +204,7 @@
     "hostkey-changed": {
       "title": "Server-Schlüssel hat sich geändert",
       "body": "Der Fingerprint stimmt nicht mit dem bestätigten überein. Shellherd hat die Verbindung abgebrochen.",
-      "next": "Kläre den Schlüsselwechsel mit dem Administrator, bevor du fortfährst."
+      "next": "Kläre den Schlüsselwechsel mit dem Administrator. Ist er gewollt, entferne den alten Schlüssel unter Einstellungen → Verbindungen → Server-Schlüssel verwalten und verbinde neu."
     },
     "hostkey-rejected": {
       "title": "Server-Schlüssel nicht bestätigt",

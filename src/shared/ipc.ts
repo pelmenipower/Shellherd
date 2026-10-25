@@ -14,6 +14,7 @@ import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpS
 import type { ImportReadResult, ImportSource } from './import';
 import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
 import type { ThemeSetting } from './theme';
+import type { KnownHostsImportReply, KnownHostView } from './known-hosts';
 
 /** Sent to every window when the vault locks; without minutes = manual lock. */
 export interface VaultLockedInfo { minutes?: number }
@@ -102,6 +103,10 @@ export const IPC_CHANNELS = {
   lastVaultFile: 'vault:last-file',
   recentVaults: 'vault:recent-list',
   removeRecentVault: 'vault:recent-remove',
+  vaultDropFile: 'vault:drop-file',
+  knownHostsList: 'known-hosts:list',
+  knownHostsRemove: 'known-hosts:remove',
+  knownHostsImport: 'known-hosts:import',
   connectionTest: 'connection:test',
   containersList: 'containers:list',
   containersAction: 'containers:action',
@@ -284,6 +289,12 @@ export interface DesktopApi {
   recentVaults: () => Promise<RecentVault[]>;
   /** Removes one entry by id and returns the new list; the file itself is untouched. */
   removeRecentVault: (id: string) => Promise<RecentVault[]>;
+  /** Main checks a dropped vault path (local drives only) and returns it normalized; rejects with core.vaultPathNotAllowed. */
+  dropVaultFile: (filePath: string) => Promise<string>;
+  knownHostsList: () => Promise<KnownHostView[]>;
+  knownHostsRemove: (id: string) => Promise<KnownHostView[]>;
+  /** Native file dialog, then import; nothing is read without that click. */
+  knownHostsImport: () => Promise<KnownHostsImportReply>;
   /** Stored colour scheme (default 'dark'). Main window only. */
   getTheme: () => Promise<ThemeSetting>;
   /** Persists first, then applies to all windows; throws core.settingsWriteFailed. */

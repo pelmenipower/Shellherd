@@ -19,9 +19,10 @@ export interface SettingsDialogProps {
   /** Skip the open animation (Ctrl+, and the return from the AI providers). */
   instant?: boolean;
   /** Element focused after showModal(); 'manageAi' falls back to 'close' without a vault. Default 'close'. */
-  initialFocus?: 'close' | 'manageAi';
+  initialFocus?: 'close' | 'manageAi' | 'manageHostKeys';
   onClose: () => void;
   onManageAi: () => void;
+  onManageHostKeys: () => void;
   onSaveSettings: (settings: VaultSettings) => Promise<boolean>;
 }
 
@@ -107,18 +108,20 @@ function FontSetting({ id, value, busy, hintId, onCommit }: FontSettingProps) {
 }
 
 /** Language, colour scheme, file association, vault, terminal and AI provider entry points; every value applies immediately. */
-export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', onClose, onManageAi, onSaveSettings }: SettingsDialogProps) {
+export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', onClose, onManageAi, onManageHostKeys, onSaveSettings }: SettingsDialogProps) {
   const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const manageRef = useRef<HTMLButtonElement>(null);
+  const hostKeysRef = useRef<HTMLButtonElement>(null);
   const terminal = effectiveTerminalSettings(vault?.settings);
   useNativeSurfaceBlock(true);
   useEffect(() => {
     dialogRef.current?.showModal();
     // Not the language select: an arrow key there would switch the language of every window.
-    (initialFocus === 'manageAi' && manageRef.current ? manageRef.current : closeRef.current)?.focus();
+    const first = initialFocus === 'manageAi' ? manageRef.current : initialFocus === 'manageHostKeys' ? hostKeysRef.current : null;
+    (first ?? closeRef.current)?.focus();
   }, []);
 
   return (
@@ -161,6 +164,9 @@ export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', o
             onCommit={connectSeconds => void onSaveSettings(withTimeouts(vault.settings, { connectSeconds }))} />
           </div>
           <p className="settings-hint" id={`${id}-timeouts-hint`}>{t('app:settings.timeouts.hint')}</p>
+          <button ref={hostKeysRef} type="button" className="secondary-button settings-host-keys" disabled={busy}
+            aria-describedby={`${id}-hostkeys-hint`} onClick={onManageHostKeys}>{t('app:settings.hostKeys.manage')}</button>
+          <p className="settings-hint" id={`${id}-hostkeys-hint`}>{t('app:settings.hostKeys.hint')}</p>
         </>}
         {section === 'terminal' && vault && <>
           <FontSetting id={`${id}-font`} value={terminal.fontFamily} busy={busy} hintId={`${id}-terminal-hint`}

@@ -3,6 +3,7 @@ import type { Rectangle, WebContents } from 'electron';
 import { join } from 'node:path';
 
 import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
+import { registerKnownHostsIpc } from './ssh/known-hosts-ipc';
 import { AuthPrompts } from './ssh/auth-prompts';
 import type { PromptTarget } from './ssh/auth-prompts';
 import { openJump } from './ssh/jump';
@@ -43,6 +44,7 @@ import { UPDATE_URL, UpdateChecker } from './update-check';
 import { IPC_CHANNELS } from '../shared/ipc';
 import type { VaultLockedInfo } from '../shared/ipc';
 import { AutoLock } from './vault/auto-lock';
+import { vaultPathGrants } from './vault/path-grants';
 import {
   registerVaultIpcHandlers,
   vaultSessionManager,
@@ -58,6 +60,8 @@ let assistant: AssistantService | undefined;
 let autoLock: AutoLock | undefined;
 let authPrompts: AuthPrompts | undefined;
 let lastFocusedId: number | undefined;
+/** True while the vault is locked: windows created meanwhile start excluded from screen capture too. */
+let captureBlocked = false;
 
 /** Target of an auth prompt: the owner's window, else the last focused one, else the main window. */
 function resolvePromptTarget(ownerId?: number): PromptTarget | undefined {
@@ -116,6 +120,7 @@ function createWindow(role: WindowRole, bounds?: Rectangle, maximized = false): 
     },
   });
   windowRegistry.register(window, role);
+  if (captureBlocked) window.setContentProtection(true);
   window.on('focus', () => { lastFocusedId = window.webContents.id; });
   // index.html has its own <title>; keep the localized window title.
   window.on('page-title-updated', event => event.preventDefault());
@@ -211,13 +216,18 @@ if (process.platform === 'win32') app.setAppUserModelId('com.pelmenipower.shellh
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 let launchFile = vaultFileFromArgs(process.argv);
+// Explorer passed it: the user's click, so main may open it.
+if (launchFile) vaultPathGrants.grant(launchFile);
 app.on('second-instance', (_event, argv) => {
   const main = windowRegistry.main();
   if (!main) return;
   if (main.isMinimized()) main.restore();
   main.focus();
   const file = vaultFileFromArgs(argv);
-  if (file) main.webContents.send(IPC_CHANNELS.vaultOpenFile, file);
+  if (file) {
+    vaultPathGrants.grant(file);
+    main.webContents.send(IPC_CHANNELS.vaultOpenFile, file);
+  }
 });
 
 // Experimental variant A only: child windows from the helper are invisible under DirectComposition.
@@ -290,6 +300,7 @@ app.whenReady().then(() => {
   });
 
   const knownHosts = createKnownHosts();
+  registerKnownHostsIpc(knownHosts);
   const prompts = new AuthPrompts({ resolveTarget: resolvePromptTarget, isUnlocked: () => vaultSessionManager.isUnlocked() });
   authPrompts = prompts;
   // One memory of refused sudo passwords for container lists and container tabs.
@@ -346,16 +357,21 @@ app.whenReady().then(() => {
     for (const target of [windowRegistry.main(), ...windowRegistry.secondaries()])
       if (target && !target.isDestroyed() && !target.webContents.isDestroyed()) target.webContents.send(channel, payload);
   };
+  // While locked, every Shellherd window is left out of screen capture and sharing (Windows: WDA_EXCLUDEFROMCAPTURE).
+  const protectWindows = (on: boolean): void => {
+    captureBlocked = on;
+    for (const target of [windowRegistry.main(), ...windowRegistry.secondaries()]) if (target && !target.isDestroyed()) target.setContentProtection(on);
+  };
   registerVaultIpcHandlers({
-    onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); },
-    onLock: () => { authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo); },
-    onUnlock: () => { autoLock?.touch(); announce(IPC_CHANNELS.vaultUnlocked); },
+    onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); protectWindows(false); },
+    onLock: () => { protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo); },
+    onUnlock: () => { protectWindows(false); autoLock?.touch(); announce(IPC_CHANNELS.vaultUnlocked); },
     onVaultChange: () => { broadcastCatalog(); ai.broadcast(); rdpSessionManager.prewarm(); },
     guard: event => windowRegistry.requireMain(event),
   });
   autoLock = new AutoLock({
     minutes: () => vaultSessionManager.isUnlocked() ? vaultSessionManager.getSnapshot().vault.settings.autoLockMinutes : 0,
-    lock: minutes => { try { vaultSessionManager.lock(); } finally { authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
+    lock: minutes => { try { vaultSessionManager.lock(); } finally { protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
     systemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
     rdpConnected: () => rdpSessionManager.hasConnected(),
   });

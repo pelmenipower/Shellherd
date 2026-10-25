@@ -14,6 +14,7 @@
     "sessionLimitText": "Maximum of {{max}} sessions at a time. Close a tab first.",
     "tabNotMoved": "Tab not moved",
     "notVaultFileTitle": "Not a vault file",
+    "vaultPathRefusedTitle": "Vault file not opened",
     "vaultNotSaved": "Vault not saved",
     "notRetried": "Not saved again",
     "retryBusy": "Another save is in progress. Repeat the change afterwards.",
@@ -276,6 +277,10 @@
       "summary_one": "{{count}} provider, default: {{name}}",
       "summary_other": "{{count}} providers, default: {{name}}",
       "manage": "Manage providers"
+    },
+    "hostKeys": {
+      "manage": "Manage server keys",
+      "hint": "View, search and remove confirmed and imported server keys; import an OpenSSH known_hosts."
     }
   },
   "icons": {
@@ -316,5 +321,29 @@
     "system": "System",
     "dark": "Dark",
     "light": "Light"
+  },
+  "hostKeys": {
+    "title": "Server keys",
+    "intro": "Shellherd trusts these keys when connecting. Remove one and Shellherd asks again on the next connection.",
+    "search": "Search server keys",
+    "searchPlaceholder": "Host, type or fingerprint…",
+    "import": "Import from known_hosts…",
+    "importDone": "Import: {{added}} new, {{known}} already known, {{revoked}} revoked, {{skipped}} skipped.",
+    "conflicts": "Shellherd knows a different key for these servers and keeps it: {{hosts}}",
+    "hashed": "Hashed host name",
+    "anyHost": "All hosts",
+    "origin": {
+      "confirmed": "Confirmed",
+      "imported": "Imported",
+      "revoked": "Revoked"
+    },
+    "remove": "Remove",
+    "removeLabel": "Remove {{host}}",
+    "empty": "No server keys stored yet.",
+    "noMatch": "No matches.",
+    "shown": "{{shown}} of {{total}}",
+    "loadFailed": "The server keys could not be loaded.",
+    "importFailed": "The import failed.",
+    "removeFailed": "The key could not be removed."
   }
 }

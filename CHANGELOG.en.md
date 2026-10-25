@@ -4,6 +4,13 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.24.0] – 2026-10-25
+
+- New: Settings → Connections → `Manage server keys` lists all confirmed and imported server keys with SHA-256 fingerprint, with search and `Remove`. An intended key change can thus be accepted.
+- New: Import from OpenSSH `known_hosts`, also with hashed names, `[host]:port` and several key types. `@revoked` is respected, `@cert-authority` and patterns are skipped. The import never changes keys confirmed in Shellherd.
+- Security: While locked, all Shellherd windows are excluded from screen captures and screen sharing.
+- Security: Shellherd opens vault files only from the file dialog, Explorer, `Recently used` or by dragging from a local drive. Network paths from other sources are refused.
+
 ## [0.23.0] – 2026-10-25
 
 - New: Path field in the file view with `Ctrl+L`, also via ⚙ → `Go to…`; the double-click works as before. It understands `~`, paths from the current folder and locally `/` instead of `\`. Errors such as “The file or folder was not found.” or “This is not a folder.” appear at the field; the previous folder stays.
