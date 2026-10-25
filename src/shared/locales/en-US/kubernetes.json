@@ -187,6 +187,24 @@
     "start": "Forward",
     "started": "Port forward active: {{address}}"
   },
+  "logsAll": {
+    "onDemand": "Logs of all pods of {{name}}: starts only on a button press, because it opens up to {{max}} log streams at once.",
+    "start": "Show logs of all pods",
+    "filter": "Filter",
+    "filterLabel": "Filter logs (text or pod)",
+    "follow": "Follow",
+    "followNew": "Follow ({{count}} new)",
+    "sources": "Sources",
+    "ended": "ended",
+    "failed": "error",
+    "loading": "Looking for pods…",
+    "noPods": "No container has started yet.",
+    "summary": "Live: {{shown}} of {{total}} containers",
+    "waiting": "{{count}} more waiting (at most {{max}} at once)",
+    "dropped": "{{count}} lines skipped (too many at once)",
+    "olderHidden": "{{count}} older matches not shown; Copy includes them.",
+    "linesLabel": "Logs of all pods"
+  },
   "forwards": {
     "item": "127.0.0.1:{{port}} → {{target}}",
     "via": "via {{pod}}:{{port}}",

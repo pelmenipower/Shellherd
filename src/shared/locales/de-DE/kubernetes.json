@@ -187,6 +187,24 @@
     "start": "Weiterleiten",
     "started": "Weiterleitung aktiv: {{address}}"
   },
+  "logsAll": {
+    "onDemand": "Logs aller Pods von {{name}}: startet erst auf Knopfdruck, weil dafür bis zu {{max}} Log-Streams gleichzeitig öffnen.",
+    "start": "Logs aller Pods anzeigen",
+    "filter": "Filtern",
+    "filterLabel": "Logs filtern (Text oder Pod)",
+    "follow": "Folgen",
+    "followNew": "Folgen ({{count}} neu)",
+    "sources": "Quellen",
+    "ended": "beendet",
+    "failed": "Fehler",
+    "loading": "Suche Pods …",
+    "noPods": "Noch kein Container gestartet.",
+    "summary": "Live: {{shown}} von {{total}} Containern",
+    "waiting": "{{count}} weitere warten (höchstens {{max}} gleichzeitig)",
+    "dropped": "{{count}} Zeilen ausgelassen (zu viele auf einmal)",
+    "olderHidden": "{{count}} ältere Treffer nicht angezeigt; Kopieren nimmt alle mit.",
+    "linesLabel": "Logs aller Pods"
+  },
   "forwards": {
     "item": "127.0.0.1:{{port}} → {{target}}",
     "via": "über {{pod}}:{{port}}",
