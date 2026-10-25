@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Terminal } from '@xterm/xterm';
-import { bufferText, terminalAccess } from './terminal-access';
+import { bufferText, rangeText, terminalAccess } from './terminal-access';
 
 describe('mark', () => {
   it('follows the marker, clamps trimmed lines to 0 and disposes it', () => {
@@ -33,4 +33,14 @@ describe('bufferText', () => {
     expect(bufferText(lines(['ab  ', false], ['cd', true]), 10)).toBe('ab  cd');
   });
   it('is empty for an empty buffer', () => { expect(bufferText(lines(), 10)).toBe(''); });
+});
+
+describe('rangeText', () => {
+  it('joins wrapped rows and starts a range inside a wrapped line at its first row', () => {
+    expect(rangeText(lines(['abc', false], ['def', true]), 0, 1)).toBe('abcdef');
+    expect(rangeText(lines(['abc', false], ['def', true]), 1, 1)).toBe('abcdef');
+  });
+  it('trims only the last row of a line and drops trailing empty lines', () => {
+    expect(rangeText(lines(['ab  ', false], ['cd  ', true], ['x  '], [''], ['  ']), 0, 4)).toBe('ab  cd\nx');
+  });
 });
