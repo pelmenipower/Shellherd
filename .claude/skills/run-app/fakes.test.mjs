@@ -18,12 +18,15 @@ import { openTunnel } from '../../../src/main/kubernetes/tunnel';
 import { createKubeApi } from '../../../src/main/kubernetes/client-api';
 import { KubeForwards } from '../../../src/main/kubernetes/forwards';
 import { KubeWorkloadLogs } from '../../../src/main/kubernetes/workload-logs';
+import { buildDiagnosis } from '../../../src/main/kubernetes/diagnose';
+import { DIAGNOSE_MAX_CHARS } from '../../../src/shared/kubernetes';
 import { deniedAccess } from '../../../src/shared/kube-access';
 import { streamChat } from '../../../src/main/ai/providers';
 import { SecretMasker } from '../../../src/main/ai/secret-mask';
 import { startSshd } from './sshd.mjs';
 import { DEMO_TOTP, seedSftp } from './fixtures.mjs';
-import { findOpenssl, startKubeFake } from './kube-fake.mjs';
+import { findOpenssl, KUBE_REQUEST_LOG, startKubeFake } from './kube-fake.mjs';
+import { KUBE_SECRETS } from './kube-fixtures.mjs';
 import { AI_KEY, AI_REQUEST_LOG, DEMO_ENV, DEMO_KEPT, DEMO_SECRETS, startAiFake } from './ai-fake.mjs';
 import { writeImportFixtures } from './import-fixtures.mjs';
 
@@ -195,6 +198,39 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     await expect(api.rulesReview('kube-system')).rejects.toMatchObject({ code: 403 });
   });
 
+  it.skipIf(!findOpenssl())('analyses the crash-looping checkout pod, the deployment and a healthy pod by reading only, never a secret', async () => {
+    const kube = await startKubeFake({ port: 0, dir: join(base, 'kube-ai') });
+    cleanup.push(() => kube.close());
+    const { host } = await connect((await start('kube-ai', { kubeconfig: kube.kubeconfig, kubePort: kube.port })).port);
+    const parsed = parseKubeconfig(kube.kubeconfig);
+    const tunnel = await openTunnel((h, p) => host.forward(h, p), parsed.server);
+    cleanup.push(async () => tunnel.close());
+    const api = createKubeApi(parsed.build(tunnel.port));
+    const pod = { kind: 'pods', namespace: 'shop', name: 'checkout-7f9c6b8d4-m2n5z' };
+
+    const crash = await buildDiagnosis(api, pod, { kind: 'events', namespace: 'shop', name: 'checkout-7f9c6b8d4-m2n5z.1' });
+    expect(crash.parts.map(part => part.id)).toEqual(['trigger', 'object', 'events', 'logs', 'previousLogs', 'owner', 'node']);
+    expect(crash.parts.filter(part => part.missing)).toEqual([]);
+    for (const needle of ['CrashLoopBackOff', 'BackOff', 'connection refused', '<Secret checkout-db/password>', 'DB_PASSWORD: <hidden>', 'Kind: Deployment', 'Kubelet: v1.31.4']) expect(crash.text).toContain(needle);
+    expect(crash.text.length).toBeLessThanOrEqual(DIAGNOSE_MAX_CHARS);
+    expect(crash.text).not.toMatch(/GMT/);
+    for (const value of [KUBE_SECRETS.secretValue, Buffer.from(KUBE_SECRETS.secretValue).toString('base64'), KUBE_SECRETS.envLiteral]) expect(crash.text).not.toContain(value);
+    const masked = new SecretMasker().mask(crash.text, []).text;
+    expect(masked).not.toContain(KUBE_SECRETS.logPassword);
+    expect(masked).not.toContain(KUBE_SECRETS.logBearer);
+
+    const deployment = await buildDiagnosis(api, { kind: 'deployments', namespace: 'shop', name: 'checkout' });
+    expect(deployment.parts.map(part => part.id)).toEqual(['object', 'events', 'pods', 'podEvents', 'logs', 'previousLogs']);
+    const healthy = await buildDiagnosis(api, { kind: 'pods', namespace: 'shop', name: 'api-6d8f9b7c5-x7k2p' });
+    expect(healthy.parts.map(part => part.id)).toEqual(['object', 'events', 'logs', 'owner', 'node']);
+
+    const asked = readFileSync(join(base, 'kube-ai', KUBE_REQUEST_LOG), 'utf8').split('\n').filter(Boolean);
+    expect(kube.requests).toEqual(asked);
+    expect(asked.every(line => line.startsWith('GET '))).toBe(true);
+    expect(asked.some(line => /\/secrets|\/configmaps|\/replicasets/.test(line))).toBe(false);
+    expect(asked.some(line => line.includes('/log?') && line.includes('previous=true'))).toBe(true);
+  });
+
   it('streams the AI fake, checks the key and answers the connection test', async () => {
     const ai = await startAiFake({ port: 0, runDir: base });
     cleanup.push(() => ai.close());
@@ -225,6 +261,22 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect(lines[0]).toContain('Ist die Platte zu voll?');
     expect(lines[0]).not.toContain(AI_KEY);
     expect(await ask('Fehler mit [SECRET_3] beim Login')).toContain("PGPASSWORD='[SECRET_3]'");
+  });
+
+  it('answers a Kubernetes analysis with a reading and a changing command, everything else as before', async () => {
+    const ai = await startAiFake({ port: 0, runDir: mkdtempSync(join(base, 'ai-kube-')) });
+    cleanup.push(() => ai.close());
+    const ask = async (system, content) => {
+      let out = '';
+      const provider = { id: 't', name: 't', kind: 'openai', model: 'gpt-4o-mini', baseUrl: `http://127.0.0.1:${ai.port}/v1`, apiKey: AI_KEY };
+      await streamChat(provider, { system, messages: [{ role: 'user', content }] }, text => { out += text; }, new AbortController().signal);
+      return out;
+    };
+    const answer = await ask('Kubernetes-Assistent in Shellherd. Cluster: prod-k8s.', 'Warum startet dieser Pod immer wieder neu? DB_PASSWORD=[SECRET_1]');
+    expect(answer).toContain('<command>kubectl -n shop get endpoints db</command>');
+    expect(answer).toContain('<command>kubectl -n shop rollout restart deployment/checkout</command>');
+    expect(await ask('Kubernetes assistant in Shellherd. Cluster: prod-k8s.', 'Why?')).toContain('rollout restart');
+    expect(await ask('Terminal-Assistent', 'Ist die Platte zu voll?')).toContain('<command>du -xh');
   });
 
   it('serves a seeded SFTP tree and stays inside its root', async () => {

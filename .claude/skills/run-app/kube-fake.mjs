@@ -1,7 +1,7 @@
 // Synthetic Kubernetes API server for the run-app skill. HTTPS on 127.0.0.1 only, read-only (writes get 403); pods/portforward over WebSocket; pods/log with timestamps and follow; a SelfSubjectRulesReview.
 // The certificate is generated per start with openssl into the run dir; nothing secret lives in the repo.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -9,10 +9,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { SHOP_RULES, buildCluster } from './kube-fixtures.mjs';
+import { SHOP_RULES, buildCluster, checkoutLog, checkoutPreviousLog } from './kube-fixtures.mjs';
 
 export const KUBE_SERVER = 'https://k8s-cp1:6443';
 export const KUBE_TOKEN = 'synthetic-kube-token';
+/** Method, path and query of every API request, one per line; headers are never written. In the fake's dir (run dir/kube). */
+export const KUBE_REQUEST_LOG = 'kube-requests.log';
 // Running pods serve one synthetic text page on this port; every other port is refused like by a kubelet.
 export const POD_HTTP_PORT = 8080;
 const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
@@ -28,7 +30,7 @@ export function findOpenssl() {
 
 // plural → [apiVersion, kind, fixture key]; the group/version in the URL decides which table applies.
 const RESOURCES = {
-  'v1': { pods: 'Pod', services: 'Service', nodes: 'Node', events: 'Event', namespaces: 'Namespace' },
+  'v1': { pods: 'Pod', services: 'Service', nodes: 'Node', events: 'Event', namespaces: 'Namespace', secrets: 'Secret' },
   'apps/v1': { deployments: 'Deployment', statefulsets: 'StatefulSet', daemonsets: 'DaemonSet' },
   'batch/v1': { jobs: 'Job', cronjobs: 'CronJob' },
   'networking.k8s.io/v1': { ingresses: 'Ingress' },
@@ -62,6 +64,9 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
   const cert = readFileSync(certFile);
   const data = buildCluster();
   const open = new Set();
+  const requests = [];
+  const requestLog = path.join(dir, KUBE_REQUEST_LOG);
+  writeFileSync(requestLog, ''); // shortcut: truncated per start, so a scene reads only its own requests
   const podPage = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/plain' });
     res.end(`synthetic pod page ${req.url}\n`);
@@ -137,6 +142,10 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
 
   const handle = (req, res) => {
     const url = new URL(req.url ?? '/', 'https://k8s-cp1');
+    // What Shellherd asked for, so tests and scenes can prove it never asked for secrets.
+    const asked = `${req.method} ${url.pathname}${url.search}`;
+    requests.push(asked);
+    appendFileSync(requestLog, `${asked}\n`);
     const pathname = url.pathname.toLowerCase();
     const query = url.searchParams;
     if (req.headers.authorization !== `Bearer ${KUBE_TOKEN}`) return json(res, 401, status(401, 'Unauthorized'));
@@ -197,6 +206,14 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
         res.on('close', () => clearInterval(timer));
         return;
       }
+      // previous=true: only a restarted container has one (the API server answers 400 otherwise); checkout tells why it crashed.
+      if (query.get('previous') === 'true') {
+        if (!pod.status.containerStatuses?.some(item => item.restartCount > 0)) {
+          return json(res, 400, status(400, 'BadRequest', `previous terminated container "${query.get('container')}" in pod "${name}" not found`));
+        }
+        return json(res, 200, checkoutPreviousLog(), 'text/plain');
+      }
+      if (query.get('follow') !== 'true' && name.startsWith('checkout-')) return json(res, 200, checkoutLog(), 'text/plain');
       const lines = Array.from({ length: 15 }, (_, i) => `2026-10-20T08:${String(10 + i).padStart(2, '0')}:00Z INFO ${pod.metadata.name} handled request ${1000 + i} in ${12 + i} ms\n`).join('');
       if (query.get('follow') === 'true') return hold(res, req, Number(query.get('timeoutSeconds') ?? 300), 'text/plain', lines);
       return json(res, 200, lines, 'text/plain');
@@ -230,6 +247,7 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
   return {
     port: server.address().port,
     kubeconfig,
+    requests,
     close: () => new Promise(resolve => {
       for (const res of open) res.end();
       for (const client of forwards.clients) client.terminate();

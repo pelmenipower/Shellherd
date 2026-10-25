@@ -62,6 +62,12 @@ const PACKAGE_JSON = path.resolve(import.meta.dirname, '../../../package.json');
 const ANSWER =
   'Der Dienst läuft, aber die Platte ist zu 42 % belegt. Prüfe die größten Ordner:\n' +
   '<command>du -xh --max-depth=1 /var | sort -h | tail -5</command>';
+// Answer to a Kubernetes analysis: one reading and one changing command, so the scene can check that neither gets a button.
+const KUBE_ANSWER =
+  'Der Container main beendet sich mit Exit-Code 1: Laut Log des vorherigen Containers ist die Datenbank db.shop.svc:5432 nicht erreichbar (connection refused). Prüfe zuerst den Datenbank-Service:\n' +
+  '<command>kubectl -n shop get endpoints db</command>\n' +
+  'Ändert den Cluster: Ein Neustart hilft erst, wenn die Datenbank erreichbar ist.\n' +
+  '<command>kubectl -n shop rollout restart deployment/checkout</command>';
 const TEST_PROMPTS = new Set(['Verbindungstest', 'Connection test']);
 // Answers with the first placeholder it sees, like a model that keeps [SECRET_n] unchanged.
 const maskedAnswer = secret => `Die Anmeldung an der Datenbank scheitert. Teste den Zugang:\n<command>PGPASSWORD='${secret}' psql -h db.intranet.demo -U app -c 'select 1'</command>`;
@@ -126,7 +132,9 @@ export async function startAiFake({ port = 9335, runDir = RUN_DIR } = {}) {
       const last = [...messages].reverse().find((m) => m?.role === 'user');
       const content = typeof last?.content === 'string' ? last.content.trim() : '';
       const secret = /\[SECRET_\d+\]/.exec(content)?.[0];
-      stream(req, res, TEST_PROMPTS.has(content) ? 'OK' : secret ? maskedAnswer(secret) : ANSWER);
+      const system = messages.find((m) => m?.role === 'system')?.content ?? '';
+      const kube = typeof system === 'string' && /Kubernetes-Assistent|Kubernetes assistant/.test(system);
+      stream(req, res, TEST_PROMPTS.has(content) ? 'OK' : kube ? KUBE_ANSWER : secret ? maskedAnswer(secret) : ANSWER);
     });
   });
   await new Promise((resolve, reject) => {
