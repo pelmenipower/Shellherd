@@ -107,6 +107,10 @@ export const IPC_CHANNELS = {
   knownHostsList: 'known-hosts:list',
   knownHostsRemove: 'known-hosts:remove',
   knownHostsImport: 'known-hosts:import',
+  helloStatus: 'vault:hello-status',
+  helloEnable: 'vault:hello-enable',
+  helloDisable: 'vault:hello-disable',
+  helloUnlock: 'vault:hello-unlock',
   connectionTest: 'connection:test',
   containersList: 'containers:list',
   containersAction: 'containers:action',
@@ -189,6 +193,11 @@ export interface UpdateStatus { enabled: boolean; current: string; available: { 
 
 /** One entry of the open screen list. filePath is for display and for the existing unlockVault; the list itself only changes in main. */
 export interface RecentVault { id: string; filePath: string; name: string; folder: string; openedAt: number; missing: boolean }
+
+/** Windows Hello for one vault path on this device: available = Windows Hello is set up; enrolled = a wrapped key is stored for the path. */
+export interface HelloStatus { available: boolean; enrolled: boolean }
+
+export interface HelloUnlockRequest { filePath: string }
 
 export interface DesktopApi {
   readClipboardText: () => Promise<string>;
@@ -295,6 +304,14 @@ export interface DesktopApi {
   knownHostsRemove: (id: string) => Promise<KnownHostView[]>;
   /** Native file dialog, then import; nothing is read without that click. */
   knownHostsImport: () => Promise<KnownHostsImportReply>;
+  /** Never prompts and never reads the vault file. Main window only. */
+  helloStatus: (filePath: string) => Promise<HelloStatus>;
+  /** Prompts Windows Hello and stores the key of the unlocked vault for this device; rejects with core.helloCanceled and other codes. */
+  helloEnable: () => Promise<HelloStatus>;
+  /** Deletes the stored key of the unlocked vault; no prompt. */
+  helloDisable: () => Promise<HelloStatus>;
+  /** Same path checks and result as unlockVault, with Windows Hello instead of the password. */
+  helloUnlock: (request: HelloUnlockRequest) => Promise<UnlockVaultResult>;
   /** Stored colour scheme (default 'dark'). Main window only. */
   getTheme: () => Promise<ThemeSetting>;
   /** Persists first, then applies to all windows; throws core.settingsWriteFailed. */
