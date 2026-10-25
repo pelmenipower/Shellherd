@@ -16,6 +16,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ssh2 from 'ssh2';
 import { CONTAINERS, DEMO_TOTP, IMAGES, NETWORKS, VOLUMES, inspect, seedSftp } from './fixtures.mjs';
+import { DEMO_ENV } from './ai-fake.mjs';
 
 const { Server, utils } = ssh2;
 const { STATUS_CODE, flagsToString } = utils.sftp;
@@ -30,6 +31,7 @@ const outputs = {
   'cat ~/LIESMICH': 'Handbuch: https://intranet.demo/handbuch\r\nStatus:   https://status.intranet.demo/',
   // OSC 8: the visible text names another host than the target (the hover hint must show the target).
   'cat ~/LINKS': '\x1b]8;;https://status.intranet.demo/\x1b\\https://intranet.demo/login\x1b]8;;\x1b\\',
+  'cat ~/.env': DEMO_ENV.replace(/\n/g, '\r\n'),
 };
 
 const LISTS = { containers: CONTAINERS, images: IMAGES, volumes: VOLUMES, networks: NETWORKS };

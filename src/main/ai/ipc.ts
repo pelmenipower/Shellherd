@@ -9,10 +9,12 @@ import { requireSshSender } from '../ssh/ipc';
 import { vaultSessionManager } from '../vault/ipc';
 import type { WindowRegistry } from '../windows';
 import { AssistantService } from './assistant';
+import { vaultLiterals } from './secret-mask';
 
 const MessageSchema = z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(64 * 1024) }).strict();
 const AskSchema = z.object({
   requestId: z.string().uuid(),
+  conversationId: z.string().uuid(),
   providerId: z.string().min(1).max(200).optional(),
   messages: z.array(MessageSchema).min(1).max(40).refine(messages => messages[0].role === 'user' && messages.at(-1)!.role === 'user'),
   context: z.object({ shell: z.enum(['ssh', 'powershell', 'cmd']), target: z.string().max(500) }).strict(),
@@ -24,6 +26,7 @@ const userError = (error: unknown): Error => error instanceof AppError ? error :
 export function registerAiIpcHandlers(registry: WindowRegistry): { service: AssistantService; broadcast: () => void } {
   const service = new AssistantService({
     settings: () => vaultSessionManager.getSnapshot().vault.ai,
+    secrets: () => vaultLiterals(vaultSessionManager.getSnapshot().vault),
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);
       if (owner && !owner.isDestroyed()) owner.send(IPC_CHANNELS.aiEvent, event);

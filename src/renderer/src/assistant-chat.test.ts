@@ -23,6 +23,7 @@ describe('assistant chat', () => {
 
   it('frames terminal text as data, keeps the newest part and skips an unchanged screen', () => {
     expect(tail('abcdef', 3)).toBe('…\ndef');
+    expect(tail('l1\nl2\nl3', 4)).toBe('…\nl3');
     const message = questionMessage('Warum?', 'line ``` x');
     expect(message).toContain("line ''' x");
     expect(message.endsWith('\nWarum?')).toBe(true);
@@ -38,6 +39,7 @@ describe('assistant chat', () => {
     const long = compactMessage('x'.repeat(5000));
     expect(long.length).toBeLessThan(700);
     expect(long.endsWith('(gekürzt)')).toBe(true);
+    expect(compactMessage(`${'a'.repeat(590)}\n${'b'.repeat(50)}`)).toBe(`${'a'.repeat(590)}\n…(gekürzt)`);
     expect(isFinished('Fertig. Alle 33 Namespaces sind aktiv.')).toBe(true);
     expect(isFinished('Noch nicht fertig: <command>ls</command>')).toBe(false);
   });

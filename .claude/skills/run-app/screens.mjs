@@ -1,11 +1,12 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
+import { AI_REQUEST_LOG, DEMO_KEPT, DEMO_SECRETS } from './ai-fake.mjs';
 
 const PORT = Number(process.env.DRIVER_PORT ?? 9333);
 const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
@@ -320,6 +321,73 @@ const blocks = {
     await waitFor('KI-Antwort', `!document.querySelector('.assistant-typing') && [...document.querySelectorAll('.assistant-message.is-assistant .assistant-command code')].some(c => c.textContent.includes('du -xh'))`);
     await pause(300);
     await shot('assistant');
+  },
+  // Masking: the demo server's terminal output and a question go to the AI fake, which logs every request body. Nothing synthetic may reach the log.
+  // Masking is switched off through the provider form for a positive control, then on again in finally.
+  async masking() {
+    const log = path.join(RUN_DIR, AI_REQUEST_LOG);
+    const sent = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '');
+    const ask = async (question, done) => {
+      await fill('.assistant-input textarea', question);
+      await click('.assistant-input button[type=submit]');
+      await waitFor('KI-Antwort', `!document.querySelector('.assistant-typing') && (${done})`);
+    };
+    // Masking on/off through the provider form: Settings → Anbieter verwalten → Bearbeiten.
+    const setMasking = async (on, shotName) => {
+      await click('.settings-button');
+      await waitFor('Einstellungsdialog', `document.querySelector('dialog.settings-dialog[open]')`);
+      await click('dialog.settings-dialog button:has-text("Anbieter verwalten")');
+      await waitFor('Anbieterliste', `${count('.ai-provider-list li')} >= 1`);
+      await click('.ai-provider-list li:has-text("Demo-KI") button:has-text("Bearbeiten")');
+      await waitFor('Formular', `document.querySelector('.ai-check input')`);
+      if (await evaluate(`document.querySelector('.ai-check input').checked`) !== on) await click('.ai-check input');
+      if (shotName) { await pause(300); await shot(shotName); }
+      await click('.ai-form button[type=submit]');
+      await waitFor('Liste', `${count('.ai-provider-list li')} >= 1 && !document.querySelector('.ai-form')`);
+      await click('dialog.ai-settings-dialog > .form-actions .primary-button');
+      await waitFor('Dialog schließen', `!document.querySelector('dialog.ai-settings-dialog[open]')`);
+      if (await evaluate(`!!document.querySelector('dialog.settings-dialog[open]')`)) await key('Escape');
+      await waitFor('Einstellungen schließen', `!document.querySelector('dialog.settings-dialog[open]')`);
+    };
+    fs.rmSync(log, { force: true });
+    await click('text=web-01 >> nth=0');
+    await key('Enter');
+    await waitFor('verbundener web-01-Tab', connectedTab);
+    await pause(800);
+    await click('.xterm-helper-textarea >> nth=0');
+    await call('type', 'cat ~/.env');
+    await key('Enter');
+    await pause(500);
+    if (!await evaluate(`document.querySelector('.assistant-toggle')?.getAttribute('aria-pressed') === 'true'`)) await click('.assistant-toggle');
+    await waitFor('Assistent-Eingabe', `document.querySelector('.assistant-input textarea:not([disabled])')`);
+    await ask('Warum klappt die Datenbankverbindung nicht?', `document.body.innerText.includes('Enthält maskierte Werte')`);
+    await waitFor('Maskiert-Hinweis', `[...document.querySelectorAll('.assistant-note')].some(n => n.textContent.startsWith('Vertrauliche Werte maskiert:'))`);
+    const masked = sent();
+    const leaks = Object.entries(DEMO_SECRETS).filter(([, value]) => masked.includes(value)).map(([name]) => name);
+    if (leaks.length) throw new Error(`Geheimnis erreicht den KI-Fake: ${leaks.join(', ')}`);
+    const lost = DEMO_KEPT.filter(value => !masked.includes(value));
+    if (lost.length) throw new Error(`Falsch maskiert: ${lost.join(', ')}`);
+    // Only user messages count: the system prompt always names [SECRET_1] as an example.
+    const userText = masked.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)).flatMap(body => body.messages.filter(m => m.role === 'user').map(m => m.content)).join('\n');
+    if ((userText.match(/\[SECRET_\d+\]/g) ?? []).length < 14) throw new Error('Zu wenige Platzhalter in den Nutzer-Nachrichten');
+    await pause(300);
+    await shot('assistant-masked');
+    try {
+      await setMasking(false, 'ai-provider-masking');
+      await waitFor('Hinweis Maskierung aus', `document.body.innerText.includes('Maskierung ist für diesen Anbieter aus')`);
+      const before = sent().length;
+      await ask('Und ohne Maskierung?', `[...document.querySelectorAll('.assistant-message.is-assistant .assistant-command code')].some(c => c.textContent.includes('du -xh'))`);
+      // Positive control: with masking off the screen goes out unchanged.
+      if (!sent().slice(before).includes(DEMO_SECRETS.dbPassword)) throw new Error('Schalter wirkt nicht: Klartext fehlt im Protokoll');
+      await pause(300);
+      await shot('assistant-masking-off');
+    } finally {
+      await setMasking(true);
+      fs.rmSync(log, { force: true });
+    }
+    const catalog = await evaluate('window.desktopApi.aiCatalog()');
+    if (!catalog.providers.every(p => p.masking)) throw new Error('Maskierung nach der Szene nicht wieder an');
+    await closeTabs();
   },
   async lock() {
     await click('text=web-01 >> nth=0');

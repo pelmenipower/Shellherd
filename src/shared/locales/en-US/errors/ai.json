@@ -5,6 +5,7 @@
     "requestRunning": "This request is already running.",
     "requestFailed": "The AI request failed.",
     "invalidRequest": "Invalid AI request.",
+    "maskFailed": "Shellherd could not check the text for secrets and sent nothing. Clear the history and ask again.",
     "azureEndpointMissing": "Enter the endpoint of the Azure resource.",
     "endpointInvalid": "The endpoint is not a valid URL.",
     "noHttp": "This provider does not use an HTTP interface.",

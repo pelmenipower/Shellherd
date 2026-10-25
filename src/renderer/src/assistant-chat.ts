@@ -40,9 +40,12 @@ export function insertableCommand(command: string): string | null {
   return clean.length > 0 && clean.length <= 4000 ? clean : null;
 }
 
-/** Keeps the end of long terminal text, where the current state is. */
+/** Keeps the end of long terminal text, where the current state is; cuts at a line start so no secret is cut in half. */
 export function tail(text: string, maxChars: number): string {
-  return text.length <= maxChars ? text : `…\n${text.slice(text.length - maxChars)}`;
+  if (text.length <= maxChars) return text;
+  const kept = text.slice(text.length - maxChars);
+  const lineStart = kept.indexOf('\n');
+  return `…\n${lineStart >= 0 && lineStart < kept.length - 1 ? kept.slice(lineStart + 1) : kept}`;
 }
 
 /** Context budget per request; the terminal text is the largest part. */
@@ -67,9 +70,12 @@ export function outputMessage(command: string, output: string, question = afterO
   return `${t('assistant:chat.outputOf', { command })}\n${fence(tail(output, OUTPUT_CHARS) || t('assistant:chat.noOutput'))}\n${question}`;
 }
 
-/** What an earlier turn costs in later requests: the question, or the start of a long output. */
+/** What an earlier turn costs in later requests: the question, or the start of a long output, cut at a line end. */
 export function compactMessage(content: string): string {
-  return content.length <= COMPACT_CHARS ? content : `${content.slice(0, COMPACT_CHARS)}\n…${t('common:truncated')}`;
+  if (content.length <= COMPACT_CHARS) return content;
+  const head = content.slice(0, COMPACT_CHARS);
+  const lineEnd = head.lastIndexOf('\n');
+  return `${lineEnd > 0 ? head.slice(0, lineEnd) : head}\n…${t('common:truncated')}`;
 }
 
 /** Recent history for a request: at most `max` messages, starting with a user message. */

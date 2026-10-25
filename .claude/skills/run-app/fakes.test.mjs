@@ -17,10 +17,11 @@ import { parseKubeconfig } from '../../../src/main/kubernetes/kubeconfig';
 import { openTunnel } from '../../../src/main/kubernetes/tunnel';
 import { createKubeApi } from '../../../src/main/kubernetes/client-api';
 import { streamChat } from '../../../src/main/ai/providers';
+import { SecretMasker } from '../../../src/main/ai/secret-mask';
 import { startSshd } from './sshd.mjs';
 import { DEMO_TOTP, seedSftp } from './fixtures.mjs';
 import { findOpenssl, startKubeFake } from './kube-fake.mjs';
-import { startAiFake } from './ai-fake.mjs';
+import { AI_KEY, AI_REQUEST_LOG, DEMO_ENV, DEMO_KEPT, DEMO_SECRETS, startAiFake } from './ai-fake.mjs';
 import { writeImportFixtures } from './import-fixtures.mjs';
 
 // Windows only: ssh2 server tests are flaky on Linux CI (see sftp-loopback.test.ts).
@@ -120,7 +121,7 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
   });
 
   it('streams the AI fake, checks the key and answers the connection test', async () => {
-    const ai = await startAiFake({ port: 0 });
+    const ai = await startAiFake({ port: 0, runDir: base });
     cleanup.push(() => ai.close());
     const ask = async (content, apiKey = 'sk-synthetic-demo') => {
       let out = '';
@@ -131,6 +132,24 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect(await ask('Ist die Platte zu voll?')).toContain('<command>du -xh');
     expect(await ask('Verbindungstest')).toBe('OK');
     await expect(ask('Verbindungstest', 'sk-wrong')).rejects.toMatchObject({ code: 'ai.keyRejected' });
+  });
+
+  it('logs request bodies without headers and answers with the placeholder it got', async () => {
+    const runDir = mkdtempSync(join(base, 'ai-log-'));
+    const ai = await startAiFake({ port: 0, runDir });
+    cleanup.push(() => ai.close());
+    const ask = async content => {
+      let out = '';
+      const provider = { id: 't', name: 't', kind: 'openai', model: 'gpt-4o-mini', baseUrl: `http://127.0.0.1:${ai.port}/v1`, apiKey: AI_KEY };
+      await streamChat(provider, { system: 's', messages: [{ role: 'user', content }] }, text => { out += text; }, new AbortController().signal);
+      return out;
+    };
+    expect(await ask('Ist die Platte zu voll?')).toContain('<command>du -xh');
+    const lines = readFileSync(join(runDir, AI_REQUEST_LOG), 'utf8').trim().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('Ist die Platte zu voll?');
+    expect(lines[0]).not.toContain(AI_KEY);
+    expect(await ask('Fehler mit [SECRET_3] beim Login')).toContain("PGPASSWORD='[SECRET_3]'");
   });
 
   it('serves a seeded SFTP tree and stays inside its root', async () => {
@@ -323,5 +342,14 @@ describe('import sources and the release route', { timeout: 20_000 }, () => {
     expect(await get()).toEqual({ tag_name: `v${version}`, draft: false, prerelease: false });
     writeFileSync(join(runDir, 'update-available'), '');
     expect(await get()).toEqual({ tag_name: `v${major}.${minor + 1}.0`, draft: false, prerelease: false });
+  });
+});
+
+describe('masking fixture of the demo server', () => {
+  it('hides every synthetic secret and keeps hashes, commit ids and uuids', () => {
+    const { text, numbers } = new SecretMasker().mask(DEMO_ENV, [DEMO_SECRETS.vaultApiKey, DEMO_SECRETS.vaultPassword]);
+    expect(Object.entries(DEMO_SECRETS).filter(([, value]) => text.includes(value)).map(([name]) => name)).toEqual([]);
+    for (const value of DEMO_KEPT) expect(text).toContain(value);
+    expect(numbers.size).toBe(Object.keys(DEMO_SECRETS).length);
   });
 });
