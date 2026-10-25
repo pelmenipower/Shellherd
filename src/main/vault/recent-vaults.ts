@@ -58,8 +58,15 @@ export class RecentVaults {
   }
 
   private async missing(filePath: string): Promise<boolean> {
-    if (filePath.startsWith('\\\\')) return false;
+    // Any two leading slashes are UNC on Windows (\\srv, //srv, \/srv): never probe them.
+    if (/^[\\/]{2}/.test(filePath)) return false;
     return !(await this.probe(filePath))?.isFile();
+  }
+
+  /** True if filePath is in the stored list (same recentKey). Reads settings.json only, never the file itself. */
+  async has(filePath: string): Promise<boolean> {
+    const key = recentKey(filePath);
+    return (await this.entries()).some(entry => recentKey(entry.filePath) === key);
   }
 
   /** Moves/inserts filePath at the top with openedAt = now(), dedups by recentKey, keeps 8. Best effort: never throws. */

@@ -187,5 +187,22 @@ describe('RecentVaults', () => {
       expect(await store.latest()).toBe(unc);
       expect(calls).toEqual([]);
     });
+
+    it.each(['//srv/s/v.term', '\\/srv\\s\\v.term'])('does not probe the two-slash path %s', async unc => {
+      await writeFile(settings, JSON.stringify({ recentVaults: [{ filePath: unc, openedAt: 1 }] }));
+      const calls: string[] = [];
+      const list = await new RecentVaults(settings, legacy, now, probeOf([], calls)).list();
+      expect(list[0]).toMatchObject({ missing: false });
+      expect(calls).toEqual([]);
+    });
+
+    it('has() matches a stored path in another spelling and never probes', async () => {
+      await writeEntries();
+      const calls: string[] = [];
+      const recent = new RecentVaults(settings, legacy, now, probeOf([], calls));
+      expect(await recent.has(join(dir, 'A.TERM').toUpperCase())).toBe(true);
+      expect(await recent.has(join(dir, 'x.term'))).toBe(false);
+      expect(calls).toEqual([]);
+    });
   });
 });
