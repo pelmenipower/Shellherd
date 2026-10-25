@@ -10,19 +10,25 @@ interface ProblemBannerProps {
   problems: KubeProblem[];
   onJump: (ref: KubeRef) => void;
   onMenu?: OnMenu;
+  /** Pod problems: hands the problem to the assistant ("Mit KI analysieren"); absent while the cluster is not connected. */
+  onAnalyze?: (problem: KubeProblem) => void;
 }
 
 /** One line that lists the cluster problems; a single problem is shown directly. */
-export function ProblemBanner({ problems, onJump, onMenu }: ProblemBannerProps) {
+export function ProblemBanner({ problems, onJump, onMenu, onAnalyze }: ProblemBannerProps) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   if (problems.length === 0) return null;
   const [first] = problems;
+  const analyze = (problem: KubeProblem) => onAnalyze && problem.kind !== 'node'
+    ? <button type="button" className="kube-link kube-banner-analyze" title={t('kubeActions:menu.analyze')} onClick={() => onAnalyze(problem)}>{t('kubeActions:menu.analyzeShort')}</button>
+    : null;
   if (problems.length === 1) {
     return (
       <div className="kube-banner" role="status">
         <span className="kube-tone-bad">{t('kubernetes:problems.single')}</span>{' '}
         <button type="button" className="kube-link" onClick={() => onJump(first.ref)} {...menuHandlers(onMenu, { type: 'problem', problem: first })}>{errorText(first.error)}</button>
+        {analyze(first)}
       </div>
     );
   }
@@ -38,6 +44,7 @@ export function ProblemBanner({ problems, onJump, onMenu }: ProblemBannerProps) 
               <button type="button" className="kube-link" onClick={() => onJump(problem.ref)} {...menuHandlers(onMenu, { type: 'problem', problem })}>
                 <span className="kube-muted">{KIND_INFO[problem.ref.kind].kind} {problem.ref.name}</span> {errorText(problem.error)}
               </button>
+              {analyze(problem)}
             </li>
           ))}
         </ul>

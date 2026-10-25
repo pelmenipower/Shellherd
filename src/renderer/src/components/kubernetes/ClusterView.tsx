@@ -7,6 +7,7 @@ import { errorText } from '../../error-text';
 import { useT } from '../../i18n';
 import { actionReason, bindingOf, commandForKey, type KubeCommand } from '../../kube-commands';
 import { menuFor, type MenuTarget } from '../../kube-menus';
+import { requestDiagnosis, type DiagnoseTarget } from '../../kube-diagnose';
 import { runMenuAction, type MenuRunner } from '../../kube-menu-run';
 import { ContextMenu, type ContextMenuEntry } from '../ContextMenu';
 import { dockSelection, filterOf, settleArm, snapshotOf, visibleRows } from '../../kube-view';
@@ -167,6 +168,13 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     });
   };
 
+  /** "Mit KI analysieren": main collects the context (reading only); the assistant panel shows it before anything is sent. */
+  const analyze = (target: DiagnoseTarget) => {
+    if (!viewId) { say(t('kubernetes:viewNotOpen')); return; }
+    requestDiagnosis({ tabId, cluster: clusterName, production, target,
+      context: window.desktopApi.kubeDiagnose({ viewId, ref: target.ref, ...(target.event ? { event: target.event } : {}) }) });
+  };
+
   const startAction = (kind: KubeAction, replicas?: number) => {
     const target = state.containersOf ?? selectedRow;
     const reason = actionReason(kind, {
@@ -249,6 +257,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
       dispatch({ type: 'select', key: refKey(row.ref) });
       dispatch({ type: 'dock', mode: 'logs' });
     },
+    analyze,
     popout: openTab,
     ssh: id => onOpenSsh?.(id),
     reloadDock: () => setDockReloads(value => value + 1),
@@ -387,7 +396,8 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
       <ClusterStatusBar status={status} updatedAt={state.updatedAt} />
       <div className="kube-body">
         <NodeStrip nodes={state.nodes} onMenu={(target, x, y) => openMenu(target, x, y)} onJump={name => dispatch({ type: 'jump', ref: { kind: 'nodes', name } })} />
-        <ProblemBanner problems={state.problems} onMenu={(target, x, y) => openMenu(target, x, y)} onJump={ref => dispatch({ type: 'jump', ref })} />
+        <ProblemBanner problems={state.problems} onMenu={(target, x, y) => openMenu(target, x, y)} onJump={ref => dispatch({ type: 'jump', ref })}
+          onAnalyze={statusState === 'ready' ? problem => analyze({ ref: problem.ref, problem: problem.kind }) : undefined} />
         <ResourceTable state={state} rows={rows} dispatch={dispatch} tableRef={tableRef} onMenu={openMenu} />
         <DetailDock connection={connection} tabId={tabId} visible={visible} open={state.dockOpen} mode={state.dock}
           previous={previous} armed={armed} selected={selectedRow?.ref ?? null} podRef={podRef} podRow={podRow} container={container} readOnly={readOnly}
