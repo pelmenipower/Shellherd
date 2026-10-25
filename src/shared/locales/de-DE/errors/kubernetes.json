@@ -60,6 +60,9 @@
     "problemOom": "{{name}} wurde wegen Speichermangel beendet (OOMKilled)",
     "problemPending": "{{name}} wartet seit {{minutes}} min (Pending)",
     "problemNodeNotReady": "{{name}} ist nicht bereit",
-    "problemNodePressure": "{{name}}: {{pressure}}"
+    "problemNodePressure": "{{name}}: {{pressure}}",
+    "noArgoUrl": "Im Cluster-Eintrag ist keine Argo-CD-Adresse hinterlegt.",
+    "noHarborUrl": "Im Cluster-Eintrag ist keine Harbor-Adresse hinterlegt.",
+    "linkRefused": "Dieser Link wird nicht geöffnet: Er passt nicht zur Adresse im Cluster-Eintrag."
   }
 }

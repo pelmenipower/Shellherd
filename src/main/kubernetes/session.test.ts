@@ -12,7 +12,8 @@ import type { KubeApi, KubeObject, KubeRulesReview, KubeStream, ListResult, LogF
 import type { ClusterAccess } from './access';
 import { describe as describeText, toYaml } from './describe';
 import { toRow } from './rows';
-import { KubeSessions, HEALTH_MS, userError } from './session';
+import { KubeSessions, HEALTH_MS, openableHref, userError } from './session';
+import { ARGO_TIMEOUT_MS } from './argo';
 import type { KubeSessionDependencies } from './session';
 
 const POD_QUERY: KubeQuery = { kind: 'pods', namespace: 'shop' };
@@ -153,6 +154,13 @@ class FakeApi implements KubeApi {
   async readLog(target: { pod: string; container: string }, options: { previous: boolean }): Promise<string> {
     this.logReads.push(`${target.pod}/${target.container}/${options.previous}`);
     return 'line 1\nline 2\n';
+  }
+  argo: KubeObject | Error = { metadata: { name: 'shop', namespace: 'argocd' }, spec: { syncPolicy: { automated: { selfHeal: true } } }, status: { sync: { status: 'Synced' }, health: { status: 'Healthy' } } };
+  argoReads: string[] = [];
+  async readArgoApp(namespace: string, name: string): Promise<KubeObject> {
+    this.argoReads.push(`${namespace}/${name}`);
+    if (this.argo instanceof Error) throw this.argo;
+    return this.argo;
   }
 }
 
@@ -846,5 +854,110 @@ suite('KubeSessions.diagnose', () => {
     await expect(world.sessions.diagnose(1, notReady, deployment)).rejects.toMatchObject({ code: 'core.vaultLocked' });
     await expect(world.sessions.diagnose(2, notReady, deployment)).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
     expect(read).not.toHaveBeenCalled();
+  });
+});
+
+suite('KubeSessions Argo CD and Harbor', () => {
+  /** HEALTH_MS has the same delay, so the newest task with ARGO_TIMEOUT_MS is the one of argoApp. */
+  const fireArgoTimeout = (world: World) => {
+    const entry = [...world.clock.tasks.entries()].filter(([, task]) => task.ms === ARGO_TIMEOUT_MS).at(-1);
+    if (!entry) throw new Error('no Argo CD timeout pending');
+    world.clock.tasks.delete(entry[0]);
+    entry[1].fn();
+  };
+
+  it('reads the application once by get and returns its Self-Heal state, null when it cannot be read', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    expect(await world.sessions.argoApp(1, viewId, 'shop')).toEqual({ automated: true, selfHeal: true, sync: 'Synced', health: 'Healthy' });
+    expect(await world.sessions.argoApp(1, viewId, 'team-a_shop')).not.toBeNull();
+    expect(world.api.argoReads).toEqual(['argocd/shop', 'team-a/shop']);
+    world.api.argo = new KubeApiError('Forbidden', 403, { code: 'kubernetes.forbidden' });
+    expect(await world.sessions.argoApp(1, viewId, 'shop')).toBeNull();
+    world.api.argo = new KubeApiError('Not Found', 404, { code: 'kubernetes.notFound' });
+    expect(await world.sessions.argoApp(1, viewId, 'shop')).toBeNull();
+    expect(await world.sessions.argoApp(1, viewId, 'evil.example.test/x')).toBeNull();
+    expect(world.api.argoReads).toHaveLength(4);
+    // Every finished read cancels its timer; only the health check may still wait with the same delay.
+    expect(world.clock.delays().filter(ms => ms === ARGO_TIMEOUT_MS).length).toBeLessThanOrEqual(1);
+  });
+
+  it('gives up after the timeout and without a connection, never blocking the dialog', async () => {
+    const world = setup();
+    const notReady = world.sessions.open(1, 'c1').viewId;
+    expect(await world.sessions.argoApp(1, notReady, 'shop')).toBeNull();
+    expect(world.api.argoReads).toEqual([]);
+    await settle();
+    world.api.readArgoApp = () => new Promise(() => {});
+    const hanging = world.sessions.argoApp(1, notReady, 'shop');
+    fireArgoTimeout(world);
+    expect(await hanging).toBeNull();
+  });
+
+  it('refuses other owners, a disabled cluster and a locked vault', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    await expect(world.sessions.argoApp(2, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
+    vi.mocked(world.deps.getCluster).mockImplementationOnce(() => { throw new AppError('core.vaultLocked'); });
+    await expect(world.sessions.argoApp(1, viewId, 'shop')).rejects.toMatchObject({ code: 'core.vaultLocked' });
+    world.cluster.disabled = true;
+    await expect(world.sessions.argoApp(1, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+    expect(() => world.sessions.linkFor(1, viewId, { type: 'argo', app: 'shop' })).toThrow(expect.objectContaining({ code: 'kubernetes.disabled' }));
+    expect(world.api.argoReads).toEqual([]);
+  });
+
+  it('builds links only from the addresses of the vault entry', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const digest = `sha256:${'c'.repeat(64)}`;
+    expect(() => world.sessions.linkFor(1, viewId, { type: 'argo', app: 'shop' })).toThrow(expect.objectContaining({ code: 'kubernetes.noArgoUrl' }));
+    expect(() => world.sessions.linkFor(1, viewId, { type: 'harbor', image: 'harbor.example.test/shop/api:1' })).toThrow(expect.objectContaining({ code: 'kubernetes.noHarborUrl' }));
+    world.cluster.argoUrl = 'https://argocd.example.test';
+    world.cluster.harborUrl = 'https://harbor.example.test';
+    expect(world.sessions.linkFor(1, viewId, { type: 'argo', app: 'team-a_shop' })).toBe('https://argocd.example.test/applications/team-a/shop');
+    expect(world.sessions.linkFor(1, viewId, { type: 'harbor', image: 'harbor.example.test/shop/api:1', digest }))
+      .toBe(`https://harbor.example.test/harbor/projects/shop/repositories/api/artifacts-tab/artifacts/${digest}`);
+    expect(() => world.sessions.linkFor(1, viewId, { type: 'harbor', image: 'registry.local/shop/api:1' })).toThrow(expect.objectContaining({ code: 'kubernetes.linkRefused' }));
+    expect(() => world.sessions.linkFor(1, viewId, { type: 'argo', app: 'evil.example.test/x' })).toThrow(expect.objectContaining({ code: 'kubernetes.linkRefused' }));
+    for (const app of ['evil.com', 'a.b.c', 'x-y']) expect(new URL(world.sessions.linkFor(1, viewId, { type: 'argo', app })).host).toBe('argocd.example.test');
+    for (const image of ['harbor.example.test/a/b', 'HARBOR.example.test:443/a/b/c:1']) expect(new URL(world.sessions.linkFor(1, viewId, { type: 'harbor', image })).host).toBe('harbor.example.test');
+    expect(() => world.sessions.linkFor(2, viewId, { type: 'argo', app: 'shop' })).toThrow(expect.objectContaining({ code: 'kubernetes.viewUnavailable' }));
+  });
+
+  it('puts the addresses into the status only when the vault entry has them', async () => {
+    const world = setup();
+    world.cluster.argoUrl = 'https://argocd.example.test';
+    const first = world.sessions.open(1, 'c1');
+    await settle();
+    expect(statusesOf(world, first.viewId).at(-1)).toMatchObject({ argoUrl: 'https://argocd.example.test' });
+    expect(statusesOf(world, first.viewId).at(-1)).not.toHaveProperty('harborUrl');
+    delete world.cluster.argoUrl;
+    world.cluster.harborUrl = 'https://harbor.example.test';
+    const second = world.sessions.open(2, 'c1');
+    expect(second.status).toMatchObject({ harborUrl: 'https://harbor.example.test' });
+    expect(second.status).not.toHaveProperty('argoUrl');
+  });
+});
+
+suite('openableHref', () => {
+  it('opens only https on the host of the vault address, checked again before the browser', () => {
+    const base = 'https://argocd.example.test';
+    expect(openableHref('https://argocd.example.test/applications/shop', base)).toBe('https://argocd.example.test/applications/shop');
+    expect(openableHref('https://ARGOCD.example.test:443/applications/shop', base)).toBe('https://argocd.example.test/applications/shop');
+    for (const href of [
+      'http://argocd.example.test/applications/shop',
+      'https://evil.example.test/applications/shop',
+      'https://argocd.example.test.evil.example/x',
+      'https://argocd.example.test:8443/x',
+      'https://user@argocd.example.test/x',
+      'javascript:alert(1)',
+      'file:///etc/passwd',
+      'not a url',
+      null,
+    ]) expect(openableHref(href, base)).toBeNull();
+    expect(openableHref('https://argocd.example.test/x', 'not a url')).toBeNull();
   });
 });
