@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Vault, VaultNode } from '../../shared/vault/types';
-import { SecretMasker, vaultLiterals } from './secret-mask';
+import { MAX_NUMBERS, SecretMasker, vaultLiterals } from './secret-mask';
 
 // Test secrets are assembled from parts so GitHub secret scanning stays quiet (R13). Never real values.
 const j = (...parts: string[]): string => parts.join('');
@@ -211,6 +211,7 @@ describe('SecretMasker', () => {
       'a://', 'a://b:c', 'x:', '"', 'sk-', '--password ', '--token=', '\n', 'AAAAAAAAAAAAAAAAAAAAAAAA\n', 'Bearer ',
       'Authorization: Basic ', 'LS0tLS1CRUdJTi', 'a.', 'a-', 'kind: Secret\ndata:\n  a: b\n', '[SECRET_1]', 'AKIA', 'ghp_',
       'password=<', 'password: <aaaa ', 'kind: Secret\nstringData:\n  a: |\n    bbbbbbbbbbbbbbbbbbbb\n', 'password=SECRET ', 'SECRET',
+      'login ', 'ConvertTo-SecureString "', 'glpat-', 'npm_', 'sk_live_',
     ];
     for (const unit of units) {
       const text = unit.repeat(Math.ceil(262_144 / unit.length)).slice(0, 262_144);
@@ -230,13 +231,77 @@ describe('SecretMasker', () => {
 
   it('stays under one second per turn when a conversation floods known values (K4)', () => {
     const masker = new SecretMasker();
-    for (let turn = 0; turn < 12; turn += 1) {
+    // Two turns of 20 000 new values stay below the per-conversation cap (M-2); the cap has its own test.
+    for (let turn = 0; turn < 2; turn += 1) {
       const text = Array.from({ length: 20_000 }, (_, index) => `pwd=${turn}t${String(index).padStart(6, 'x')}`).join(' ').slice(0, 262_144);
       const start = performance.now();
       masker.mask(text, []);
       expect(performance.now() - start).toBeLessThan(1000);
     }
   }, 60_000);
+
+  it('stays under 250 ms per round for 60 rounds of 40 messages with new values (M-2)', () => {
+    const masker = new SecretMasker();
+    for (let round = 0; round < 60; round += 1) {
+      const start = performance.now();
+      for (let message = 0; message < 40; message += 1) {
+        const text = Array.from({ length: 10 }, (_, index) => `pwd=r${round}m${message}v${index}-value`).join('\n');
+        masker.mask(text, []);
+      }
+      expect(performance.now() - start, `round ${round}`).toBeLessThan(250);
+    }
+  }, 60_000);
+
+  it('refuses new values beyond the cap but still masks known and vault values (M-2)', () => {
+    const masker = new SecretMasker();
+    const batch = (n: number): string => Array.from({ length: 10 }, (_, index) => `pwd=cap${n}x${index}-value`).join('\n');
+    for (let n = 0; n < MAX_NUMBERS / 10; n += 1) masker.mask(batch(n), []);
+    expect(() => masker.mask(batch(MAX_NUMBERS / 10), [])).toThrow();
+    expect(masker.mask(`x cap${MAX_NUMBERS / 10 - 1}x9-value`, []).text).toMatch(/^x \[SECRET_\d+\]$/);
+    expect(masker.mask('vault secret-vault-value', ['secret-vault-value']).text).toMatch(/^vault \[SECRET_\d+\]$/);
+  }, 60_000);
+
+  it('masks GitLab, Stripe and npm tokens', () => {
+    const tokens = [j('gl', 'pat-', 'a'.repeat(20)), j('sk', '_live_', 'a'.repeat(24)), j('rk', '_live_', 'a'.repeat(24)), j('npm', '_', 'a'.repeat(36))];
+    for (const token of tokens) {
+      expect(one(token)).toBe('[SECRET_1]');
+      expect(one(`x ${token} y`)).toBe('x [SECRET_1] y');
+    }
+  });
+
+  it('keeps look-alikes of the GitLab, Stripe and npm forms', () => {
+    const kept = [
+      j('gl', 'pat-', 'a'.repeat(19)),
+      j('x', 'glpat-', 'a'.repeat(20)),
+      j('sk', '_test_', 'a'.repeat(24)),
+      j('pk', '_live_', 'a'.repeat(24)),
+      j('npm', '_', 'a'.repeat(35)),
+      'npm_config_cache',
+    ];
+    for (const text of kept) expect(one(text)).toBe(text);
+  });
+
+  it('masks the password of a .netrc entry', () => {
+    expect(one('machine db login app password Synth-Pw-123')).toBe('machine db login app password [SECRET_1]');
+    expect(one('default login app password Synth-Pw-123\n')).toBe('default login app password [SECRET_1]\n');
+  });
+
+  it('keeps .netrc lines without a password and other password prompts', () => {
+    const kept = ['machine db login app', '[sudo] password for demo:', 'Login: admin', 'Password: '];
+    for (const text of kept) expect(one(text)).toBe(text);
+  });
+
+  it('masks the string of ConvertTo-SecureString, not the flag before it', () => {
+    const secure = j('ConvertTo-Secure', 'String');
+    expect(one(`${secure} "Synth-Pw-123" -AsPlainText -Force`)).toBe(`${secure} "[SECRET_1]" -AsPlainText -Force`);
+    expect(one(`-Password (${secure} -String "Synth-Pw-123")`)).toBe(`-Password (${secure} -String "[SECRET_1]")`);
+  });
+
+  it('keeps ConvertTo-SecureString without a literal string', () => {
+    const secure = j('ConvertTo-Secure', 'String');
+    const kept = [`${secure} $pw -AsPlainText -Force`, `${secure} "$pw" -AsPlainText -Force`];
+    for (const text of kept) expect(one(text)).toBe(text);
+  });
 });
 
 describe('vaultLiterals', () => {

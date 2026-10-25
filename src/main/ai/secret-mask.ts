@@ -6,6 +6,8 @@ export const MIN_LITERAL_LENGTH = 6;
 const MAX_VALUE = 4096;
 /** Earlier finds searched in every later text of a conversation; the newest win, so a flood of finds cannot stall main. */
 const MAX_KNOWN = 1000;
+/** Hard cap on distinct values per conversation; past it, new finds fail closed (vault values are never refused). */
+export const MAX_NUMBERS = 50_000;
 
 interface Span { start: number; end: number }
 
@@ -23,6 +25,9 @@ const TOKEN_RULES: readonly RegExp[] = [
   /(?<![A-Za-z0-9-])xox[abposr]-[A-Za-z0-9-]{10,250}/g, // Slack tokens
   /(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,250}/g, // OpenAI and Anthropic (sk-proj-…, sk-ant-…)
   /(?<![A-Za-z0-9_-])AIza[A-Za-z0-9_-]{35}/g, // Google API key
+  /(?<![A-Za-z0-9_-])glpat-[A-Za-z0-9_-]{20,255}/g, // GitLab personal access token
+  /(?<![A-Za-z0-9_-])[sr]k_live_[A-Za-z0-9]{20,255}/g, // Stripe live secret and restricted keys
+  /(?<![A-Za-z0-9_-])npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])/g, // npm access token
   /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,4096}\.eyJ[A-Za-z0-9_-]{8,8192}\.[A-Za-z0-9_-]{0,4096}/g, // JWT
   /(?<![A-Za-z0-9+/])LS0tLS1CRUdJTi[A-Za-z0-9+/]{16,65536}={0,2}/g, // base64 of "-----BEGIN …" (Kubernetes tls.key)
   /(?<=hooks\.slack\.com\/services\/)[A-Za-z0-9/]{20,120}/g, // Slack webhook path
@@ -45,6 +50,10 @@ const SCHEME = /(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{1,30}:\/\//g;
 const AUTHORITY_END = /[\s/?#"'<>]/;
 const PEM_EDGE = /-----(BEGIN|END) [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----/g;
 const BASE64_LINE = /^[A-Za-z0-9+/=]{16,}$/;
+/** `machine h login u password p` (.netrc): the value after `password` on a line with `machine` or `login`. */
+const NETRC = /\b(?:machine|login)[ \t]{1,8}[^\n]{0,1024}?\bpassword[ \t]{1,8}/gi;
+/** `ConvertTo-SecureString "value"` or `-String 'value'`: only the text inside the quotes is the secret. */
+const SECURE_STRING = /ConvertTo-SecureString[ \t]{1,8}(?:-String[ \t]{1,8})?(["'])([^"'\r\n]{1,4096})\1/gi;
 const SECRET_KIND = /\bkind:[ \t]*Secret\b/;
 const DATA_KEY = /^(?:data|stringData):$/;
 
@@ -74,8 +83,8 @@ function pairSpans(text: string): Span[] {
     for (let match = rule.exec(text); match; match = rule.exec(text)) {
       if (!SECRET_NAME.test(match[1])) continue;
       const at = rule.lastIndex;
-      // `--password --next`: the next flag is no value.
-      if (rule === FLAG && text[at] === '-') continue;
+      // `--password --next`: the next flag is no value. `-Password (ConvertTo-…)`: a sub-expression is no value either.
+      if (rule === FLAG && (text[at] === '-' || text[at] === '(')) continue;
       const span = valueSpan(text, at);
       if (span) { spans.push(span); rule.lastIndex = Math.max(rule.lastIndex, span.end); }
     }
@@ -96,6 +105,28 @@ function urlSpans(text: string): Span[] {
     const colon = authority.indexOf(':');
     if (at > 0 && colon >= 0 && colon < at - 1) spans.push({ start: start + colon + 1, end: start + at });
     SCHEME.lastIndex = Math.max(SCHEME.lastIndex, end);
+  }
+  return spans;
+}
+
+/** `.netrc` password values; the regex stops after `password `, valueSpan reads the value like any other. */
+function netrcSpans(text: string): Span[] {
+  const spans: Span[] = [];
+  NETRC.lastIndex = 0;
+  for (let match = NETRC.exec(text); match; match = NETRC.exec(text)) {
+    const span = valueSpan(text, NETRC.lastIndex);
+    if (span) { spans.push(span); NETRC.lastIndex = Math.max(NETRC.lastIndex, span.end); }
+  }
+  return spans;
+}
+
+/** The text inside the quotes of ConvertTo-SecureString; the match ends with the closing quote. */
+function secureStringSpans(text: string): Span[] {
+  const spans: Span[] = [];
+  for (const match of text.matchAll(SECURE_STRING)) {
+    const end = match.index! + match[0].length - 1;
+    const span = { start: end - match[2].length, end };
+    if (!SKIP_VALUE.test(text.slice(span.start, span.end))) spans.push(span);
   }
   return spans;
 }
@@ -162,7 +193,7 @@ function secretDataSpans(text: string): Span[] {
 
 /** All rule hits, sorted and merged where they overlap. */
 function findSpans(text: string): Span[] {
-  const spans = [...pairSpans(text), ...urlSpans(text), ...pemSpans(text), ...secretDataSpans(text)];
+  const spans = [...pairSpans(text), ...urlSpans(text), ...pemSpans(text), ...secretDataSpans(text), ...netrcSpans(text), ...secureStringSpans(text)];
   for (const rule of TOKEN_RULES) for (const match of text.matchAll(rule)) spans.push({ start: match.index!, end: match.index! + match[0].length });
   spans.sort((a, b) => a.start - b.start || b.end - a.end);
   const merged: Span[] = [];
@@ -182,10 +213,21 @@ function replaceOutside(text: string, value: string, placeholder: string): strin
 /** Stable placeholders for one conversation: the same value always gets the same [SECRET_n]. */
 export class SecretMasker {
   private readonly numbers = new Map<string, number>();
+  /** Values of MIN_LITERAL_LENGTH or more characters, oldest first, at most MAX_KNOWN; the search runs over these. */
+  private readonly recent: string[] = [];
 
-  private placeholder(value: string, used: Set<number>): string {
+  private placeholder(value: string, used: Set<number>, fromText: boolean): string {
     let number = this.numbers.get(value);
-    if (number === undefined) { number = this.numbers.size + 1; this.numbers.set(value, number); }
+    if (number === undefined) {
+      // Only finds from text can overflow the cap; vault values always get their placeholder.
+      if (fromText && this.numbers.size >= MAX_NUMBERS) throw new Error('secret-mask: too many distinct values');
+      number = this.numbers.size + 1;
+      this.numbers.set(value, number);
+      if (value.length >= MIN_LITERAL_LENGTH) {
+        this.recent.push(value);
+        if (this.recent.length > MAX_KNOWN) this.recent.shift();
+      }
+    }
     used.add(number);
     return `[SECRET_${number}]`;
   }
@@ -197,18 +239,19 @@ export class SecretMasker {
   mask(text: string, literals: readonly string[]): MaskResult {
     const used = new Set<number>();
     let current = text;
-    for (const literal of literals) if (current.includes(literal)) current = replaceOutside(current, literal, this.placeholder(literal, used));
+    for (const literal of literals) if (current.includes(literal)) current = replaceOutside(current, literal, this.placeholder(literal, used, false));
     let out = '';
     let from = 0;
     for (const span of findSpans(current)) {
       const value = current.slice(span.start, span.end);
       if (PLACEHOLDER.test(value)) continue;
-      out += current.slice(from, span.start) + this.placeholder(value, used);
+      out += current.slice(from, span.start) + this.placeholder(value, used, true);
       from = span.end;
     }
     let result = out + current.slice(from);
-    const known = [...this.numbers.keys()].filter(value => value.length >= MIN_LITERAL_LENGTH).slice(-MAX_KNOWN).sort((a, b) => b.length - a.length);
-    for (const value of known) if (result.includes(value)) result = replaceOutside(result, value, this.placeholder(value, used));
+    // A copy, sorted longest first: `recent` itself must stay oldest-first for the cap.
+    const known = [...this.recent].sort((a, b) => b.length - a.length);
+    for (const value of known) if (result.includes(value)) result = replaceOutside(result, value, this.placeholder(value, used, false));
     return { text: result, numbers: used };
   }
 }
