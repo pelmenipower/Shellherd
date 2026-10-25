@@ -1,4 +1,4 @@
-// Synthetic Kubernetes API server for the run-app skill. HTTPS on 127.0.0.1 only, read-only (writes get 403); pods/portforward over WebSocket; pods/log with timestamps and follow; a SelfSubjectRulesReview.
+// Synthetic Kubernetes API server for the run-app skill. HTTPS on 127.0.0.1 only, read-only (writes get 403); pods/portforward over WebSocket; pods/log with timestamps and follow; a SelfSubjectRulesReview; one Argo CD Application.
 // The certificate is generated per start with openssl into the run dir; nothing secret lives in the repo.
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -34,6 +34,7 @@ const RESOURCES = {
   'apps/v1': { deployments: 'Deployment', statefulsets: 'StatefulSet', daemonsets: 'DaemonSet' },
   'batch/v1': { jobs: 'Job', cronjobs: 'CronJob' },
   'networking.k8s.io/v1': { ingresses: 'Ingress' },
+  'argoproj.io/v1alpha1': { applications: 'Application' },
 };
 const CLUSTER_SCOPED = new Set(['nodes', 'namespaces']);
 const singular = plural => plural.replace(/ies$/, 'y').replace(/s$/, '');

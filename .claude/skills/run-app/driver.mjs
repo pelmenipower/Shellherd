@@ -63,6 +63,14 @@ if (process.env.SHELLHERD_RUN_REAL_DIALOGS !== '1') {
     };
   }, VAULT);
 }
+// Links never open a real browser: shell.openExternal only records the address in main. Scenes read it with
+// `/main` → `return globalThis.__shellherdOpened`. SHELLHERD_RUN_REAL_BROWSER=1 keeps the real browser.
+if (process.env.SHELLHERD_RUN_REAL_BROWSER !== '1') {
+  await app.evaluate(({ shell }) => {
+    globalThis.__shellherdOpened = [];
+    shell.openExternal = async url => { globalThis.__shellherdOpened.push(String(url)); };
+  });
+}
 
 let page = await app.firstWindow();
 await page.waitForLoadState('domcontentloaded');

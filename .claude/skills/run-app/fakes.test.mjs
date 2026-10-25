@@ -19,6 +19,9 @@ import { createKubeApi } from '../../../src/main/kubernetes/client-api';
 import { KubeForwards } from '../../../src/main/kubernetes/forwards';
 import { KubeWorkloadLogs } from '../../../src/main/kubernetes/workload-logs';
 import { buildDiagnosis } from '../../../src/main/kubernetes/diagnose';
+import { argoStateOf } from '../../../src/main/kubernetes/argo';
+import { toRow } from '../../../src/main/kubernetes/rows';
+import { harborImageUrl } from '../../../src/shared/kube-links';
 import { DIAGNOSE_MAX_CHARS } from '../../../src/shared/kubernetes';
 import { deniedAccess } from '../../../src/shared/kube-access';
 import { streamChat } from '../../../src/main/ai/providers';
@@ -26,7 +29,7 @@ import { SecretMasker } from '../../../src/main/ai/secret-mask';
 import { startSshd } from './sshd.mjs';
 import { DEMO_TOTP, seedSftp } from './fixtures.mjs';
 import { findOpenssl, KUBE_REQUEST_LOG, startKubeFake } from './kube-fake.mjs';
-import { KUBE_SECRETS } from './kube-fixtures.mjs';
+import { HARBOR_DIGEST, HARBOR_HOST, KUBE_SECRETS } from './kube-fixtures.mjs';
 import { AI_KEY, AI_REQUEST_LOG, DEMO_ENV, DEMO_KEPT, DEMO_SECRETS, startAiFake } from './ai-fake.mjs';
 import { writeImportFixtures } from './import-fixtures.mjs';
 
@@ -229,6 +232,32 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect(asked.every(line => line.startsWith('GET '))).toBe(true);
     expect(asked.some(line => /\/secrets|\/configmaps|\/replicasets/.test(line))).toBe(false);
     expect(asked.some(line => line.includes('/log?') && line.includes('previous=true'))).toBe(true);
+  });
+
+  it.skipIf(!findOpenssl())('reads the Argo CD application by GET only, tracks api and the CronJob, ignores the forged id and links the running digest', async () => {
+    const kube = await startKubeFake({ port: 0, dir: join(base, 'kube-argo') });
+    cleanup.push(() => kube.close());
+    const { host } = await connect((await start('kube-argo', { kubeconfig: kube.kubeconfig, kubePort: kube.port })).port);
+    const parsed = parseKubeconfig(kube.kubeconfig);
+    const tunnel = await openTunnel((h, p) => host.forward(h, p), parsed.server);
+    cleanup.push(async () => tunnel.close());
+    const api = createKubeApi(parsed.build(tunnel.port));
+
+    expect(argoStateOf(await api.readArgoApp('argocd', 'shop'))).toEqual({ automated: true, selfHeal: true, sync: 'Synced', health: 'Healthy' });
+    await expect(api.readArgoApp('argocd', 'missing')).rejects.toMatchObject({ code: 404 });
+
+    const rowOf = async (kind, name) => toRow(kind, (await api.list(kind, 'shop')).items.find(item => item.metadata.name === name));
+    expect((await rowOf('deployments', 'api')).argoApp).toBe('shop');
+    expect((await rowOf('cronjobs', 'nightly-report')).argoApp).toBe('shop');
+    expect((await rowOf('deployments', 'checkout')).argoApp).toBeUndefined();
+    const pod = await rowOf('pods', 'api-6d8f9b7c5-x7k2p');
+    expect(pod.digests).toEqual({ main: HARBOR_DIGEST });
+    expect(harborImageUrl(`https://${HARBOR_HOST}`, String(pod.cells['image:main']), pod.digests.main))
+      .toBe(`https://${HARBOR_HOST}/harbor/projects/shop/repositories/api/artifacts-tab/artifacts/${HARBOR_DIGEST}`);
+
+    const asked = readFileSync(join(base, 'kube-argo', KUBE_REQUEST_LOG), 'utf8').split('\n').filter(Boolean);
+    expect(asked.filter(line => line.includes('argoproj'))).toEqual(['GET /apis/argoproj.io/v1alpha1/namespaces/argocd/applications/shop', 'GET /apis/argoproj.io/v1alpha1/namespaces/argocd/applications/missing']);
+    expect(asked.every(line => line.startsWith('GET '))).toBe(true);
   });
 
   it('streams the AI fake, checks the key and answers the connection test', async () => {
