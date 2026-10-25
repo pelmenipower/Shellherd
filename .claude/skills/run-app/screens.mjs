@@ -386,17 +386,25 @@ const blocks = {
       await waitFor('Filter', `${count(`${view} .kube-logs-line mark`)} > 0 && [...document.querySelectorAll('${view} .kube-logs-line')].every(l => l.textContent.includes('ERROR'))`);
       await pause(300);
       await shot('kube-logs-all-filter');
-      // 5. Fallback: monitoring answers incomplete, so nothing is greyed out there. The answers are recorded on the
-      // renderer side first: "nothing greyed out" only counts once the monitoring answer has arrived (null, not pending).
-      await evaluate(`(() => {
-        const api = window.desktopApi; const ask = api.kubeAccess; window.__accessAnswers = [];
-        api.kubeAccess = request => ask(request).then(denied => { window.__accessAnswers.push({ namespace: request.namespace, denied }); return denied; });
-        return api.kubeAccess !== ask;
-      })()`).then(installed => { if (!installed) throw new Error('kubeAccess nicht erfassbar'); });
-      await evaluate(`(() => { const s = document.querySelector('${view} .kube-ns select'); s.value = 'monitoring'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
-      await click('.kube-kind-tabs button:has-text("StatefulSets")');
-      await waitFor('StatefulSets', `${count('.kube-table tbody tr')} >= 1`);
-      await waitFor('Antwort für monitoring', `window.__accessAnswers.some(a => a.namespace === 'monitoring')`);
+      // 5. Fallback: monitoring answers incomplete, so nothing is greyed out there. The contextBridge API is frozen,
+      // so the answers are recorded at the main-process handler; "nothing greyed out" only counts once monitoring answered.
+      const installed = await call('main', `const h = electron.ipcMain._invokeHandlers; const orig = h?.get('k8s:access'); if (!orig) return false;
+        globalThis.__accessAnswers = []; globalThis.__accessRestore = () => h.set('k8s:access', orig);
+        h.set('k8s:access', async (event, request) => { const denied = await orig(event, request); globalThis.__accessAnswers.push({ namespace: request?.namespace, denied }); return denied; });
+        return true;`);
+      if (!installed) throw new Error('kubeAccess nicht erfassbar');
+      try {
+        await evaluate(`(() => { const s = document.querySelector('${view} .kube-ns select'); s.value = 'monitoring'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+        await click('.kube-kind-tabs button:has-text("StatefulSets")');
+        await waitFor('StatefulSets', `${count('.kube-table tbody tr')} >= 1`);
+        for (let i = 0; ; i++) {
+          if (await call('main', `return globalThis.__accessAnswers.some(a => a.namespace === 'monitoring');`)) break;
+          if (i >= 50) throw new Error('Keine Rechte-Antwort für monitoring');
+          await pause(200);
+        }
+      } finally {
+        await call('main', 'globalThis.__accessRestore?.(); return true;');
+      }
       await rclick('.kube-table tbody tr:has-text("postgres")');
       await pause(300);
       await waitFor('nichts gesperrt', enabled('Rollout neu starten'));
