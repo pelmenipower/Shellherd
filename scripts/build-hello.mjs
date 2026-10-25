@@ -15,7 +15,7 @@ const source = join(root, 'native', 'Shellherd.Hello');
 // --out <dir> builds elsewhere, e.g. while a running Shellherd locks out/hello.
 const outFlag = process.argv.indexOf('--out');
 const outputDir = outFlag > 0 && process.argv[outFlag + 1] ? resolve(process.argv[outFlag + 1]) : join(root, 'out', 'hello');
-const systemRoot = process.env.SystemRoot ?? 'C:\Windows';
+const systemRoot = process.env.SystemRoot ?? 'C:\\Windows';
 const framework = join(systemRoot, 'Microsoft.NET', 'Framework64', 'v4.0.30319');
 const metadata = join(systemRoot, 'System32', 'WinMetadata');
 const csc = join(framework, 'csc.exe');

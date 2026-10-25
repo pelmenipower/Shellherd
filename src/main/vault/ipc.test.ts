@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +8,7 @@ import { IPC_CHANNELS } from '../../shared/ipc';
 import type { UnlockVaultResult } from '../../shared/ipc';
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import { exampleVault } from '../../shared/vault/example';
-import { encryptVault } from './crypto';
+import { encryptVault, encryptVaultWithKey } from './crypto';
 import { recentId } from './recent-vaults';
 
 const mocks = vi.hoisted(() => ({
@@ -122,6 +123,15 @@ describe('Windows Hello in the IPC handlers (run-app fake)', () => {
     await invoke(IPC_CHANNELS.helloEnable);
     await invoke(IPC_CHANNELS.lockVault);
     process.env.SHELLHERD_HELLO_FAKE = 'reset';
+    await expect(invoke(IPC_CHANNELS.helloUnlock, { filePath })).rejects.toMatchObject({ code: 'core.helloStale' });
+    expect(await invoke(IPC_CHANNELS.helloStatus, filePath)).toEqual({ available: true, enrolled: false });
+  });
+
+  it('drops the entry when the same salt does not open the file', async () => {
+    await invoke(IPC_CHANNELS.helloEnable);
+    await invoke(IPC_CHANNELS.lockVault);
+    // Same KDF salt, other key: the stored Hello key fits the salt but not the file.
+    mocks.read.mockResolvedValue(encryptVaultWithKey(exampleVault, randomBytes(32), file.kdf));
     await expect(invoke(IPC_CHANNELS.helloUnlock, { filePath })).rejects.toMatchObject({ code: 'core.helloStale' });
     expect(await invoke(IPC_CHANNELS.helloStatus, filePath)).toEqual({ available: true, enrolled: false });
   });
