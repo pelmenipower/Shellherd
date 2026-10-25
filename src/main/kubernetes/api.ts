@@ -25,6 +25,9 @@ export interface TerminalIo { data(chunk: Buffer): void; end(code: number | null
 export interface KubeStream { write(data: string): void; resize(cols: number, rows: number): void; pause(): void; resume(): void; close(): void }
 /** Start of a followed log: the newest `tailLines`, or everything since `sinceTime` (RFC 3339, whole seconds). */
 export interface LogFollowOptions { tailLines?: number; sinceTime?: string }
+/** One container log read once (no follow): the newest `tailLines`, at most `limitBytes`; `previous` = the container before the last restart. */
+export interface LogReadTarget { namespace: string; pod: string; container: string }
+export interface LogReadOptions { previous: boolean; tailLines: number; limitBytes: number }
 /** Result of a SelfSubjectRulesReview; incomplete = the rules cannot be trusted to be complete. */
 export interface KubeRulesReview { incomplete: boolean; rules: KubeResourceRule[] }
 export interface KubeApi {
@@ -49,6 +52,8 @@ export interface KubeApi {
   portForward(namespace: string, pod: string, port: number, socket: Duplex): Promise<void>;
   /** Follows one container log with server timestamps (`timestamps=true`); `io.data` gets the raw bytes, always asynchronously. */
   followLog(target: KubeTerminalTarget, options: LogFollowOptions, io: TerminalIo): KubeStream;
+  /** Reads one container log once (get on pods/log). Rejects with KubeApiError: 400 no (previous) container to read, 403, 404. */
+  readLog(target: LogReadTarget, options: LogReadOptions): Promise<string>;
   /** SelfSubjectRulesReview of one namespace: a query, nothing is stored in the cluster. */
   rulesReview(namespace: string): Promise<KubeRulesReview>;
 }

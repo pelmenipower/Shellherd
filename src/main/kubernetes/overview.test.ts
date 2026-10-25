@@ -64,6 +64,7 @@ class FakeApi implements KubeApi {
   openTerminal(): never { throw new Error('unused'); }
   portForward(): never { throw new Error('unused'); }
   followLog(): never { throw new Error('unused'); }
+  readLog(): never { throw new Error('unused'); }
   rulesReview(): never { throw new Error('unused'); }
 }
 

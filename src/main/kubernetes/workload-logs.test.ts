@@ -51,6 +51,7 @@ class FakeApi implements KubeApi {
     return { write() {}, resize() {}, pause() {}, resume() {}, close };
   }
   read(): never { throw new Error('unused'); }
+  readLog(): never { throw new Error('unused'); }
   eventsFor(): never { throw new Error('unused'); }
   mergePatch(): never { throw new Error('unused'); }
   remove(): never { throw new Error('unused'); }

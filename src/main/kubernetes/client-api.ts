@@ -12,7 +12,7 @@ import { KIND_INFO } from '../../shared/kubernetes';
 import type { KubeKind, KubeRef, KubeSelector, KubeTerminalTarget } from '../../shared/kubernetes';
 import { SHELL_CHOICE } from '../containers/commands';
 import { KubeApiError } from './api';
-import type { KubeApi, KubeObject, KubeRulesReview, KubeStream, ListResult, LogFollowOptions, MetricsSample, TerminalIo, WatchHandle, WatchType } from './api';
+import type { KubeApi, KubeObject, KubeRulesReview, KubeStream, ListResult, LogFollowOptions, LogReadOptions, LogReadTarget, MetricsSample, TerminalIo, WatchHandle, WatchType } from './api';
 import { parseCpu, parseMemory } from './rows';
 
 type Socket = Awaited<ReturnType<Exec['exec']>>;
@@ -285,8 +285,54 @@ export function followLogUrl(server: string, target: KubeTerminalTarget, options
   return url.toString();
 }
 
-function logStatusError(status: number, mode: KubeTerminalTarget['mode']): KubeApiError {
-  if (mode === 'previous' && status === 400) return new KubeApiError('No previous container', 400, { code: 'kubernetes.noPreviousContainer' });
+/** Time limit of one log read for an analysis. */
+export const LOG_READ_TIMEOUT_MS = 10_000;
+
+/** URL of a one-time log read: no follow, no timestamps, the newest `tailLines`, at most `limitBytes`. */
+export function readLogUrl(server: string, target: LogReadTarget, options: LogReadOptions): string {
+  const path = `/api/v1/namespaces/${encodeURIComponent(target.namespace)}/pods/${encodeURIComponent(target.pod)}/log`;
+  const url = new URL(server + path);
+  const params = url.searchParams;
+  params.set('container', target.container);
+  params.set('follow', 'false');
+  params.set('previous', String(options.previous));
+  params.set('tailLines', String(options.tailLines));
+  params.set('limitBytes', String(options.limitBytes));
+  params.set('timestamps', 'false');
+  return url.toString();
+}
+
+/** Reads one log once, through the same request path as openLogs; the body is cut at `limitBytes` even if the server sends more. */
+export async function readLog(config: KubeConfig, target: LogReadTarget, options: LogReadOptions, sendRequest: LogRequest = requestLogs): Promise<string> {
+  const cluster = config.getCurrentCluster();
+  if (!cluster) throw new AppError('kubernetes.apiError');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LOG_READ_TIMEOUT_MS);
+  try {
+    const request: RequestOptions = { method: 'GET', headers: {}, signal: controller.signal };
+    await config.applyToHTTPSOptions(request);
+    const response = await sendRequest(new URL(readLogUrl(cluster.server, target, options)), request);
+    if (response.status !== 200) throw logStatusError(response.status, options.previous);
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of response.body) {
+      const bytes = Buffer.from(chunk);
+      chunks.push(bytes);
+      size += bytes.length;
+      if (size >= options.limitBytes) break;
+    }
+    return Buffer.concat(chunks).subarray(0, options.limitBytes).toString('utf8');
+  } catch (error) {
+    throw toApiError(error);
+  } finally {
+    clearTimeout(timer);
+    // Frees the socket, also when the read stopped at limitBytes.
+    controller.abort();
+  }
+}
+
+function logStatusError(status: number, previous: boolean): KubeApiError {
+  if (previous && status === 400) return new KubeApiError('No previous container', 400, { code: 'kubernetes.noPreviousContainer' });
   return toApiError({ code: status });
 }
 
@@ -314,7 +360,7 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
     const options: RequestOptions = { method: 'GET', headers: {}, signal: controller.signal };
     await config.applyToHTTPSOptions(options);
     const response = await sendRequest(url, options);
-    if (response.status !== 200) throw logStatusError(response.status, target.mode);
+    if (response.status !== 200) throw logStatusError(response.status, target.mode === 'previous');
 
     for await (const chunk of response.body) {
       if (finished) break;
@@ -529,6 +575,10 @@ export function createKubeApi(config: KubeConfig): KubeApi {
 
     followLog(target, options, io) {
       return openLogs(config, target, io, requestLogs, options);
+    },
+
+    readLog(target, options) {
+      return readLog(config, target, options);
     },
 
     async rulesReview(namespace) {

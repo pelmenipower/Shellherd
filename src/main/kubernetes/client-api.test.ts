@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
 import type { CodedError } from '../../shared/errors';
 import { KubeApiError } from './api';
-import { createKubeApi, followLogUrl, isAltnameError, manualJobBody, openLogs, portForwardError, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
+import { createKubeApi, followLogUrl, isAltnameError, manualJobBody, openLogs, portForwardError, readLog, readLogUrl, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
 import type { LogRequest } from './client-api';
 
 function testConfig(server = 'https://k8s.example:6443'): KubeConfig {
@@ -643,5 +643,45 @@ describe('createKubeApi.rulesReview', () => {
   it('maps a forbidden review to a KubeApiError with code 403', async () => {
     await expect(withReview(async () => { throw Object.assign(new Error('Unknown API Status Code!'), { code: 403, body: '{}' }); }))
       .rejects.toMatchObject({ code: 403 });
+  });
+});
+
+describe('readLog', () => {
+  const target = { namespace: 'shop', pod: 'api-1', container: 'app' };
+
+  it('builds a one-time read URL: no follow, no timestamps, tail and byte limit', () => {
+    expect(readLogUrl('https://k8s.example:6443', target, { previous: true, tailLines: 100, limitBytes: 65_536 }))
+      .toBe('https://k8s.example:6443/api/v1/namespaces/shop/pods/api-1/log?container=app&follow=false&previous=true&tailLines=100&limitBytes=65536&timestamps=false');
+    expect(readLogUrl('https://k8s.example:6443', { ...target, pod: 'a b', container: 'c&d' }, { previous: false, tailLines: 5, limitBytes: 10 }))
+      .toBe('https://k8s.example:6443/api/v1/namespaces/shop/pods/a%20b/log?container=c%26d&follow=false&previous=false&tailLines=5&limitBytes=10&timestamps=false');
+  });
+
+  it('returns the body as text with the kubeconfig credentials on the request', async () => {
+    const fake = fakeLogRequest();
+    const read = readLog(testConfig(), target, { previous: false, tailLines: 100, limitBytes: 1000 }, fake.sendRequest);
+    await flush();
+    fake.push('line 1\n');
+    fake.push('line 2\n');
+    fake.end();
+    await expect(read).resolves.toBe('line 1\nline 2\n');
+    expect(fake.calls[0].headers.Authorization).toBe('Bearer tok');
+    expect(fake.calls[0].signal?.aborted).toBe(true);
+  });
+
+  it('cuts the body at limitBytes even if the server sends more', async () => {
+    const fake = fakeLogRequest();
+    const read = readLog(testConfig(), target, { previous: false, tailLines: 100, limitBytes: 10 }, fake.sendRequest);
+    await flush();
+    fake.push('0123456');
+    fake.push('789abcdef');
+    await expect(read).resolves.toBe('0123456789');
+  });
+
+  it.each([[400], [403], [404]])('rejects status %i with a KubeApiError of that code', async status => {
+    // An error body is drained by requestLogs; this fake has none, so the abort in readLog's finally has nothing to destroy.
+    const sendRequest: LogRequest = async () => ({ status, body: new PassThrough({ emitClose: false }).end() });
+    const error = await readLog(testConfig(), target, { previous: true, tailLines: 100, limitBytes: 10 }, sendRequest).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(KubeApiError);
+    expect((error as KubeApiError).code).toBe(status);
   });
 });
