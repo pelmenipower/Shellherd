@@ -232,7 +232,7 @@ describe('A1 pods', () => {
 
 describe('Argo (C28)', () => {
   it('puts the heading first and Argo-App-Name last under Kopieren, for any row kind', () => {
-    for (const r of [deployment({ labels: { 'argocd.argoproj.io/instance': 'shop-api' } }), pod({ labels: { 'argocd.argoproj.io/instance': 'shop-api' } }), row('services', 's', { labels: { 'argocd.argoproj.io/instance': 'shop-api' }, selector: { a: 'b' } })]) {
+    for (const r of [deployment({ argoApp: 'shop-api' }), pod({ argoApp: 'shop-api' }), row('services', 's', { argoApp: 'shop-api', selector: { a: 'b' } })]) {
       const entries = rowMenu(r);
       expect(entries[0]).toEqual({ kind: 'heading', label: 'Argo CD: App shop-api' });
       expect(entries[1].kind).toBe('item');
@@ -240,10 +240,66 @@ describe('Argo (C28)', () => {
       expect(copies[copies.length - 1]).toMatchObject({ id: 'copy-argo', label: 'Argo-App-Name', run: { type: 'copy', text: 'shop-api' } });
     }
   });
-  it('has no Argo entries without the label', () => {
-    const entries = rowMenu(deployment());
-    expect(entries.some(entry => entry.kind === 'heading' && entry.label.startsWith('Argo'))).toBe(false);
-    expect(has(entries, 'copy-argo')).toBe(false);
+  it('has no Argo entries without argoApp, also when only the raw label is there (main validates it)', () => {
+    for (const r of [deployment(), deployment({ labels: { app: 'api', 'argocd.argoproj.io/instance': 'shop-api' } })]) {
+      const entries = rowMenu(r, withStatus({ ...READY, argoUrl: 'https://argocd.example.test' }));
+      expect(entries.some(entry => entry.kind === 'heading' && entry.label.startsWith('Argo'))).toBe(false);
+      expect(has(entries, 'copy-argo')).toBe(false);
+      expect(has(entries, 'argo-open')).toBe(false);
+    }
+  });
+});
+
+describe('In Argo CD öffnen', () => {
+  const ARGO_READY: ClusterStatus = { ...READY, argoUrl: 'https://argocd.example.test' };
+  const firstGroup = (entries: MenuEntry[]): MenuEntry[] => entries.slice(0, entries.findIndex(entry => entry.kind === 'separator'));
+
+  it('ends the first group of a tracked row with the link and the host as hint', () => {
+    for (const r of [deployment({ argoApp: 'shop' }), row('cronjobs', 'nightly', { argoApp: 'shop' }), row('services', 's', { argoApp: 'shop', selector: { a: 'b' } })]) {
+      const entries = rowMenu(r, withStatus(ARGO_READY));
+      const group = firstGroup(entries);
+      expect(group.at(-1)).toEqual({ kind: 'item', id: 'argo-open', label: 'In Argo CD öffnen', hint: 'argocd.example.test', run: { type: 'link', link: { type: 'argo', app: 'shop' } } });
+    }
+  });
+
+  it('is greyed out without an address and free on read-only, reconnecting and disconnected clusters', () => {
+    expect(find(rowMenu(deployment({ argoApp: 'shop' })), 'argo-open')).toMatchObject({ disabled: true, hint: 'Keine Argo-CD-Adresse im Cluster-Eintrag.' });
+    for (const status of [{ ...ARGO_READY, readOnly: true }, { ...ARGO_READY, state: 'reconnecting' as const }, { ...ARGO_READY, state: 'error' as const }]) {
+      expect(find(rowMenu(deployment({ argoApp: 'team-a_shop' }), withStatus(status)), 'argo-open')).toMatchObject({ hint: 'argocd.example.test', run: { type: 'link', link: { type: 'argo', app: 'team-a_shop' } } });
+      expect(find(rowMenu(deployment({ argoApp: 'team-a_shop' }), withStatus(status)), 'argo-open').disabled).toBeUndefined();
+    }
+  });
+});
+
+describe('In Harbor öffnen', () => {
+  const HARBOR_READY: ClusterStatus = { ...READY, harborUrl: 'https://harbor.example.test' };
+  const DIGEST = `sha256:${'d'.repeat(64)}`;
+  const harborPod = pod({ cells: { status: 'Running', 'image:api': 'reg/api:1', 'image:proxy': 'harbor.example.test/shop/proxy:2' }, digests: { proxy: DIGEST } });
+
+  it('only exists with a Harbor address', () => {
+    expect(has(rowMenu(harborPod), 'harbor-open')).toBe(false);
+    expect(has(menu({ type: 'container', pod: harborPod, name: 'proxy' }), 'harbor-open')).toBe(false);
+  });
+
+  it('links the first image on the Harbor host, a pod with the digest of the running image', () => {
+    expect(find(rowMenu(harborPod, withStatus(HARBOR_READY)), 'harbor-open'))
+      .toEqual({ kind: 'item', id: 'harbor-open', label: 'In Harbor öffnen', hint: 'harbor.example.test', run: { type: 'link', link: { type: 'harbor', image: 'harbor.example.test/shop/proxy:2', digest: DIGEST } } });
+    const workload = deployment({ cells: { image: 'reg/api:1, harbor.example.test/shop/side:2, harbor.example.test/shop/other:3' } });
+    expect(find(rowMenu(workload, withStatus(HARBOR_READY)), 'harbor-open').run).toEqual({ type: 'link', link: { type: 'harbor', image: 'harbor.example.test/shop/side:2' } });
+    expect(find(menu({ type: 'container', pod: harborPod, name: 'proxy' }, withStatus(HARBOR_READY)), 'harbor-open').run)
+      .toEqual({ type: 'link', link: { type: 'harbor', image: 'harbor.example.test/shop/proxy:2', digest: DIGEST } });
+  });
+
+  it('is greyed out with the host when no image lies there', () => {
+    expect(find(rowMenu(pod(), withStatus(HARBOR_READY)), 'harbor-open')).toMatchObject({ disabled: true, hint: 'Image liegt nicht in harbor.example.test.' });
+    expect(find(menu({ type: 'container', pod: harborPod, name: 'api' }, withStatus(HARBOR_READY)), 'harbor-open')).toMatchObject({ disabled: true, hint: 'Image liegt nicht in harbor.example.test.' });
+  });
+
+  it('never appears on services, jobs, cron jobs, events and nodes', () => {
+    for (const r of [row('services', 's', { selector: { a: 'b' }, cells: { image: 'harbor.example.test/shop/api:1' } }), row('jobs', 'j', { cells: { image: 'harbor.example.test/shop/api:1' } }),
+      row('cronjobs', 'c'), row('events', 'e.1', { cells: { object: 'Pod/api-1' } }), node()]) {
+      expect(has(rowMenu(r, withStatus(HARBOR_READY)), 'harbor-open')).toBe(false);
+    }
   });
 });
 

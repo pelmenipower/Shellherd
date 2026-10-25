@@ -1,7 +1,7 @@
 /** Context menus of the cluster tab as pure data; see docs/superpowers/specs/2026-10-16-kubernetes-context-menus-design.md. */
 import {
   DIAGNOSE_KINDS, KIND_INFO, refKey,
-  type ClusterStatus, type ColumnInfo, type DockMode, type KubeAction, type KubeKind, type KubeProblem, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget, type NodeTile, type ProblemKind,
+  type ClusterStatus, type ColumnInfo, type DockMode, type KubeAction, type KubeKind, type KubeLink, type KubeProblem, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget, type NodeTile, type ProblemKind,
 } from '../../shared/kubernetes';
 import { KUBE_COMMANDS, actionReason, podNotRunning, type CommandId } from './kube-commands';
 import * as kubectl from './kube-kubectl';
@@ -9,6 +9,7 @@ import { errorText } from './error-text';
 import { t } from './i18n';
 import { chipLabel } from './kube-labels';
 import { primaryChip } from '../../shared/kube-status';
+import { argoAppUrl, harborImageUrl, linkHost } from '../../shared/kube-links';
 import type { KubeAccessId } from '../../shared/kube-access';
 import { refAccessReason } from './kube-access';
 import { defaultSort, filterOf, type KubeViewAction, type KubeViewState } from './kube-view';
@@ -35,7 +36,8 @@ export type MenuAction =
   | { type: 'ssh'; connectionId: string }
   | { type: 'dockReload' }
   | { type: 'help' }
-  | { type: 'analyze'; target: DiagnoseTarget };
+  | { type: 'analyze'; target: DiagnoseTarget }
+  | { type: 'link'; link: KubeLink };
 
 export type MenuEntry =
   | { kind: 'item'; id: string; label: string; hint?: string; disabled?: boolean; run: MenuAction }
@@ -54,7 +56,6 @@ export interface MenuContext {
   now: number;
 }
 
-const ARGO_LABEL = 'argocd.argoproj.io/instance';
 const PREFERRED_LABELS = ['app', 'app.kubernetes.io/name', 'app.kubernetes.io/instance', 'app.kubernetes.io/component'];
 
 interface Env { ctx: MenuContext; connected: boolean; /** status.state === 'reconnecting' */ reconnecting: boolean; readOnly: boolean; /** Hotkey hints only for targets that are the selection. */ hot: boolean }
@@ -190,6 +191,49 @@ function analyzeItem(env: Env, ref: KubeRef, extra: { event?: KubeRef; problem?:
   return item(env, 'analyze', t('kubeActions:menu.analyze'), { type: 'analyze', target }, { reason });
 }
 
+interface ImageRef { image: string; digest?: string }
+
+/** Images of a row in container order; pods carry the digest of the running image. */
+function rowImages(row: KubeRow): ImageRef[] {
+  if (row.ref.kind === 'pods') {
+    return (row.containers ?? []).flatMap(name => {
+      const image = cell(row, `image:${name}`);
+      const digest = row.digests?.[name];
+      return image ? [{ image, ...(digest ? { digest } : {}) }] : [];
+    });
+  }
+  return cell(row, 'image').split(',').map(part => part.trim()).filter(Boolean).map(image => ({ image }));
+}
+
+/** "In Argo CD öffnen": rows Argo CD tracks. Needs no connection; main builds the address from the vault entry again. */
+function argoItem(env: Env, app: string): MenuEntry {
+  const base = env.ctx.status?.argoUrl;
+  const run: MenuAction = { type: 'link', link: { type: 'argo', app } };
+  if (!base) return item(env, 'argo-open', t('kubeActions:menu.openArgo'), run, { reason: t('kubeActions:reasons.noArgoUrl') });
+  return item(env, 'argo-open', t('kubeActions:menu.openArgo'), run,
+    argoAppUrl(base, app) ? { extra: linkHost(base) } : { reason: t('kubeActions:reasons.linkInvalid') });
+}
+
+/** "In Harbor öffnen": only with a Harbor address, for the first image on its host; never a link to another host. */
+function harborItems(env: Env, images: ImageRef[]): MenuEntry[] {
+  const base = env.ctx.status?.harborUrl;
+  if (!base || images.length === 0) return [];
+  const found = images.find(entry => harborImageUrl(base, entry.image, entry.digest) !== null);
+  const target = found ?? images[0];
+  const run: MenuAction = { type: 'link', link: { type: 'harbor', image: target.image, ...(target.digest ? { digest: target.digest } : {}) } };
+  return [item(env, 'harbor-open', t('kubeActions:menu.openHarbor'), run,
+    found ? { extra: linkHost(base) } : { reason: t('kubeActions:reasons.notInHarbor', { host: linkHost(base) }) })];
+}
+
+const HARBOR_KINDS: readonly KubeKind[] = ['pods', 'deployments', 'statefulsets', 'daemonsets'];
+
+function linkItems(env: Env, row: KubeRow): MenuEntry[] {
+  return [
+    ...(row.argoApp ? [argoItem(env, row.argoApp)] : []),
+    ...(HARBOR_KINDS.includes(row.ref.kind) ? harborItems(env, rowImages(row)) : []),
+  ];
+}
+
 function imageLines(row: KubeRow): string | undefined {
   const names = row.containers ?? Object.keys(row.cells).filter(key => key.startsWith('image:')).map(key => key.slice('image:'.length));
   const images = names.filter(name => cell(row, `image:${name}`) !== '').map(name => [name, cell(row, `image:${name}`)] as const);
@@ -237,7 +281,7 @@ function podRowGroups(env: Env, row: KubeRow): Group[] {
   ];
 }
 
-const argoCopy = (row: KubeRow): [string, string, string][] => (row.labels[ARGO_LABEL] ? [['argo', t('kubeActions:copy.argoApp'), row.labels[ARGO_LABEL]]] : []);
+const argoCopy = (row: KubeRow): [string, string, string][] => (row.argoApp ? [['argo', t('kubeActions:copy.argoApp'), row.argoApp]] : []);
 
 function workloadGroups(env: Env, row: KubeRow): Group[] {
   const { kind, name } = row.ref;
@@ -413,8 +457,7 @@ function eventGroups(env: Env, row: KubeRow): Group[] {
 }
 
 function rowMenu(env: Env, row: KubeRow): MenuEntry[] {
-  const argo = row.labels[ARGO_LABEL];
-  const lead: MenuEntry[] = argo ? [{ kind: 'heading', label: t('kubeActions:menu.argoApp', { name: argo }) }] : [];
+  const lead: MenuEntry[] = row.argoApp ? [{ kind: 'heading', label: t('kubeActions:menu.argoApp', { name: row.argoApp }) }] : [];
   const groups = ((): Group[] => {
     switch (row.ref.kind) {
       case 'pods': return podRowGroups(env, row);
@@ -431,6 +474,8 @@ function rowMenu(env: Env, row: KubeRow): MenuEntry[] {
   if (chip && groups.length > 0) {
     groups[0] = [...groups[0], item(env, `only-${chip.id}`, t('kubeActions:menu.onlyChip', { label: chipLabel(chip.id, row.ref.kind) }), view(select(row), { type: 'setChips', ids: [chip.id] }))];
   }
+  const links = linkItems(env, row);
+  if (links.length > 0 && groups.length > 0) groups[0] = [...groups[0], ...links];
   return assemble(lead, groups);
 }
 
@@ -440,7 +485,8 @@ function containerMenu(env: Env, pod: KubeRow, name: string): MenuEntry[] {
   const prefix: KubeViewAction[] = [...podPrefix, { type: 'selectContainer', name }];
   const namespace = namespaceOf(pod) ?? '';
   return assemble([], [
-    [...terminalItems(env, pod, name, prefix), ...popoutItems(env, pod, name), ...viewItems(env, podPrefix, true)],
+    [...terminalItems(env, pod, name, prefix), ...popoutItems(env, pod, name), ...viewItems(env, podPrefix, true),
+      ...harborItems(env, cell(pod, `image:${name}`) ? [{ image: cell(pod, `image:${name}`), ...(pod.digests?.[name] ? { digest: pod.digests[name] } : {}) }] : [])],
     copyGroup(env, [
       ['name', t('kubeActions:copy.containerName'), name],
       ['image', t('kubeActions:copy.image'), cell(pod, `image:${name}`)],

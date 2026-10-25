@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { KubeAction, KubeRef } from '../../shared/kubernetes';
-import { confirmationFor } from './confirm-action';
+import type { KubeAction, KubeKind, KubeRef } from '../../shared/kubernetes';
+import { argoNoteFor, argoNoteText, confirmationFor } from './confirm-action';
 import { i18n } from './i18n';
 
 describe('confirmationFor', () => {
@@ -46,6 +46,46 @@ describe('confirmationFor in English', () => {
       expect(confirmationFor({ ref: { kind: 'deployments', namespace: 'shop', name: 'api' }, action: 'scale', replicas: 2, currentReplicas: 3 }, cluster).body)
         .toBe('Deployment api in namespace shop on k8s: 3 → 2 replicas.');
       expect(confirmationFor({ ref: { kind: 'jobs', namespace: 'shop', name: 'j' }, action: 'delete' }, cluster).title).toBe('Delete job?');
+    } finally { await i18n.changeLanguage('de-DE'); }
+  });
+});
+
+describe('Argo CD hint in the confirmation', () => {
+  it('warns for scale, suspend, resume and delete, stays neutral for restart and silent otherwise', () => {
+    for (const kind of ['deployments', 'statefulsets', 'cronjobs', 'jobs'] as KubeKind[]) {
+      for (const action of ['scale', 'suspend', 'resume', 'delete'] as KubeAction[]) expect(argoNoteFor(action, kind)).toBe('revert');
+      expect(argoNoteFor('restart', kind)).toBe('restart');
+      expect(argoNoteFor('trigger', kind)).toBeNull();
+    }
+    for (const action of ['restart', 'scale', 'delete', 'cordon', 'uncordon', 'suspend', 'resume', 'trigger'] as KubeAction[]) {
+      expect(argoNoteFor(action, 'pods')).toBeNull();
+      expect(argoNoteFor(action, 'nodes')).toBeNull();
+    }
+    expect(argoNoteFor('cordon', 'deployments')).toBeNull();
+    expect(argoNoteFor('uncordon', 'deployments')).toBeNull();
+  });
+
+  it('says "möglicherweise" while reading and when unreadable, then the read state', () => {
+    const maybe = { text: 'Argo CD verwaltet dieses Objekt (App shop) und setzt Abweichungen von Git möglicherweise zurück (Self-Heal).', warn: true };
+    expect(argoNoteText('revert', 'shop', undefined)).toEqual(maybe);
+    expect(argoNoteText('revert', 'shop', null)).toEqual(maybe);
+    expect(argoNoteText('revert', 'shop', { automated: true, selfHeal: true, sync: 'Synced', health: 'Healthy' })).toEqual({ warn: true,
+      text: 'Argo CD verwaltet dieses Objekt (App shop) mit Self-Heal: Weicht es danach von Git ab, setzt Argo CD es sofort zurück. Dauerhaft ändert es nur ein Commit. Stand in Argo CD: Synced, Healthy.' });
+    expect(argoNoteText('revert', 'shop', { automated: true, selfHeal: false })).toEqual({ warn: true,
+      text: 'Argo CD verwaltet dieses Objekt (App shop). Self-Heal ist aus; weicht es danach von Git ab, setzt es erst der nächste automatische Sync nach einem neuen Commit zurück.' });
+    expect(argoNoteText('revert', 'shop', { automated: false, selfHeal: false, sync: 'OutOfSync' })).toEqual({ warn: true,
+      text: 'Argo CD verwaltet dieses Objekt (App shop) ohne automatischen Sync. Weicht es danach von Git ab, steht die App auf OutOfSync, und ein Sync setzt es zurück. Stand in Argo CD: OutOfSync, –.' });
+    expect(argoNoteText('restart', 'shop', null)).toEqual({ warn: false, text: 'Argo CD verwaltet dieses Objekt (App shop). Einen Neustart setzt Argo CD in der Regel nicht zurück.' });
+    expect(argoNoteText('restart', 'shop', { automated: true, selfHeal: true, health: 'Degraded' }).text).toBe('Argo CD verwaltet dieses Objekt (App shop). Einen Neustart setzt Argo CD in der Regel nicht zurück. Stand in Argo CD: –, Degraded.');
+  });
+
+  it('has the same states in English', async () => {
+    await i18n.changeLanguage('en-US');
+    try {
+      expect(argoNoteText('revert', 'shop', null).text).toBe('Argo CD manages this object (app shop) and may revert differences from Git (self-heal).');
+      expect(argoNoteText('revert', 'shop', { automated: true, selfHeal: true, sync: 'Synced', health: 'Healthy' }).text)
+        .toBe('Argo CD manages this object (app shop) with self-heal: if it then differs from Git, Argo CD reverts it right away. Only a commit changes it for good. Argo CD status: Synced, Healthy.');
+      expect(argoNoteText('restart', 'shop', undefined)).toEqual({ warn: false, text: 'Argo CD manages this object (app shop). Argo CD usually does not revert a restart.' });
     } finally { await i18n.changeLanguage('de-DE'); }
   });
 });
