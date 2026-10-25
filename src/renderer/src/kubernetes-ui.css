@@ -136,7 +136,7 @@
 
 .kube-confirm { width: min(420px, calc(100vw - 32px)); }
 .kube-field { display: grid; gap: var(--space-4); margin: var(--space-8) 0; font-size: var(--fs-sm); color: var(--color-text-muted); }
-.kube-field input { color: var(--color-text); }
+.kube-field input, .kube-field select { color: var(--color-text); }
 
 /* Column filter row, group rows and the group-by select */
 .kube-filter-row th { top: var(--control-xs); padding: 0 var(--space-2); cursor: default; }

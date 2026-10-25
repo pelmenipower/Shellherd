@@ -172,6 +172,29 @@
     "helpTitle": "Help (?)",
     "contextMenu": "Context menu"
   },
+  "forward": {
+    "title": "Forward port",
+    "pod": "Pod {{name}} in {{namespace}}",
+    "service": "Service {{name}} in {{namespace}}",
+    "podPort": "Port in the pod",
+    "servicePort": "Service port",
+    "otherPort": "Other port…",
+    "portNumber": "Port number",
+    "localPort": "Local port",
+    "localHint": "Reachable from this computer only (127.0.0.1). Leave empty: Shellherd picks a free port.",
+    "serviceHint": "Each new connection goes to a ready pod of the service. If it is gone, Shellherd takes the next one.",
+    "production": "Production cluster: programs on this computer can reach {{target}} through it.",
+    "start": "Forward",
+    "started": "Port forward active: {{address}}"
+  },
+  "forwards": {
+    "item": "127.0.0.1:{{port}} → {{target}}",
+    "via": "via {{pod}}:{{port}}",
+    "open": "Open in browser",
+    "openLabel": "Open {{forward}} in browser",
+    "copy": "Copy address",
+    "copyLabel": "Copy address of {{forward}}"
+  },
   "status": {
     "connecting": "connecting…",
     "readyVia": "ready via {{host}}",
