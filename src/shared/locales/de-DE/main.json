@@ -31,7 +31,16 @@
     "vaultOpen": {
       "title": "Shellherd-Vault auswählen"
     },
-    "vaultFilter": "Shellherd Vault"
+    "vaultFilter": "Shellherd Vault",
+    "importOpenSsh": {
+      "title": "OpenSSH-Konfiguration auswählen"
+    },
+    "importMRemoteNg": {
+      "title": "mRemoteNG-Verbindungsdatei auswählen"
+    },
+    "importKnownHosts": {
+      "title": "known_hosts-Datei auswählen"
+    }
   },
   "assistant": {
     "shells": {
@@ -48,7 +57,8 @@
       "goal": "Nennt der Nutzer ein Ziel, führe ihn Schritt für Schritt dorthin, jeweils mit dem nächsten Befehl.",
       "afterOutput": "Nach einer Befehlsausgabe: ein Satz Einordnung mit konkreten Werten, höchstens ein Halbsatz zu einem möglichen nächsten Schritt. Einen Befehl nur, solange ein genanntes Ziel offen ist; bei einem Fehler: Ursache in einem Satz, dann der korrigierte Befehl.",
       "danger": "Löschen, Überschreiben, Stoppen, Neustart: beginne mit „Achtung:“ und dem Risiko.",
-      "question": "Fehlt eine Angabe, stell genau eine kurze Rückfrage."
+      "question": "Fehlt eine Angabe, stell genau eine kurze Rückfrage.",
+      "masked": "Werte wie [SECRET_1] hat Shellherd vor dem Senden maskiert. Übernimm sie unverändert, rate sie nie und frag nicht nach ihnen."
     },
     "test": {
       "system": "Antworte nur mit dem Wort OK.",

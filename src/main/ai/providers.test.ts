@@ -98,11 +98,11 @@ describe('assistant service', () => {
     const stream = vi.fn(async (_provider: AiProvider, _request: unknown, onText: (text: string) => void) => { onText('Ant'); onText('wort'); });
     const service = new AssistantService({ settings: () => settings, emit: (_owner, event) => events.push(event), stream });
     const requestId = '00000000-0000-4000-8000-000000000001';
-    service.ask(1, { requestId, providerId: 'a', messages: request.messages, context: { shell: 'ssh', target: 'root@web' } });
+    service.ask(1, { requestId, conversationId: '00000000-0000-4000-8000-0000000000c1', providerId: 'a', messages: request.messages, context: { shell: 'ssh', target: 'root@web' } });
     await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: 'done', requestId }));
     expect(events.filter(event => event.type === 'delta').map(event => event.type === 'delta' && event.text).join('')).toBe('Antwort');
     expect(stream.mock.calls[0][0].id).toBe('a');
-    expect(() => service.ask(1, { requestId: 'x', providerId: 'missing', messages: request.messages, context: { shell: 'cmd', target: 'lokal' } })).toThrow(expect.objectContaining({ code: 'ai.noProvider' }));
+    expect(() => service.ask(1, { requestId: 'x', conversationId: '00000000-0000-4000-8000-0000000000c1', providerId: 'missing', messages: request.messages, context: { shell: 'cmd', target: 'lokal' } })).toThrow(expect.objectContaining({ code: 'ai.noProvider' }));
   });
 
   it('tells the model that terminal text is data and commands are never run', () => {
@@ -149,7 +149,7 @@ describe('assistant service', () => {
     await expect(service.test(provider({}))).rejects.toMatchObject({ code: 'ai.testFailed' });
     const events: AiEvent[] = [];
     const asker = new AssistantService({ settings: () => settings, emit: (_owner, event) => events.push(event), stream: failing });
-    asker.ask(1, { requestId: 'r1', messages: request.messages, context: { shell: 'cmd', target: 'lokal' } });
+    asker.ask(1, { requestId: 'r1', conversationId: '00000000-0000-4000-8000-0000000000c1', messages: request.messages, context: { shell: 'cmd', target: 'lokal' } });
     await vi.waitFor(() => expect(events.at(-1)).toEqual({ type: 'error', requestId: 'r1', error: { code: 'ai.requestFailed' } }));
   });
 });

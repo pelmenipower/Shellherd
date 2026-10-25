@@ -208,6 +208,8 @@ export interface AiProvider {
   baseUrl?: string;
   /** Azure only, e.g. 2024-10-21. */
   apiVersion?: string;
+  /** Absent or true: secrets are masked before sending; false only by the user's choice. */
+  maskSecrets?: boolean;
 }
 
 export interface AiSettings {
@@ -275,10 +277,22 @@ export interface WorkspaceSplit {
   second: WorkspaceLayout;
 }
 
+export type TerminalCursorStyle = 'block' | 'bar' | 'underline';
+export interface TerminalSettings {
+  /** One font name; '' = default chain. Fallbacks are always appended. */
+  fontFamily: string;
+  fontSize: number;
+  scrollback: number;
+  cursorStyle: TerminalCursorStyle;
+  cursorBlink: boolean;
+}
+
 export interface VaultSettings {
   theme: 'dark' | 'light' | 'system';
   autoLockMinutes: number;
   confirmBeforeClosingSession: boolean;
   /** Absent in older vaults: DEFAULT_TIMEOUTS apply. */
   timeouts?: ConnectionTimeouts;
+  /** Absent in older vaults: DEFAULT_TERMINAL_SETTINGS apply. */
+  terminal?: TerminalSettings;
 }

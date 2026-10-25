@@ -26,7 +26,7 @@
     "newFolder": "New folder",
     "folderMenu": "Actions for this folder",
     "path": "Path",
-    "pathHint": "Double-click: enter a path",
+    "pathHint": "Double-click or Ctrl+L: enter a path",
     "newFileRemote": "New file (opens in the editor afterwards, saving uploads it)",
     "renamePrompt": "Rename “{{name}}”",
     "create": "Create",
@@ -50,7 +50,17 @@
     "downloadButton": "← Download",
     "renameTitle": "Rename (F2)",
     "deleteTitle": "Delete (Del)",
-    "autoUpload": "Auto-upload"
+    "autoUpload": "Auto-upload",
+    "goTo": "Go to…",
+    "goToUnsupported": "This path is not supported.",
+    "filter": "Filter…",
+    "filterLabel": "Filter by name",
+    "filterPlaceholder": "Name contains…",
+    "filterClear": "Clear filter",
+    "showHidden": "Show hidden files",
+    "hideHidden": "Hide hidden files",
+    "hiddenCount": "{{hidden}} hidden",
+    "allHidden": "All entries are hidden."
   },
   "panel": {
     "openFolderFailed": "The folder could not be opened.",

@@ -27,7 +27,8 @@
     "closeTitle": "{{label}} schließen",
     "files": "{{name}} · Dateien",
     "logs": "Logs: {{label}}",
-    "previousLogs": "Vorherige Logs: {{label}}"
+    "previousLogs": "Vorherige Logs: {{label}}",
+    "activity": "Neue Ausgabe"
   },
   "panel": {
     "copyFailedTitle": "Nicht kopiert",
@@ -82,7 +83,8 @@
     "moveTab": "Aktiven Tab verschieben",
     "paneOption": "Bereich {{number}}",
     "toOwnView": "Als eigene Ansicht öffnen",
-    "resizeHint": "Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben. Tabs auf eine Ansicht oben ziehen, um sie dorthin zu verschieben."
+    "resizeHint": "Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben. Tabs auf eine Ansicht oben ziehen, um sie dorthin zu verschieben.",
+    "shortcutsHint": "Strg+Umschalt+F sucht im Terminal. Strg+Tab und Strg+Umschalt+Tab wechseln den Tab, Strg+Umschalt+T öffnet eine Verbindung, Strg+Umschalt+W schließt den Tab."
   },
   "tabMenu": {
     "label": "Aktionen für {{name}}"
@@ -202,7 +204,7 @@
     "hostkey-changed": {
       "title": "Server-Schlüssel hat sich geändert",
       "body": "Der Fingerprint stimmt nicht mit dem bestätigten überein. Shellherd hat die Verbindung abgebrochen.",
-      "next": "Kläre den Schlüsselwechsel mit dem Administrator, bevor du fortfährst."
+      "next": "Kläre den Schlüsselwechsel mit dem Administrator. Ist er gewollt, entferne den alten Schlüssel unter Einstellungen → Verbindungen → Server-Schlüssel verwalten und verbinde neu."
     },
     "hostkey-rejected": {
       "title": "Server-Schlüssel nicht bestätigt",
@@ -255,5 +257,28 @@
       "body": "Die Verbindung ist fehlgeschlagen.",
       "next": "Prüfe Host, Benutzer und Anmeldung."
     }
+  },
+  "search": {
+    "label": "Suche im Terminal",
+    "input": "Suchbegriff",
+    "placeholder": "Suchen",
+    "previous": "Vorheriger Treffer (Umschalt+Eingabe)",
+    "next": "Nächster Treffer (Eingabe)",
+    "close": "Suche schließen (Esc)",
+    "none": "Keine Treffer"
+  },
+  "links": {
+    "hintTarget": "Strg+Klick öffnet {{host}} im Browser",
+    "failedTitle": "Link nicht geöffnet",
+    "failed": "Der Link konnte nicht an den Browser übergeben werden."
+  },
+  "broadcast": {
+    "start": "Eingabe an alle Bereiche senden",
+    "stop": "Eingabe an alle Bereiche beenden",
+    "needsTwo": "Braucht mindestens zwei verbundene SSH- oder lokale Terminals in dieser Ansicht. Container-, Pod- und Remotedesktop-Tabs zählen nicht.",
+    "chip": "An alle",
+    "chipTitle": "Eingabe geht an {{number}} Terminals dieser Ansicht. Klicken beendet.",
+    "startedTitle": "Eingabe an alle Bereiche",
+    "startedBody": "Was du tippst, geht an {{number}} Terminals dieser Ansicht, bis du im Bereichskopf auf „An alle“ klickst."
   }
 }

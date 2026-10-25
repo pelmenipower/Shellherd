@@ -6,6 +6,8 @@ Alle Farben, Maße, Ebenen, Schatten und Bewegungswerte stehen in `src/renderer/
 
 **Shellherd ist ein dichtes, dunkles Ops-Werkzeug. Es bewegt sich fast nichts, was leuchtet, ist Kupfer, und was gefärbt ist, ist ein Zustand.**
 
+Dunkel ist der Standard. Das helle Theme tauscht nur Werte, nie Rollen: dieselben Tokens, dieselben Regeln.
+
 1. **Drei Flächenstufen, eine Linie.** Bühne `#0b1018` (Terminal, Code, Manifest), App-Grund `#0e141e` (Hintergrund, View-Leiste), Panel `#151d2a` (Leisten, Seitenleiste, Dialoge, Menüs), erhöht `#1c2635` (Controls, Zeilen-Hover), Hover `#253043`. Eine Linienfarbe `#2e3a4c`, eine stärkere `#4d5b70` für Hover-Ränder und aktive Tabs.
 2. **Kupfer ist das einzige Signal.** `#e8935a` steht für Fokus, aktive Tabs, Links, Auswahl-Rand, Fortschritt und Primärbutton. Ausgewählt (dauerhaft, Zeilen) ist **ein** opakes dunkles Kupfer `#2e2620`. Aktiv in View-Tabs, Menüfokus und Badges ist **eine** Tönung `rgb(232 147 90 / 14%)`. Hover auf Buttons, Tabs und Chips ist `--color-bg-hover`. Ein einzelnes Drop-Ziel bekommt 22 %, eine ganze Ablagefläche 6 %. Mehr Stufen gibt es nicht.
 3. **Ampel nur für Zustände.** Ein Grün `#4ade80`, ein Gelb `#facc15`, ein Rot `#fb7185` für Punkte und Icons. Gefahr-Text ist `#fda4af`, die Gefahr-Fläche `#341c25`, der Gefahr-Rand `#713442`. Nie dekorativ. **Kupfer ist nie ein Zustand, Gelb ist nie ein Akzent**: Kupfer bedeutet „hier bist du oder hier kannst du handeln“, Gelb bedeutet „Achtung, Zustand“. Ein Zustand steht nie auf einer Kupferfläche (Kontrast); deshalb behält der Punkt im „Gespeichert“-Label `currentColor`, und der Text trägt den Zustand. Zustandsflächen: Warnung `--color-warn-bg` `#2a2614`, Erfolg `--color-ok-bg` `#16261f`.
@@ -27,7 +29,7 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 | Name | Rolle | Wert | Beispiel |
 |---|---|---|---|
 | `--color-bg-stage` | Terminal, Code, Manifest | `#0b1018` | `.terminal-panel` |
-| `--color-bg-app` | Fensterhintergrund, View-Leiste | `#0e141e` | `body` |
+| `--color-bg-app` | Fensterhintergrund, View-Leiste (hell `#f1eee9`) | `#0e141e` | `body` |
 | `--color-bg-panel` | Leisten, Seitenleiste, Dialoge, Menüs | `#151d2a` | `.confirm-dialog` |
 | `--color-bg-raised` | Controls, Zeilen-Hover | `#1c2635` | `button` |
 | `--color-bg-hover` | Button-, Tab-Hover, „an“-Chips | `#253043` | `button:hover` |
@@ -40,6 +42,7 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 | `--color-backdrop` | Hintergrund hinter Dialogen | `rgb(5 8 13 / 72%)` | `.confirm-dialog::backdrop` |
 | `--color-border` | Standardlinie | `#2e3a4c` | Leistenränder |
 | `--color-border-strong` | Hover-Rand, aktiver Tab | `#4d5b70` | `button:hover` |
+| `--color-border-control` | Rand von Eingaben, mindestens 3:1 auf Eingabe und Panel | `#637389` | `input`, `select`, `textarea` |
 | `--color-text` | Text | `#ebe7e2` | Fließtext |
 | `--color-text-muted` | gedämpfter Text | `#aeb3bc` | Beschriftungen |
 | `--color-text-code` | Code-Text | `#e6e2dc` | Manifest |
@@ -59,6 +62,48 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 | `--color-danger-bg` | Gefahr-Fläche | `#341c25` | Gefahr-Button |
 | `--color-danger-bg-hover` | Gefahr-Fläche beim Hover | `#512333` | Gefahr-Button |
 | `--color-danger-border` | Gefahr-Rand | `#713442` | Gefahr-Button |
+
+### Helles Theme
+
+Main setzt `nativeTheme.themeSource` aus `settings.json`. Der Renderer liest das über `prefers-color-scheme`; der Block `@media (prefers-color-scheme: light)` in `tokens.css` setzt die hellen Werte, dunkel bleibt der Standard in `:root`. Die Tabelle nennt jeden hellen Wert mit seiner Begründung. Kontraste sind nach WCAG 2.x berechnet, gemischte Tönungen über `--color-bg-panel`. AA heißt 4,5:1 für Text und 3:1 für Punkte, Fokusring und Ränder von Controls.
+
+| Name | hell | Kontrast |
+|---|---|---|
+| `--color-bg-stage` | `#ffffff` | Bühne hell (R-B4); Code-Text 16,6, Text 17,5 |
+| `--color-bg-app` | `#f1eee9` | warmes Grau, Basis; Text 15,1, gedämpft 6,5 |
+| `--color-bg-panel` | `#f8f6f3` | Leisten/Dialoge heben sich hell vom App-Grund ab; Text 16,2, gedämpft 7,0, Akzent 6,2 |
+| `--color-bg-raised` | `#ebe7e1` | Controls/Zeilen-Hover eine Stufe dunkler als Panel; Text 14,2, gedämpft 6,2, Akzent 5,4, ok 5,4, Gefahr 5,3, warn 5,2 |
+| `--color-bg-hover` | `#e4dfd8` | Hover und „an“-Chips; Text 13,2, gedämpft 5,7, Akzenttext 5,0, ok 5,0, Gefahr 4,96, warn 4,8 |
+| `--color-bg-input` | `#ffffff` | Eingaben weiß wie die Bühne; Text 17,5 |
+| `--color-bg-selected` | `#f5dfcc` | ein opakes helles Kupfer; Text 13,6, gedämpft 5,9, Akzent 5,2 |
+| `--color-bg-active` | `rgb(148 70 26 / 12%)` | Tönung aus hellem Akzent, auf Panel ≈ `#ece1d9`; Text 13,6, Akzent 5,2 |
+| `--color-bg-drop` | `rgb(148 70 26 / 20%)` | ≈ `#e4d3c8`; Text 12,0, Akzent 4,6 |
+| `--color-bg-tint` | `rgb(148 70 26 / 6%)` | ≈ `#f2ebe6`; Text 16,0 |
+| `--color-overlay` | `rgb(0 0 0 / 5%)` | neutraler Hover nach dunkel statt nach hell; Text 14,6, gedämpft 6,3 |
+| `--color-backdrop` | `rgb(29 25 21 / 40%)` | dimmt, ohne den Dialog zu erschlagen; Sperrbildschirm nutzt opakes `--color-bg-app` (unberührt) |
+| `--color-border` | `#d6cfc6` | Haarlinie, Kontrast 1,43 auf Panel wie dunkel (1,47): Rolle „Linie“, kein alleiniger Control-Rand |
+| `--color-border-strong` | `#8a7f73` | Hover-Rand/aktiver Tab; 3,6 auf Panel, 3,2 auf erhöht (≥ 3:1, besser als dunkel 2,45) |
+| `--color-border-control` | `#857a6d` | Rand von Eingaben; 4,2 auf Weiß, 3,9 auf Panel (≥ 3:1) |
+| `--color-text` | `#1d1915` | warmes Fast-Schwarz; ≥ 11,9 auf jeder Fläche |
+| `--color-text-muted` | `#5a534b` | ≥ 5,2 auf jeder Fläche (kleinster Wert auf Drop-Tönung und Textauswahl), auf Hover 5,7 |
+| `--color-text-code` | `#221e1a` | 16,6 auf Bühne |
+| `--color-accent` | `#94461a` | Berner Kupfer, abgedunkelt: `#e8935a` hätte auf Weiß nur 2,4. Ton bleibt Kupfer (≈ 22°); Link/Text ≥ 5,0 auf Panel, erhöht und Hover, auf Drop-Tönung 4,6 (Panel) bzw. 4,3 (App-Grund), auf Textauswahl 4,6; Fokusring ≥ 3 überall |
+| `--color-accent-hover` | `#7a3a12` | hell wird Hover dunkler (mehr Gewicht); 8,0 auf Panel |
+| `--color-on-accent` | `#ffffff` | Text auf Primärknopf: 6,7 auf Akzent, 8,6 auf Akzent-Hover |
+| `--color-selection-bg` | `#f2cfb3` | Textauswahl und xterm-Auswahl, helles Kupfer |
+| `--color-selection-text` | `#1d1915` | 11,9 auf Auswahl |
+| `--color-ok` | `#116b34` | Text und Punkt; 6,1 Panel, 5,4 erhöht, 5,0 Hover |
+| `--color-warn` | `#765c00` | Oliv-Gelb (≈ 47°), bewusst weg vom Kupfer, damit „Gelb ist nie Akzent“ erkennbar bleibt; 5,9 Panel, 4,8 Hover, 5,7 auf Warn-Fläche |
+| `--color-warn-border` | `#d4b34a` | Rand einer Warnung, dekorativ wie dunkel |
+| `--color-warn-bg` | `#fbf3d5` | Warn-Fläche; Text 15,7 |
+| `--color-ok-bg` | `#e3f3e8` | Erfolgs-Fläche; Text 15,2, ok 5,75 |
+| `--color-danger` | `#b42318` | Gefahr-Text und Produktionslinie; 6,1 Panel, 5,3 erhöht, 5,75 auf Gefahr-Fläche |
+| `--color-danger-strong` | `#d92d20` | Punkte und Icons (3:1 genügt): 4,5 Panel, 3,65 Hover |
+| `--color-danger-text` | `#7a1a12` | Text auf Gefahr-Fläche 9,3, auf Hover 8,1 |
+| `--color-danger-bg` | `#fdeceb` | Gefahr-Fläche (Banner, Produktions-Chip); Text 15,3 |
+| `--color-danger-bg-hover` | `#fadad7` | Gefahr-Knopf beim Hover |
+| `--color-danger-border` | `#e59a93` | Gefahr-Rand, dekorativ wie dunkel |
+| `--shadow-overlay` | `0 10px 28px rgb(40 30 20 / 18%)` | 45 % Schwarz wäre auf Hell ein Fleck |
 
 ### Abstände (`--space-*`)
 
@@ -120,6 +165,8 @@ Die Meldungsdauern heißen bewusst nicht `--dur-*`, denn R4 begrenzt jedes `--du
 | `--bar-sm` | `24px` |
 | `--bar-md` | `32px` |
 | `--bar-lg` | `44px` |
+| `--import-list-max` | `320px` (Höhe der Vorschauliste im Import, danach scrollt sie) |
+| `--import-name-min` | `200px` (Basisbreite der Namensspalte in einer Import-Zeile, darunter bricht die Zeile um) |
 
 ### Kopplungen
 
@@ -241,10 +288,12 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 | Welcome-Liste, Release-Box | bei jedem leeren Workspace | nicht | kein Delight-Budget | – | – |
 | Spinner, Skelette | – | nicht einführen | Warteanzeigen sind Text und Punkt nach 400 ms | – | – |
 | Terminalausgabe, xterm-Cursor | – | nie | Terminal | xterm-Theme unangetastet | – |
+| Theme-Wechsel | selten, Einstellung oder Windows | nicht | Farbwechsel ist Zustand, kein Ereignis | – | – |
+| Liste ‚Zuletzt benutzt‘ (`.recent-vaults`) | beim Öffnen | nicht | Liste, Tastatur | – | – |
 
 ### Ausnahmeliste für das Druck-Feedback
 
-Das Druck-Feedback steht als eine einzige Regel am Ende von `styles.css`. Sie nimmt diese flachen Elemente per `:not()` aus: `:disabled`, `[role='tab']` (Terminal-Tab, View-Tab, Kube-Art, Dock-Tab), `[role='menuitem']`, `.tree-toggle`, `.tree-node-button`, `.root-row`, `.welcome-list button`, `.kube-crumb`, `.kube-link`, `.kube-filter-chip`, `.kube-node`, `.kube-dock-format button`, `.link-button`, `.version-button`, `.connection-picker-option`, `.workspace-definition-actions button`, `.workspace-current-actions button`, `.pane-layout-menu button`, `.file-row-head button` und `.file-path nav button`. Es gibt keine Override-Regel und damit keinen Spezifitätswettlauf, denn `styles.css` steht im Bundle zuletzt. Neue flache Druckelemente kommen in diese Liste.
+Das Druck-Feedback steht als eine einzige Regel am Ende von `styles.css`. Sie nimmt diese flachen Elemente per `:not()` aus: `:disabled`, `[role='tab']` (Terminal-Tab, View-Tab, Kube-Art, Dock-Tab), `[role='menuitem']`, `.tree-toggle`, `.tree-node-button`, `.root-row`, `.welcome-list button`, `.kube-crumb`, `.kube-link`, `.kube-filter-chip`, `.kube-node`, `.kube-dock-format button`, `.link-button`, `.version-button`, `.update-button`, `.connection-picker-option`, `.workspace-definition-actions button`, `.workspace-current-actions button`, `.pane-layout-menu button`, `.file-row-head button` , `.file-path nav button` und `.recent-vault-open`. Es gibt keine Override-Regel und damit keinen Spezifitätswettlauf, denn `styles.css` steht im Bundle zuletzt. Neue flache Druckelemente kommen in diese Liste.
 
 ## Meldungen
 
@@ -259,6 +308,8 @@ Drei Muster, je nach Ort der Ursache.
 Jede Meldung beantwortet Was, Warum und Was jetzt. Der Verbindungszustand liegt im Bereich: Verbindungskarte mit Schritten (`.connect-card`, nach 400 ms), Fehlerkarte (`.connect-error`) und Getrennt-Leiste (`.connect-closed`) mit „Neu verbinden“. Der Cluster zeigt das Neuverbinden in der Leiste `.kube-connbar` statt durch Ausgrauen.
 
 Die Leiste „Weiterleitungen“ (`.forward-bar`) steht unter der Ausgabe einer verbundenen SSH-Sitzung, mindestens `var(--control-sm)` hoch, ohne Bewegung.
+
+Die Suchleiste (`.terminal-search`) sitzt oben im Terminal-Panel und hat keine Bewegung. Der Link-Hinweis (`.terminal-link-hint`) erscheint unten rechts im Terminal, solange die Maus über einem Link steht, ohne Bewegung. Der Aktivitäts-Ring (`.tab-activity`) steht nach dem Namen eines nicht sichtbaren Tabs mit neuer Ausgabe, neutral in `--color-text` und mit fettem Namen, ohne Animation. „An alle“ (`.broadcast-chip`) und die Warn-Linie (`.pane-chrome.is-broadcast`) zeigen, dass die Eingabe an mehrere Bereiche geht. Gelb ist hier Zustand, nie Kupfer.
 
 ## Regeln für neues CSS
 
@@ -278,6 +329,7 @@ Die Leiste „Weiterleitungen“ (`.forward-bar`) steht unter der Ausgabe einer 
   - `ConnectionIcon.tsx:17`: die vom Nutzer gewählte Verbindungsfarbe (Daten).
   - `ConnectionForm.tsx:136`: der Startwert `#aeb3bc` für `input[type=color]`, der Hex braucht und `--color-text-muted` entspricht.
   - `terminal-theme.ts`: die xterm-Farben kommen aus den Tokens; die Fallbacks sind die Tokenwerte und werden vom Test geprüft.
+  - `src/main/index.ts`: `backgroundColor` des Fensters vor dem ersten Frame (`#0e141e` dunkel = `--color-bg-app`, `#f1eee9` hell).
 - Benannte Farben (`red`, `white` und so weiter) prüft der Lint nicht, sie sind trotzdem verboten.
 
 ## Prüfung
@@ -304,6 +356,7 @@ Der Test `src/renderer/src/design-tokens.test.ts` liest alle CSS-Dateien unter `
 - **R16:** `padding*`, `margin*` und `gap` enthalten als Literal nur 0, 1 px, negative Werte oder ab 48 px.
 - **R17:** `tokens.css` hält `--control-xs`, `--bar-sm`, `--bar-md`, `--bar-lg`, die zehn `--space-*` und `--dur-toast` auf ihren Werten und deklariert keine weiteren `--space-*`. Für `.app-status`, `.app-header` und `.view-bar` muss der Basisteil von `flex` bzw. `flex-basis` ein `var(--bar-*)` sein.
 - **R18:** Jeder `var(--name)` in einer Datei, die kein Token-File ist, muss in `tokens.css` deklariert sein. Ausnahmen sind in derselben Datei deklarierte Variablen und die Erlaubnisliste `INLINE_VARS` im Test für Variablen, die TSX per Inline-Style setzt (heute leer).
+- **R19:** Der helle Block in `tokens.css` deklariert jedes `--color-*` aus R9, dazu nur `color-scheme` und `--shadow-overlay`.
 
 Der Selbsttest `flags every rule` lintet eine Fixture mit je einem Verstoß, eine Negativ-Fixture muss 0 Treffer liefern.
 

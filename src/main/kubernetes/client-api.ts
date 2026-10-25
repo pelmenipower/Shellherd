@@ -3,7 +3,8 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { RequestOptions } from 'node:https';
 import { PassThrough, Writable } from 'node:stream';
-import { Exec, KubernetesObjectApi, Metrics, PatchStrategy, Watch } from '@kubernetes/client-node';
+import type { Duplex } from 'node:stream';
+import { Exec, KubernetesObjectApi, Metrics, PatchStrategy, PortForward, Watch } from '@kubernetes/client-node';
 import type { KubeConfig, KubernetesObject } from '@kubernetes/client-node';
 import { AppError } from '../../shared/errors';
 import type { CodedError, ErrorCode } from '../../shared/errors';
@@ -107,6 +108,85 @@ function forbiddenError(serverMessage: unknown): KubeApiError {
   if (!match) return new KubeApiError('Forbidden', 403, { code: 'kubernetes.forbidden' });
   return new KubeApiError(`Forbidden: ${match[2]}/${match[1]} in ${match[3]}`, 403,
     { code: 'kubernetes.forbiddenResource', params: { resource: match[2], verb: match[1], namespace: match[3] } });
+}
+
+/** Handshake failures of a port-forward WebSocket; ws reports only "Unexpected server response: <status>", without the body. */
+export function portForwardError(error: unknown, namespace: string, pod: string): KubeApiError {
+  const e = asRecord(error);
+  const message = [e.message, asRecord(e.error).message].find((text): text is string => typeof text === 'string') ?? '';
+  const status = Number(/Unexpected server response: (\d{3})/.exec(message)?.[1]);
+  if (status === 403) return new KubeApiError('Forbidden: pods/portforward', 403, { code: 'kubernetes.portForwardForbidden', params: { namespace } });
+  if (status === 404) return new KubeApiError('Pod not found', 404, { code: 'kubernetes.portForwardPodGone', params: { name: pod } });
+  if (status === 400) return new KubeApiError('Pod is not running', 400, { code: 'kubernetes.portForwardNotRunning', params: { name: pod } });
+  // ws wraps network and TLS failures in an ErrorEvent; the Error with its code sits in `error`.
+  return toApiError(Number.isFinite(status) ? { code: status } : e.error ?? error);
+}
+
+/** The parts of ws's WebSocket used here; client-node's own type is any because @types/ws is not installed. */
+interface ForwardSocket {
+  readonly bufferedAmount: number;
+  readonly isPaused: boolean;
+  on(event: 'close' | 'error', listener: () => void): unknown;
+  close(): void;
+  pause(): void;
+  resume(): void;
+  ping(data: undefined, mask: undefined, callback: () => void): void;
+}
+
+/** Unsent bytes a forward stream may hold before the local socket stops reading. */
+const FORWARD_HIGH_WATER = 1024 * 1024;
+
+/** Port forward over the API server (WebSocket, v4.channel.k8s.io): one stream per local connection, with back-pressure both ways. */
+async function openPortForward(config: KubeConfig, namespace: string, pod: string, port: number, socket: Duplex): Promise<void> {
+  let ws: ForwardSocket | undefined;
+  // Set once data has arrived: later error text then means a failed stream, not a refused port.
+  let delivered = false;
+  // Channel 1 carries the kubelet's error text (e.g. nothing listens on the port); the text itself is not passed on.
+  const errors = new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      if (chunk.length > 0) {
+        socket.destroy(delivered
+          ? new KubeApiError('The port forward failed', undefined, { code: 'kubernetes.portForwardFailed' })
+          : new KubeApiError('The pod refused the port', undefined, { code: 'kubernetes.portForwardRefused', params: { port } }));
+      }
+      callback();
+    },
+  });
+  // Pod to local: a slow local reader pauses the WebSocket instead of buffering the whole download in main.
+  const output = new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      if (chunk.length > 0) delivered = true;
+      // A closed local socket must not pause the stream again: the closing handshake has to be read.
+      if (!socket.writable) { callback(); return; }
+      if (!socket.write(chunk) && ws && !ws.isPaused) {
+        const paused = ws;
+        paused.pause();
+        socket.once('drain', () => paused.resume());
+      }
+      callback();
+    },
+  });
+  try {
+    ws = await new PortForward(config).portForward(namespace, pod, [port], output, errors, socket) as ForwardSocket;
+  } catch (error) {
+    throw portForwardError(error, namespace, pod);
+  }
+  const open = ws;
+  // end, not destroy: what the pod sent may still wait in the local socket's buffer.
+  open.on('close', () => socket.end(() => socket.destroy()));
+  open.on('error', () => socket.destroy());
+  // resume: a paused WebSocket could not read the closing handshake.
+  socket.once('close', () => { open.resume(); open.close(); });
+  // Local to pod: client-node sends without looking at the buffer; stop reading until the queued frames are written.
+  let waiting = false;
+  socket.on('data', () => {
+    if (waiting || open.bufferedAmount <= FORWARD_HIGH_WATER) return;
+    waiting = true;
+    socket.pause();
+    open.ping(undefined, undefined, () => { waiting = false; socket.resume(); });
+  });
+  if (socket.destroyed) { open.close(); return; }
+  socket.resume();
 }
 
 /** Runs one client call and rethrows its failure as a KubeApiError with a safe message. */
@@ -425,6 +505,10 @@ export function createKubeApi(config: KubeConfig): KubeApi {
     async openTerminal(target, size, io) {
       if (target.mode === 'shell') return openShell(config, target, size, io);
       return openLogs(config, target, io);
+    },
+
+    portForward(namespace, pod, port, socket) {
+      return openPortForward(config, namespace, pod, port, socket);
     },
   };
 }

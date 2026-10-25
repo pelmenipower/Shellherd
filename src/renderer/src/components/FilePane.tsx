@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent, MouseEvent } from 'react';
 import type { EditorChoice, FileEntry } from '../../../shared/sftp';
 import type { FileSide, SortKey, SortOrder } from '../file-browser';
@@ -6,13 +6,16 @@ import { useT } from '../i18n';
 import { ContextMenu } from './ContextMenu';
 import { isTypeaheadKey, typeahead } from '../file-typeahead';
 import type { Typeahead } from '../file-typeahead';
-import { formatDate, formatSize, isDirectory, joinPath, nameError, nextSelection, parentPath, pathSegments, sortEntries } from '../file-browser';
+import { formatDate, formatSize, isDirectory, joinPath, nameError, nameTaken, nextSelection, parentPath, pathSegments, resolveGoTo, sortEntries, visibleEntries } from '../file-browser';
+import { useShowHidden } from '../hooks/useShowHidden';
 
 export const FILES_MIME = 'application/x-shellherd-files';
 /** Drag payload between the two sides of one file tab. */
 export interface FileDrag { tabId: string; side: FileSide; dir: string; names: string[] }
 
 export interface FileListing { path: string | null; entries: FileEntry[]; loading: boolean; error: string | null }
+/** 'ok' listed; 'stale' not applied (a newer listing won, or no session); `error` failed and the folder stays. */
+export type GoToResult = 'ok' | 'stale' | { error: string };
 
 interface FilePaneProps {
   tabId: string;
@@ -27,6 +30,8 @@ interface FilePaneProps {
   drives?: string[];
   onActivate: () => void;
   onNavigate: (path: string) => void;
+  /** Lists a typed path; see GoToResult. */
+  onGoTo: (path: string) => Promise<GoToResult>;
   onRefresh: () => void;
   onMkdir: (path: string) => Promise<boolean>;
   onRename: (from: string, to: string) => Promise<boolean>;
@@ -54,7 +59,7 @@ const COLUMN_KEYS = {
   name: 'files:pane.name', size: 'files:pane.size', modified: 'files:pane.modified',
 } as const satisfies Record<SortKey, string>;
 
-export function FilePane({ tabId, side, title, listing, active, disabled, notice, home, drives, onActivate, onNavigate, onRefresh,
+export function FilePane({ tabId, side, title, listing, active, disabled, notice, home, drives, onActivate, onNavigate, onGoTo, onRefresh,
   onMkdir, onRename, onDelete, onCopy, onDrop, onEdit, onCreateFile, onPermissions, onAutoUpload, autoUploadHint }: FilePaneProps) {
   const { t, i18n } = useT();
   const [sort, setSort] = useState<SortOrder>({ key: 'name', ascending: true });
@@ -62,19 +67,28 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
   const [anchor, setAnchor] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
-  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [pathField, setPathField] = useState<{ value: string; error?: string } | null>(null);
+  const [filter, setFilter] = useState<string | null>(null);
+  const [showHidden, toggleHidden] = useShowHidden(side);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [toolsMenu, setToolsMenu] = useState<{ x: number; y: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const filterRef = useRef<HTMLInputElement>(null);
+  const pathErrorId = useId();
   const typeaheadRef = useRef<Typeahead | null>(null);
-  const entries = useMemo(() => sortEntries(listing.entries, sort), [listing.entries, sort, i18n.language]);
+  const sorted = useMemo(() => sortEntries(listing.entries, sort), [listing.entries, sort, i18n.language]);
+  // Everything the pane shows; selection, keys and drag work on this list only.
+  const entries = useMemo(() => visibleEntries(sorted, showHidden, filter ?? ''), [sorted, showHidden, filter]);
+  // Name checks (new, rename) look at the whole folder, so a hidden `.env` is never overwritten.
+  const allNames = useMemo(() => listing.entries.map(entry => entry.name), [listing.entries]);
+  const hiddenCount = listing.entries.length - entries.length;
   const names = useMemo(() => entries.map(entry => entry.name), [entries]);
   const path = listing.path;
   const parent = path ? parentPath(side, path) : null;
 
   // A new folder starts without selection; a refresh keeps what still exists.
-  useEffect(() => { setSelected([]); setAnchor(null); setCursor(null); setPrompt(null); typeaheadRef.current = null; }, [path]);
+  useEffect(() => { setSelected([]); setAnchor(null); setCursor(null); setPrompt(null); typeaheadRef.current = null; setFilter(null); setPathField(null); }, [path]);
   useEffect(() => {
     setSelected(current => current.filter(name => names.includes(name)));
     setCursor(current => current && names.includes(current) ? current : null);
@@ -102,17 +116,32 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
     setSelected(next.selected); setAnchor(next.anchor); setCursor(name);
   };
   const beginRename = (): void => { const [first] = targets(); if (first) setPrompt({ kind: 'rename', original: first, value: first }); };
+  const openPathField = (): void => { if (path && !disabled) setPathField({ value: path }); };
+  const openFilter = (): void => { if (filter === null) setFilter(''); else { filterRef.current?.focus(); filterRef.current?.select(); } };
+  const submitPath = async (): Promise<void> => {
+    if (!pathField || !path) return;
+    const value = pathField.value;
+    const target = resolveGoTo(side, value, path, home);
+    if (!target) { setPathField(null); listRef.current?.focus(); return; }
+    if ('unsupported' in target) { setPathField({ value, error: t('files:pane.goToUnsupported') }); return; }
+    const result = await onGoTo(target.path);
+    // Only the same open field is touched: closed meanwhile (blur) stays closed, a stale result changes nothing.
+    if (result === 'stale') return;
+    if (typeof result === 'object') { setPathField(current => current?.value === value ? { value, error: result.error } : current); return; }
+    setPathField(current => current?.value === value ? null : current);
+    listRef.current?.focus();
+  };
   const submitPrompt = async (): Promise<void> => {
     if (!prompt || !path) return;
     const error = nameError(side, prompt.value);
     if (error) { setPrompt({ ...prompt, error }); return; }
     const name = prompt.value.trim();
     if (prompt.kind === 'rename' && name === prompt.original) { setPrompt(null); return; }
-    if (names.includes(name)) { setPrompt({ ...prompt, error: t('files:names.exists') }); return; }
+    if (nameTaken(side, allNames, name, prompt.kind === 'rename' ? prompt.original : undefined)) { setPrompt({ ...prompt, error: t('files:names.exists') }); return; }
     const done = prompt.kind === 'mkdir' ? await onMkdir(joinPath(side, path, name))
       : prompt.kind === 'file' ? await onCreateFile(joinPath(side, path, name))
       : await onRename(joinPath(side, path, prompt.original), joinPath(side, path, name));
-    if (done) { setPrompt(null); setSelected([name]); setCursor(name); setAnchor(name); listRef.current?.focus(); }
+    if (done) { setPrompt(null); setSelected([name]); setCursor(name); setAnchor(name); setFilter(null); listRef.current?.focus(); }
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -139,6 +168,8 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
     else if (event.key === 'F9' && onPermissions) { handled(); permissions(targets()); }
     else if (event.key === 'F7') { handled(); setPrompt({ kind: 'mkdir', value: '' }); }
     else if (event.key === 'Delete') { handled(); const list = targets(); if (list.length) onDelete(fullPaths(list), list); }
+    else if (event.key.toLowerCase() === 'l' && event.ctrlKey && !event.altKey && !event.shiftKey) { handled(); openPathField(); }
+    else if (event.key.toLowerCase() === 'f' && event.ctrlKey && !event.altKey && !event.shiftKey) { handled(); openFilter(); }
     else if (event.key.toLowerCase() === 'a' && (event.ctrlKey || event.metaKey)) { handled(); setSelected(names); }
     else if (event.key.toLowerCase() === 'r' && event.ctrlKey) { handled(); onRefresh(); }
     else if (isTypeaheadKey(event) && !event.nativeEvent.isComposing) {
@@ -182,7 +213,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
   };
   const onDragStart = (event: DragEvent, name: string): void => {
     if (disabled || !path) { event.preventDefault(); return; }
-    const list = selected.includes(name) ? selected : [name];
+    const list = selected.includes(name) ? selected.filter(n => names.includes(n)) : [name];
     if (!selected.includes(name)) { setSelected([name]); setAnchor(name); setCursor(name); }
     const drag: FileDrag = { tabId, side, dir: path, names: list };
     event.dataTransfer.setData(FILES_MIME, JSON.stringify(drag));
@@ -221,16 +252,35 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
         </div>
       </header>
       <div className="file-path">
-        {editingPath !== null ? <form onSubmit={event => { event.preventDefault(); const value = editingPath.trim(); setEditingPath(null); if (value) onNavigate(value); }}>
-          <input autoFocus aria-label={t('files:pane.path')} value={editingPath} spellCheck={false} onChange={event => setEditingPath(event.target.value)}
-            onBlur={() => setEditingPath(null)} onKeyDown={event => { if (event.key === 'Escape') setEditingPath(null); }} />
-        </form> : <nav aria-label={t('files:pane.path')} onDoubleClick={() => path && setEditingPath(path)} title={t('files:pane.pathHint')}>
+        {pathField ? <form onSubmit={event => { event.preventDefault(); void submitPath(); }}>
+          <input autoFocus aria-label={t('files:pane.path')} value={pathField.value} spellCheck={false}
+            aria-invalid={!!pathField.error || undefined} aria-describedby={pathField.error ? pathErrorId : undefined}
+            onChange={event => setPathField({ value: event.target.value })}
+            onBlur={() => setPathField(null)} onKeyDown={event => { if (event.key === 'Escape') { setPathField(null); listRef.current?.focus(); } }} />
+        </form> : <nav aria-label={t('files:pane.path')} onDoubleClick={openPathField} title={t('files:pane.pathHint')}>
           {path && pathSegments(side, path).map((segment, index, all) => <span key={segment.path}>
             <button type="button" disabled={disabled || index === all.length - 1} onClick={() => onNavigate(segment.path)}>{segment.label}</button>
             {index < all.length - 1 && segment.label !== '/' && <span aria-hidden="true">{side === 'remote' ? '/' : '\\'}</span>}
           </span>)}
         </nav>}
+        {pathField?.error && <p id={pathErrorId} className="field-error" role="alert">{pathField.error}</p>}
       </div>
+      {filter !== null && <div className="file-path file-filter">
+        <input ref={filterRef} autoFocus type="text" spellCheck={false} maxLength={256} value={filter}
+          aria-label={t('files:pane.filterLabel')} placeholder={t('files:pane.filterPlaceholder')}
+          onChange={event => setFilter(event.target.value)}
+          onBlur={() => { if (!filter) setFilter(null); }}
+          onKeyDown={event => {
+            if (event.key === 'Escape') { event.preventDefault(); setFilter(null); listRef.current?.focus(); }
+            else if (event.key === 'Enter' || event.key === 'ArrowDown') {
+              event.preventDefault();
+              if (!cursor && names[0]) { setSelected([names[0]]); setAnchor(names[0]); setCursor(names[0]); }
+              listRef.current?.focus();
+            }
+          }} />
+        <button type="button" aria-label={t('files:pane.filterClear')} title={t('files:pane.filterClear')}
+          onClick={() => { setFilter(null); listRef.current?.focus(); }}>×</button>
+      </div>}
       {prompt && <form className="file-prompt" onSubmit={event => { event.preventDefault(); void submitPrompt(); }}>
         <label>{prompt.kind === 'mkdir' ? t('files:pane.newFolder') : prompt.kind === 'file' ? (side === 'remote' ? t('files:pane.newFileRemote') : t('files:pane.newFile')) : t('files:pane.renamePrompt', { name: prompt.original })}
           <input autoFocus value={prompt.value} spellCheck={false} aria-invalid={!!prompt.error || undefined}
@@ -276,7 +326,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
             {side === 'remote' && <span role="gridcell" className="file-mode">{entry.permissions ?? ''}</span>}
           </div>;
         })}
-        {!listing.loading && !entries.length && !listing.error && <p className="file-empty">{t('files:pane.empty')}</p>}
+        {!listing.loading && !entries.length && !listing.error && <p className="file-empty">{listing.entries.length ? t('files:pane.allHidden') : t('files:pane.empty')}</p>}
       </div>}
       {menu && <ContextMenu x={menu.x} y={menu.y} label={t('files:pane.menu', { title })} onClose={() => setMenu(null)} entries={[
         ...(menuFolder ? [{ kind: 'item' as const, label: t('common:actions.open'), hint: t('files:pane.enterHint'), onSelect: () => open(menuFolder) }] : []),
@@ -306,6 +356,10 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
       {toolsMenu && <ContextMenu x={toolsMenu.x} y={toolsMenu.y} label={t('files:pane.folderMenu')} onClose={() => setToolsMenu(null)} entries={[
         { kind: 'item', label: t('files:pane.newFile'), hint: `${t('common:keys.shift')}+F4`, onSelect: () => setPrompt({ kind: 'file', value: '' }) },
         { kind: 'item', label: t('files:pane.newFolder'), hint: 'F7', onSelect: () => setPrompt({ kind: 'mkdir', value: '' }) },
+        { kind: 'separator' },
+        { kind: 'item', label: t('files:pane.goTo'), hint: `${t('common:keys.ctrl')}+L`, onSelect: openPathField },
+        { kind: 'item', label: t('files:pane.filter'), hint: `${t('common:keys.ctrl')}+F`, onSelect: openFilter },
+        { kind: 'item', label: showHidden ? t('files:pane.hideHidden') : t('files:pane.showHidden'), onSelect: toggleHidden },
         ...(side === 'local' && onAutoUpload && path ? [
           { kind: 'separator' as const },
           // Always the folder shown in this pane, regardless of the selection.
@@ -314,7 +368,8 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
       ]} />}
       <footer className="file-pane-footer">
         <span>{selected.length ? (selectedBytes ? t('files:pane.selectedSize', { selected: selected.length, total: entries.length, size: formatSize(selectedBytes) })
-          : t('files:pane.selected', { selected: selected.length, total: entries.length })) : t('files:transfer.entries', { count: entries.length })}</span>
+          : t('files:pane.selected', { selected: selected.length, total: entries.length })) : t('files:transfer.entries', { count: entries.length })}
+          {hiddenCount > 0 && ` · ${t('files:pane.hiddenCount', { hidden: hiddenCount })}`}</span>
         <span className="file-pane-actions">
           <button type="button" disabled={disabled || !targets().length} title={side === 'local' ? t('files:pane.copyToServer') : t('files:pane.copyToComputer')} onClick={() => onCopy(fullPaths(targets()), false)}>
             {side === 'local' ? t('files:pane.uploadButton') : t('files:pane.downloadButton')}</button>

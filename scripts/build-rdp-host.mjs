@@ -1,7 +1,7 @@
 // Builds the native RDP helper with the C# compiler that ships with Windows (.NET Framework 4.8).
 // No SDK, NuGet or Visual Studio required.
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,12 +27,25 @@ const references = ['System.dll', 'System.Core.dll', 'System.Drawing.dll', 'Syst
   'System.Web.Extensions.dll', 'Microsoft.CSharp.dll'];
 const sources = readdirSync(source).filter(file => file.endsWith('.cs')).sort().map(file => join(source, file));
 
+const executable = join(outputDir, 'Shellherd.RdpHost.exe');
+const builtAt = existsSync(executable) ? statSync(executable).mtimeMs : 0;
+// Up to date: no csc run, so a Shellherd with an open RDP session does not break `npm run dev` (CS0016).
+if (builtAt > 0 && [...sources, join(source, 'app.manifest'), fileURLToPath(import.meta.url)].every(file => statSync(file).mtimeMs <= builtAt)) {
+  console.log(`RDP-Helfer ist aktuell: ${executable}`);
+  process.exit(0);
+}
+
 mkdirSync(outputDir, { recursive: true });
-execFileSync(csc, [
-  '/nologo', '/noconfig', '/target:winexe', '/platform:x64', '/optimize+', '/warnaserror+',
-  `/win32manifest:${join(source, 'app.manifest')}`,
-  ...references.map(reference => `/reference:${join(framework, reference)}`),
-  `/out:${join(outputDir, 'Shellherd.RdpHost.exe')}`,
-  ...sources,
-], { stdio: 'inherit' });
-console.log(`RDP-Helfer gebaut: ${join(outputDir, 'Shellherd.RdpHost.exe')}`);
+try {
+  execFileSync(csc, [
+    '/nologo', '/noconfig', '/target:winexe', '/platform:x64', '/optimize+', '/warnaserror+',
+    `/win32manifest:${join(source, 'app.manifest')}`,
+    ...references.map(reference => `/reference:${join(framework, reference)}`),
+    `/out:${executable}`,
+    ...sources,
+  ], { stdio: 'inherit' });
+} catch {
+  console.error('RDP-Helfer nicht gebaut. Hält ein laufendes Shellherd die Datei offen, Shellherd beenden und erneut bauen oder mit --out <Ordner> woanders bauen.');
+  process.exit(1);
+}
+console.log(`RDP-Helfer gebaut: ${executable}`);

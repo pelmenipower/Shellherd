@@ -5,7 +5,7 @@ import {
   ipcMain,
 } from 'electron';
 import { basename, join } from 'node:path';
-import { LastVaultFile } from './last-vault';
+import { RecentVaults } from './recent-vaults';
 
 import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
@@ -13,9 +13,14 @@ import { mainT } from '../i18n';
 import { toVaultAppError } from './ipc-error';
 import { vaultWriteCode } from '../../shared/vault/write-errors';
 import { VaultSessionManager, resumesLocked } from './session';
-import { saveVault } from './storage';
+import { droppedVaultPath, vaultPathAllowed, vaultPathGrants } from './path-grants';
+import { readEncryptedVaultFile, saveVault } from './storage';
+import { HelloVaults } from './hello';
+import { createHelloSigner } from './hello-helper';
 
+import type { LockedVault, VaultSessionSnapshot } from './session';
 import type {
+  HelloUnlockRequest,
   LockVaultRequest,
   SaveVaultRequest,
   SaveVaultResult,
@@ -61,8 +66,38 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
       }
     });
   };
-  const lastVault = new LastVaultFile(join(app.getPath('userData'), 'last-vault.json'));
-  handle(IPC_CHANNELS.lastVaultFile, () => lastVault.get());
+  const recent = new RecentVaults(join(app.getPath('userData'), 'settings.json'), join(app.getPath('userData'), 'last-vault.json'));
+  // Packaged builds ship the helper as an extra resource, like the RDP helper.
+  const hello = new HelloVaults(join(app.getPath('userData'), 'hello-unlock.json'), createHelloSigner(
+    app.isPackaged ? join(process.resourcesPath, 'hello', 'Shellherd.Hello.exe') : join(__dirname, '../hello/Shellherd.Hello.exe'),
+    app.isPackaged));
+  // Renderer paths are untrusted: a UNC path alone would send the Windows login hash to its server.
+  const requireAllowedPath = async (filePath: string, previous: LockedVault | undefined): Promise<void> => {
+    if (!await vaultPathAllowed(filePath, vaultPathGrants, previous?.filePath, path => recent.has(path))) {
+      throw new AppError('core.vaultPathNotAllowed');
+    }
+  };
+  // Shared end of every unlock (password or Windows Hello).
+  const finishUnlock = async (previous: LockedVault | undefined, snapshot: VaultSessionSnapshot): Promise<UnlockVaultResult> => {
+    await recent.touch(snapshot.filePath);
+    if (!resumesLocked(previous, snapshot)) onSessionChange();
+    onUnlock();
+    onVaultChange();
+    return { filePath: snapshot.filePath, vault: snapshot.vault };
+  };
+  handle(IPC_CHANNELS.lastVaultFile, () => recent.latest());
+  handle(IPC_CHANNELS.recentVaults, () => recent.list());
+  handle(IPC_CHANNELS.removeRecentVault, async (_event, id: unknown) => {
+    const list = await recent.remove(id);
+    hello.forgetRecent(id);
+    return list;
+  });
+  handle(IPC_CHANNELS.vaultDropFile, (_event, raw: unknown) => {
+    const filePath = droppedVaultPath(raw);
+    if (!filePath) throw new AppError('core.vaultPathNotAllowed');
+    vaultPathGrants.grant(filePath);
+    return filePath;
+  });
 
   handle(IPC_CHANNELS.selectPrivateKeyFile, async (event): Promise<SelectVaultFileResult> => {
     vaultSessionManager.getSnapshot();
@@ -111,12 +146,14 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
         request.vault,
         request.password,
       );
+      // A new vault file has a new salt: a stored Hello key for this path can never fit.
+      hello.forgetQuietly(filePath);
 
       await vaultSessionManager.unlock(
         filePath,
         request.password,
       );
-      await lastVault.set(filePath);
+      await recent.touch(filePath);
 
       onSessionChange();
       onUnlock();
@@ -136,7 +173,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
       const options: OpenDialogOptions = {
         title: mainT('dialogs.vaultOpen.title'),
         // Starts in the folder of the last vault; any other file can still be picked.
-        ...(await lastVault.get().then(last => last ? { defaultPath: last } : {})),
+        ...(await recent.latest().then(last => last ? { defaultPath: last } : {})),
         properties: ['openFile'],
         filters: [
           {
@@ -156,6 +193,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
         return { canceled: true };
       }
 
+      vaultPathGrants.grant(filePath);
       return {
         canceled: false,
         filePath,
@@ -180,21 +218,45 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
       }
 
       const previous = vaultSessionManager.lockedVault();
-      const snapshot = await vaultSessionManager.unlock(
-        request.filePath,
-        request.password,
-      );
-      await lastVault.set(snapshot.filePath);
-
-      if (!resumesLocked(previous, snapshot)) onSessionChange();
-      onUnlock();
-      onVaultChange();
-      return {
-        filePath: snapshot.filePath,
-        vault: snapshot.vault,
-      };
+      await requireAllowedPath(request.filePath, previous);
+      return finishUnlock(previous, await vaultSessionManager.unlock(request.filePath, request.password));
     },
   );
+
+  handle(IPC_CHANNELS.helloStatus, (_event, filePath: unknown) => {
+    if (typeof filePath !== 'string' || filePath.length === 0 || filePath.length > 4096) throw new AppError('core.invalidRequest');
+    return hello.status(filePath);
+  });
+  handle(IPC_CHANNELS.helloEnable, () => {
+    const { filePath, salt } = vaultSessionManager.helloTarget();
+    // The key is copied only after the prompt: a lock during the prompt leaves no copy behind and stores nothing.
+    return hello.enable(filePath, salt, () => vaultSessionManager.keyCopy(filePath, salt));
+  });
+  handle(IPC_CHANNELS.helloDisable, () => {
+    const { filePath } = vaultSessionManager.helloTarget();
+    hello.forget(filePath);
+    return hello.status(filePath);
+  });
+  handle(IPC_CHANNELS.helloUnlock, async (_event, request: HelloUnlockRequest | undefined): Promise<UnlockVaultResult> => {
+    const filePath = request?.filePath;
+    if (typeof filePath !== 'string' || filePath.length === 0 || filePath.length > 4096) throw new AppError('core.vaultFileMissing');
+    const previous = vaultSessionManager.lockedVault();
+    await requireAllowedPath(filePath, previous);
+    const file = await readEncryptedVaultFile(filePath);
+    const key = await hello.unwrap(filePath, file.kdf.salt);
+    let snapshot: VaultSessionSnapshot;
+    try {
+      snapshot = vaultSessionManager.openWithKey(filePath, file, key);
+    } catch (error) {
+      // Same salt, but the key does not open the file: the stored key is useless.
+      if (error instanceof AppError && error.code === 'core.wrongPassword') {
+        hello.forgetQuietly(filePath);
+        throw new AppError('core.helloStale');
+      }
+      throw error;
+    }
+    return finishUnlock(previous, snapshot);
+  });
 
   handle(
     IPC_CHANNELS.saveCurrentVault,
@@ -213,7 +275,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
         throw code ? new AppError(code) : error;
       }
       // save may have renamed the file (extension added), so the stored path must follow.
-      await lastVault.set(result.filePath);
+      await recent.touch(result.filePath);
       onVaultChange();
       return result;
     },

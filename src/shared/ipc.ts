@@ -11,7 +11,10 @@ import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditR
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
-import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
+import type { ImportReadResult, ImportSource } from './import';
+import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeForwardStartRequest, KubeForwardStatus, KubeForwardStopRequest, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
+import type { ThemeSetting } from './theme';
+import type { KnownHostsImportReply, KnownHostView } from './known-hosts';
 
 /** Sent to every window when the vault locks; without minutes = manual lock. */
 export interface VaultLockedInfo { minutes?: number }
@@ -98,6 +101,16 @@ export const IPC_CHANNELS = {
   closeSecondaryWindows: 'window:close-secondaries',
   vaultLaunchFile: 'vault:launch-file',
   lastVaultFile: 'vault:last-file',
+  recentVaults: 'vault:recent-list',
+  removeRecentVault: 'vault:recent-remove',
+  vaultDropFile: 'vault:drop-file',
+  knownHostsList: 'known-hosts:list',
+  knownHostsRemove: 'known-hosts:remove',
+  knownHostsImport: 'known-hosts:import',
+  helloStatus: 'vault:hello-status',
+  helloEnable: 'vault:hello-enable',
+  helloDisable: 'vault:hello-disable',
+  helloUnlock: 'vault:hello-unlock',
   connectionTest: 'connection:test',
   containersList: 'containers:list',
   containersAction: 'containers:action',
@@ -115,13 +128,22 @@ export const IPC_CHANNELS = {
   fileTypeUnregister: 'app:file-type-unregister',
   appGetLanguage: 'app:get-language',
   appSetLanguage: 'app:set-language',
+  appGetTheme: 'app:get-theme',
+  appSetTheme: 'app:set-theme',
   appLocaleChanged: 'app:locale-changed',
+  openExternal: 'app:open-external',
+  importRead: 'import:read',
+  updateStatus: 'app:update-status',
+  updateSetEnabled: 'app:update-set-enabled',
+  updateSkip: 'app:update-skip',
   kubeOpen: 'k8s:open',
   kubeSubscribe: 'k8s:subscribe',
   kubeDetail: 'k8s:detail',
   kubeAction: 'k8s:action',
   kubeClose: 'k8s:close',
   kubeProbe: 'k8s:probe',
+  kubeForwardStart: 'k8s:forward-start',
+  kubeForwardStop: 'k8s:forward-stop',
   kubeEvent: 'k8s:event',
 } as const;
 
@@ -168,9 +190,28 @@ export type SaveVaultResult =
       filePath: string;
     };
 
+/** Version check state for the main window; see docs/superpowers/specs/2026-10-24-import-update-design.md. */
+export interface UpdateStatus { enabled: boolean; current: string; available: { version: string; url: string } | null }
+
+/** One entry of the open screen list. filePath is for display and for the existing unlockVault; the list itself only changes in main. */
+export interface RecentVault { id: string; filePath: string; name: string; folder: string; openedAt: number; missing: boolean }
+
+/** Windows Hello for one vault path on this device: available = Windows Hello is set up; enrolled = a wrapped key is stored for the path. */
+export interface HelloStatus { available: boolean; enrolled: boolean }
+
+export interface HelloUnlockRequest { filePath: string }
+
 export interface DesktopApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
+  /** Opens an http(s) link in the default browser; main validates it again. */
+  openExternal: (url: string) => Promise<void>;
+  /** Opens the source after a click: file dialog (OpenSSH) or registry export (PuTTY). Main window, unlocked vault. */
+  importRead: (source: ImportSource) => Promise<ImportReadResult>;
+  /** Runs the check when enabled and due (at most every 24 h), else returns the stored state. */
+  updateStatus: () => Promise<UpdateStatus>;
+  updateSetEnabled: (enabled: boolean) => Promise<UpdateStatus>;
+  updateSkip: (version: string) => Promise<UpdateStatus>;
   sshPrepare: (request: SshPrepareRequest) => Promise<{ sessionId: string }>;
   sshConnect: (request: SshSessionRequest) => Promise<void>;
   sshInput: (request: SshInputRequest) => Promise<void>;
@@ -200,6 +241,9 @@ export interface DesktopApi {
   kubeClose: (request: KubeViewRequest) => Promise<void>;
   /** Reads contexts of the kubeconfig on an SSH host; never returns the config itself. */
   kubeProbe: (request: KubeProbeRequest) => Promise<KubeProbeResult>;
+  /** Listens on 127.0.0.1 only and forwards to a pod or service port of the view's cluster; resolves with the running forward. */
+  kubeForwardStart: (request: KubeForwardStartRequest) => Promise<KubeForwardStatus>;
+  kubeForwardStop: (request: KubeForwardStopRequest) => Promise<void>;
   onKubeEvent: (listener: (event: KubeEvent) => void) => () => void;
   sftpOpen: (request: SftpOpenRequest) => Promise<{ sessionId: string }>;
   sftpHome: (request: SftpSessionRequest) => Promise<string>;
@@ -255,6 +299,28 @@ export interface DesktopApi {
   vaultLaunchFile: () => Promise<string | null>;
   /** Path of the vault opened last, if the file still exists; preselected on the open screen. */
   lastVaultFile: () => Promise<string | null>;
+  /** Newest first, at most 8. Main window only. */
+  recentVaults: () => Promise<RecentVault[]>;
+  /** Removes one entry by id and returns the new list; the file itself is untouched. */
+  removeRecentVault: (id: string) => Promise<RecentVault[]>;
+  /** Main checks a dropped vault path (local drives only) and returns it normalized; rejects with core.vaultPathNotAllowed. */
+  dropVaultFile: (filePath: string) => Promise<string>;
+  knownHostsList: () => Promise<KnownHostView[]>;
+  knownHostsRemove: (id: string) => Promise<KnownHostView[]>;
+  /** Native file dialog, then import; nothing is read without that click. */
+  knownHostsImport: () => Promise<KnownHostsImportReply>;
+  /** Never prompts and never reads the vault file. Main window only. */
+  helloStatus: (filePath: string) => Promise<HelloStatus>;
+  /** Prompts Windows Hello and stores the key of the unlocked vault for this device; rejects with core.helloCanceled and other codes. */
+  helloEnable: () => Promise<HelloStatus>;
+  /** Deletes the stored key of the unlocked vault; no prompt. */
+  helloDisable: () => Promise<HelloStatus>;
+  /** Same path checks and result as unlockVault, with Windows Hello instead of the password. */
+  helloUnlock: (request: HelloUnlockRequest) => Promise<UnlockVaultResult>;
+  /** Stored colour scheme (default 'dark'). Main window only. */
+  getTheme: () => Promise<ThemeSetting>;
+  /** Persists first, then applies to all windows; throws core.settingsWriteFailed. */
+  setTheme: (setting: ThemeSetting) => Promise<ThemeSetting>;
   /** Dry run of a possibly unsaved connection. */
   connectionTest: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
   /** Probes an SSH connection or this computer for Docker and Podman and lists Proxmox guests; always fresh. */

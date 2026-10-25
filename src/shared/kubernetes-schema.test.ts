@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GROUP_BY_IDS, KUBE_NAME, manualJobName, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH } from './kubernetes';
-import { KubeActionRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
+import { KubeActionRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
 
 describe('kubernetes schemas', () => {
   it('accepts a namespaced ref and rejects bad names', () => {
@@ -104,5 +104,34 @@ describe('manualJobName', () => {
   it('gives different names for different times', () => {
     const cron = 'a'.repeat(52);
     expect(manualJobName(cron, 1760000000)).not.toBe(manualJobName(cron, 1760000001));
+  });
+});
+
+describe('port-forward requests', () => {
+  const viewId = '6f1c2b0e-8a4d-4c1e-9f3a-2b7d5e8c9a10';
+  const target = { kind: 'pods', namespace: 'shop', name: 'api-1', port: 8080 };
+  const start = (patch: Record<string, unknown> = {}, targetPatch: Record<string, unknown> = {}) =>
+    KubeForwardStartRequestSchema.safeParse({ viewId, target: { ...target, ...targetPatch }, localPort: 0, ...patch }).success;
+
+  it('accepts a pod or service target and any local port from 0', () => {
+    expect(start()).toBe(true);
+    expect(start({ localPort: 65_535 }, { kind: 'services', port: 1 })).toBe(true);
+  });
+
+  it('rejects other kinds, bad ports, bad names and extra fields such as a bind address', () => {
+    expect(start({}, { kind: 'deployments' })).toBe(false);
+    expect(start({}, { port: 0 })).toBe(false);
+    expect(start({}, { port: 65_536 })).toBe(false);
+    expect(start({ localPort: -1 })).toBe(false);
+    expect(start({ localPort: 1.5 })).toBe(false);
+    expect(start({}, { namespace: 'A_B' })).toBe(false);
+    expect(start({ bind: '0.0.0.0' })).toBe(false);
+    expect(start({}, { host: '0.0.0.0' })).toBe(false);
+    expect(start({ viewId: 'v1' })).toBe(false);
+  });
+
+  it('stops only by uuid', () => {
+    expect(KubeForwardStopRequestSchema.safeParse({ viewId, forwardId: viewId }).success).toBe(true);
+    expect(KubeForwardStopRequestSchema.safeParse({ viewId, forwardId: 'f1' }).success).toBe(false);
   });
 });

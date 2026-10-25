@@ -4,6 +4,61 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.27.0] – 2026-10-25
+
+- Neu: Port-Weiterleitung zu Pods und Services. Rechtsklick im Cluster-Tab → `Port weiterleiten…` wählt den Port und den lokalen Port. Die Leiste „Weiterleitungen“ unten im Cluster-Tab zeigt die Weiterleitungen mit `Im Browser öffnen`, `Adresse kopieren` und `Stoppen`. Ein Service geht an einen bereiten Pod und findet nach einem Rollout von selbst den nächsten.
+- Sicherheit: Weiterleitungen lauschen nur auf 127.0.0.1, leben nur so lange wie ihr Cluster-Tab und werden nicht gespeichert. Shellherd ändert dafür nichts im Cluster, auch „Nur lesen“ erlaubt sie. Nötig ist das Recht `create` auf `pods/portforward`.
+
+## [0.26.0] – 2026-10-25
+
+- Neu: Windows Hello. Einstellungen → Vault → `Mit Windows Hello entsperren (PIN, Gesicht oder Fingerabdruck)` schaltet es je Vault und Gerät ein. Danach entsperrt `Mit Windows Hello entsperren` den Sperrbildschirm, auch nach der automatischen Sperre, und `Mit Windows Hello öffnen` öffnet die Datei in `Vault öffnen`, auch nach einem Neustart. Das Passwort funktioniert immer weiter.
+- Sicherheit: Shellherd speichert dafür nie das Passwort, sondern den Vault-Schlüssel, verschlüsselt mit einem Schlüssel, den nur eine Windows-Hello-Signatur erzeugt (mit TPM im Sicherheitschip). Eine ersetzte Vault-Datei oder ein neu eingerichtetes Windows Hello macht ihn ungültig; `×` unter `Zuletzt benutzt` löscht ihn.
+
+## [0.25.0] – 2026-10-25
+
+- Sicherheit: Der KI-Assistent maskiert Geheimnisse, bevor etwas an den Anbieter geht: Passwörter, Passphrasen und API-Schlüssel aus dem Vault, private Schlüssel, `password=`- und `secret:`-Werte, Passwörter in Adressen, Bearer- und Basic-Header, Schlüssel von AWS, GitHub, GitLab, Slack, Stripe, npm, OpenAI, Anthropic, Google und Azure, Passwörter in `.netrc` und `ConvertTo-SecureString`, JWTs und die Daten von Kubernetes-Secrets. Derselbe Wert behält im Verlauf denselben Platzhalter (`[SECRET_1]`), echte Werte setzt Shellherd nie zurück in Antworten oder Befehle.
+- Neu: Unter der Frage steht, wie viele vertrauliche Werte maskiert wurden. Befehle mit Platzhalter tragen einen Hinweis. Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, und lässt sich je Anbieter abschalten.
+- Behoben: Der Assistent liest umbrochene Terminalzeilen als eine Zeile und kürzt lange Ausgaben nur an Zeilengrenzen.
+
+## [0.24.0] – 2026-10-25
+
+- Neu: Einstellungen → Verbindungen → `Server-Schlüssel verwalten` listet alle bestätigten und importierten Server-Schlüssel mit SHA-256-Fingerprint, mit Suche und `Entfernen`. Ein gewollter Schlüsselwechsel lässt sich so annehmen.
+- Neu: Import aus OpenSSH `known_hosts`, auch mit gehashten Namen, `[host]:port` und mehreren Schlüsseltypen. `@revoked` wird beachtet, `@cert-authority` und Muster werden übersprungen. In Shellherd bestätigte Schlüssel ändert der Import nie.
+- Sicherheit: Während der Sperre sind alle Shellherd-Fenster aus Bildschirmaufnahmen und -freigaben herausgenommen.
+- Sicherheit: Shellherd öffnet Vault-Dateien nur aus dem Dateidialog, dem Explorer, `Zuletzt benutzt` oder per Ziehen von einem lokalen Laufwerk. Netzwerkpfade aus anderen Quellen werden abgelehnt.
+
+## [0.23.0] – 2026-10-25
+
+- Neu: Pfadfeld in der Dateiansicht mit `Strg+L`, auch über ⚙ → `Gehe zu …`; der Doppelklick geht wie bisher. Es versteht `~`, Pfade ab dem aktuellen Ordner und lokal `/` statt `\`. Fehler wie „Die Datei oder der Ordner wurde nicht gefunden.“ oder „Das ist kein Ordner.“ stehen am Feld, der bisherige Ordner bleibt.
+- Neu: Filter nach Name mit `Strg+F` in der Dateiliste, je Seite. Er prüft „enthält“, ohne Groß- und Kleinschreibung, und endet beim Ordnerwechsel. Kopieren, Verschieben, Löschen und `Strg+A` wirken nur auf sichtbare Einträge.
+- Neu: ⚙ → `Versteckte Dateien ausblenden/anzeigen`, je Seite, für Namen mit Punkt am Anfang. Standard bleibt: alles anzeigen. Die Fußzeile zählt die ausgeblendeten Einträge.
+- Sicherheit: Die lokale Dateiansicht öffnet keine Gerätepfade (`\\?\`, `\\.\`) mehr.
+
+## [0.22.0] – 2026-10-25
+
+- Neu: `Vault öffnen` zeigt die bis zu acht zuletzt benutzten Vault-Dateien mit Datum und Ordner. Ein Klick wählt eine Datei aus; fehlende Dateien sind markiert und lassen sich mit `×` aus der Liste nehmen. Gespeichert werden nur Pfade und Zeitpunkte in `settings.json`, nie Inhalte.
+- Neu: Helles Theme. Einstellungen → Allgemein → `Darstellung` bietet `System`, `Dunkel` und `Hell`, Standard bleibt `Dunkel`. Der Wechsel gilt sofort in allen Fenstern, auch für Fensterrahmen und Windows-Dialoge; im hellen Terminal hebt Shellherd zu blasse Farben auf lesbaren Kontrast an.
+- Doku: Kapitel „Workflows“ im Handbuch (Palette, Platzhalter, Verwalten, Übernahme aus dem Assistenten).
+
+## [0.21.0] – 2026-10-24
+
+- Neu: Verbindungen importieren aus OpenSSH (`~/.ssh/config`, Datei wählen), PuTTY und WinSCP (Sitzungen aus der Windows-Registry, nicht aus einer portablen `WinSCP.ini`) und mRemoteNG (`confCons.xml`, Datei wählen). Zu finden unter `Neu` → `Importieren` und auf der Willkommensseite. Eine Vorschau zeigt alle gefundenen Verbindungen mit Häkchen, bevor etwas gespeichert wird. Bestehende Verbindungen bleiben unverändert. Das Lesen läuft getrennt vom Rest der App und bricht nach 5 Sekunden ab, damit eine beschädigte Datei Shellherd nicht blockiert.
+- Neu: Übernommen werden Host, Port, Benutzer, Schlüsselpfad, Weiterleitungen sowie die Ordner aus WinSCP und mRemoteNG. Nicht übernommen werden Passwörter, Passphrasen und Schlüsselinhalte: Schlüsseldateien werden nie geöffnet, nur ihr Pfad wird gespeichert. Das Passwort tippst du einmal im Formular ein. WinSCP-Sitzungen mit SCP kommen als SFTP, Sitzungen anderer Protokolle (etwa FTP, Telnet oder VNC) bleiben außen vor. PuTTY-Schlüssel (`.ppk`) bekommen einen Hinweis, weil Shellherd nur Format 2 mit RSA lesen kann. RDP-Verbindungen aus mRemoteNG kommen als Remotedesktop-Verbindung mit Domain an, ohne Passwort.
+- Neu: Duplikate, also Verbindungen mit gleichem Host, Port und Benutzer wie eine vorhandene SSH- oder SFTP-Verbindung (RDP wird mit RDP verglichen), sind markiert und vorab abgewählt. Ein Sprunghost wird nur übernommen, wenn er genau ein Hop zu einem anderen Eintrag derselben Quelle ist und mit ausgewählt ist; bei WinSCP und mRemoteNG entfällt er. Weiterleitungen starten nach dem Import nicht automatisch, sondern nur per Klick.
+- Neu: Zielordner ist standardmäßig ein neuer Ordner „OpenSSH-Import“, „PuTTY-Import“, „WinSCP-Import“ oder „mRemoteNG-Import“ auf oberster Ebene. Wahlweise geht es in einen vorhandenen Ordner oder auf die oberste Ebene. Ein neuer Importordner lässt sich mit einem Löschvorgang zurücknehmen.
+- Neu: Update-Hinweis. Höchstens einmal am Tag fragt Shellherd nach dem Entsperren bei GitHub nach der neuesten Version und zeigt sie in der Statusleiste. Dort öffnest du die Release-Notes oder überspringst diese Version. Der Hinweis ist standardmäßig an und lässt sich unter Einstellungen → Allgemein abschalten. Gesendet wird nur die Anfrage an GitHub mit deiner IP-Adresse und der Shellherd-Version, nichts aus dem Vault. Ein Auto-Update gibt es nicht; installieren musst du selbst.
+
+## [0.20.0] – 2026-10-24
+
+- Neu: Suche im Terminal mit `Strg+Umschalt+F`. `Enter` sucht weiter, `Umschalt+Enter` zurück, `Esc` schließt die Suche. Groß- und Kleinschreibung spielen keine Rolle. Treffer werden über die Auswahl markiert und nicht in die Zwischenablage kopiert. In den Terminals der Container- und Cluster-Docks gibt es keine Suche; dort geht `Strg+Umschalt+F` an das Terminal.
+- Neu: Links im Terminal öffnen sich mit `Strg+Klick` im Browser. Erlaubt sind nur `http`- und `https`-Adressen bis 2048 Zeichen, ohne Benutzername und Passwort. Alles andere bleibt Text. Beim Überfahren zeigt das Terminal einen Hinweis.
+- Neu: Tab-Kürzel im fokussierten Bereich: `Strg+Tab` und `Strg+Umschalt+Tab` wechseln den Tab, `Strg+Umschalt+T` öffnet die Verbindungsauswahl, `Strg+Umschalt+W` schließt den aktiven Tab mit der üblichen Rückfrage. `Strg+F`, `Strg+T` und `Strg+W` bleiben der Shell (ein Zeichen vor, Zeichen tauschen, Wort löschen), deshalb die Umschalt-Varianten.
+- Neu: Einstellungen → Terminal (nach dem Entsperren) für Schriftart, Schriftgröße (8 bis 32 Pixel, Standard 14), Verlauf (1.000 bis 50.000 Zeilen, Standard 5.000), Cursorform und Blinken. Die Werte gelten sofort für alle offenen Terminals des Vaults; ein kleinerer Verlauf kürzt offene Terminals.
+- Neu: Das Hauptfenster merkt sich beim Schließen Größe, Position und Maximierung in `settings.json`, nicht im Vault. Beim nächsten Start öffnet es dort, wenn der Platz noch sichtbar ist. Minimiert geschlossen bleibt die gespeicherte Position.
+- Neu: Ein Tab, dessen Terminal nicht sichtbar ist, zeigt mit neuer Ausgabe einen Ring nach dem Namen; der Name wird hell und fett. Sobald der Tab sichtbar wird, verschwindet die Markierung.
+- Neu: Eingabe an alle Bereiche, im Menü des Bereichskopfs (ab zwei Bereichen). Was du tippst, geht an alle verbundenen SSH- und lokalen Terminals der angezeigten Ansicht. Container, Pods, RDP, SFTP, Cluster und die Willkommensseite bleiben aus. Die Bereiche zeigen eine Warnlinie und den Knopf „An alle“, der die Eingabe beendet. Beim Ansichtswechsel endet sie, ebenso unter zwei Terminals.
+- Hinweis: Ältere Shellherd-Versionen entfernen die Terminal-Einstellungen beim Speichern.
+
 ## [0.19.0] – 2026-10-24
 
 - Neu: Server, die bei der Anmeldung nachfragen (Einmalcode, PIN, zweites Passwort, 2FA), öffnen einen Dialog „Anmeldung bei …“. Fragt der Server nur nach dem Passwort, setzt Shellherd das gespeicherte Passwort einmal automatisch ein. Antworten werden nie gespeichert.

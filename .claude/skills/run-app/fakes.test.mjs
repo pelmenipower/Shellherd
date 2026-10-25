@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -16,11 +16,14 @@ import { readKubeconfig } from '../../../src/main/kubernetes/access';
 import { parseKubeconfig } from '../../../src/main/kubernetes/kubeconfig';
 import { openTunnel } from '../../../src/main/kubernetes/tunnel';
 import { createKubeApi } from '../../../src/main/kubernetes/client-api';
+import { KubeForwards } from '../../../src/main/kubernetes/forwards';
 import { streamChat } from '../../../src/main/ai/providers';
+import { SecretMasker } from '../../../src/main/ai/secret-mask';
 import { startSshd } from './sshd.mjs';
 import { DEMO_TOTP, seedSftp } from './fixtures.mjs';
 import { findOpenssl, startKubeFake } from './kube-fake.mjs';
-import { startAiFake } from './ai-fake.mjs';
+import { AI_KEY, AI_REQUEST_LOG, DEMO_ENV, DEMO_KEPT, DEMO_SECRETS, startAiFake } from './ai-fake.mjs';
+import { writeImportFixtures } from './import-fixtures.mjs';
 
 // Windows only: ssh2 server tests are flaky on Linux CI (see sftp-loopback.test.ts).
 describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real app code', { timeout: 20_000 }, () => {
@@ -118,8 +121,47 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     await expect(host.forward('127.0.0.1', 6443)).rejects.toBeDefined();
   });
 
+  it.skipIf(!findOpenssl())('forwards a pod and a service port through the SSH tunnel to the pod page', async () => {
+    const kube = await startKubeFake({ port: 0, dir: join(base, 'kube-forward') });
+    cleanup.push(() => kube.close());
+    const { host } = await connect((await start('kube-forward', { kubeconfig: kube.kubeconfig, kubePort: kube.port })).port);
+    const parsed = parseKubeconfig(kube.kubeconfig);
+    const tunnel = await openTunnel((h, p) => host.forward(h, p), parsed.server);
+    cleanup.push(async () => tunnel.close());
+    const api = createKubeApi(parsed.build(tunnel.port));
+    const latest = new Map();
+    const forwards = new KubeForwards((_owner, _view, list) => { for (const forward of list) latest.set(forward.id, forward); });
+    cleanup.push(async () => forwards.stopAll());
+    const view = { ownerId: 1, viewId: 'v', api: async () => api };
+    const get = async port => (await fetch(`http://127.0.0.1:${port}/check`, { headers: { connection: 'close' } })).text();
+    const until = async (id, test) => {
+      for (const end = Date.now() + 5000; !test(latest.get(id)); await new Promise(resolve => setTimeout(resolve, 50))) {
+        if (Date.now() > end) throw new Error(`forward ${id}: ${JSON.stringify(latest.get(id))}`);
+      }
+    };
+
+    const pod = await forwards.start(view, { kind: 'pods', namespace: 'shop', name: 'api-6d8f9b7c5-x7k2p', port: 8080 }, 0);
+    expect(await get(pod.localPort)).toContain('synthetic pod page /check');
+
+    const service = await forwards.start(view, { kind: 'services', namespace: 'shop', name: 'api', port: 80 }, 0);
+    expect(await get(service.localPort)).toContain('synthetic pod page /check');
+    await until(service.id, forward => forward?.pod === 'api-6d8f9b7c5-h5t8w' && forward.podPort === 8080);
+
+    const refused = await forwards.start(view, { kind: 'pods', namespace: 'shop', name: 'api-6d8f9b7c5-x7k2p', port: 9999 }, 0);
+    await get(refused.localPort).catch(() => '');
+    await until(refused.id, forward => forward?.error?.code === 'kubernetes.portForwardRefused');
+
+    const pending = await forwards.start(view, { kind: 'pods', namespace: 'shop', name: 'report-0', port: 8080 }, 0);
+    await get(pending.localPort).catch(() => '');
+    await until(pending.id, forward => forward?.error?.code === 'kubernetes.portForwardNotRunning');
+
+    const noReady = await forwards.start(view, { kind: 'services', namespace: 'shop', name: 'checkout', port: 8080 }, 0);
+    await get(noReady.localPort).catch(() => '');
+    await until(noReady.id, forward => forward?.error?.code === 'kubernetes.portForwardNoReadyPod');
+  });
+
   it('streams the AI fake, checks the key and answers the connection test', async () => {
-    const ai = await startAiFake({ port: 0 });
+    const ai = await startAiFake({ port: 0, runDir: base });
     cleanup.push(() => ai.close());
     const ask = async (content, apiKey = 'sk-synthetic-demo') => {
       let out = '';
@@ -130,6 +172,24 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect(await ask('Ist die Platte zu voll?')).toContain('<command>du -xh');
     expect(await ask('Verbindungstest')).toBe('OK');
     await expect(ask('Verbindungstest', 'sk-wrong')).rejects.toMatchObject({ code: 'ai.keyRejected' });
+  });
+
+  it('logs request bodies without headers and answers with the placeholder it got', async () => {
+    const runDir = mkdtempSync(join(base, 'ai-log-'));
+    const ai = await startAiFake({ port: 0, runDir });
+    cleanup.push(() => ai.close());
+    const ask = async content => {
+      let out = '';
+      const provider = { id: 't', name: 't', kind: 'openai', model: 'gpt-4o-mini', baseUrl: `http://127.0.0.1:${ai.port}/v1`, apiKey: AI_KEY };
+      await streamChat(provider, { system: 's', messages: [{ role: 'user', content }] }, text => { out += text; }, new AbortController().signal);
+      return out;
+    };
+    expect(await ask('Ist die Platte zu voll?')).toContain('<command>du -xh');
+    const lines = readFileSync(join(runDir, AI_REQUEST_LOG), 'utf8').trim().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('Ist die Platte zu voll?');
+    expect(lines[0]).not.toContain(AI_KEY);
+    expect(await ask('Fehler mit [SECRET_3] beim Login')).toContain("PGPASSWORD='[SECRET_3]'");
   });
 
   it('serves a seeded SFTP tree and stays inside its root', async () => {
@@ -217,6 +277,36 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect(await new Promise(resolve => client.unforwardIn('localhost', 2345, error => resolve(!error)))).toBe(true);
   });
 
+  it('delays the sleep reply in the shell and prints the demo links for cat ~/LIESMICH and cat ~/LINKS', async () => {
+    const { port } = await start('shell');
+    const client = await sshClient(port);
+    const stream = await new Promise((resolve, reject) => client.shell({ term: 'xterm' }, (error, value) => (error ? reject(error) : resolve(value))));
+    cleanup.push(async () => stream.close());
+    let text = '';
+    stream.on('data', data => { text += data; });
+    // Polls the collected shell output until it contains the expected text.
+    const until = async expected => {
+      for (const end = Date.now() + 8000; !text.includes(expected); await new Promise(resolve => setTimeout(resolve, 50))) {
+        if (Date.now() > end) throw new Error(`timeout waiting for ${JSON.stringify(expected)}, output so far: ${JSON.stringify(text)}`);
+      }
+    };
+
+    await until('demo@web-01:~$ ');
+    const started = Date.now();
+    stream.write('sleep 3; echo fertig\r');
+    await until('\r\nfertig\r\n');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(2500);
+    expect(text).toContain('\r\nfertig\r\ndemo@web-01:~$ ');
+
+    stream.write('cat ~/LIESMICH\r');
+    await until('Status:   https://status.intranet.demo/');
+    expect(text).toContain('Handbuch: https://intranet.demo/handbuch');
+
+    // OSC 8 link whose visible text names another host than its target.
+    stream.write('cat ~/LINKS\r');
+    await until('\x1b]8;;https://status.intranet.demo/\x1b\\https://intranet.demo/login\x1b]8;;\x1b\\');
+  });
+
   // Demo user logged in with the password, for the tcpip and forward tests.
   async function sshClient(port) {
     const client = new ssh2.Client();
@@ -225,4 +315,81 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
       .connect({ host: '127.0.0.1', port, username: 'demo', password: 'synthetic-demo' }));
     return client;
   }
+});
+
+describe('import sources and the release route', { timeout: 20_000 }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'shellherd-import-fakes-'));
+  const cleanup = [];
+  afterAll(async () => {
+    for (const fn of cleanup.reverse()) await fn().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // reg export: UTF-16LE with BOM; returns the decoded text
+  const decodeReg = file => {
+    const raw = readFileSync(file);
+    expect(raw.subarray(0, 2)).toEqual(Buffer.from([0xff, 0xfe]));
+    expect(raw.includes(Buffer.from('Windows Registry', 'utf8'))).toBe(false);
+    return raw.subarray(2).toString('utf16le');
+  };
+
+  it('writes the import sources with the expected encodings and content', () => {
+    const files = writeImportFixtures(join(dir, 'import'));
+
+    const ssh = readFileSync(files.sshConfig, 'utf8');
+    expect(ssh).toContain('ProxyJump build-01');
+    expect(ssh).toContain('LocalForward 15433 db-internal:5432');
+    expect(ssh).toContain('ProxyJump a,b');
+    expect(ssh).toContain('Match host x');
+    expect(ssh).toContain('Include config.d/*');
+
+    const putty = decodeReg(files.puttyReg);
+    expect(putty.startsWith('Windows Registry Editor Version 5.00')).toBe(true);
+    for (const name of ['Default%20Settings]', 'router]', 'jenkins]', 'monitoring]', 'web%2001]']) expect(putty).toContain(name);
+    expect(putty).toContain('"Protocol"="telnet"');
+    expect(putty).toContain('"PublicKeyFile"="C:\\\\Users\\\\demo\\\\.ssh\\\\jenkins.ppk"');
+    expect(putty).toContain('"PortForwardings"="L3000=localhost:3000"');
+
+    const winscp = decodeReg(files.winscpReg);
+    expect(winscp.startsWith('Windows Registry Editor Version 5.00')).toBe(true);
+    for (const name of ['Default%20Settings]', 'Prod%2Ffiles-02]', 'legacy-scp]', 'ftp-site]', 'behind-tunnel]']) expect(winscp).toContain(name);
+    expect(winscp).toContain('"FSProtocol"=dword:00000000');
+    expect(winscp).toContain('"FSProtocol"=dword:00000005');
+    expect(winscp).toContain('"Tunnel"=dword:00000001');
+
+    const conf = readFileSync(files.confCons, 'utf8');
+    expect(conf).toContain('FullFileEncryption="false"');
+    expect(conf).toContain('Type="Container"');
+    expect(conf).toContain('Protocol="SSH2"');
+    expect(conf).toContain('Protocol="RDP"');
+    expect(conf).toContain('Domain="KUNDE"');
+    expect(conf).toContain('Protocol="VNC"');
+    expect(conf).toContain('Password="not-imported"');
+  });
+
+  it('offers the current version without the flag and the next minor version with it', async () => {
+    const version = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')).version;
+    const [major, minor] = version.split('.').map(Number);
+    const runDir = mkdtempSync(join(dir, 'run-'));
+    const ai = await startAiFake({ port: 0, runDir });
+    cleanup.push(() => ai.close());
+    const get = async () => {
+      const response = await fetch(`http://127.0.0.1:${ai.port}/releases/latest`);
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+
+    expect(await get()).toEqual({ tag_name: `v${version}`, draft: false, prerelease: false });
+    writeFileSync(join(runDir, 'update-available'), '');
+    expect(await get()).toEqual({ tag_name: `v${major}.${minor + 1}.0`, draft: false, prerelease: false });
+  });
+});
+
+describe('masking fixture of the demo server', () => {
+  it('hides every synthetic secret and keeps hashes, commit ids and uuids', () => {
+    const { text, numbers } = new SecretMasker().mask(DEMO_ENV, [DEMO_SECRETS.vaultApiKey, DEMO_SECRETS.vaultPassword]);
+    expect(Object.entries(DEMO_SECRETS).filter(([, value]) => text.includes(value)).map(([name]) => name)).toEqual([]);
+    for (const value of DEMO_KEPT) expect(text).toContain(value);
+    expect(numbers.size).toBe(Object.keys(DEMO_SECRETS).length);
+  });
 });

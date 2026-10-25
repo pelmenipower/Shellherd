@@ -2,7 +2,7 @@ import { ipcMain, webContents } from 'electron';
 import { AppError } from '../../shared/errors';
 import type { IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc';
-import { KubeActionRequestSchema, KubeDetailRequestSchema, KubeOpenRequestSchema, KubeProbeRequestSchema, KubeSubscribeRequestSchema, KubeViewRequestSchema } from '../../shared/kubernetes-schema';
+import { KubeActionRequestSchema, KubeDetailRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeOpenRequestSchema, KubeProbeRequestSchema, KubeSubscribeRequestSchema, KubeViewRequestSchema } from '../../shared/kubernetes-schema';
 import type { KubeProbeResult } from '../../shared/kubernetes';
 import type { ConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import { openRemoteWithJump } from '../containers/ipc';
@@ -70,6 +70,16 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, prompts: A
   handle(IPC_CHANNELS.kubeClose, (event, request) => {
     const ownerId = requireSshSender(event);
     sessions.close(ownerId, parseRequest(KubeViewRequestSchema, request).viewId);
+  });
+  handle(IPC_CHANNELS.kubeForwardStart, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeForwardStartRequestSchema, request);
+    return sessions.startForward(ownerId, parsed.viewId, parsed.target, parsed.localPort);
+  });
+  handle(IPC_CHANNELS.kubeForwardStop, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeForwardStopRequestSchema, request);
+    sessions.stopForward(ownerId, parsed.viewId, parsed.forwardId);
   });
   // Reads the contexts of a kubeconfig on an SSH host; the config text itself never leaves the main process.
   handle(IPC_CHANNELS.kubeProbe, async (event, request): Promise<KubeProbeResult> => {

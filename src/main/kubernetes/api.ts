@@ -1,3 +1,4 @@
+import type { Duplex } from 'node:stream';
 import type { CodedError } from '../../shared/errors';
 import type { KubeKind, KubeRef, KubeSelector, KubeTerminalTarget } from '../../shared/kubernetes';
 
@@ -35,4 +36,10 @@ export interface KubeApi {
   nodeMetrics(): Promise<MetricsSample[] | null>;
   podMetrics(namespace: string | null): Promise<MetricsSample[] | null>;
   openTerminal(target: KubeTerminalTarget, size: { cols: number; rows: number }, io: TerminalIo): Promise<KubeStream>;
+  /**
+   * Opens one port-forward stream (WebSocket) to a pod port and pipes `socket` through it both ways, with back-pressure;
+   * resolves once it is open. The caller pauses `socket`; this resumes it. A port the pod refuses later destroys `socket`
+   * with a KubeApiError (kubernetes.portForwardRefused). Handshake failures reject with a mapped KubeApiError.
+   */
+  portForward(namespace: string, pod: string, port: number, socket: Duplex): Promise<void>;
 }

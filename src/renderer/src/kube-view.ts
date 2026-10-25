@@ -4,7 +4,7 @@ import { compileSearch, EMPTY_FILTER, MAX_SEARCH_LENGTH, type KubeFilter } from 
 import { compileChips, knownChips } from '../../shared/kube-status';
 import { columnFilterKind, columnsFor, compileColumnFilters, groupKey, groupRows, GROUP_OPTIONS, type KubeGrouping, type TableItem } from './kube-columns';
 import { KIND_COLUMNS, KIND_INFO, KUBE_KINDS, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH, queryKey, refKey } from '../../shared/kubernetes';
-import type { ColumnInfo, ClusterStatus, DockMode, GroupBy, KubeEvent, KubeKind, KubeProblem, KubeQuery, KubeRef, KubeRow, KubeTerminalMode, KubeTerminalTarget, KubeViewSnapshot, NodeTile, UsageHistory } from '../../shared/kubernetes';
+import type { ColumnInfo, ClusterStatus, DockMode, GroupBy, KubeEvent, KubeForwardStatus, KubeKind, KubeProblem, KubeQuery, KubeRef, KubeRow, KubeTerminalMode, KubeTerminalTarget, KubeViewSnapshot, NodeTile, UsageHistory } from '../../shared/kubernetes';
 
 type LogFormat = NonNullable<KubeTerminalTarget['format']>;
 
@@ -45,6 +45,8 @@ export interface KubeViewState {
   usage: UsageHistory;
   /** Date.now() of the last rows/overview event; 0 = none. */
   updatedAt: number;
+  /** Port forwards of this view, as main reports them; never saved. */
+  forwards: KubeForwardStatus[];
 }
 
 export type KubeViewAction =
@@ -80,7 +82,7 @@ const GI = 1024 ** 3;
 export function initialKubeView(namespace: string | null): KubeViewState {
   return {
     status: null, query: { kind: 'pods', namespace }, crumbs: [], rows: [], loading: true, trouble: null, pendingNamespace: true, filters: {}, groups: {}, now: 0, sort: null, selected: null,
-    containersOf: null, container: null, dock: 'logs', dockOpen: false, logFormat: 'compact', nodes: [], problems: [], namespaces: [], usage: {}, updatedAt: 0,
+    containersOf: null, container: null, dock: 'logs', dockOpen: false, logFormat: 'compact', nodes: [], problems: [], namespaces: [], usage: {}, updatedAt: 0, forwards: [],
   };
 }
 
@@ -300,6 +302,7 @@ function applyEvent(state: KubeViewState, event: KubeEvent, at: number): KubeVie
     case 'usage': return { ...state, usage: event.pods };
     case 'rows': return applyRows(state, event, at);
     case 'trouble': return queryKey(event.query) === queryKey(state.query) ? { ...state, trouble: event.error ? errorText(event.error) : null } : state;
+    case 'forwards': return { ...state, forwards: event.forwards };
   }
 }
 

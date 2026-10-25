@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AiCatalog } from '../../../shared/ai';
+import { SECRET_PLACEHOLDER } from '../../../shared/ai';
+import { formatNumber } from '../../../shared/format';
 import type { TerminalTab } from '../terminal-tabs';
 import { shellOf, tabLabel } from '../terminal-tabs';
 import { typeIntoTerminal } from '../terminal-input';
@@ -36,6 +38,8 @@ interface ChatEntry {
   /** Command typed into the terminal from this answer. */
   inserted?: string;
   note?: string;
+  /** Distinct secrets main masked in this turn before sending. */
+  masked?: number;
 }
 
 interface Conversation {
@@ -65,7 +69,9 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
   const [autoEvaluate, setAutoEvaluate] = useState(() => read(AUTO_KEY) !== 'off');
   const [conversations, setConversations] = useState<Record<string, Conversation>>({});
   const [draft, setDraft] = useState('');
-  const requests = useRef(new Map<string, { tabId: string; entryId: string; text: string }>());
+  const requests = useRef(new Map<string, { tabId: string; entryId: string; userEntryId: string; text: string }>());
+  /** One conversation id per tab; main keeps [SECRET_n] stable within it. "Clear history" starts a new one. */
+  const conversationIds = useRef(new Map<string, string>());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   // Latest rendered conversations; handlers read history from here, not from inside state updaters.
@@ -117,8 +123,10 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
     const history = historyForRequest([...previous.entries.filter(entry => !entry.pending && !entry.error)
       .map(entry => ({ role: entry.role, content: entry.role === 'user' ? entry.compact : entry.content })), { role: 'user' as const, content }]);
     update(tabId, current => ({ ...clearAwaiting(current), output: undefined, entries: [...current.entries, user, answer] }));
-    requests.current.set(requestId, { tabId, entryId: answer.id, text: '' });
-    void window.desktopApi.aiAsk({ requestId, ...(provider ? { providerId: provider.id } : {}), messages: history,
+    let conversationId = conversationIds.current.get(tabId);
+    if (!conversationId) { conversationId = crypto.randomUUID(); conversationIds.current.set(tabId, conversationId); }
+    requests.current.set(requestId, { tabId, entryId: answer.id, userEntryId: user.id, text: '' });
+    void window.desktopApi.aiAsk({ requestId, conversationId, ...(provider ? { providerId: provider.id } : {}), messages: history,
       context: { shell: targetShell, target: `${target.connection.name}, ${target.connection.address}` } })
       .catch((error: unknown) => {
         requests.current.delete(requestId);
@@ -130,6 +138,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
   useEffect(() => window.desktopApi.onAiEvent(event => {
     const request = requests.current.get(event.requestId);
     if (!request) return;
+    if (event.type === 'masked') { updateEntry(request.tabId, request.userEntryId, { masked: event.count }); return; }
     if (event.type === 'delta') {
       request.text += event.text;
       updateEntry(request.tabId, request.entryId, { content: request.text, shown: request.text });
@@ -195,6 +204,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
       </header>
       <p className="assistant-context">{!tab ? t('assistant:panel.selectTab') : shell ? <>{t('assistant:panel.contextFor')} <strong>{label}</strong></>
         : t('assistant:panel.unsupportedTab')}</p>
+      {provider?.masking === false && <p className="assistant-context">{t('assistant:panel.maskingOff')}</p>}
       {catalog && !providers.length ? <div className="assistant-empty">
         <p>{t('assistant:panel.noProvider')}</p>
         {onManageProviders ? <button type="button" className="primary-button" onClick={onManageProviders}>{t('assistant:panel.setupProvider')}</button>
@@ -206,15 +216,19 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
             <p><Trans t={t} i18nKey="assistant:panel.hint2" components={{ provider: <strong>{provider?.name}</strong> }} /></p>
           </div>}
           {entries.map(entry => entry.role === 'user'
-            ? entry.automatic ? <p key={entry.id} className="assistant-note">{entry.shown}</p>
-              : <div key={entry.id} className="assistant-message is-user">{entry.shown}</div>
+            ? entry.automatic ? <p key={entry.id} className="assistant-note">{entry.shown}{entry.masked ? ` · ${t('assistant:panel.masked', { amount: formatNumber(entry.masked) })}` : ''}</p>
+              : <Fragment key={entry.id}>
+                <div className="assistant-message is-user">{entry.shown}</div>
+                {entry.masked ? <p className="assistant-note">{t('assistant:panel.masked', { amount: formatNumber(entry.masked) })}</p> : null}
+              </Fragment>
             : <div key={entry.id} className="assistant-message is-assistant">
               {parseAnswer(entry.shown).map((segment, index) => segment.type === 'text'
                 ? <p key={index}>{segment.text.trim()}</p>
                 : <div key={index} className={`assistant-command${entry.inserted === insertableCommand(segment.command) ? ' is-inserted' : ''}`}>
                   <code>{segment.command}</code>
                   {segment.complete && tab && <div className="assistant-command-actions">
-                    <span>{entry.inserted === insertableCommand(segment.command) ? t('assistant:panel.inserted') : entry.note ?? t('assistant:panel.suggestion')}</span>
+                    <span>{entry.inserted === insertableCommand(segment.command) ? t('assistant:panel.inserted')
+                      : entry.note ?? (SECRET_PLACEHOLDER.test(segment.command) ? t('assistant:panel.maskedCommand') : t('assistant:panel.suggestion'))}</span>
                     <button type="button" disabled={!insertableCommand(segment.command)} onClick={() => typeCommand(tab.id, entry.id, segment.command)}>{t('assistant:panel.type')}</button>
                     <button type="button" onClick={() => void window.desktopApi.writeClipboardText(segment.command).catch(() => {})}>{t('assistant:panel.copy')}</button>
                     {onSaveWorkflow && <button type="button" title={t('assistant:panel.saveWorkflowTitle')} onClick={() => onSaveWorkflow(segment.command)}>{t('assistant:panel.saveWorkflow')}</button>}
@@ -240,7 +254,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
           <div className="assistant-input-actions">
             <label><input type="checkbox" checked={autoEvaluate} onChange={event => { setAutoEvaluate(event.target.checked); write(AUTO_KEY, event.target.checked ? 'on' : 'off'); }} />
               {t('assistant:panel.autoEvaluate')}</label>
-            {tab && entries.length > 0 && !busy && <button type="button" className="secondary-button" onClick={() => setConversations(current => { const next = { ...current }; next[tab.id]?.awaiting?.mark.dispose(); delete next[tab.id]; return next; })}>{t('assistant:panel.clear')}</button>}
+            {tab && entries.length > 0 && !busy && <button type="button" className="secondary-button" onClick={() => { conversationIds.current.delete(tab.id); setConversations(current => { const next = { ...current }; next[tab.id]?.awaiting?.mark.dispose(); delete next[tab.id]; return next; }); }}>{t('assistant:panel.clear')}</button>}
             {busy ? <button type="button" className="secondary-button" onClick={stop}>{t('assistant:panel.stop')}</button>
               : <button type="submit" className="primary-button" disabled={!draft.trim() || !shell || !provider}>{t('assistant:panel.ask')}</button>}
           </div>

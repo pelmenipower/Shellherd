@@ -3,7 +3,7 @@ import type { KubeConfig } from '@kubernetes/client-node';
 import { AppError } from '../../shared/errors';
 import type { CodedError, ErrorCode } from '../../shared/errors';
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
-import type { ClusterState, ClusterStatus, KubeAction, KubeDetail, KubeDetailMode, KubeEvent, KubeOpenResult, KubeQuery, KubeRef, KubeRow, KubeTerminalTarget, UsageHistory } from '../../shared/kubernetes';
+import type { ClusterState, ClusterStatus, KubeAction, KubeDetail, KubeDetailMode, KubeEvent, KubeForwardStatus, KubeForwardTarget, KubeOpenResult, KubeQuery, KubeRef, KubeRow, KubeTerminalTarget, UsageHistory } from '../../shared/kubernetes';
 import { queryKey } from '../../shared/kubernetes';
 import type { TerminalSize } from '../../shared/ssh';
 import { KubeApiError } from './api';
@@ -12,6 +12,7 @@ import type { KubeApi, KubeStream, TerminalIo } from './api';
 import { runAction } from './actions';
 import type { ClusterAccess } from './access';
 import { describe, toYaml } from './describe';
+import { KubeForwards } from './forwards';
 import { parseKubeconfig } from './kubeconfig';
 import type { ParsedKubeconfig } from './kubeconfig';
 import { Overview } from './overview';
@@ -510,6 +511,7 @@ export class KubeSessions {
   private readonly sessions = new Map<string, Session>();
   private readonly views = new Map<string, View>();
   private readonly options: SessionOptions;
+  private readonly forwards: KubeForwards;
 
   constructor(private readonly deps: KubeSessionDependencies) {
     this.options = {
@@ -518,6 +520,7 @@ export class KubeSessions {
       idleMs: deps.idleMs ?? DEFAULT_IDLE_MS,
       backoffMs: deps.backoffMs ?? DEFAULT_BACKOFF_MS,
     };
+    this.forwards = new KubeForwards((ownerId, viewId, forwards) => deps.emit(ownerId, { type: 'forwards', viewId, forwards }));
   }
 
   /** Returns the session of a cluster, creating it when none is running. Created sessions are not begun. */
@@ -571,11 +574,32 @@ export class KubeSessions {
     await runAction(view.session.requireApi(), request, { readOnly: false });
   }
 
+  /** Port forward of a view to a pod or service port. Reading access: allowed on read-only clusters, refused on disabled ones. */
+  async startForward(ownerId: number, viewId: string, target: KubeForwardTarget, localPort: number): Promise<KubeForwardStatus> {
+    const view = this.viewOf(ownerId, viewId);
+    // Read at each call; reading the vault also refuses while it is locked.
+    if (this.deps.getCluster(view.session.clusterId).disabled) throw new AppError(DISABLED);
+    view.session.requireApi();
+    const status = await this.forwards.start({ ownerId, viewId, api: () => view.session.waitReady() }, target, localPort);
+    // The view closed while the listener opened: its forwards must not outlive it.
+    if (this.views.get(viewId) !== view) {
+      this.forwards.stopView(viewId);
+      throw new AppError(NOT_AVAILABLE);
+    }
+    return status;
+  }
+
+  stopForward(ownerId: number, viewId: string, forwardId: string): void {
+    this.viewOf(ownerId, viewId);
+    this.forwards.stop(viewId, forwardId);
+  }
+
   close(ownerId: number, viewId: string): void {
     const view = this.views.get(viewId);
     if (!view) return;
     if (view.ownerId !== ownerId) throw new AppError(NOT_AVAILABLE);
     this.views.delete(viewId);
+    this.forwards.stopView(viewId);
     view.session.detach(view);
   }
 
@@ -592,6 +616,7 @@ export class KubeSessions {
   }
 
   closeAll(): void {
+    this.forwards.stopAll();
     for (const session of [...this.sessions.values()]) session.dispose();
     this.sessions.clear();
     this.views.clear();

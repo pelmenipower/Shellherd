@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { codedFrom } from '../../../shared/errors';
 import { queryKey } from '../../../shared/kubernetes';
-import type { KubeActionRequest, KubeDetail, KubeDetailMode, KubeRef, KubeViewSnapshot } from '../../../shared/kubernetes';
+import type { KubeActionRequest, KubeDetail, KubeDetailMode, KubeForwardStatus, KubeForwardTarget, KubeRef, KubeViewSnapshot } from '../../../shared/kubernetes';
 import { t } from '../i18n';
 import { initialKubeView, kubeViewReducer, type KubeViewAction, type KubeViewState } from '../kube-view';
 
@@ -39,6 +39,8 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
     return () => {
       cancelled = true;
       setViewId(null);
+      // Main stops the forwards of a closed view without an event; the bar must not keep showing them.
+      dispatch({ type: 'event', event: { type: 'forwards', viewId: '', forwards: [] } });
       if (opened) void window.desktopApi.kubeClose({ viewId: opened }).catch(() => {});
     };
   }, [clusterId, generation]);
@@ -74,7 +76,19 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
     return window.desktopApi.kubeAction({ ...request, viewId: id });
   }, []);
 
-  return { state, dispatch: dispatch as (action: KubeViewAction) => void, viewId, retry, detail, action };
+  const startForward = useCallback((target: KubeForwardTarget, localPort: number): Promise<KubeForwardStatus> => {
+    const id = viewIdRef.current;
+    if (!id) return Promise.reject(new Error(t('kubernetes:viewNotOpen')));
+    return window.desktopApi.kubeForwardStart({ viewId: id, target, localPort });
+  }, []);
+
+  const stopForward = useCallback((forwardId: string): Promise<void> => {
+    const id = viewIdRef.current;
+    if (!id) return Promise.resolve();
+    return window.desktopApi.kubeForwardStop({ viewId: id, forwardId });
+  }, []);
+
+  return { state, dispatch: dispatch as (action: KubeViewAction) => void, viewId, retry, detail, action, startForward, stopForward };
 }
 
 /** A status for failures that happen before or outside the main side's own status events. */

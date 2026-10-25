@@ -61,11 +61,19 @@ Home/End zwischen Tabs. Das Schließen eines Tabs beendet nur seine Session.
 Sperren trennt nicht: Die Sitzungen laufen im Hintergrund weiter, und nach dem Entsperren sind alle Tabs wieder da. Neue Verbindungen und `Neu verbinden` gehen erst nach dem Entsperren. `Andere Vault-Datei` im Sperrbildschirm fragt immer nach und trennt alles. Gespeicherte Workspaces lassen sich nach
 dem Entsperren gezielt öffnen; dabei starten neue SSH-Sessions.
 
+### Zuletzt benutzte Vaults
+
+`Vault öffnen` zeigt unter `Zuletzt benutzt` bis zu acht Vault-Dateien, die du zuletzt geöffnet, angelegt oder gespeichert hast, die neueste oben, mit Datum und Ordner. Ein Klick wählt die Datei aus, danach fehlt nur das Passwort. Beim Start ist die neueste vorhandene Datei vorausgewählt. Ist eine Datei nicht mehr da (verschoben, gelöscht oder Netzlaufwerk getrennt), steht `Datei nicht gefunden` darunter, und der Eintrag lässt sich nicht wählen; er bleibt, bis du ihn entfernst. Das `×` neben einem Eintrag nimmt ihn nur aus der Liste, die Datei bleibt unberührt. Die Liste enthält nur Pfade und Zeitpunkte, nie Passwörter oder Inhalte, und liegt in `settings.json` im Benutzerdatenordner. Die Pfade zeigen den Ordner und damit oft deinen Windows-Benutzernamen; denk daran, bevor du einen Screenshot des Startbildschirms teilst.
+
+Shellherd öffnet eine Vault-Datei nur, wenn sie über `Vault-Datei auswählen`, per Doppelklick im Explorer, aus `Zuletzt benutzt` oder per Ziehen von einem lokalen Laufwerk kommt. Eine Vault-Datei auf einer Netzwerkfreigabe (`\\server\…`) öffnest du einmal über `Vault-Datei auswählen`; danach steht sie in `Zuletzt benutzt`. Ziehen von einer Netzwerkfreigabe lehnt Shellherd ab. So kann eingeschleuster Code Shellherd keine Netzwerkanmeldung an einem fremden Server auslösen lassen.
+
 ### Sperren und Willkommens-Tab
 
 Der Sperrknopf in der Kopfzeile sperrt ohne Rückfrage. Ein undurchsichtiger Sperrbildschirm deckt das Fenster ab; die Tastatur erreicht nichts dahinter. Nebenfenster werden mitgesperrt und zeigen ihren eigenen Sperrbildschirm (ohne Passwortfeld); entsperrt wird im Hauptfenster.
 
 - **Zugangsdaten im Speicher:** Die Zugangsdaten offener Sitzungen bleiben während der Sperre im Speicher von Shellherd. Ein geänderter, ungespeicherter Verbindungseditor behält seinen Inhalt, auch das gespeicherte Passwort der Verbindung; ein unveränderter Editor schließt beim Sperren. Gegen das Auslesen des Arbeitsspeichers schützt die Sperre nicht.
+- **Bildschirmaufnahmen:** Während der Sperre nimmt Shellherd alle seine Fenster aus Bildschirmaufnahmen und -freigaben heraus (Teams, Zoom, Snipping Tool); dort erscheint stattdessen der Hintergrund. Nach dem Entsperren ist das wieder aufgehoben. Fotos des Bildschirms und die Vorschau eines minimierten Fensters in der Taskleiste deckt das nicht sicher ab.
+- **Windows Hello:** Ist es für den Vault eingeschaltet, steht über dem Passwortfeld `Mit Windows Hello entsperren`, auch nach der automatischen Sperre. Siehe „Windows Hello“.
 - **Leerlauf-Trennung:** Sie läuft während der Sperre weiter. Eine lange Sperre kann Sitzungen trennen; die Getrennt-Leiste wartet dann nach dem Entsperren.
 - **Assistent:** Automatische Rückfragen des Assistenten (gelesene Ausgabe) scheitern während der Sperre mit „Es ist kein Vault entsperrt.“
 - **Host-Schlüssel:** Eine offene Host-Schlüssel-Rückfrage kann über dem Sperrbildschirm erscheinen. Sie zeigt nur Host und Fingerabdruck.
@@ -76,11 +84,50 @@ Rechtsklick fügt den Text aus der Zwischenablage in das angeklickte Terminal ei
 Das Einfügen läuft über xterm und berücksichtigt den Bracketed-Paste-Modus des
 Servers. Die üblichen Kopier- und Einfüge-Tastenkürzel bleiben verfügbar.
 
+Im Terminal suchst du mit `Strg+Umschalt+F`. `Enter` sucht weiter, `Umschalt+Enter` zurück, `Esc` schließt die Suche. Groß- und Kleinschreibung spielen keine Rolle. Treffer werden über die Auswahl markiert und nicht in die Zwischenablage kopiert. In den Terminals der Docks in Container- und Cluster-Ansicht gibt es keine Suche; dort geht `Strg+Umschalt+F` an das Terminal.
+
+Links öffnest du mit `Strg+Klick`. Erlaubt sind nur `http`- und `https`-Adressen bis 2048 Zeichen ohne Benutzername und Passwort; alles andere bleibt Text. Beim Überfahren eines Links zeigt das Terminal einen Hinweis, der das Ziel nennt: „Strg+Klick öffnet <Host> im Browser“. Erscheint ein Link unter der ruhenden Maus, bewege die Maus kurz auf eine andere Zeile.
+
+Ein Tab, dessen Terminal gerade nicht sichtbar ist, zeigt mit neuer Ausgabe einen Ring nach dem Namen; der Name wird hell und fett. Sobald du den Tab siehst, verschwindet die Markierung.
+
+Das Hauptfenster merkt sich beim Schließen Größe, Position und Maximierung. Die Angaben stehen in `settings.json` im Benutzerdatenordner, nicht im Vault. Ein minimiert geschlossenes Fenster behält die bisherige Position.
+
 Dateiansicht: `Bearbeiten` öffnet nur Text-, Konfigurations- und Quelltextdateien im Standardprogramm, alles andere in Notepad.
+
+### Windows Hello
+
+Einstellungen → Vault → `Mit Windows Hello entsperren (PIN, Gesicht oder Fingerabdruck)` schaltet für den offenen Vault das Entsperren per Windows Hello ein. Windows fragt dabei einmal nach PIN, Gesicht oder Fingerabdruck, beim allerersten Mal zweimal, weil Shellherd dann seinen Windows-Hello-Schlüssel anlegt. Danach zeigt der Sperrbildschirm `Mit Windows Hello entsperren` und `Vault öffnen` für diese Datei `Mit Windows Hello öffnen`, auch nach einem Neustart. Shellherd fragt nie von selbst, erst nach einem Klick oder `Enter` auf dem Knopf. Das Passwort funktioniert immer weiter; brichst du die Windows-Abfrage ab, bleibt einfach das Passwortfeld.
+
+- **Was gespeichert wird:** nicht das Passwort, sondern der daraus abgeleitete Schlüssel dieses Vaults, verschlüsselt mit einem Schlüssel, den nur eine Windows-Hello-Signatur erzeugt. Er liegt in `hello-unlock.json` im Benutzerdatenordner, für höchstens acht Vaults. Den privaten Windows-Hello-Schlüssel hält Windows, mit TPM im Sicherheitschip; Shellherd sieht ihn nie.
+- **Gilt nur hier:** für diese Vault-Datei, auf diesem Gerät, in diesem Windows-Konto. Auf einem anderen Rechner oder mit einer Kopie des Benutzerdatenordners geht es nicht.
+- **Wann es endet:** Ausschalten in den Einstellungen und `×` unter `Zuletzt benutzt` löschen den gespeicherten Schlüssel. Wird die Vault-Datei ersetzt oder neu angelegt oder richtest du Windows Hello neu ein (etwa nach dem Zurücksetzen der PIN), meldet Shellherd „Windows Hello passt nicht mehr zu diesem Vault …“ und löscht den Eintrag. Du entsperrst dann mit dem Passwort und kannst Windows Hello wieder einschalten. Der leere Windows-Hello-Schlüssel von Shellherd bleibt in Windows, bis du die PIN zurücksetzt; ohne Eintrag öffnet er nichts.
+- **Wogegen es schützt:** gegen Menschen an deinem Gerät, die das Vault-Passwort nicht kennen, und gegen das Auslesen des gespeicherten Schlüssels ohne deine Bestätigung, mit TPM auch von einer Kopie der Festplatte.
+- **Wogegen nicht:** Schadsoftware unter deinem Windows-Konto kann eine Windows-Hello-Abfrage auslösen; bestätige nur Abfragen, die du selbst angestoßen hast. Gegen Schadsoftware, die den Arbeitsspeicher eines entsperrten Shellherd liest oder dein Passwort mitschneidet, hilft Windows Hello nicht. Ohne TPM (etwa in manchen virtuellen Maschinen) schützt Windows den Schlüssel nur per Software.
+- **Grenzen:** Nebenfenster entsperren weiter nur über das Hauptfenster. In einer Remotedesktop-Sitzung steht Windows Hello meist nicht zur Verfügung. Die Windows-Abfrage ist ein Fenster von Windows und gehört nicht zum Fensterschutz der Sperre; sie zeigt nichts aus dem Vault.
+
+### Tastenkürzel
+
+| Kürzel | Wirkung |
+|---|---|
+| `Strg+,` | Einstellungen öffnen |
+| `Strg+Umschalt+K` | KI-Assistenten ein- oder ausblenden |
+| `Strg+Umschalt+Leertaste` | Workflow-Palette öffnen |
+| `Strg+Umschalt+F` | Suche im Terminal |
+| `Strg+Klick` | Link im Terminal öffnen (nur http und https) |
+| `Strg+Tab` | Nächsten Tab im fokussierten Bereich wählen |
+| `Strg+Umschalt+Tab` | Vorherigen Tab im fokussierten Bereich wählen |
+| `Strg+Umschalt+T` | Verbindungsauswahl des fokussierten Bereichs öffnen |
+| `Strg+Umschalt+W` | Aktiven Tab des fokussierten Bereichs schließen (mit Rückfrage) |
+
+`Strg+F`, `Strg+T` und `Strg+W` bleiben der Shell (ein Zeichen vor, Zeichen tauschen, Wort löschen), deshalb die Umschalt-Varianten. Die Tab-Kürzel wirken nicht, solange ein Dialog offen ist oder du in einem Textfeld tippst; im Terminal selbst funktionieren sie. `Strg+Umschalt+T` und `Strg+Umschalt+W` wiederholen sich nicht, wenn du die Taste gedrückt hältst.
+
+### Eingabe an alle
+
+Im Menü des Bereichskopfs schaltet `Eingabe an alle Bereiche senden` ein; der Eintrag erscheint ab zwei Bereichen. Was du tippst, geht dann an alle verbundenen SSH- und lokalen Terminals der angezeigten Ansicht. Container, Pods, RDP, SFTP, Cluster und die Willkommensseite bleiben aus. Workflows und der Assistent schreiben weiter nur in einen Tab. Die Bereiche der Mitglieder zeigen eine Warnlinie und den Knopf `An alle`; ein Klick darauf beendet die Eingabe. Sie endet auch beim Ansichtswechsel und wenn weniger als zwei Terminals übrig sind.
 
 ## Einstellungen
 
-Das Zahnrad rechts in der Kopfzeile öffnet die Einstellungen, ebenso `Strg+,`. Vor dem Entsperren führt der Link `Einstellungen` unten auf der Startkarte dorthin. Alle Werte gelten sofort, ein „Speichern“ gibt es nicht. Nebenfenster haben keine eigenen Einstellungen; Sprache und Vault-Einstellung gelten dort trotzdem. Hat eine RDP-Sitzung den Fokus, gehen Tastenkürzel an den entfernten Rechner, auch `Strg+,`.
+Das Zahnrad rechts in der Kopfzeile öffnet die Einstellungen, ebenso `Strg+,`. Vor dem Entsperren führt der Link `Einstellungen` unten auf der Startkarte dorthin. Alle Werte gelten sofort, ein „Speichern“ gibt es nicht. Nebenfenster haben keine eigenen Einstellungen; Sprache, Darstellung und Vault-Einstellung gelten dort trotzdem. Hat eine RDP-Sitzung den Fokus, gehen Tastenkürzel an den entfernten Rechner, auch `Strg+,`.
 
 ### Sprache
 
@@ -90,9 +137,17 @@ Die Einstellung `Sprache` unter Einstellungen → Allgemein bietet `System`, `De
 
 Fehlermeldungen, Dialoge und Fenstertitel folgen der Sprache, ebenso Datum, Zahlen, Dateigrößen, Sortierung und Suche. Der KI-Assistent antwortet in der gewählten Sprache. Ausgaben im Stil von `kubectl` (etwa `Beschreiben` in der Cluster-Ansicht) und Rohstatus von Servern bleiben englisch. Der Installer folgt der Windows-Sprache.
 
+### Darstellung
+
+`Darstellung` unter Einstellungen → Allgemein bietet `System`, `Dunkel` und `Hell`; Standard ist `Dunkel`. `System` folgt dem Windows-Farbmodus für Apps und wechselt mit, wenn du ihn umstellst. Der Wechsel gilt sofort in allen Fenstern, ohne Neustart; offene Sitzungen laufen weiter. Fensterrahmen und Windows-Dialoge folgen ebenfalls. Im hellen Modus sind auch Terminal, Manifeste und Code hell; zu blasse Terminalfarben hebt Shellherd dort auf mindestens 4,5:1 Kontrast an. Das Bild einer Remotedesktop-Sitzung bleibt unverändert. Die Wahl liegt wie die Sprache in `settings.json` im Benutzerdatenordner, nicht im Vault, damit sie schon vor dem Entsperren gilt.
+
 ### Dateiverknüpfung
 
 `In Windows einbinden` unter Einstellungen → Allgemein verknüpft `.term`-Dateien mit Shellherd: Doppelklick im Explorer oder Rechtsklick → „Mit Shellherd öffnen“ öffnet den Vault. Die Verknüpfung gilt nur für den angemeldeten Benutzer (HKCU) und braucht keine Administratorrechte. `Verknüpfung entfernen` nimmt sie wieder heraus.
+
+### Updates
+
+`Nach neuen Versionen suchen` unter Einstellungen → Allgemein ist standardmäßig an. Höchstens einmal am Tag fragt Shellherd nach dem Entsperren bei GitHub nach der neuesten Version (`releases/latest`) und zeigt sie in der Statusleiste. Ein Klick öffnet die Release-Notes oder überspringt diese Version. Gesendet wird nur die Anfrage selbst, also deine IP-Adresse und `User-Agent: Shellherd/<Version>`, nichts aus dem Vault. Vor dem Entsperren gibt es keine Netzanfrage, bei abgeschaltetem Schalter gar keine. Der Schalter steht auch ohne Vault bereit. Shellherd installiert keine Updates; Download und Installation machst du selbst.
 
 ### Vault
 
@@ -105,6 +160,8 @@ Fehlermeldungen, Dialoge und Fenstertitel folgen der Sprache, ebenso Datum, Zahl
 - **Nichts wird gefragt:** Die Sperre arbeitet wie das manuelle Sperren, ohne Rückfrage. Offene Einstellungs- und Anbieter-Dialoge schließen sich. Nebenfenster werden mitgesperrt, nicht geschlossen. Nach der Sperre nennt der Sperrbildschirm den Grund.
 - **Ungenauigkeit:** Die Sperre kommt bis zu 10 Sekunden früher oder bis zu 30 Sekunden später als eingestellt; nach dem Aufwachen aus dem Ruhezustand sperrt Shellherd sofort, wenn die Zeit abgelaufen ist.
 - **Bestehende Vaults:** Jeder Vault trägt den Wert 15. Sie sperren sich daher ab dieser Version nach 15 Minuten; `0` schaltet die Sperre ab.
+
+`Mit Windows Hello entsperren (PIN, Gesicht oder Fingerabdruck)` gilt nur für diesen Vault auf diesem Gerät und wird nicht im Vault gespeichert. Ist Windows Hello nicht eingerichtet, steht hier stattdessen ein Hinweis. Siehe „Windows Hello“.
 
 ### Verbindungen
 
@@ -122,9 +179,89 @@ Unter Einstellungen → Verbindungen (erst nach dem Entsperren) stehen vier Wert
 - **Pro Verbindung:** Unter `Weitere Angaben` einer SSH- oder SFTP-Verbindung lassen sich die vier Werte einzeln überschreiben (`Leerlauf-Trennung (min)`, `Keepalive (s)`, `Keepalive-Fehlversuche`, `Verbindungs-Timeout (s)`). Leer heißt: Vorgabe aus den Einstellungen. Container und Cluster erben die Werte des genutzten SSH-Knotens.
 - **Kurzer Verbindungs-Timeout:** Er läuft auch, solange die Rückfrage zum Server-Schlüssel offen ist. Bei sehr kurzem Wert scheitert das Annehmen eines neuen Schlüssels, wenn du länger liest. Nimm neue Schlüssel dann über `Verbindung testen` an (dessen Zeitmesser pausiert in der Rückfrage) oder stelle einen größeren Wert ein.
 
+### Terminal
+
+Unter Einstellungen → Terminal (nach dem Entsperren) stehen Schriftart, Schriftgröße, Verlauf, Cursorform und Blinken. Die Werte gelten sofort für alle offenen Terminals dieses Vaults und werden mit ihm gespeichert. Ältere Shellherd-Versionen entfernen sie beim Speichern.
+
+| Wert | Standard | Grenzen |
+|---|---|---|
+| `Schriftart` | Consolas | höchstens 64 Zeichen: Buchstaben, Ziffern, Leerzeichen, `.`, `_`, `-` |
+| `Schriftgröße` | 14 Pixel | 8 bis 32 |
+| `Verlauf` | 5.000 Zeilen | 1.000 bis 50.000 |
+| `Cursor` | Block | Block, Strich oder Unterstrich |
+| `Cursor blinkt` | ja | ja oder nein |
+
+- **Schriftart:** Ein Name, keine Liste der installierten Schriften. Leer oder auf diesem Computer nicht installiert, nimmt Shellherd Consolas, danach Cascadia Mono und eine Standard-Festbreitenschrift.
+- **Verlauf:** Jede Zeile belegt Speicher; 10.000 Zeilen brauchen etwa 15 MB je Terminal, bei 16 offenen Terminals bis zu 240 MB. Ein kleinerer Wert kürzt den Verlauf offener Terminals.
+
 ### KI-Anbieter
 
 Unter Einstellungen → KI-Assistent stehen Zahl und Standard der eingerichteten Anbieter. `Anbieter verwalten` öffnet die Anbieterliste, `Fertig` führt zurück in die Einstellungen. Dieselbe Liste öffnet auch das Zahnrad im Assistenten-Panel; die Schlüssel liegen verschlüsselt im Vault.
+
+### Maskierung im KI-Assistenten
+
+Bevor der Assistent etwas an einen Anbieter schickt, ersetzt Shellherd Geheimnisse durch Platzhalter wie `[SECRET_1]`. Das gilt für deine Frage, den Terminalausschnitt, gelesene Ausgaben und den mitgeschickten Verlauf. Derselbe Wert bekommt in einem Verlauf immer denselben Platzhalter, so kann sich das Modell darauf beziehen. Ein einmal erkannter Wert bleibt im ganzen Verlauf verdeckt, auch an Stellen ohne erkennbares Muster; Shellherd merkt sich dafür je Verlauf die letzten 1.000 erkannten Werte, Vault-Werte immer. `Verlauf leeren` beginnt neu.
+
+Erkannt werden:
+- Passwörter, Passphrasen und API-Schlüssel, die in diesem Vault gespeichert sind (ab 6 Zeichen), wo immer sie im Text stehen,
+- private Schlüssel (`-----BEGIN … PRIVATE KEY-----`), auch angeschnitten und base64-kodiert,
+- Werte hinter Namen wie `password`, `DB_PASSWORD`, `secret`, `token`, `api_key`, `client_secret` oder `AccountKey`, mit `=` oder `:` und als Option (`--password …`),
+- Passwörter in Adressen (`postgres://app:…@db`),
+- `Authorization: Bearer …` und `Basic …`,
+- Schlüssel von AWS (`AKIA…`), GitHub (`ghp_…`, `github_pat_…`), Slack (`xox…`, Webhooks), OpenAI und Anthropic (`sk-…`) und Google (`AIza…`), GitLab (`glpat-…`), Stripe (`sk_live_…`, `rk_live_…`), npm (`npm_…`), Azure-Signaturen (`sig=`) und JWTs,
+- Passwörter in `.netrc` (`password …`, auch über mehrere Zeilen) und die Zeichenkette von `ConvertTo-SecureString`,
+- Werte unter `data:` und `stringData:`, wenn der Text ein Kubernetes-Secret (`kind: Secret`) enthält.
+
+Unter deiner Frage steht dann „Vertrauliche Werte maskiert: 2“. Die Antwort zeigt die Platzhalter unverändert. Shellherd setzt nie echte Werte in Antworten oder Befehle ein, sonst könnte eingeschleuster Terminaltext das Modell dazu bringen, dein Passwort in einen Befehl zu schreiben. Steht in einem vorgeschlagenen Befehl ein Platzhalter, steht darunter „Enthält maskierte Werte. Setze sie vor Enter selbst ein.“
+
+Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, denn ein lokaler Endpunkt kann Anfragen protokollieren oder weiterleiten. Abschalten lässt sie sich je Anbieter unter `Anbieter verwalten` → `Bearbeiten` → `Geheimnisse vor dem Senden maskieren`. Der Assistent zeigt dann „Maskierung ist für diesen Anbieter aus“. Lässt sich ein Text nicht prüfen, sendet Shellherd nichts.
+
+**Grenzen.** Die Maskierung erkennt Muster und bekannte Werte, sie versteht keinen Inhalt. Nicht erkannt werden zum Beispiel:
+- Passwörter ohne erkennbaren Namen, etwa direkt hinter einer Kurzoption (`mysql -pGeheim`, `sshpass -p Geheim`, `curl -u admin:Geheim`) oder im Fließtext, solange sie nicht im Vault stehen,
+- Vault-Passwörter unter 6 Zeichen, das Vault-Passwort selbst und Eingaben aus Anmelde-Rückfragen,
+- abgewandelte Werte: base64 oder Hex kodiert, in Teilen oder mit Leerzeichen, `;` oder `&` ohne Anführungszeichen (dann nur bis zu diesem Zeichen),
+- Passwörter in Adressen, die `/`, `?` oder `#` unkodiert enthalten, und Werte über 4.096 Zeichen (dann nur der Anfang),
+- Schlüssel ohne festes Format, etwa reine Hex-Schlüssel von Azure, außer sie stehen hinter einem Namen wie `api-key`,
+- Kubernetes-Secrets als JSON (`-o json`),
+- Cookies (`Cookie: …`, `Set-Cookie: …`) und PuTTY-Schlüssel im Format `.ppk`,
+- mehr als 256 Verläufe in einer Sitzung: Shellherd vergisst dann die Platzhalter des ältesten. Dort früher erkannte Werte werden in späteren Fragen nur noch durch die Regeln und die Vault-Werte maskiert,
+- eine einzelne Zeile, die länger ist als der mitgeschickte Ausschnitt (6 000 bzw. 8 000 Zeichen); sie wird angeschnitten.
+
+Hashes, Commit-IDs und UUIDs bleiben absichtlich stehen. KI-Kommandozeilen in eigenen Tabs (Claude Code, Codex …) senden selbst und laufen nicht über diese Maskierung. Stehen sensible Ausgaben auf dem Bildschirm, leere ihn (`clear`), bevor du den Assistenten fragst.
+
+## Workflows
+
+Workflows sind gespeicherte Befehle, die Shellherd für dich in ein Terminal tippt. Sie liegen verschlüsselt im Vault (höchstens 1.000) und stehen in allen Fenstern bereit.
+
+### Palette
+
+`Strg+Umschalt+Leertaste` oder der Knopf `Workflows` in der Kopfzeile öffnet die Palette, dasselbe Kürzel schließt sie wieder. Sie geht nur bei entsperrtem Vault, auch im Nebenfenster. Die Überschrift nennt den Ziel-Tab (`Workflows → web-01`) oder `kein Terminal ausgewählt`.
+
+Die Suche prüft Name, Tags, Beschreibung und Befehl ohne Rücksicht auf Groß- und Kleinschreibung; bei mehreren Wörtern muss jedes vorkommen. Workflows für die Shell des aktiven Tabs und für alle Shells stehen oben, alphabetisch; Workflows für eine andere Shell folgen blasser und bleiben wählbar. `↑` und `↓` wählen, `Enter` oder ein Klick nimmt den Workflow, `Esc` oder ein Klick neben die Palette schließt sie.
+
+Ohne Platzhalter tippt Shellherd den Befehl sofort ein und schließt die Palette. Ausgeführt wird nichts: `Enter` drückst du selbst. Workflows nehmen nur verbundene SSH-, PowerShell- und CMD-Tabs sowie die Shell eines Containers oder Pods an; Dateiansicht, Container-Ansicht selbst, Cluster-Ansicht, Remotedesktop und Willkommensseite nicht. Ist das Terminal getrennt oder läuft darin ein Vollbildprogramm wie `vim`, `less` oder `top`, bleibt die Palette offen und nennt den Grund. `Eingabe an alle` gilt für Workflows nicht; sie gehen immer nur in den aktiven Tab.
+
+### Platzhalter
+
+`{{name}}` im Befehl ist ein Platzhalter. Erlaubt sind Buchstaben, Ziffern, Leerzeichen, `_`, `.` und `-`, höchstens 40 Zeichen. Hat ein Workflow Platzhalter, fragt die Palette jeden Namen einmal ab, in der Reihenfolge des ersten Vorkommens; derselbe Name an mehreren Stellen bekommt denselben Wert. Darunter zeigt eine Vorschau den fertigen Befehl. Zeilenumbrüche und Steuerzeichen in den Werten entfernt Shellherd, ein leeres Feld bleibt eine leere Stelle. `Eintippen` (oder `Enter`) tippt den Befehl ein, `Kopieren` legt ihn in die Zwischenablage und schließt die Palette, `Zurück` oder `Esc` führt zur Liste zurück.
+
+### Workflows verwalten
+
+`Workflows verwalten` unten in der Palette öffnet die Liste, nur im Hauptfenster. `Neuer Workflow` legt einen an, `Bearbeiten` ändert ihn, `Löschen` entfernt ihn sofort und ohne Rückfrage. `Fertig` schließt die Liste. Jede Änderung wird gleich verschlüsselt im Vault gespeichert.
+
+| Feld | Regel |
+|---|---|
+| `Name` | Pflicht, höchstens 120 Zeichen |
+| `Befehl (eine Zeile)` | Pflicht, eine Zeile, höchstens 4.000 Zeichen; mehrere Befehle verbindest du mit `&&` oder `;` |
+| `Beschreibung (optional)` | höchstens 2.000 Zeichen, steht in der Palette unter dem Befehl |
+| `Tags (durch Komma getrennt)` | höchstens 20 Tags mit je bis zu 40 Zeichen; doppelte fallen weg |
+| `Für Shell` | `Alle`, `SSH`, `PowerShell` oder `CMD`; ordnet die Palette, sperrt aber nichts |
+
+Unter dem Befehlsfeld nennt das Formular die erkannten Platzhalter.
+
+### Aus dem Assistenten
+
+Schlägt der KI-Assistent einen Befehl vor, öffnet `Als Workflow` das Formular mit diesem Befehl. Name und übrige Felder ergänzt du; `Speichern` legt den Workflow an, `Abbrechen` verwirft ihn. `Als Workflow` gibt es nur im Hauptfenster.
 
 ## Split-Ansichten und Workspaces
 
@@ -295,12 +432,28 @@ Unter `Weitere Angaben` einer SSH-Verbindung legst du Port-Weiterleitungen fest
 - Gesperrt laufen bestehende Weiterleitungen weiter, Starten geht nicht.
 - Ist der Port auf diesem Computer belegt, sagt die Leiste das. Lehnt der Server
   ab, liegt es meist an `AllowTcpForwarding` oder einem belegten Port auf dem Server.
-- Pods und Services im Cluster sind hier nicht enthalten; der Cluster-Bereich zeigt
-  weiter den `kubectl port-forward`-Befehl zum Kopieren.
+- Pods und Services im Cluster leitest du im Cluster-Tab weiter, siehe „Kubernetes → Port weiterleiten“.
 - **Risiko entfernt:** Mit `GatewayPorts yes` auf dem Server ist der Port für das
   Netz erreichbar. Shellherd verhindert das nicht; ohne diese Einstellung bleibt er
   auf `localhost` des Servers.
 - **Ältere Versionen** (0.18 und älter) entfernen die Weiterleitungen beim Speichern.
+
+## Verbindungen importieren
+
+`Neu` → `Importieren` (oder die Willkommensseite) übernimmt Verbindungen aus anderen Programmen. Die Quelle wird erst nach dem Klick gelesen; eine Vorschau mit Häkchen zeigt alle Funde, bevor etwas gespeichert wird. Bestehende Verbindungen bleiben unverändert. Das Lesen läuft getrennt vom Rest der App und bricht nach 5 Sekunden ab, damit eine beschädigte Datei Shellherd nicht blockiert.
+
+- **OpenSSH:** die Datei `~/.ssh/config`, über den Dateidialog gewählt (Vorgabe `%USERPROFILE%\.ssh\config`).
+- **PuTTY:** die Sitzungen unter `HKCU\Software\SimonTatham\PuTTY\Sessions`, per `reg.exe export` nur gelesen.
+- **WinSCP:** die Sitzungen unter `HKCU\Software\Martin Prikryl\WinSCP 2\Sessions`, ebenfalls nur gelesen. Sitzungen aus einer portablen `WinSCP.ini` liest Shellherd nicht. SFTP-Sitzungen werden zu Dateiverbindungen, SCP-Sitzungen zu SFTP.
+- **mRemoteNG:** die Datei `confCons.xml`, über den Dateidialog gewählt (Vorgabe `%APPDATA%\mRemoteNG\confCons.xml`). Ist die Datei vollständig verschlüsselt, bricht der Import mit Hinweis ab. RDP-Verbindungen kommen als Remotedesktop-Verbindung mit Domain an, ohne Passwort.
+
+Übernommen werden Host, Port, Benutzer, Schlüsselpfad, Weiterleitungen und bei WinSCP und mRemoteNG die Ordner. Nicht übernommen werden Passwörter, Passphrasen und Schlüsselinhalte. Schlüsseldateien werden nie geöffnet; Shellherd speichert nur den Pfad. PuTTY-Schlüssel (`.ppk`) bekommen einen Hinweis, weil Shellherd nur Format 2 mit RSA liest.
+
+- **Duplikate:** Eine Verbindung mit gleichem Host, Port und Benutzer wie eine vorhandene SSH- oder SFTP-Verbindung ist markiert und vorab abgewählt; RDP wird mit RDP verglichen. Du kannst sie trotzdem wählen.
+- **Sprunghost:** Er wird nur übernommen, wenn er genau ein Hop zu einem anderen Eintrag derselben Quelle ist und mit ausgewählt ist. Bei WinSCP und mRemoteNG entfällt er.
+- **Weiterleitungen** starten nach dem Import nicht automatisch, sondern erst per Klick.
+- **Zielordner:** standardmäßig ein neuer Ordner „OpenSSH-Import“, „PuTTY-Import“, „WinSCP-Import“ oder „mRemoteNG-Import“ auf oberster Ebene. Wahlweise geht es in einen vorhandenen Ordner oder auf die oberste Ebene. Ein neuer Importordner lässt sich mit einem Löschvorgang zurücknehmen.
+- **Nicht übernommen:** Sitzungen anderer Protokolle wie FTP, Telnet oder VNC. Die Vorschau nennt die Anzahl.
 
 ## Container und VMs
 
@@ -386,7 +539,7 @@ statt auf dem Server laufen würden.
 
 Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
 Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, YAML,
-Events und Describe bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
+Events, Describe und `Port weiterleiten…` bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
 Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird.
 
 Der Cluster-Tab zeigt Nodes, Workloads, Pods und Events live. Eine Statusleiste unter dem
@@ -427,9 +580,30 @@ Die kubeconfig liegt nur im Speicher des Hauptprozesses und wird nicht auf die
 Festplatte geschrieben. Der Tunnel zum API-Server lauscht nur auf `127.0.0.1`.
 Secret-Daten sind in der YAML-Ansicht maskiert.
 
+### Port weiterleiten
+
+Rechtsklick auf einen laufenden Pod oder einen Service → `Port weiterleiten…`. Im Dialog wählst du den Port im Pod (die im Manifest genannten Ports oder `Anderer Port …`) bzw. den Port des Service, dazu den lokalen Port. Vorgeschlagen ist derselbe Port; lässt du das Feld leer, wählt Shellherd einen freien. `Weiterleiten` startet die Weiterleitung. Die Leiste „Weiterleitungen“ unten im Cluster-Tab zeigt `127.0.0.1:<Port> → <Ziel>`, die offenen Verbindungen und den letzten Fehler, mit `Im Browser öffnen`, `Adresse kopieren` und `Stoppen`.
+
+- **Nur 127.0.0.1:** Der Port ist nur von diesem Computer aus erreichbar, nie aus dem Netz. Ein Feld dafür gibt es nicht.
+- **Service:** Shellherd liest den Selector und verbindet zum ersten bereiten Pod (nach Name), auf dessen `targetPort`, auch wenn der Port einen Namen hat. Verschwindet der Pod, etwa bei einem Rollout, sucht die nächste Verbindung von selbst einen neuen; laufende Verbindungen zum alten Pod enden. Anders als bei `kubectl port-forward svc/…` muss man nichts neu starten. Die Leiste nennt den Pod („über api-…:8080“). Alle Verbindungen gehen an diesen einen Pod, es gibt keine Lastverteilung.
+- **Pod:** Die Weiterleitung bleibt an diesem Pod-Namen. Nach einem Neustart des Containers geht es weiter, ebenso bei StatefulSet-Pods, die mit gleichem Namen zurückkommen. Wird der Pod ersetzt, meldet die Leiste „Den Pod … gibt es nicht (mehr).“ Für Deployments deshalb besser den Service nehmen.
+- **Lebensdauer:** Eine Weiterleitung gehört zu ihrem Cluster-Tab. Tab schließen, Fenster schließen, einen anderen Vault öffnen oder Shellherd beenden stoppt sie. Verbindet sich der Cluster neu, bleibt der lokale Port offen: Neue Verbindungen warten bis zu 30 Sekunden auf den Cluster, bestehende brechen ab. Gesperrt laufen Weiterleitungen weiter, starten lassen sie sich erst nach dem Entsperren. Gespeichert wird nichts, auch nicht im Workspace.
+- **„Nur lesen“ und Produktion:** Eine Port-Weiterleitung ändert nichts im Cluster und ist deshalb auch bei „Nur lesen“ erlaubt. Bei Produktion nennt der Dialog, was danach erreichbar ist; eine Namenseingabe gibt es nicht. Über die Weiterleitung können Programme aber Daten lesen und schreiben, etwa in einer Datenbank, mit deren eigener Anmeldung.
+- **Rechte:** Kubernetes verlangt `create` auf `pods/portforward` im Namespace (ältere Versionen `get`). Die Rolle `edit` hat das, `view` nicht. Für Services braucht es zusätzlich `get` auf den Service und `list` auf Pods. Fehlt das Recht, meldet die Leiste „Keine Berechtigung für Port-Weiterleitungen in …“.
+- **Grenzen:** Höchstens 10 Weiterleitungen gleichzeitig, je Weiterleitung höchstens 32 gleichzeitige Verbindungen, nur TCP. `Im Browser öffnen` nimmt `http`, bei Port 443 und 8443 `https`. Programme, die nach dem Senden ihre Seite der Verbindung schließen (z. B. `nc -N`, `socat`), bekommen keine Antwort.
+- **Wer den Port erreicht:** Jedes Programm und jeder Benutzer auf diesem Computer, auch Webseiten im Browser über Tricks wie DNS-Rebinding. Eine Anmeldung am Port gibt es nicht, genau wie bei `kubectl port-forward`. Lass Weiterleitungen deshalb nur so lange offen, wie du sie brauchst, und leite auf geteilten Rechnern (Terminalserver) nicht zu sensiblen Diensten weiter.
+
 ## Dateiansicht: Tastatur und Übertragungen
 
 Tippen in der Dateiliste springt zum nächsten Eintrag, dessen Name so beginnt. Gesucht wird in der angezeigten Reihenfolge, Ordner zuerst. Schnell weitergetippt sucht Shellherd nach dem ganzen Anfang (`no` findet `notes.md`); derselbe Buchstabe mehrmals geht zum jeweils nächsten Treffer. Nach einer Sekunde Pause beginnt die Suche neu. Groß- und Kleinschreibung spielt keine Rolle. Das gilt für die lokale und die Server-Seite. Die Leertaste, Kombinationen mit `Strg` oder `Alt` und Zeichen, die nur mit `AltGr` entstehen (etwa `@`), springen nicht.
+
+`Strg+L` in der Dateiliste, ein Doppelklick auf die Pfadleiste oder ⚙ → `Gehe zu …` macht aus der Pfadleiste ein Eingabefeld. `Enter` öffnet den Ordner, `Esc` bricht ab. Auf dem Server führen `~` und `~/…` in den Basisordner; ein Pfad ohne führenden `/` gilt ab dem aktuellen Ordner. Lokal gehen Laufwerkspfade (`D:\Projekte`, auch mit `/`), Netzwerkfreigaben (`\\server\freigabe`), `~` und Pfade ab dem aktuellen Ordner, Gerätepfade wie `\\?\` nicht. Fehlt der Ordner, ist es eine Datei oder fehlen Rechte, steht der Fehler unter dem Feld und der bisherige Ordner bleibt.
+
+`Strg+F` in der Liste oder ⚙ → `Filtern …` blendet ein Filterfeld ein. Es zeigt nur Einträge, deren Name den Text enthält; Groß- und Kleinschreibung spielt keine Rolle. `Enter` oder `↓` geht zurück in die Liste. `Esc`, `×` oder ein Ordnerwechsel entfernen den Filter.
+
+⚙ → `Versteckte Dateien ausblenden` blendet Namen mit Punkt am Anfang aus (`.bashrc`, `.git`). Das gilt für die lokale und die Server-Seite getrennt und wird für alle Verbindungen gemerkt. Lokal zählt nur der Punkt, nicht das Windows-Attribut „Versteckt“. Standard ist: alles anzeigen.
+
+Ausgeblendete und weggefilterte Einträge lassen sich weder auswählen noch kopieren, verschieben oder löschen; `Strg+A` wählt nur, was zu sehen ist. Ein Ordner wird dabei immer vollständig kopiert oder gelöscht, mit den versteckten Dateien darin. Die Fußzeile zeigt, wie viele Einträge ausgeblendet sind. Aus der Dateiansicht lässt sich nichts in den Explorer ziehen. Zum Herunterladen wählst du links den Zielordner (etwa mit `Strg+L`) und drückst `F5`.
 
 Laufende Übertragungen zeigen nach der ersten Sekunde ihre Geschwindigkeit hinter dem Fortschritt (`12 MB/s`), geglättet über die letzten Sekunden. Solange die Frage nach einer vorhandenen Datei offen ist und bei fertigen Übertragungen steht keine Geschwindigkeit. Auto-Upload zeigt keine. Shellherd hält dabei knapp vier Megabyte an Anfragen gleichzeitig unterwegs und kopiert bei Ordnern bis zu vier Dateien parallel; die Zeile nennt die gerade laufenden Dateien.
 
@@ -496,16 +670,11 @@ Shellherd zeigt Probleme dort, wo sie entstehen.
 
 ## Server-Schlüssel
 
-Beim ersten Kontakt den angezeigten SHA-256-Fingerprint mit einer
-vertrauenswürdigen Quelle vergleichen. Nur ausdrücklich bestätigte Schlüssel
-werden in `known-hosts.json` im Electron-Benutzerdatenverzeichnis gespeichert.
-Diese Datei enthält Hosts, Ports und öffentliche Fingerprints, keine Zugangsdaten.
-Sie liegt unter `%APPDATA%\Shellherd\known-hosts.json`; beim ersten Start übernimmt
-Shellherd sie einmalig aus `%APPDATA%\Terminus`. Sie ist eine eigene
-Shellherd-Vertrauensdatei; OpenSSHs `known_hosts` wird noch
-nicht importiert. Abweichende Schlüssel und beschädigte Vertrauensdateien brechen
-die Verbindung ab. Ein Schlüsselwechsel muss mit dem Server-Administrator geklärt
-werden; eine Oberfläche zur gezielten Verwaltung vertrauter Hosts folgt später.
+Beim ersten Kontakt den angezeigten SHA-256-Fingerprint mit einer vertrauenswürdigen Quelle vergleichen. Nur ausdrücklich bestätigte Schlüssel werden in `known-hosts.json` im Electron-Benutzerdatenverzeichnis gespeichert. Diese Datei enthält Hosts, Ports und öffentliche Fingerprints, keine Zugangsdaten. Sie liegt unter `%APPDATA%\Shellherd\known-hosts.json`; beim ersten Start übernimmt Shellherd sie einmalig aus `%APPDATA%\Terminus`. Abweichende Schlüssel und beschädigte Vertrauensdateien brechen die Verbindung ab.
+
+Einstellungen → Verbindungen → `Server-Schlüssel verwalten` zeigt alle bestätigten und importierten Schlüssel mit Host und Port (gehashte Einträge: „Gehashter Hostname“), Typ bei importierten Einträgen und SHA-256-Fingerprint. Das Suchfeld filtert nach Host, Typ oder Fingerprint. `Entfernen` löscht einen Eintrag sofort; beim nächsten Verbinden fragt Shellherd wieder nach. So nimmst du einen gewollten Schlüsselwechsel an: alten Eintrag entfernen, neu verbinden, den neuen Fingerprint prüfen und bestätigen. Einen gehashten Eintrag findest du über den Fingerprint, den die Fehlerkarte als `expected` nennt.
+
+`Aus known_hosts importieren …` liest eine OpenSSH-Datei, die du im Dialog wählst (vorgeschlagen: `%USERPROFILE%\.ssh\known_hosts`, höchstens 4 MiB). Übernommen werden Hostnamen, `[host]:port` und gehashte Namen (`|1|…`) mit Ed25519-, ECDSA- und RSA-Schlüsseln, auch mehrere je Server. Gehashte Einträge zeigt die Liste als „Gehashter Hostname“. `@revoked`-Zeilen gelten für alle Hosts: Einen so markierten Schlüssel nimmt Shellherd nie an, auch nicht nach Rückfrage. Übersprungen werden `@cert-authority`, Muster wie `*.example.com` oder `!host`, Zertifikate und Sicherheitsschlüssel (`sk-…`). Der Import ändert keinen Schlüssel, den du in Shellherd bestätigt hast: Für solche Server gilt weiter Shellherds Eintrag, und weicht die Datei davon ab, nennt das Ergebnis den Server. Shellherd liest `known_hosts` nur nach diesem Klick und schreibt sie nie.
 
 ## Prozessgrenzen und Lebenszyklus
 

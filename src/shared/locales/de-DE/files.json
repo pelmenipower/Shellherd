@@ -26,7 +26,7 @@
     "newFolder": "Neuer Ordner",
     "folderMenu": "Aktionen für diesen Ordner",
     "path": "Pfad",
-    "pathHint": "Doppelklick: Pfad eingeben",
+    "pathHint": "Doppelklick oder Strg+L: Pfad eingeben",
     "newFileRemote": "Neue Datei (öffnet sich danach im Editor, Speichern lädt hoch)",
     "renamePrompt": "„{{name}}“ umbenennen",
     "create": "Anlegen",
@@ -50,7 +50,17 @@
     "downloadButton": "← Herunterladen",
     "renameTitle": "Umbenennen (F2)",
     "deleteTitle": "Löschen (Entf)",
-    "autoUpload": "Auto-Upload"
+    "autoUpload": "Auto-Upload",
+    "goTo": "Gehe zu …",
+    "goToUnsupported": "Dieser Pfad wird nicht unterstützt.",
+    "filter": "Filtern …",
+    "filterLabel": "Name filtern",
+    "filterPlaceholder": "Name enthält …",
+    "filterClear": "Filter entfernen",
+    "showHidden": "Versteckte Dateien anzeigen",
+    "hideHidden": "Versteckte Dateien ausblenden",
+    "hiddenCount": "{{hidden}} ausgeblendet",
+    "allHidden": "Alle Einträge sind ausgeblendet."
   },
   "panel": {
     "openFolderFailed": "Der Ordner konnte nicht geöffnet werden.",

@@ -20,6 +20,12 @@
     "vaultFileNotFound": "Die Vault-Datei wurde nicht gefunden.",
     "vaultFileAccessDenied": "Auf die Vault-Datei kann nicht zugegriffen werden. Sie ist vielleicht gesperrt oder schreibgeschützt.",
     "vaultFileMissing": "Es wurde keine Vault-Datei ausgewählt.",
+    "vaultPathNotAllowed": "Shellherd öffnet diese Datei nur über „Vault-Datei auswählen“.",
+    "helloCanceled": "Windows Hello wurde abgebrochen.",
+    "helloUnavailable": "Windows Hello ist auf diesem Gerät nicht eingerichtet.",
+    "helloStale": "Windows Hello passt nicht mehr zu diesem Vault, etwa weil die Datei ersetzt oder Windows Hello neu eingerichtet wurde. Entsperre mit dem Passwort und schalte Windows Hello in den Einstellungen wieder ein.",
+    "helloFailed": "Windows Hello hat nicht geantwortet.",
+    "helloBusy": "Windows Hello wartet schon auf deine Bestätigung.",
     "vaultFileNotJson": "Die ausgewählte Datei enthält kein gültiges JSON.",
     "vaultBackupNameTaken": "Für die Vault-Sicherung wurde kein freier Dateiname gefunden.",
     "vaultDuplicateNodeId": "Der Vault ist inkonsistent: Die ID \"{{id}}\" wird mehrfach verwendet.",
@@ -59,6 +65,11 @@
     "vaultWriteLocked": "Die Vault-Datei ist von einem anderen Programm gesperrt.",
     "vaultWriteFolderUnreachable": "Der Ordner der Vault-Datei ist nicht erreichbar.",
     "vaultWriteDiskFull": "Auf dem Laufwerk ist kein Platz mehr.",
-    "settingsWriteFailed": "Die Einstellungen konnten nicht gespeichert werden."
+    "settingsWriteFailed": "Die Einstellungen konnten nicht gespeichert werden.",
+    "linkNotAllowed": "Dieser Link wird nicht geöffnet. Shellherd öffnet nur http- und https-Adressen.",
+    "importTooLarge": "Die Importquelle ist zu groß (höchstens 4 MiB).",
+    "importTooComplex": "Die Importquelle ist zu umfangreich oder beschädigt. Shellherd hat das Lesen nach 5 Sekunden abgebrochen.",
+    "importUnreadable": "Die Importquelle konnte nicht gelesen werden.",
+    "importEncrypted": "Die Datei ist verschlüsselt. Exportiere sie in mRemoteNG ohne vollständige Dateiverschlüsselung."
   }
 }

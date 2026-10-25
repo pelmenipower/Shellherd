@@ -14,6 +14,7 @@
     "sessionLimitText": "Maximum of {{max}} sessions at a time. Close a tab first.",
     "tabNotMoved": "Tab not moved",
     "notVaultFileTitle": "Not a vault file",
+    "vaultPathRefusedTitle": "Vault file not opened",
     "vaultNotSaved": "Vault not saved",
     "notRetried": "Not saved again",
     "retryBusy": "Another save is in progress. Repeat the change afterwards.",
@@ -197,7 +198,8 @@
       "views": "Views at the top group several panes; a workspace saves all views and windows.",
       "files": "In the file browser: F4 edits, F5 copies, Shift+F4 creates a file.",
       "settings": "Language, file association and AI providers are in Settings (gear at the top right, {{shortcut}})."
-    }
+    },
+    "import": "Import"
   },
   "fileType": {
     "registered": "Shellherd is associated with .term files.",
@@ -214,6 +216,7 @@
       "general": "General",
       "vault": "Vault",
       "connections": "Connections",
+      "terminal": "Terminal",
       "assistant": "AI assistant"
     },
     "locked": "Vault settings and AI providers appear after unlocking.",
@@ -246,11 +249,38 @@
       "hint": "Applies to new SSH and SFTP connections of this vault, including container and cluster access over SSH. The connection timeout keeps running while the host key prompt is open. Single connections can differ under “More options”."
     },
     "rangeError": "Enter a whole number from {{min}} to {{max}}.",
+    "terminal": {
+      "font": {
+        "label": "Font",
+        "placeholder": "Consolas",
+        "error": "Letters, digits, spaces, dots, hyphens and underscores only, at most 64 characters."
+      },
+      "fontSize": {
+        "label": "Font size",
+        "unit": "pixels"
+      },
+      "scrollback": {
+        "label": "Scrollback",
+        "unit": "lines per terminal"
+      },
+      "cursor": {
+        "label": "Cursor",
+        "block": "Block",
+        "bar": "Bar",
+        "underline": "Underline"
+      },
+      "blink": "Blinking cursor",
+      "hint": "Applies at once to every open terminal of this vault. Empty or not installed on this computer: Consolas. Every scrollback line takes memory, 10,000 lines about 15 MB per terminal, up to 240 MB with 16 open terminals. A smaller value trims the scrollback of open terminals."
+    },
     "assistant": {
       "none": "No provider set up yet.",
       "summary_one": "{{count}} provider, default: {{name}}",
       "summary_other": "{{count}} providers, default: {{name}}",
       "manage": "Manage providers"
+    },
+    "hostKeys": {
+      "manage": "Manage server keys",
+      "hint": "View, search and remove confirmed and imported server keys; import an OpenSSH known_hosts."
     }
   },
   "icons": {
@@ -269,5 +299,61 @@
     "hint": "Your answers go only to this server and are not stored.",
     "submit": "Sign in",
     "ariaLabel": "Server sign-in prompt"
+  },
+  "update": {
+    "available": "Version {{version}} available",
+    "title": "Shellherd {{version}} is available",
+    "notes": "View release notes",
+    "skip": "Skip this version",
+    "setting": {
+      "label": "Check for new versions",
+      "hint": "At most once a day, after unlocking, Shellherd asks GitHub for the latest version and shows it in the status bar. Only the request itself is sent, nothing from the vault. You install updates yourself."
+    }
+  },
+  "recent": {
+    "title": "Recently used",
+    "missing": "File not found",
+    "removeAria": "Remove “{{name}}” from the list"
+  },
+  "theme": {
+    "label": "Appearance",
+    "aria": "Interface color scheme",
+    "system": "System",
+    "dark": "Dark",
+    "light": "Light"
+  },
+  "hostKeys": {
+    "title": "Server keys",
+    "intro": "Shellherd trusts these keys when connecting. Remove one and Shellherd asks again on the next connection.",
+    "search": "Search server keys",
+    "searchPlaceholder": "Host, type or fingerprint…",
+    "import": "Import from known_hosts…",
+    "importDone": "Import: {{added}} new, {{known}} already known, {{revoked}} revoked, {{skipped}} skipped.",
+    "conflicts": "Shellherd knows a different key for these servers and keeps it: {{hosts}}",
+    "hashed": "Hashed host name",
+    "anyHost": "All hosts",
+    "origin": {
+      "confirmed": "Confirmed",
+      "imported": "Imported",
+      "revoked": "Revoked"
+    },
+    "remove": "Remove",
+    "removeLabel": "Remove {{host}}",
+    "empty": "No server keys stored yet.",
+    "noMatch": "No matches.",
+    "shown": "{{shown}} of {{total}}",
+    "loadFailed": "The server keys could not be loaded.",
+    "importFailed": "The import failed.",
+    "removeFailed": "The key could not be removed."
+  },
+  "hello": {
+    "unlock": "Unlock with Windows Hello",
+    "open": "Open with Windows Hello",
+    "waiting": "Waiting for Windows Hello…",
+    "setting": "Unlock with Windows Hello (PIN, face or fingerprint)",
+    "hint": "Applies only to this vault, on this device and in this Windows account. The password keeps working.",
+    "unavailable": "Windows Hello is not set up on this device. Set it up under Windows Settings → Accounts → Sign-in options.",
+    "enabledMessage": "Windows Hello is on for this vault.",
+    "disabledMessage": "Windows Hello is off; the stored key has been deleted."
   }
 }

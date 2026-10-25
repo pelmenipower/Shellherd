@@ -20,6 +20,12 @@
     "vaultFileNotFound": "The vault file was not found.",
     "vaultFileAccessDenied": "The vault file cannot be accessed. It may be locked or read-only.",
     "vaultFileMissing": "No vault file was selected.",
+    "vaultPathNotAllowed": "Shellherd opens this file only via “Select vault file”.",
+    "helloCanceled": "Windows Hello was canceled.",
+    "helloUnavailable": "Windows Hello is not set up on this device.",
+    "helloStale": "Windows Hello no longer matches this vault, for example because the file was replaced or Windows Hello was set up again. Unlock with the password and turn Windows Hello on again in the settings.",
+    "helloFailed": "Windows Hello did not respond.",
+    "helloBusy": "Windows Hello is already waiting for your confirmation.",
     "vaultFileNotJson": "The selected file does not contain valid JSON.",
     "vaultBackupNameTaken": "No free file name was found for the vault backup.",
     "vaultDuplicateNodeId": "The vault is inconsistent: the ID “{{id}}” is used more than once.",
@@ -59,6 +65,11 @@
     "vaultWriteLocked": "The vault file is locked by another program.",
     "vaultWriteFolderUnreachable": "The folder of the vault file cannot be reached.",
     "vaultWriteDiskFull": "There is no space left on the drive.",
-    "settingsWriteFailed": "The settings could not be saved."
+    "settingsWriteFailed": "The settings could not be saved.",
+    "linkNotAllowed": "This link is not opened. Shellherd only opens http and https addresses.",
+    "importTooLarge": "The import source is too large (at most 4 MiB).",
+    "importTooComplex": "The import source is too complex or damaged. Shellherd stopped reading it after 5 seconds.",
+    "importUnreadable": "The import source could not be read.",
+    "importEncrypted": "The file is encrypted. Export it from mRemoteNG without full file encryption."
   }
 }

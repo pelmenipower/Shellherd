@@ -1,8 +1,6 @@
 import { AppError } from '../../shared/errors';
-import {
-  encryptVaultWithKey,
-  unlockVault,
-} from './crypto';
+import { encryptVaultWithKey, unlockVault, unlockVaultWithKey } from './crypto';
+import type { UnlockedVault } from './crypto';
 import {
   backupVaultFile,
   readEncryptedVaultFile,
@@ -58,11 +56,28 @@ export class VaultSessionManager {
     const encryptedVault =
       await readEncryptedVaultFile(filePath);
 
-    const unlocked = await unlockVault(
-      encryptedVault,
-      password,
-    );
+    return this.open(filePath, await unlockVault(encryptedVault, password));
+  }
 
+  /** Windows Hello: the file was read before the prompt; takes ownership of key (kept on success, zeroed on failure). */
+  public openWithKey(filePath: string, file: EncryptedVaultFile, key: Buffer): VaultSessionSnapshot {
+    return this.open(filePath, unlockVaultWithKey(file, key));
+  }
+
+  /** File and KDF salt of the unlocked vault, for Windows Hello; core.vaultLocked without one. */
+  public helloTarget(): { filePath: string; salt: string } {
+    const session = this.requireSession();
+    return { filePath: session.filePath, salt: session.kdf.salt };
+  }
+
+  /** Copy of the session key, only while the same file with the same KDF salt is unlocked; the caller zeroes it. */
+  public keyCopy(filePath: string, salt: string): Buffer {
+    const session = this.requireSession();
+    if (session.filePath !== filePath || session.kdf.salt !== salt) throw new AppError('core.vaultLocked');
+    return Buffer.from(session.key);
+  }
+
+  private open(filePath: string, unlocked: UnlockedVault): VaultSessionSnapshot {
     /*
      * Die bestehende Session wird erst gelöscht,
      * nachdem der neue Vault erfolgreich geöffnet wurde.

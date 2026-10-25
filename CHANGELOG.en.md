@@ -4,6 +4,61 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.27.0] – 2026-10-25
+
+- New: Port forwards to pods and services. Right-click in the cluster tab → `Forward port…` picks the port and the local port. The “Port forwards” bar at the bottom of the cluster tab lists them with `Open in browser`, `Copy address` and `Stop`. A service goes to a ready pod and finds the next one by itself after a rollout.
+- Security: Port forwards listen on 127.0.0.1 only, live only as long as their cluster tab and are never saved. Shellherd changes nothing in the cluster for them, so “Read-only” allows them too. They need the `create` permission on `pods/portforward`.
+
+## [0.26.0] – 2026-10-25
+
+- New: Windows Hello. Settings → Vault → `Unlock with Windows Hello (PIN, face or fingerprint)` turns it on per vault and device. Afterwards `Unlock with Windows Hello` unlocks the lock screen, also after the automatic lock, and `Open with Windows Hello` opens the file in `Open vault`, also after a restart. The password keeps working.
+- Security: Shellherd never stores the password for this, but the vault key, encrypted with a key that only a Windows Hello signature creates (with a TPM in the security chip). A replaced vault file or a newly set up Windows Hello makes it invalid; `×` under `Recently used` deletes it.
+
+## [0.25.0] – 2026-10-25
+
+- Security: The AI assistant masks secrets before anything goes to the provider: passwords, passphrases and API keys from the vault, private keys, `password=` and `secret:` values, passwords in addresses, Bearer and Basic headers, keys from AWS, GitHub, GitLab, Slack, Stripe, npm, OpenAI, Anthropic, Google and Azure, passwords in `.netrc` and `ConvertTo-SecureString`, JWTs and the data of Kubernetes secrets. The same value keeps the same placeholder in the history (`[SECRET_1]`); Shellherd never puts real values back into answers or commands.
+- New: Below the question, the assistant shows how many sensitive values were masked. Commands with a placeholder carry a hint. Masking is on for every provider, local models included, and can be switched off per provider.
+- Fixed: The assistant reads wrapped terminal lines as one line and cuts long output only at line boundaries.
+
+## [0.24.0] – 2026-10-25
+
+- New: Settings → Connections → `Manage server keys` lists all confirmed and imported server keys with SHA-256 fingerprint, with search and `Remove`. An intended key change can thus be accepted.
+- New: Import from OpenSSH `known_hosts`, also with hashed names, `[host]:port` and several key types. `@revoked` is respected, `@cert-authority` and patterns are skipped. The import never changes keys confirmed in Shellherd.
+- Security: While locked, all Shellherd windows are excluded from screen captures and screen sharing.
+- Security: Shellherd opens vault files only from the file dialog, Explorer, `Recently used` or by dragging from a local drive. Network paths from other sources are refused.
+
+## [0.23.0] – 2026-10-25
+
+- New: Path field in the file view with `Ctrl+L`, also via ⚙ → `Go to…`; the double-click works as before. It understands `~`, paths from the current folder and locally `/` instead of `\`. Errors such as “The file or folder was not found.” or “This is not a folder.” appear at the field; the previous folder stays.
+- New: Filter by name with `Ctrl+F` in the file list, separately per side. It checks “contains”, ignoring upper and lower case, and ends when the folder changes. Copy, move, delete and `Ctrl+A` act only on visible entries.
+- New: ⚙ → `Hide hidden files/Show hidden files`, per side, for names starting with a dot. The default stays: show everything. The footer counts the hidden entries.
+- Security: The local file view no longer opens device paths (`\\?\`, `\\.\`).
+
+## [0.22.0] – 2026-10-25
+
+- New: `Open vault` shows the up to eight most recently used vault files with date and folder. One click selects a file; missing files are marked and can be removed from the list with `×`. Only paths and times are stored in `settings.json`, never contents.
+- New: Light theme. Settings → General → `Appearance` offers `System`, `Dark` and `Light`; the default stays `Dark`. The change applies at once in all windows, including window frames and Windows dialogs; in the light terminal Shellherd raises colors that are too pale to a readable contrast.
+- Docs: chapter “Workflows” in the manual (palette, placeholders, managing, taking over from the assistant).
+
+## [0.21.0] – 2026-10-24
+
+- New: Import connections from OpenSSH (`~/.ssh/config`, choose the file), PuTTY and WinSCP (sessions from the Windows registry, not from a portable `WinSCP.ini`) and mRemoteNG (`confCons.xml`, choose the file). Find it under `New` → `Import` and on the welcome page. A preview shows all connections found with checkboxes before anything is saved. Existing connections stay unchanged. Reading runs apart from the rest of the app and stops after 5 seconds, so a damaged file cannot block Shellherd.
+- New: Host, port, user name, key path, port forwards and the folders of WinSCP and mRemoteNG are imported. Passwords, passphrases and key contents are not: key files are never opened, only their path is stored. Enter the password once in the form. WinSCP sessions with SCP come in as SFTP; sessions of other protocols (such as FTP, Telnet or VNC) are left out. PuTTY keys (`.ppk`) get a hint, because Shellherd reads only format 2 with RSA. RDP connections from mRemoteNG arrive as remote desktop connections with a domain, without a password.
+- New: Duplicates, that is connections with the same host, port and user name as an existing SSH or SFTP connection (RDP is compared with RDP), are marked and unchecked in advance. A jump host is imported only if it is exactly one hop to another entry of the same source and is selected too; WinSCP and mRemoteNG import no jump host. Port forwards do not start automatically after the import, only by click.
+- New: The target folder is by default a new folder “OpenSSH import”, “PuTTY import”, “WinSCP import” or “mRemoteNG import” at the top level. You can also choose an existing folder or the top level. A new import folder can be taken back with one delete.
+- New: Update notice. At most once a day, after unlocking, Shellherd asks GitHub for the latest version and shows it in the status bar. There you open the release notes or skip this version. The notice is on by default and can be switched off under Settings → General. Only the request to GitHub is sent, with your IP address and the Shellherd version, nothing from the vault. There is no automatic update; you install updates yourself.
+
+## [0.20.0] – 2026-10-24
+
+- New: Search in the terminal with `Ctrl+Shift+F`. `Enter` finds the next match, `Shift+Enter` the previous one, `Esc` closes the search. Upper and lower case do not matter. Matches are highlighted by the selection and are not copied to the clipboard. The terminals in the container and cluster docks have no search; there `Ctrl+Shift+F` goes to the terminal.
+- New: Links in the terminal open in the browser with `Ctrl+click`. Only `http` and `https` addresses up to 2048 characters are allowed, without user name and password. Everything else stays text. Hovering over a link shows a hint in the terminal.
+- New: Tab shortcuts in the focused pane: `Ctrl+Tab` and `Ctrl+Shift+Tab` switch the tab, `Ctrl+Shift+T` opens the connection picker, `Ctrl+Shift+W` closes the active tab with the usual confirmation. `Ctrl+F`, `Ctrl+T` and `Ctrl+W` stay with the shell (one character forward, swap characters, delete word), which is why the Shift variants are used.
+- New: Settings → Terminal (after unlocking) for font, font size (8 to 32 pixels, default 14), scrollback (1,000 to 50,000 lines, default 5,000), cursor shape and blinking. The values apply at once to all open terminals of the vault; a smaller scrollback trims open terminals.
+- New: When closed, the main window remembers its size, position and maximized state in `settings.json`, not in the vault. The next start restores them if the place is still visible. A window closed while minimized keeps the saved position.
+- New: A tab whose terminal is not visible shows a ring after its name when new output arrives; the name turns bold and light. As soon as the tab becomes visible, the mark disappears.
+- New: Input to all panes, in the pane header menu (from two panes). What you type goes to all connected SSH and local terminals of the shown view. Containers, pods, RDP, SFTP, clusters and the welcome page stay out. The panes show a warning line and the button “To all”, which stops the input. It ends when you switch views, and also when fewer than two terminals remain.
+- Note: Older Shellherd versions remove the terminal settings when saving.
+
 ## [0.19.0] – 2026-10-24
 
 - New: Servers that ask questions during sign-in (one-time code, PIN, second password, 2FA) open a "Sign in to …" dialog. If the server asks only for the password, Shellherd enters the stored password once automatically. Answers are never stored.

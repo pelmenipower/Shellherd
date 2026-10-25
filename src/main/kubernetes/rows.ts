@@ -1,5 +1,5 @@
 import { KIND_INFO } from '../../shared/kubernetes';
-import type { KubeKind, KubeRef, KubeRow, NodeTile, RowTone } from '../../shared/kubernetes';
+import type { KubeKind, KubePort, KubeRef, KubeRow, NodeTile, RowTone } from '../../shared/kubernetes';
 import { jobTone, podTone } from '../../shared/kube-status';
 import type { JobStatus } from '../../shared/kube-status';
 import type { KubeObject } from './api';
@@ -10,6 +10,17 @@ const rec = (v: unknown): Dict => (v && typeof v === 'object' && !Array.isArray(
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const text = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
 const count = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+/** TCP ports with their names, each port once: container ports of a pod, service ports of a service. */
+function tcpPorts(entries: unknown[], key: 'containerPort' | 'port'): KubePort[] | undefined {
+  const ports = entries.map(rec).flatMap((entry): KubePort[] => {
+    const port = count(entry[key]);
+    if (port === undefined || (text(entry.protocol) ?? 'TCP') !== 'TCP') return [];
+    const name = text(entry.name);
+    return [name ? { port, name } : { port }];
+  });
+  const unique = ports.filter((entry, index) => ports.findIndex(other => other.port === entry.port) === index);
+  return unique.length > 0 ? unique : undefined;
+}
 const stamp = (v: unknown): string | undefined => {
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? undefined : v.toISOString();
   return text(v);
@@ -209,6 +220,8 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
       if (nodeName) row.node = nodeName;
       const podIp = text(status.podIP);
       if (podIp) row.ip = podIp;
+      const podPorts = tcpPorts(list(spec.containers).flatMap(container => list(rec(container).ports)), 'containerPort');
+      if (podPorts) row.ports = podPorts;
       break;
     }
     case 'deployments':
@@ -245,6 +258,8 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
         return port === undefined ? undefined : `${port}/${text(rec(p).protocol) ?? 'TCP'}`;
       }));
       row.selector = labelMap(spec.selector);
+      const servicePorts = tcpPorts(list(spec.ports), 'port');
+      if (servicePorts) row.ports = servicePorts;
       break;
     }
     case 'ingresses': {

@@ -22,11 +22,15 @@ import { LockScreen } from './components/LockScreen';
 import { AuthPromptDialog } from './components/AuthPromptDialog';
 import { decodeError } from '../../shared/errors';
 import { disabledNotice, disabledTitle, sessionLimitNotice, skippedNotice } from './vault-notices';
+import { terminalPrefs } from './terminal-prefs';
+import { effectiveTerminalSettings } from '../../shared/vault/terminal-settings';
 
 /** Detached window: tabs and split layout only; vault, sidebar and editor stay in the main window. */
 export function SecondaryWindow() {
   const { t } = useT();
   const [catalog, setCatalog] = useState<ConnectionCatalog | null>(null);
+  // Older senders send no terminal settings; the readers then fall back to the defaults.
+  useEffect(() => { if (catalog) terminalPrefs.set(effectiveTerminalSettings({ terminal: catalog.terminal })); }, [catalog]);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const [pendingClose, setPendingClose] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);

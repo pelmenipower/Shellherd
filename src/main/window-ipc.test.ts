@@ -3,11 +3,13 @@ import type { BrowserWindow } from 'electron';
 
 vi.mock('electron', () => ({ ipcMain: { handle: vi.fn(), on: vi.fn() } }));
 vi.mock('./ssh/ipc', () => ({ requireSshSender: vi.fn() }));
-vi.mock('./vault/ipc', () => ({ vaultSessionManager: {} }));
+vi.mock('./vault/ipc', () => ({ vaultSessionManager: { getSnapshot: vi.fn() } }));
 vi.mock('./drag-ghost', () => ({ DragGhost: class {}, tearOffBounds: vi.fn() }));
 vi.mock('./windows', () => ({ visibleBounds: vi.fn() }));
 
-import { TabConnectionSchema, moveSession, type TransferTab } from './window-ipc';
+import { TabConnectionSchema, catalog, moveSession, type TransferTab } from './window-ipc';
+import { vaultSessionManager } from './vault/ipc';
+import { DEFAULT_TERMINAL_SETTINGS } from '../shared/vault/terminal-settings';
 
 const target = { webContents: { id: 2 } } as BrowserWindow;
 const connection: TransferTab['connection'] = { id: 'c1', name: 'srv', protocol: 'ssh', address: 'host' };
@@ -32,6 +34,21 @@ describe('moveSession', () => {
     const broken = owner(() => { throw new Error('boom'); });
     const owners = { ssh: broken, rdp: broken, sftp: broken };
     expect(() => moveSession(owners as never, 1, { connection, status: 'connected', session }, target)).toThrow('boom');
+  });
+});
+
+describe('catalog', () => {
+  const withSettings = (settings: Record<string, unknown>) =>
+    vi.mocked(vaultSessionManager.getSnapshot).mockReturnValue({ vault: { nodes: [], workflows: [], settings } } as never);
+
+  it('sends the default terminal settings for a vault without them', () => {
+    withSettings({ confirmBeforeClosingSession: true });
+    expect(catalog().terminal).toEqual(DEFAULT_TERMINAL_SETTINGS);
+  });
+
+  it('sends the vault terminal settings over the defaults', () => {
+    withSettings({ confirmBeforeClosingSession: true, terminal: { ...DEFAULT_TERMINAL_SETTINGS, fontSize: 18, cursorStyle: 'bar' } });
+    expect(catalog().terminal).toEqual({ ...DEFAULT_TERMINAL_SETTINGS, fontSize: 18, cursorStyle: 'bar' });
   });
 });
 

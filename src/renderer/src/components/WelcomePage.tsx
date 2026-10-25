@@ -1,9 +1,12 @@
 import type { ConnectionProtocol, Workspace } from '../../../shared/vault/types';
+import type { ImportSource } from '../../../shared/import';
 import { NEW_CONNECTION_KINDS } from '../../../shared/vault/connections';
 import { workspaceSummary } from '../terminal-views';
 import { protocolLabel } from '../connection-labels';
 import { Trans, useT } from '../i18n';
 import { WhatsNew } from './ReleaseNotes';
+
+const IMPORT_SOURCES: ImportSource[] = ['openssh', 'putty', 'winscp', 'mremoteng'];
 
 interface WelcomePageProps {
   vaultName: string;
@@ -13,12 +16,20 @@ interface WelcomePageProps {
   workspaces: Workspace[];
   busy: boolean;
   onNewConnection: (protocol: ConnectionProtocol) => void;
+  onImport: (source: ImportSource) => void;
   onOpenWorkspace: (id: string) => void;
 }
 
 /** Shown while no tab is open: quick starts instead of an empty connection form. */
-export function WelcomePage({ vaultName, version, onShowReleaseNotes, connectionCount, workspaces, busy, onNewConnection, onOpenWorkspace }: WelcomePageProps) {
+export function WelcomePage({ vaultName, version, onShowReleaseNotes, connectionCount, workspaces, busy, onNewConnection, onImport, onOpenWorkspace }: WelcomePageProps) {
   const { t } = useT();
+  // Full literals, so unused keys can be found by search.
+  const importLabels: Record<ImportSource, string> = {
+    openssh: t('vault:import.openssh'),
+    putty: t('vault:import.putty'),
+    winscp: t('vault:import.winscp'),
+    mremoteng: t('vault:import.mremoteng'),
+  };
   return (
     <div className="welcome-page">
       <header>
@@ -42,6 +53,14 @@ export function WelcomePage({ vaultName, version, onShowReleaseNotes, connection
           <ul className="welcome-list">
             {NEW_CONNECTION_KINDS.filter(kind => !kind.planned).map(kind => <li key={kind.protocol}>
               <button type="button" disabled={busy} onClick={() => onNewConnection(kind.protocol as ConnectionProtocol)}><strong>{protocolLabel(kind.protocol)}</strong></button>
+            </li>)}
+          </ul>
+        </section>
+        <section aria-labelledby="welcome-import">
+          <h2 id="welcome-import">{t('app:welcome.import')}</h2>
+          <ul className="welcome-list">
+            {IMPORT_SOURCES.map(source => <li key={source}>
+              <button type="button" disabled={busy} onClick={() => onImport(source)}><strong>{importLabels[source]}</strong></button>
             </li>)}
           </ul>
         </section>

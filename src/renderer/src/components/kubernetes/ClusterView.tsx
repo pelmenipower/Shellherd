@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
-import { KIND_INFO, KUBE_KINDS, refKey, type KubeAction, type KubeRef, type KubeViewSnapshot, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
+import { KIND_INFO, KUBE_KINDS, refKey, type KubeAction, type KubeForwardStatus, type KubeRef, type KubeRow, type KubeViewSnapshot, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
 import type { SshStatus } from '../../../../shared/ssh';
 import { kubeTabName, type TerminalConnection } from '../../terminal-tabs';
 import { useClusterSession } from '../../hooks/useClusterSession';
@@ -20,6 +20,9 @@ import { copiedMessage } from '../../kube-copy';
 import { DetailDock } from './DetailDock';
 import { HelpOverlay } from './HelpOverlay';
 import { ConfirmAction, type PendingAction } from './ConfirmAction';
+import { forwardAddress, forwardUrl } from '../../kube-forward';
+import { KubeForwardBar } from './KubeForwardBar';
+import { KubeForwardDialog } from './KubeForwardDialog';
 import '../../kubernetes-ui.css';
 
 interface ClusterViewProps {
@@ -50,7 +53,7 @@ const TICK_MS = 10_000;
 /** Cluster tab: header, node strip, problems, the resource table and the detail dock. */
 export function ClusterView({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, onPopout, initialView, onSnapshot, sshForNode, onOpenSsh }: ClusterViewProps) {
   const { t, i18n } = useT();
-  const { state, dispatch, retry, detail, action } = useClusterSession(connection.id, initialView, null);
+  const { state, dispatch, retry, detail, action, startForward, stopForward } = useClusterSession(connection.id, initialView, null);
   const rootRef = useRef<HTMLElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const [previous, setPrevious] = useState(false);
@@ -59,6 +62,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   const [dockReloads, setDockReloads] = useState(0);
   const [help, setHelp] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
+  const [forwardRow, setForwardRow] = useState<KubeRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -67,7 +71,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   const readOnly = status?.readOnly ?? true;
   const production = status?.production ?? true;
   const clusterName = status?.name ?? connection.name;
-  const modal = help || pending !== null || menu !== null;
+  const modal = help || pending !== null || menu !== null || forwardRow !== null;
   const filter = filterOf(state);
   // visibleRows reads exactly these fields of state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -213,11 +217,23 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
       window.desktopApi.writeClipboardText(text).then(() => say(t('kubernetes:view.copied', { text: shown })), () => say(t('kubernetes:view.copyFailed')));
     },
     confirm: (ref, kind, currentReplicas) => confirm(ref, kind, currentReplicas),
+    forward: row => setForwardRow(row),
     popout: openTab,
     ssh: id => onOpenSsh?.(id),
     reloadDock: () => setDockReloads(value => value + 1),
     help: () => setHelp(true),
   });
+
+  const openForward = (forward: KubeForwardStatus) => {
+    window.desktopApi.openExternal(forwardUrl(forward)).catch((caught: unknown) => say(errorText(caught)));
+  };
+  const copyForward = (forward: KubeForwardStatus) => {
+    const address = forwardAddress(forward);
+    window.desktopApi.writeClipboardText(address).then(() => say(t('kubernetes:view.copied', { text: address })), () => say(t('kubernetes:view.copyFailed')));
+  };
+  const stopForwardOf = (forward: KubeForwardStatus) => {
+    stopForward(forward.id).catch((caught: unknown) => say(errorText(caught)));
+  };
 
   const menuEntries = (current: MenuState): ContextMenuEntry[] => {
     const entries = menuFor(current.target, {
@@ -349,12 +365,17 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
           logFormat={state.logFormat} onLogFormat={format => dispatch({ type: 'setLogFormat', format })} onSay={say}
           onCopy={(text, label, info) => { window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text, info)), () => say(t('kubernetes:view.copyFailed'))); }} />
       </div>
+      {state.forwards.length > 0 && <KubeForwardBar forwards={state.forwards} onOpen={openForward} onCopy={copyForward} onStop={stopForwardOf} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} label={t('kubernetes:view.contextMenu')} entries={menuEntries(menu)} onClose={() => setMenu(null)} />}
       {help && <HelpOverlay state={state} readOnly={readOnly} onClose={() => setHelp(false)} />}
       {pending && (
         <ConfirmAction pending={pending} cluster={{ name: clusterName, production }}
           run={action} onClose={() => setPending(null)} />
       )}
+    {forwardRow && (
+      <KubeForwardDialog row={forwardRow} production={production} start={startForward}
+        onStarted={status => say(t('kubernetes:forward.started', { address: forwardAddress(status) }))} onClose={() => setForwardRow(null)} />
+    )}
     </section>
   );
 }

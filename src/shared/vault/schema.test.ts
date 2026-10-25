@@ -4,9 +4,12 @@ import {
   ConnectionNodeSchema,
   LOGIN_LIMITS,
   EncryptedVaultFileSchema,
+  TerminalSettingsSchema,
   VaultSchema,
+  VaultSettingsSchema,
   WorkspacePaneSchema,
 } from './schema';
+import { DEFAULT_TERMINAL_SETTINGS } from './terminal-settings';
 import { exampleVault } from './example';
 
 
@@ -213,6 +216,11 @@ describe('autoUpload bindings', () => {
             { ...binding, localPath: 'app' },
             { ...binding, localPath: '\\\\?\\C:\\x' },
             { ...binding, localPath: '\\\\.\\C:\\x' },
+            { ...binding, localPath: '\\\\?/C:/x' },
+            { ...binding, localPath: '\\\\./pipe/x' },
+            { ...binding, localPath: '\\\\.\\pipe\\x' },
+            { ...binding, localPath: '\\\\?' },
+            { ...binding, localPath: '\\\\.' },
             { ...binding, remotePath: 'srv/app' },
             { ...binding, excludes: ['a\tb'] },
         ]) expect(ssh([bad]).success).toBe(false);
@@ -267,5 +275,38 @@ describe('jump host and port forwards', () => {
         const parsed = sftp({ forwards: [local] });
         expect(parsed.success).toBe(true);
         expect(JSON.stringify(parsed.data)).not.toContain('forwards');
+    });
+});
+
+describe('TerminalSettingsSchema', () => {
+    const ok = (patch: Record<string, unknown>) => TerminalSettingsSchema.safeParse({ ...DEFAULT_TERMINAL_SETTINGS, ...patch }).success;
+
+    it('accepts the defaults and values on the limits', () => {
+        expect(ok({})).toBe(true);
+        expect(ok({ fontFamily: 'Fira Code', fontSize: 8, scrollback: 50_000, cursorStyle: 'underline', cursorBlink: false })).toBe(true);
+        expect(ok({ fontSize: 32, scrollback: 1_000, cursorStyle: 'bar' })).toBe(true);
+    });
+
+    it('rejects font names with quotes, commas or more than 64 characters', () => {
+        expect(ok({ fontFamily: 'A"B' })).toBe(false);
+        expect(ok({ fontFamily: 'A,B' })).toBe(false);
+        expect(ok({ fontFamily: 'a'.repeat(65) })).toBe(false);
+        expect(ok({ fontFamily: 'a'.repeat(64) })).toBe(true);
+    });
+
+    it('rejects sizes and scrollback outside the limits', () => {
+        for (const fontSize of [7, 33, 14.5]) expect(ok({ fontSize })).toBe(false);
+        for (const scrollback of [999, 50_001]) expect(ok({ scrollback })).toBe(false);
+    });
+
+    it('rejects unknown cursor styles', () => {
+        expect(ok({ cursorStyle: 'beam' })).toBe(false);
+    });
+
+    it('treats a missing terminal block as valid in the vault settings', () => {
+        const settings = { theme: 'dark', autoLockMinutes: 10, confirmBeforeClosingSession: true };
+        expect(VaultSettingsSchema.safeParse(settings).success).toBe(true);
+        expect(VaultSettingsSchema.safeParse({ ...settings, terminal: DEFAULT_TERMINAL_SETTINGS }).success).toBe(true);
+        expect(VaultSettingsSchema.safeParse({ ...settings, terminal: { ...DEFAULT_TERMINAL_SETTINGS, fontSize: 7 } }).success).toBe(false);
     });
 });

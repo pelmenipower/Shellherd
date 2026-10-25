@@ -26,6 +26,7 @@ export type MenuAction =
   | { type: 'view'; actions: KubeViewAction[]; previous?: boolean; armShell?: boolean }
   | { type: 'copy'; text: string; label: string }
   | { type: 'kubeAction'; ref: KubeRef; action: KubeAction; currentReplicas?: number }
+  | { type: 'forward'; row: KubeRow }
   | { type: 'popout'; target: KubeTerminalTarget }
   | { type: 'ssh'; connectionId: string }
   | { type: 'dockReload' }
@@ -153,6 +154,15 @@ function popoutItems(env: Env, pod: KubeRow, container: string | undefined, extr
   return [make('logs', 'popout-logs', t('kubeActions:menu.popoutLogs'), logsReason), make('shell', 'popout-shell', t('kubeActions:menu.popoutShell'), shellReason)];
 }
 
+/** "Port weiterleiten…": running pods; services with a selector and a TCP port. Read-only clusters allow it (it changes nothing). */
+function forwardItem(env: Env, row: KubeRow): MenuEntry {
+  const reason = connectedReason(env) ?? (row.ref.kind === 'pods'
+    ? (row.cells.status === 'Running' ? undefined : t('kubeActions:reasons.notRunning'))
+    : !hasSelector(row) ? t('kubeActions:reasons.noSelectorService')
+      : (row.ports?.length ?? 0) === 0 ? t('kubeActions:reasons.noTcpPort') : undefined);
+  return item(env, 'forward', t('kubeActions:menu.forward'), { type: 'forward', row }, { reason });
+}
+
 function imageLines(row: KubeRow): string | undefined {
   const names = row.containers ?? Object.keys(row.cells).filter(key => key.startsWith('image:')).map(key => key.slice('image:'.length));
   const images = names.filter(name => cell(row, `image:${name}`) !== '').map(name => [name, cell(row, `image:${name}`)] as const);
@@ -184,7 +194,7 @@ function podRowGroups(env: Env, row: KubeRow): Group[] {
       ...namespaceGroup(env, row),
       ...filterItems(env, row),
     ],
-    [...terminalItems(env, row, first, prefix, extra), ...viewItems(env, [select(row)]), ...popoutItems(env, row, first, extra)],
+    [...terminalItems(env, row, first, prefix, extra), ...viewItems(env, [select(row)]), ...popoutItems(env, row, first, extra), forwardItem(env, row)],
     copyGroup(env, [
       ['name', t('kubeActions:copy.name'), name],
       ['namespaced-name', t('kubeActions:copy.namespacedName'), namespacedName(row)],
@@ -289,7 +299,7 @@ function serviceGroups(env: Env, row: KubeRow): Group[] {
   const port = firstPort(ports);
   return [
     [item(env, 'drill', t('kubeActions:menu.showPods'), view(select(row), { type: 'drill' }),
-      { hotkey: 'drill', reason: hasSelector(row) ? undefined : t('kubeActions:reasons.noSelectorService') })],
+      { hotkey: 'drill', reason: hasSelector(row) ? undefined : t('kubeActions:reasons.noSelectorService') }), forwardItem(env, row)],
     viewItems(env, [select(row)]),
     copyGroup(env, [
       ['name', t('kubeActions:copy.name'), name],
