@@ -1,12 +1,16 @@
 import { createServer } from 'node:http';
+import type { IncomingMessage } from 'node:http';
+import { createRequire } from 'node:module';
+import { connect, createServer as createNetServer } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 import { PassThrough } from 'node:stream';
-import type { AddressInfo } from 'node:net';
+import type { Duplex } from 'node:stream';
 import { KubeConfig, KubernetesObjectApi, Watch } from '@kubernetes/client-node';
 import { describe, expect, it, vi } from 'vitest';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
 import type { CodedError } from '../../shared/errors';
 import { KubeApiError } from './api';
-import { createKubeApi, isAltnameError, manualJobBody, openLogs, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
+import { createKubeApi, isAltnameError, manualJobBody, openLogs, portForwardError, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
 import type { LogRequest } from './client-api';
 
 function testConfig(server = 'https://k8s.example:6443'): KubeConfig {
@@ -389,6 +393,144 @@ describe('createKubeApi remove and createJobFrom', () => {
       expect(fakeClient.create).toHaveBeenCalledWith(expect.objectContaining({ kind: 'Job' }), undefined, undefined, 'shellherd');
     } finally {
       spy.mockRestore();
+    }
+  });
+});
+
+describe('portForwardError', () => {
+  it('maps handshake statuses and wrapped network errors, never the server text', () => {
+    expect(portForwardError({ message: 'Unexpected server response: 403' }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.portForwardForbidden', params: { namespace: 'shop' } });
+    expect(portForwardError({ error: { message: 'Unexpected server response: 404' } }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.portForwardPodGone', params: { name: 'p' } });
+    expect(portForwardError({ message: 'Unexpected server response: 400' }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.portForwardNotRunning', params: { name: 'p' } });
+    expect(portForwardError({ message: 'Unexpected server response: 401' }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.unauthorized' });
+    expect(portForwardError({ message: 'boom' }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.apiError' });
+    expect(portForwardError({ message: 'read ECONNRESET', error: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) }, 'shop', 'p').coded)
+      .toEqual({ code: 'kubernetes.connectionReset' });
+    expect(portForwardError({ cause: { code: 'ERR_TLS_CERT_ALTNAME_INVALID' } }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.tlsAltname' });
+  });
+});
+
+/** The parts of ws's server side the fake kubelet below uses; ws ships without types. */
+interface FakeKubeletSocket { send(data: Buffer): void; close(): void; pause(): void; resume(): void; on(event: 'message', listener: (data: Buffer) => void): void }
+interface FakeKubeletServer {
+  handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer, done: (ws: FakeKubeletSocket) => void): void;
+  close(): void;
+}
+const { WebSocketServer } = createRequire(import.meta.url)('ws') as {
+  WebSocketServer: new (options: { noServer: true; handleProtocols: (protocols: Set<string>) => string | false }) => FakeKubeletServer;
+};
+
+describe('createKubeApi.portForward', () => {
+  const SIZE = 8 * 1024 * 1024;
+  // Large against loopback kernel buffers (several MiB on Linux), so only back-pressure keeps the read count low.
+  const UPLOAD = 32 * 1024 * 1024;
+  const portPrefix = (channel: number) => Buffer.from([channel, 8080 & 0xff, 8080 >> 8]);
+  const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  /** A kubelet stand-in behind a plain HTTP API server, and a local listener that hands each connection to portForward like KubeForwards. */
+  async function kubelet(pod: string, run: (ws: FakeKubeletSocket) => void) {
+    const wss = new WebSocketServer({ noServer: true, handleProtocols: protocols => (protocols.has('v4.channel.k8s.io') ? 'v4.channel.k8s.io' : false) });
+    const server = createServer();
+    server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+      if (request.url?.includes('/pods/forbidden/')) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'); return; }
+      wss.handleUpgrade(request, socket, head, ws => { ws.send(portPrefix(0)); ws.send(portPrefix(1)); run(ws); });
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const api = createKubeApi(testConfig(`http://127.0.0.1:${(server.address() as AddressInfo).port}`));
+    const accepted: Socket[] = [];
+    const results: Promise<unknown>[] = [];
+    const local = createNetServer(socket => {
+      socket.pause();
+      socket.on('error', () => {});
+      accepted.push(socket);
+      results.push(api.portForward('shop', pod, 8080, socket).then(() => undefined, (error: unknown) => { socket.destroy(); return error; }));
+    });
+    await new Promise<void>(resolve => local.listen(0, '127.0.0.1', resolve));
+    const close = () => { local.close(); wss.close(); server.closeAllConnections(); server.close(); };
+    return { port: (local.address() as AddressInfo).port, accepted, results, close };
+  }
+
+  it('hands a slow reader everything the pod sent, without buffering it all in main, then ends cleanly', async () => {
+    const fake = await kubelet('p', ws => {
+      const chunk = Buffer.alloc(64 * 1024, 7);
+      for (let sent = 0; sent < SIZE; sent += chunk.length) ws.send(Buffer.concat([Buffer.from([0]), chunk]));
+      ws.close();
+    });
+    try {
+      const client = connect(fake.port, '127.0.0.1');
+      client.pause();
+      let received = 0;
+      client.on('data', (data: Buffer) => { received += data.length; });
+      const closed = new Promise(resolve => client.on('close', resolve));
+      await wait(300);
+      expect(fake.accepted[0].writableLength).toBeLessThan(2 * 1024 * 1024);
+      client.resume();
+      await closed;
+      expect(received).toBe(SIZE);
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('stops reading from a fast local sender while the pod side is slow, then delivers everything', async () => {
+    let received = 0;
+    let resumePod = (): void => {};
+    const fake = await kubelet('p', ws => {
+      ws.pause();
+      resumePod = () => ws.resume();
+      ws.on('message', data => { received += data.length - 1; });
+    });
+    try {
+      const client = connect(fake.port, '127.0.0.1', () => {
+        const chunk = Buffer.alloc(64 * 1024, 3);
+        let sent = 0;
+        const pump = (): void => {
+          while (sent < UPLOAD) {
+            sent += chunk.length;
+            if (!client.write(chunk)) { client.once('drain', pump); return; }
+          }
+        };
+        pump();
+      });
+      client.on('error', () => {});
+      await wait(300);
+      expect(fake.accepted[0].bytesRead).toBeLessThan(UPLOAD / 2);
+      resumePod();
+      for (const end = Date.now() + 10_000; received < UPLOAD && Date.now() < end;) await wait(20);
+      expect(received).toBe(UPLOAD);
+      client.destroy();
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('destroys the local socket with portForwardRefused, without the kubelet text', async () => {
+    const fake = await kubelet('p', ws => {
+      ws.send(Buffer.concat([Buffer.from([1]), Buffer.from('error forwarding port 8080 to pod 10.244.1.7: connect: connection refused')]));
+      ws.close();
+    });
+    try {
+      const client = connect(fake.port, '127.0.0.1');
+      client.on('error', () => {});
+      await new Promise(resolve => client.on('close', resolve));
+      for (const end = Date.now() + 2000; !fake.accepted[0]?.destroyed && Date.now() < end;) await wait(10);
+      const error = fake.accepted[0].errored;
+      expect(error).toMatchObject({ coded: { code: 'kubernetes.portForwardRefused', params: { port: 8080 } } });
+      expect((error as Error).message).not.toContain('10.244');
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('rejects a forbidden handshake with portForwardForbidden', async () => {
+    const fake = await kubelet('forbidden', () => {});
+    try {
+      const client = connect(fake.port, '127.0.0.1');
+      client.on('error', () => {});
+      await new Promise(resolve => client.on('close', resolve));
+      expect(await fake.results[0]).toMatchObject({ coded: { code: 'kubernetes.portForwardForbidden', params: { namespace: 'shop' } } });
+    } finally {
+      fake.close();
     }
   });
 });
