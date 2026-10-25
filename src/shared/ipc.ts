@@ -12,7 +12,7 @@ import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlace
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 import type { ImportReadResult, ImportSource } from './import';
-import type { KubeActionRequest, KubeAccessRequest, KubeDiagnoseRequest, KubeDiagnosis, KubeDetail, KubeDetailRequest, KubeEvent, KubeForwardStartRequest, KubeForwardStatus, KubeForwardStopRequest, KubeLogsStartRequest, KubeLogsStopRequest, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
+import type { KubeActionRequest, KubeAccessRequest, KubeArgoRequest, KubeArgoState, KubeDiagnoseRequest, KubeDiagnosis, KubeOpenLinkRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeForwardStartRequest, KubeForwardStatus, KubeForwardStopRequest, KubeLogsStartRequest, KubeLogsStopRequest, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
 import type { KubeDenied } from './kube-access';
 import type { ThemeSetting } from './theme';
 import type { KnownHostsImportReply, KnownHostView } from './known-hosts';
@@ -149,6 +149,8 @@ export const IPC_CHANNELS = {
   kubeLogsStop: 'k8s:logs-stop',
   kubeAccess: 'k8s:access',
   kubeDiagnose: 'k8s:diagnose',
+  kubeOpenLink: 'k8s:open-link',
+  kubeArgoApp: 'k8s:argo-app',
   kubeEvent: 'k8s:event',
 } as const;
 
@@ -256,6 +258,10 @@ export interface DesktopApi {
   kubeAccess: (request: KubeAccessRequest) => Promise<KubeDenied[] | null>;
   /** "Mit KI analysieren": status, events, logs and spec of one object as text. Reads only (get, list, get pods/log), never Secrets. */
   kubeDiagnose: (request: KubeDiagnoseRequest) => Promise<KubeDiagnosis>;
+  /** "In Argo CD öffnen" / "In Harbor öffnen": main builds the https address from the vault entry and opens the browser. */
+  kubeOpenLink: (request: KubeOpenLinkRequest) => Promise<void>;
+  /** Self-Heal state of an Argo CD application for the confirmation (get on applications.argoproj.io); null when unreadable. */
+  kubeArgoApp: (request: KubeArgoRequest) => Promise<KubeArgoState | null>;
   onKubeEvent: (listener: (event: KubeEvent) => void) => () => void;
   sftpOpen: (request: SftpOpenRequest) => Promise<{ sessionId: string }>;
   sftpHome: (request: SftpSessionRequest) => Promise<string>;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GROUP_BY_IDS, KUBE_NAME, manualJobName, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH } from './kubernetes';
-import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeDiagnoseRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
+import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeArgoRequestSchema, KubeOpenLinkRequestSchema, KubeDiagnoseRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
 
 describe('kubernetes schemas', () => {
   it('accepts a namespaced ref and rejects bad names', () => {
@@ -183,5 +183,29 @@ describe('KubeDiagnoseRequestSchema', () => {
     expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', namespace: 'shop', name: 'x' }, event: { kind: 'events', name: 'y' } }).success).toBe(false);
     expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', namespace: 'shop', name: 'x' }, logs: false }).success).toBe(false);
     expect(KubeDiagnoseRequestSchema.safeParse({ viewId: 'v', ref: { kind: 'pods', namespace: 'shop', name: 'x' } }).success).toBe(false);
+  });
+});
+
+describe('KubeOpenLinkRequestSchema and KubeArgoRequestSchema', () => {
+  const viewId = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
+  const digest = `sha256:${'a'.repeat(64)}`;
+
+  it('accepts an Argo app and a Harbor image with and without digest', () => {
+    expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link: { type: 'argo', app: 'shop' } }).success).toBe(true);
+    expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link: { type: 'harbor', image: 'harbor.example.test/shop/api:1' } }).success).toBe(true);
+    expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link: { type: 'harbor', image: 'harbor.example.test/shop/api:1', digest } }).success).toBe(true);
+    expect(KubeArgoRequestSchema.safeParse({ viewId, app: 'team-a_shop' }).success).toBe(true);
+  });
+
+  it('never takes a url or host from the renderer and rejects bad digests, lengths and view ids', () => {
+    for (const link of [
+      { type: 'url', app: 'shop' }, { type: 'argo', app: 'shop', url: 'https://evil.example.test' }, { type: 'argo', app: 'shop', host: 'evil.example.test' },
+      { type: 'harbor', image: 'harbor.example.test/shop/api:1', digest: 'sha256:bad' }, { type: 'argo', app: 'x'.repeat(254) }, { type: 'argo', app: '' },
+      { type: 'harbor', image: 'x'.repeat(513) }, { type: 'harbor', image: '' },
+    ]) expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link }).success).toBe(false);
+    expect(KubeOpenLinkRequestSchema.safeParse({ link: { type: 'argo', app: 'shop' } }).success).toBe(false);
+    expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link: { type: 'argo', app: 'shop' }, url: 'https://evil.example.test' }).success).toBe(false);
+    expect(KubeArgoRequestSchema.safeParse({ viewId, app: 'shop', namespace: 'argocd' }).success).toBe(false);
+    expect(KubeArgoRequestSchema.safeParse({ viewId: 'v', app: 'shop' }).success).toBe(false);
   });
 });

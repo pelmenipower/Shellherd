@@ -51,3 +51,9 @@ export const KubeAccessRequestSchema = z.object({ viewId, namespace: KubeNameSch
 const DiagnoseRefSchema = KubeRefSchema.refine(ref => DIAGNOSE_KINDS.includes(ref.kind) && ref.namespace !== undefined, { message: 'diagnoseKind' });
 const DiagnoseEventSchema = KubeRefSchema.refine(ref => ref.kind === 'events' && ref.namespace !== undefined, { message: 'diagnoseEvent' });
 export const KubeDiagnoseRequestSchema = z.object({ viewId, ref: DiagnoseRefSchema, event: DiagnoseEventSchema.optional() }).strict();
+const KubeLinkSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('argo'), app: z.string().min(1).max(253) }).strict(),
+  z.object({ type: z.literal('harbor'), image: z.string().min(1).max(512), digest: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional() }).strict(),
+]);
+export const KubeOpenLinkRequestSchema = z.object({ viewId, link: KubeLinkSchema }).strict();
+export const KubeArgoRequestSchema = z.object({ viewId, app: z.string().min(1).max(253) }).strict();

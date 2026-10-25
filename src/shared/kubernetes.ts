@@ -67,6 +67,10 @@ export interface KubeRow {
   involved?: { kind: string; name: string; ref?: KubeRef };
   /** Pods: TCP ports of all containers; services: TCP service ports. Absent when there are none. */
   ports?: KubePort[];
+  /** Argo CD application tracking the object (tracking-id annotation or instance label), validated in main; see kube-links.ts. */
+  argoApp?: string;
+  /** Pods: container name → sha256 digest of the running image, when status.imageID names the same repository. */
+  digests?: Record<string, string>;
 }
 
 /** Labels come from `columnLabel(key)` in renderer/kube-labels.ts. */
@@ -132,6 +136,9 @@ export interface ClusterStatus {
   attempt?: number;
   /** Name of the SSH connection the current attempt goes through; absent between attempts. */
   trying?: string;
+  /** Argo CD and Harbor addresses of the vault entry (normalized https); menus only, main builds every link itself. */
+  argoUrl?: string;
+  harborUrl?: string;
 }
 
 export interface KubeOverview { nodes: NodeTile[]; problems: KubeProblem[]; namespaces: string[] }
@@ -246,3 +253,12 @@ export interface KubeDiagnosePart { id: KubeDiagnosePartId; name?: string; chars
 export interface KubeDiagnosis { text: string; parts: KubeDiagnosePart[] }
 /** `event`: the event (kind 'events') the analysis started from. */
 export interface KubeDiagnoseRequest { viewId: string; ref: KubeRef; event?: KubeRef }
+
+/** "In Argo CD öffnen" / "In Harbor öffnen": what the renderer may ask for; main takes the host from the vault. */
+export type KubeLink = { type: 'argo'; app: string } | { type: 'harbor'; image: string; digest?: string };
+export interface KubeOpenLinkRequest { viewId: string; link: KubeLink }
+export interface KubeArgoRequest { viewId: string; app: string }
+export const ARGO_SYNC = ['Synced', 'OutOfSync', 'Unknown'] as const;
+export const ARGO_HEALTH = ['Healthy', 'Progressing', 'Degraded', 'Suspended', 'Missing', 'Unknown'] as const;
+/** What the confirmation says about an Argo CD application; read by `get` on applications.argoproj.io. */
+export interface KubeArgoState { automated: boolean; selfHeal: boolean; sync?: (typeof ARGO_SYNC)[number]; health?: (typeof ARGO_HEALTH)[number] }
