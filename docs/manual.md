@@ -422,8 +422,7 @@ They belong to a terminal session of this connection.
 - While locked, running forwards keep running; starting is not possible.
 - If the port is already used on this computer, the bar says so. If the server refuses,
   the cause is usually `AllowTcpForwarding` or a port in use on the server.
-- Pods and services in the cluster are not included; the cluster view still offers
-  the `kubectl port-forward` command to copy.
+- Pods and services in the cluster are forwarded from the cluster tab, see “Kubernetes → Forward port”.
 - **Risk remote:** With `GatewayPorts yes` on the server, the port is reachable from
   the network. Shellherd does not prevent this; without that setting it stays on
   `localhost` of the server.
@@ -529,7 +528,7 @@ instead of on the server.
 
 In the setup form, “Production” is preselected; deselecting it is a deliberate
 decision. “Read-only” blocks restart, scale, delete and the shell; logs, YAML,
-events and describe stay allowed. Every change asks for confirmation. For
+events, describe and `Forward port…` stay allowed. Every change asks for confirmation. For
 production you have to type the resource name before the button becomes active.
 
 The cluster tab shows nodes, workloads, pods and events live. A status bar below the
@@ -569,6 +568,19 @@ to the node. New are Resume, Suspend and `Run now…` for CronJobs as well as
 The kubeconfig lives only in the main process's memory and is not written to
 disk. The tunnel to the API server listens only on `127.0.0.1`.
 Secret data is masked in the YAML view.
+
+### Forward port
+
+Right-click a running pod or a service → `Forward port…`. In the dialog you pick the port in the pod (the ports named in the manifest or `Other port…`) or the service port, and the local port. The same port is suggested; if you leave the field empty, Shellherd picks a free one. `Forward` starts the forward. The “Port forwards” bar at the bottom of the cluster tab shows `127.0.0.1:<port> → <target>`, the open connections and the last error, with `Open in browser`, `Copy address` and `Stop`.
+
+- **127.0.0.1 only:** The port can only be reached from this computer, never from the network. There is no field for it.
+- **Service:** Shellherd reads the selector and connects to the first ready pod (by name), on its `targetPort`, also when the port has a name. If the pod goes away, for example during a rollout, the next connection finds a new one by itself; running connections to the old pod end. Unlike `kubectl port-forward svc/…`, nothing has to be restarted. The bar names the pod (“via api-…:8080”). All connections go to this one pod; there is no load balancing.
+- **Pod:** The forward stays with this pod name. After a container restart it keeps working, as it does for StatefulSet pods that come back under the same name. If the pod is replaced, the bar reports “Pod … does not exist (any more).” For Deployments, use the service instead.
+- **Lifetime:** A forward belongs to its cluster tab. Closing the tab or the window, opening another vault or quitting Shellherd stops it. If the cluster reconnects, the local port stays open: new connections wait up to 30 seconds for the cluster, existing ones end. While locked, forwards keep running; new ones can only be started after unlocking. Nothing is saved, not even in the workspace.
+- **“Read-only” and production:** A port forward changes nothing in the cluster and is therefore allowed under “Read-only” too. For production clusters the dialog names what becomes reachable; there is no name to type. Through the forward, programs can still read and write data, for example in a database, with that database's own login.
+- **Permissions:** Kubernetes requires `create` on `pods/portforward` in the namespace (older versions `get`). The `edit` role has it, `view` does not. Services also need `get` on the service and `list` on pods. Without the permission the bar reports “No permission for port forwards in …”.
+- **Limits:** At most 10 forwards at a time, at most 32 simultaneous connections per forward, TCP only. `Open in browser` uses `http`, for ports 443 and 8443 `https`.
+- **Who reaches the port:** Every program and every user on this computer, including web pages in the browser through tricks such as DNS rebinding. There is no login on the port, just as with `kubectl port-forward`. So keep forwards open only as long as you need them, and on shared computers (terminal servers) do not forward to sensitive services.
 
 ## File view: keyboard and transfers
 

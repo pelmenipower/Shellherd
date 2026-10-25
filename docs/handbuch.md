@@ -432,8 +432,7 @@ Unter `Weitere Angaben` einer SSH-Verbindung legst du Port-Weiterleitungen fest
 - Gesperrt laufen bestehende Weiterleitungen weiter, Starten geht nicht.
 - Ist der Port auf diesem Computer belegt, sagt die Leiste das. Lehnt der Server
   ab, liegt es meist an `AllowTcpForwarding` oder einem belegten Port auf dem Server.
-- Pods und Services im Cluster sind hier nicht enthalten; der Cluster-Bereich zeigt
-  weiter den `kubectl port-forward`-Befehl zum Kopieren.
+- Pods und Services im Cluster leitest du im Cluster-Tab weiter, siehe „Kubernetes → Port weiterleiten“.
 - **Risiko entfernt:** Mit `GatewayPorts yes` auf dem Server ist der Port für das
   Netz erreichbar. Shellherd verhindert das nicht; ohne diese Einstellung bleibt er
   auf `localhost` des Servers.
@@ -540,7 +539,7 @@ statt auf dem Server laufen würden.
 
 Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
 Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, YAML,
-Events und Describe bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
+Events, Describe und `Port weiterleiten…` bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
 Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird.
 
 Der Cluster-Tab zeigt Nodes, Workloads, Pods und Events live. Eine Statusleiste unter dem
@@ -580,6 +579,19 @@ zur Node. Neu sind Fortsetzen, Anhalten und `Jetzt ausführen…` für CronJobs 
 Die kubeconfig liegt nur im Speicher des Hauptprozesses und wird nicht auf die
 Festplatte geschrieben. Der Tunnel zum API-Server lauscht nur auf `127.0.0.1`.
 Secret-Daten sind in der YAML-Ansicht maskiert.
+
+### Port weiterleiten
+
+Rechtsklick auf einen laufenden Pod oder einen Service → `Port weiterleiten…`. Im Dialog wählst du den Port im Pod (die im Manifest genannten Ports oder `Anderer Port …`) bzw. den Port des Service, dazu den lokalen Port. Vorgeschlagen ist derselbe Port; lässt du das Feld leer, wählt Shellherd einen freien. `Weiterleiten` startet die Weiterleitung. Die Leiste „Weiterleitungen“ unten im Cluster-Tab zeigt `127.0.0.1:<Port> → <Ziel>`, die offenen Verbindungen und den letzten Fehler, mit `Im Browser öffnen`, `Adresse kopieren` und `Stoppen`.
+
+- **Nur 127.0.0.1:** Der Port ist nur von diesem Computer aus erreichbar, nie aus dem Netz. Ein Feld dafür gibt es nicht.
+- **Service:** Shellherd liest den Selector und verbindet zum ersten bereiten Pod (nach Name), auf dessen `targetPort`, auch wenn der Port einen Namen hat. Verschwindet der Pod, etwa bei einem Rollout, sucht die nächste Verbindung von selbst einen neuen; laufende Verbindungen zum alten Pod enden. Anders als bei `kubectl port-forward svc/…` muss man nichts neu starten. Die Leiste nennt den Pod („über api-…:8080“). Alle Verbindungen gehen an diesen einen Pod, es gibt keine Lastverteilung.
+- **Pod:** Die Weiterleitung bleibt an diesem Pod-Namen. Nach einem Neustart des Containers geht es weiter, ebenso bei StatefulSet-Pods, die mit gleichem Namen zurückkommen. Wird der Pod ersetzt, meldet die Leiste „Den Pod … gibt es nicht (mehr).“ Für Deployments deshalb besser den Service nehmen.
+- **Lebensdauer:** Eine Weiterleitung gehört zu ihrem Cluster-Tab. Tab schließen, Fenster schließen, einen anderen Vault öffnen oder Shellherd beenden stoppt sie. Verbindet sich der Cluster neu, bleibt der lokale Port offen: Neue Verbindungen warten bis zu 30 Sekunden auf den Cluster, bestehende brechen ab. Gesperrt laufen Weiterleitungen weiter, starten lassen sie sich erst nach dem Entsperren. Gespeichert wird nichts, auch nicht im Workspace.
+- **„Nur lesen“ und Produktion:** Eine Port-Weiterleitung ändert nichts im Cluster und ist deshalb auch bei „Nur lesen“ erlaubt. Bei Produktion nennt der Dialog, was danach erreichbar ist; eine Namenseingabe gibt es nicht. Über die Weiterleitung können Programme aber Daten lesen und schreiben, etwa in einer Datenbank, mit deren eigener Anmeldung.
+- **Rechte:** Kubernetes verlangt `create` auf `pods/portforward` im Namespace (ältere Versionen `get`). Die Rolle `edit` hat das, `view` nicht. Für Services braucht es zusätzlich `get` auf den Service und `list` auf Pods. Fehlt das Recht, meldet die Leiste „Keine Berechtigung für Port-Weiterleitungen in …“.
+- **Grenzen:** Höchstens 10 Weiterleitungen gleichzeitig, je Weiterleitung höchstens 32 gleichzeitige Verbindungen, nur TCP. `Im Browser öffnen` nimmt `http`, bei Port 443 und 8443 `https`.
+- **Wer den Port erreicht:** Jedes Programm und jeder Benutzer auf diesem Computer, auch Webseiten im Browser über Tricks wie DNS-Rebinding. Eine Anmeldung am Port gibt es nicht, genau wie bei `kubectl port-forward`. Lass Weiterleitungen deshalb nur so lange offen, wie du sie brauchst, und leite auf geteilten Rechnern (Terminalserver) nicht zu sensiblen Diensten weiter.
 
 ## Dateiansicht: Tastatur und Übertragungen
 

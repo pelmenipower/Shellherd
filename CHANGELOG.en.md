@@ -4,6 +4,11 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.27.0] – 2026-10-25
+
+- New: Port forwards to pods and services. Right-click in the cluster tab → `Forward port…` picks the port and the local port. The “Port forwards” bar at the bottom of the cluster tab lists them with `Open in browser`, `Copy address` and `Stop`. A service goes to a ready pod and finds the next one by itself after a rollout.
+- Security: Port forwards listen on 127.0.0.1 only, live only as long as their cluster tab and are never saved. Shellherd changes nothing in the cluster for them, so “Read-only” allows them too. They need the `create` permission on `pods/portforward`.
+
 ## [0.26.0] – 2026-10-25
 
 - New: Windows Hello. Settings → Vault → `Unlock with Windows Hello (PIN, face or fingerprint)` turns it on per vault and device. Afterwards `Unlock with Windows Hello` unlocks the lock screen, also after the automatic lock, and `Open with Windows Hello` opens the file in `Open vault`, also after a restart. The password keeps working.

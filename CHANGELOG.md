@@ -4,6 +4,11 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.27.0] – 2026-10-25
+
+- Neu: Port-Weiterleitung zu Pods und Services. Rechtsklick im Cluster-Tab → `Port weiterleiten…` wählt den Port und den lokalen Port. Die Leiste „Weiterleitungen“ unten im Cluster-Tab zeigt die Weiterleitungen mit `Im Browser öffnen`, `Adresse kopieren` und `Stoppen`. Ein Service geht an einen bereiten Pod und findet nach einem Rollout von selbst den nächsten.
+- Sicherheit: Weiterleitungen lauschen nur auf 127.0.0.1, leben nur so lange wie ihr Cluster-Tab und werden nicht gespeichert. Shellherd ändert dafür nichts im Cluster, auch „Nur lesen“ erlaubt sie. Nötig ist das Recht `create` auf `pods/portforward`.
+
 ## [0.26.0] – 2026-10-25
 
 - Neu: Windows Hello. Einstellungen → Vault → `Mit Windows Hello entsperren (PIN, Gesicht oder Fingerabdruck)` schaltet es je Vault und Gerät ein. Danach entsperrt `Mit Windows Hello entsperren` den Sperrbildschirm, auch nach der automatischen Sperre, und `Mit Windows Hello öffnen` öffnet die Datei in `Vault öffnen`, auch nach einem Neustart. Das Passwort funktioniert immer weiter.
