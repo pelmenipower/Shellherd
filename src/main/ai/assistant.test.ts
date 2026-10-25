@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AiEvent } from '../../shared/ai';
 import type { AiProvider, AiSettings } from '../../shared/vault/types';
 import { AiError, type ChatRequest } from './providers';
-import { AssistantService, aiCatalog } from './assistant';
+import { AssistantService, aiCatalog, systemPrompt } from './assistant';
 import { SecretMasker } from './secret-mask';
 
 const settings = { providers: [{ id: 'p', name: 'P', kind: 'claude', model: 'm' }], defaultProviderId: 'p' } as unknown as AiSettings;
@@ -137,4 +137,49 @@ describe('masking before sending', () => {
     expect(catalog.providers.map(provider => provider.masking)).toEqual([true, false]);
     expect(JSON.stringify(catalog)).not.toContain('synthetic-key');
   });
+});
+
+describe('Kubernetes analysis', () => {
+  const KUBE = { kube: { cluster: 'prod-k8s', production: true } };
+
+  it('is always masked in main, even when the user switched masking off for the provider', () => {
+    const events: AiEvent[] = [];
+    const chats: ChatRequest[] = [];
+    const stream = vi.fn(async (_provider: AiProvider, chat: ChatRequest) => { chats.push(chat); });
+    const service = new AssistantService({ settings: () => ({ providers: [aiProvider({ maskSecrets: false })], defaultProviderId: 'p' }), emit: (_owner, event) => events.push(event), stream, secrets: () => [PASSWORD] });
+    const requestId = '00000000-0000-4000-8000-0000000000a1';
+    service.ask(1, { requestId, conversationId: CONVERSATION, messages: [{ role: 'user', content: `Notfall: ${PASSWORD}` }], context: KUBE });
+    expect(JSON.stringify(chats[0])).not.toContain(PASSWORD);
+    expect(chats[0].messages[0].content).toBe('Notfall: [SECRET_1]');
+    expect(events[0]).toEqual({ type: 'masked', requestId, count: 1 });
+    // intro, production, six rules and the masked line: masking is on although the provider says off.
+    expect(chats[0].system.split('\n')).toHaveLength(9);
+  });
+
+  it('keeps placeholders stable when a follow-up sends the context again in the same conversation', async () => {
+    const { chats, ask } = setup();
+    const context = 'Logs\nDB_PASSWORD=x9Kq2abc\nBearer synthKubeBearer0000000000';
+    ask([{ role: 'user', content: context }]);
+    await flush();
+    ask([{ role: 'user', content: context }, { role: 'assistant', content: 'Antwort' }, { role: 'user', content: 'Und jetzt?' }]);
+    await flush();
+    expect(chats[1].messages[0].content).toBe(chats[0].messages[0].content);
+    expect(chats[1].messages[0].content).toContain('[SECRET_1]');
+    expect(chats[1].messages[0].content).toContain('[SECRET_2]');
+  });
+
+  it.each([['de-DE', 'Shellherd führt keine Befehle aus', '„Ändert den Cluster:“'], ['en-US', 'Shellherd runs no commands', '“Changes the cluster:”']] as const)(
+    'has its own prompt in %s: read-only, changes marked, cluster named, production only when it is one', (locale, readOnly, mutating) => {
+      const production = systemPrompt({ kube: { cluster: 'prod-k8s', production: true } }, locale, true);
+      const test = systemPrompt({ kube: { cluster: 'test-k8s', production: false } }, locale, true);
+      expect(production).toContain(readOnly);
+      expect(production).toContain(mutating);
+      expect(production).toContain('prod-k8s');
+      expect(test).toContain('test-k8s');
+      expect(production.split('\n')).toHaveLength(9);
+      expect(test.split('\n')).toHaveLength(8);
+      expect(systemPrompt({ kube: { cluster: 'test-k8s', production: false } }, locale).split('\n')).toHaveLength(7);
+      expect(production.length).toBeLessThan(1400);
+      expect(production).not.toBe(systemPrompt({ shell: 'ssh', target: 'web' }, locale, true));
+    });
 });
