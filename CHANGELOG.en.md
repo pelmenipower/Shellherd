@@ -4,6 +4,12 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.25.0] – 2026-10-25
+
+- Security: The AI assistant masks secrets before anything goes to the provider: passwords, passphrases and API keys from the vault, private keys, `password=` and `secret:` values, passwords in addresses, Bearer and Basic headers, keys from AWS, GitHub, Slack, OpenAI, Anthropic, Google and Azure, JWTs and the data of Kubernetes secrets. The same value keeps the same placeholder in the history (`[SECRET_1]`); Shellherd never puts real values back into answers or commands.
+- New: Below the question, the assistant shows how many sensitive values were masked. Commands with a placeholder carry a hint. Masking is on for every provider, local models included, and can be switched off per provider.
+- Fixed: The assistant reads wrapped terminal lines as one line and cuts long output only at line boundaries.
+
 ## [0.24.0] – 2026-10-25
 
 - New: Settings → Connections → `Manage server keys` lists all confirmed and imported server keys with SHA-256 fingerprint, with search and `Remove`. An intended key change can thus be accepted.

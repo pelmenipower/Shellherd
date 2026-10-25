@@ -184,6 +184,34 @@ Unter Einstellungen → Terminal (nach dem Entsperren) stehen Schriftart, Schrif
 
 Unter Einstellungen → KI-Assistent stehen Zahl und Standard der eingerichteten Anbieter. `Anbieter verwalten` öffnet die Anbieterliste, `Fertig` führt zurück in die Einstellungen. Dieselbe Liste öffnet auch das Zahnrad im Assistenten-Panel; die Schlüssel liegen verschlüsselt im Vault.
 
+### Maskierung im KI-Assistenten
+
+Bevor der Assistent etwas an einen Anbieter schickt, ersetzt Shellherd Geheimnisse durch Platzhalter wie `[SECRET_1]`. Das gilt für deine Frage, den Terminalausschnitt, gelesene Ausgaben und den mitgeschickten Verlauf. Derselbe Wert bekommt in einem Verlauf immer denselben Platzhalter, so kann sich das Modell darauf beziehen. Ein einmal erkannter Wert bleibt im ganzen Verlauf verdeckt, auch an Stellen ohne erkennbares Muster; Shellherd merkt sich dafür je Verlauf die letzten 1.000 erkannten Werte, Vault-Werte immer. `Verlauf leeren` beginnt neu.
+
+Erkannt werden:
+- Passwörter, Passphrasen und API-Schlüssel, die in diesem Vault gespeichert sind (ab 6 Zeichen), wo immer sie im Text stehen,
+- private Schlüssel (`-----BEGIN … PRIVATE KEY-----`), auch angeschnitten und base64-kodiert,
+- Werte hinter Namen wie `password`, `DB_PASSWORD`, `secret`, `token`, `api_key`, `client_secret` oder `AccountKey`, mit `=` oder `:` und als Option (`--password …`),
+- Passwörter in Adressen (`postgres://app:…@db`),
+- `Authorization: Bearer …` und `Basic …`,
+- Schlüssel von AWS (`AKIA…`), GitHub (`ghp_…`, `github_pat_…`), Slack (`xox…`, Webhooks), OpenAI und Anthropic (`sk-…`) und Google (`AIza…`), Azure-Signaturen (`sig=`) und JWTs,
+- Werte unter `data:` und `stringData:`, wenn der Text ein Kubernetes-Secret (`kind: Secret`) enthält.
+
+Unter deiner Frage steht dann „Vertrauliche Werte maskiert: 2“. Die Antwort zeigt die Platzhalter unverändert. Shellherd setzt nie echte Werte in Antworten oder Befehle ein, sonst könnte eingeschleuster Terminaltext das Modell dazu bringen, dein Passwort in einen Befehl zu schreiben. Steht in einem vorgeschlagenen Befehl ein Platzhalter, steht darunter „Enthält maskierte Werte. Setze sie vor Enter selbst ein.“
+
+Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, denn ein lokaler Endpunkt kann Anfragen protokollieren oder weiterleiten. Abschalten lässt sie sich je Anbieter unter `Anbieter verwalten` → `Bearbeiten` → `Geheimnisse vor dem Senden maskieren`. Der Assistent zeigt dann „Maskierung ist für diesen Anbieter aus“. Lässt sich ein Text nicht prüfen, sendet Shellherd nichts.
+
+**Grenzen.** Die Maskierung erkennt Muster und bekannte Werte, sie versteht keinen Inhalt. Nicht erkannt werden zum Beispiel:
+- Passwörter ohne erkennbaren Namen, etwa direkt hinter einer Kurzoption (`mysql -pGeheim`, `sshpass -p Geheim`, `curl -u admin:Geheim`) oder im Fließtext, solange sie nicht im Vault stehen,
+- Vault-Passwörter unter 6 Zeichen, das Vault-Passwort selbst und Eingaben aus Anmelde-Rückfragen,
+- abgewandelte Werte: base64 oder Hex kodiert, in Teilen oder mit Leerzeichen, `;` oder `&` ohne Anführungszeichen (dann nur bis zu diesem Zeichen),
+- Passwörter in Adressen, die `/`, `?` oder `#` unkodiert enthalten, und Werte über 4.096 Zeichen (dann nur der Anfang),
+- Schlüssel ohne festes Format, etwa reine Hex-Schlüssel von Azure, außer sie stehen hinter einem Namen wie `api-key`,
+- Kubernetes-Secrets als JSON (`-o json`),
+- eine einzelne Zeile, die länger ist als der mitgeschickte Ausschnitt (6 000 bzw. 8 000 Zeichen); sie wird angeschnitten.
+
+Hashes, Commit-IDs und UUIDs bleiben absichtlich stehen. KI-Kommandozeilen in eigenen Tabs (Claude Code, Codex …) senden selbst und laufen nicht über diese Maskierung. Stehen sensible Ausgaben auf dem Bildschirm, leere ihn (`clear`), bevor du den Assistenten fragst.
+
 ## Workflows
 
 Workflows sind gespeicherte Befehle, die Shellherd für dich in ein Terminal tippt. Sie liegen verschlüsselt im Vault (höchstens 1.000) und stehen in allen Fenstern bereit.

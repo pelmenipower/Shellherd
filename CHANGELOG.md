@@ -4,6 +4,12 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.25.0] – 2026-10-25
+
+- Sicherheit: Der KI-Assistent maskiert Geheimnisse, bevor etwas an den Anbieter geht: Passwörter, Passphrasen und API-Schlüssel aus dem Vault, private Schlüssel, `password=`- und `secret:`-Werte, Passwörter in Adressen, Bearer- und Basic-Header, Schlüssel von AWS, GitHub, Slack, OpenAI, Anthropic, Google und Azure, JWTs und die Daten von Kubernetes-Secrets. Derselbe Wert behält im Verlauf denselben Platzhalter (`[SECRET_1]`), echte Werte setzt Shellherd nie zurück in Antworten oder Befehle.
+- Neu: Unter der Frage steht, wie viele vertrauliche Werte maskiert wurden. Befehle mit Platzhalter tragen einen Hinweis. Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, und lässt sich je Anbieter abschalten.
+- Behoben: Der Assistent liest umbrochene Terminalzeilen als eine Zeile und kürzt lange Ausgaben nur an Zeilengrenzen.
+
 ## [0.24.0] – 2026-10-25
 
 - Neu: Einstellungen → Verbindungen → `Server-Schlüssel verwalten` listet alle bestätigten und importierten Server-Schlüssel mit SHA-256-Fingerprint, mit Suche und `Entfernen`. Ein gewollter Schlüsselwechsel lässt sich so annehmen.

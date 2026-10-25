@@ -183,6 +183,34 @@ Under Settings → Terminal (after unlocking) there are font, font size, scrollb
 
 Settings → AI assistant shows the number and the default of the configured providers. `Manage providers` opens the provider list, `Done` returns to the settings. The gear in the assistant panel opens the same list; keys are stored encrypted in the vault.
 
+### Masking in the AI assistant
+
+Before the assistant sends anything to a provider, Shellherd replaces secrets with placeholders such as `[SECRET_1]`. This applies to your question, the terminal excerpt, read output and the history sent along. The same value always gets the same placeholder within a history, so the model can refer to it. A value recognized once stays hidden in the whole history, even where no pattern shows; for this Shellherd remembers the last 1,000 recognized values per history, vault values always. `Clear history` starts over.
+
+Recognized are:
+- passwords, passphrases and API keys stored in this vault (6 characters or more), wherever they appear in the text,
+- private keys (`-----BEGIN … PRIVATE KEY-----`), also cut off and base64-encoded,
+- values after names such as `password`, `DB_PASSWORD`, `secret`, `token`, `api_key`, `client_secret` or `AccountKey`, with `=` or `:` and as an option (`--password …`),
+- passwords in addresses (`postgres://app:…@db`),
+- `Authorization: Bearer …` and `Basic …`,
+- keys from AWS (`AKIA…`), GitHub (`ghp_…`, `github_pat_…`), Slack (`xox…`, webhooks), OpenAI and Anthropic (`sk-…`) and Google (`AIza…`), Azure signatures (`sig=`) and JWTs,
+- values under `data:` and `stringData:` when the text contains a Kubernetes secret (`kind: Secret`).
+
+Below your question, the assistant then shows “Sensitive values masked: 2”. The answer shows the placeholders unchanged. Shellherd never puts real values into answers or commands; otherwise injected terminal text could make the model write your password into a command. If a suggested command contains a placeholder, it shows “Contains masked values. Fill them in yourself before pressing Enter.”
+
+Masking is on for every provider, local models included, because a local endpoint may log or forward requests. It can be switched off per provider under `Manage providers` → `Edit` → `Mask secrets before sending`. The assistant then shows “Masking is off for this provider”. If a text cannot be checked, Shellherd sends nothing.
+
+**Limits.** Masking recognizes patterns and known values; it does not understand content. Not recognized are, for example:
+- passwords without a recognizable name, such as right after a short option (`mysql -pSecret`, `sshpass -p Secret`, `curl -u admin:Secret`) or in running text, unless they are stored in the vault,
+- vault passwords shorter than 6 characters, the vault password itself and answers to login prompts,
+- altered values: base64 or hex encoded, split up or with spaces, `;` or `&` without quotes (then only up to that character),
+- passwords in addresses that contain `/`, `?` or `#` unencoded, and values longer than 4,096 characters (then only the beginning),
+- keys without a fixed format, such as plain hex keys from Azure, unless they follow a name such as `api-key`,
+- Kubernetes secrets as JSON (`-o json`),
+- a single line longer than the excerpt sent along (6,000 or 8,000 characters); it is cut.
+
+Hashes, commit IDs and UUIDs stay on purpose. AI command line tools in their own tabs (Claude Code, Codex …) send by themselves and do not go through this masking. If sensitive output is on the screen, clear it (`clear`) before asking the assistant.
+
 ## Workflows
 
 Workflows are saved commands that Shellherd types into a terminal for you. They are stored encrypted in the vault (at most 1,000) and are available in every window.
