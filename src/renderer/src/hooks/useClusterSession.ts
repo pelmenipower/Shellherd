@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { codedFrom } from '../../../shared/errors';
 import { queryKey } from '../../../shared/kubernetes';
-import type { KubeActionRequest, KubeDetail, KubeDetailMode, KubeForwardStatus, KubeForwardTarget, KubeRef, KubeViewSnapshot } from '../../../shared/kubernetes';
+import type { KubeActionRequest, KubeDetail, KubeDetailMode, KubeForwardStatus, KubeForwardTarget, KubeLogsStartRequest, KubeRef, KubeViewSnapshot } from '../../../shared/kubernetes';
 import { t } from '../i18n';
 import { initialKubeView, kubeViewReducer, type KubeViewAction, type KubeViewState } from '../kube-view';
 
@@ -49,7 +49,8 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
   useEffect(() => {
     if (!viewId) return;
     return window.desktopApi.onKubeEvent(event => {
-      if (event.viewId === viewId) dispatch({ type: 'event', event, at: Date.now() });
+      // Log batches go straight to WorkloadLogs; the reducer would only return the same state.
+      if (event.viewId === viewId && event.type !== 'logs') dispatch({ type: 'event', event, at: Date.now() });
     });
   }, [viewId]);
 
@@ -88,7 +89,31 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
     return window.desktopApi.kubeForwardStop({ viewId: id, forwardId });
   }, []);
 
-  return { state, dispatch: dispatch as (action: KubeViewAction) => void, viewId, retry, detail, action, startForward, stopForward };
+  const startLogs = useCallback((request: Omit<KubeLogsStartRequest, 'viewId'>): Promise<void> => {
+    const id = viewIdRef.current;
+    if (!id) return Promise.reject(new Error(t('kubernetes:viewNotOpen')));
+    return window.desktopApi.kubeLogsStart({ ...request, viewId: id });
+  }, []);
+
+  const stopLogs = useCallback((logsId: string): Promise<void> => {
+    const id = viewIdRef.current;
+    if (!id) return Promise.resolve();
+    return window.desktopApi.kubeLogsStop({ viewId: id, id: logsId });
+  }, []);
+
+  // One request per namespace at a time; a failed request counts as unknown (nothing greyed out) until it is stale.
+  const accessPending = useRef(new Set<string>());
+  const ensureAccess = useCallback((namespace: string): void => {
+    const id = viewIdRef.current;
+    if (!id || accessPending.current.has(namespace)) return;
+    accessPending.current.add(namespace);
+    void window.desktopApi.kubeAccess({ viewId: id, namespace }).catch(() => null).then(denied => {
+      accessPending.current.delete(namespace);
+      dispatch({ type: 'access', namespace, entry: { at: Date.now(), denied } });
+    });
+  }, []);
+
+  return { state, dispatch: dispatch as (action: KubeViewAction) => void, viewId, retry, detail, action, startForward, stopForward, startLogs, stopLogs, ensureAccess };
 }
 
 /** A status for failures that happen before or outside the main side's own status events. */

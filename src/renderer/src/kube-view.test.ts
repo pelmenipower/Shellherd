@@ -1079,3 +1079,30 @@ describe('port forwards', () => {
     expect(snapshotOf(next)).toEqual(snapshotOf(state));
   });
 });
+
+describe('rights pre-check and logs of all pods', () => {
+  const ready = kubeViewReducer(initialKubeView('shop'), { type: 'event', event: { type: 'status', viewId: 'v1', status } });
+  const entry = { at: 1, denied: [{ id: 'shell' as const, verb: 'create', resource: 'pods/exec' }] };
+
+  it('keeps one answer per namespace while ready and ignores answers that land while not ready', () => {
+    expect(initialKubeView('shop').access).toEqual({});
+    const one = kubeViewReducer(ready, { type: 'access', namespace: 'shop', entry });
+    const two = kubeViewReducer(one, { type: 'access', namespace: 'monitoring', entry: { at: 2, denied: null } });
+    expect(two.access).toEqual({ shop: entry, monitoring: { at: 2, denied: null } });
+    const notReady = kubeViewReducer(initialKubeView('shop'), { type: 'access', namespace: 'shop', entry });
+    expect(notReady.access).toEqual({});
+  });
+
+  it('empties the answers whenever the cluster is not ready and keeps them on ready', () => {
+    const filled = kubeViewReducer(ready, { type: 'access', namespace: 'shop', entry });
+    expect(kubeViewReducer(filled, { type: 'event', event: { type: 'status', viewId: 'v1', status: { ...status, metrics: false } } }).access).toEqual({ shop: entry });
+    expect(kubeViewReducer(filled, { type: 'event', event: { type: 'status', viewId: 'v1', status: { ...status, state: 'reconnecting' } } }).access).toEqual({});
+  });
+
+  it('returns the same state for a logs event and never saves the answers', () => {
+    const filled = kubeViewReducer(ready, { type: 'access', namespace: 'shop', entry });
+    const event: KubeEvent = { type: 'logs', viewId: 'v1', id: 'r', lines: [], sources: [], waiting: 0, dropped: 0 };
+    expect(kubeViewReducer(filled, { type: 'event', event })).toBe(filled);
+    expect(JSON.stringify(snapshotOf(filled))).not.toContain('access');
+  });
+});

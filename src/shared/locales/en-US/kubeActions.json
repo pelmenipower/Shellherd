@@ -11,6 +11,8 @@
     "noSelectorJob": "This job has no selector.",
     "noSelectorService": "This service has no selector, e.g. ExternalName.",
     "noTcpPort": "This service has no TCP port.",
+    "forbidden": "No permission: {{verb}} on {{resource}} in {{namespace}}",
+    "forbiddenClusterWide": "No permission: {{verb}} on {{resource}} (cluster-wide)",
     "noSshHere": "A connection cannot be opened here.",
     "noSshForNode": "No SSH connection for {{name}} in the vault.",
     "involvedUnsupported": "Shellherd does not show objects of type {{kind}}.",
