@@ -60,6 +60,9 @@
     "problemOom": "{{name}} was terminated because it ran out of memory (OOMKilled)",
     "problemPending": "{{name}} has been waiting for {{minutes}} min (Pending)",
     "problemNodeNotReady": "{{name}} is not ready",
-    "problemNodePressure": "{{name}}: {{pressure}}"
+    "problemNodePressure": "{{name}}: {{pressure}}",
+    "noArgoUrl": "The cluster entry has no Argo CD address.",
+    "noHarborUrl": "The cluster entry has no Harbor address.",
+    "linkRefused": "This link is not opened: it does not match the address in the cluster entry."
   }
 }

@@ -366,7 +366,7 @@ app.whenReady().then(() => {
     onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); protectWindows(false); },
     onLock: () => { protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo); },
     onUnlock: () => { protectWindows(false); autoLock?.touch(); announce(IPC_CHANNELS.vaultUnlocked); },
-    onVaultChange: () => { broadcastCatalog(); ai.broadcast(); rdpSessionManager.prewarm(); },
+    onVaultChange: () => { broadcastCatalog(); ai.broadcast(); rdpSessionManager.prewarm(); kubeSessions?.refreshStatus(); },
     guard: event => windowRegistry.requireMain(event),
   });
   autoLock = new AutoLock({

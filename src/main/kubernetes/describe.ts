@@ -59,7 +59,7 @@ export function toYaml(object: KubeObject): string {
 }
 
 /** Env value as shown in describe: plain values only, references by name. Never reads secret data. */
-function envValue(env: Rec): string {
+export function envValue(env: Rec): string {
   if (env.value !== undefined) {
     return str(env.value);
   }
@@ -76,7 +76,7 @@ function envValue(env: Rec): string {
   if (rec(ref.resourceFieldRef)) {
     return `<Resource ${str(ref.resourceFieldRef.resource)}>`;
   }
-  return '<unbekannt>';
+  return '<unknown>';
 }
 
 function containerLines(container: Rec, status: Rec | undefined): string[] {

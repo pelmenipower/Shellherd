@@ -15,6 +15,7 @@ import type {
 } from './types';
 import { ContainerTargetSchema } from '../containers-schema';
 import { KubeNameSchema, KubeViewSnapshotSchema } from '../kubernetes-schema';
+import { MAX_BASE_URL, httpsBase } from '../kube-links';
 import type { EncryptedVaultFile } from './file-format';
 
 export const AuthenticationSchema = z.discriminatedUnion('method', [
@@ -143,6 +144,9 @@ export const AiCliConnectionNodeSchema = z.object({
     workingDirectory: z.string().optional(),
 }).refine(node => node.tool !== 'custom' || Boolean(node.command?.trim()), { message: 'commandRequired', path: ['command'] });
 
+/** A valid https address (the form stores it normalized); main and renderer normalize again before use. Not "=== httpsBase(value)": a URL parser update must never make a vault unopenable. */
+const WebAddressSchema = z.string().max(MAX_BASE_URL).refine(value => httpsBase(value) !== null, { message: 'httpsAddress' });
+
 export const KubernetesConnectionNodeSchema = z.object({
     ...connectionBase,
     protocol: z.literal('kubernetes'),
@@ -155,6 +159,8 @@ export const KubernetesConnectionNodeSchema = z.object({
     namespace: KubeNameSchema.optional(),
     production: z.boolean(),
     readOnly: z.boolean(),
+    argoUrl: WebAddressSchema.optional(),
+    harborUrl: WebAddressSchema.optional(),
 });
 
 export const ConnectionNodeSchema = z.discriminatedUnion('protocol', [

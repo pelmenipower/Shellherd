@@ -5,6 +5,11 @@ import type { CodedError } from './errors';
 export interface AiProviderInfo { id: string; name: string; kind: AiProviderKind; model: string; masking: boolean }
 export interface AiCatalog { providers: AiProviderInfo[]; defaultProviderId?: string }
 
+/** Kubernetes analysis ("Mit KI analysieren"): the cluster its context comes from. Masking is always on for it. */
+export interface AiKubeContext { kube: { cluster: string; production: boolean } }
+export type AiAskContext = AiTerminalContext | AiKubeContext;
+export const isKubeContext = (context: AiAskContext): context is AiKubeContext => 'kube' in context;
+
 export interface AiChatMessage { role: 'user' | 'assistant'; content: string }
 
 /** What the assistant works on; the screen text itself travels inside the user messages. */
@@ -16,7 +21,7 @@ export interface AiAskRequest {
   conversationId: string;
   providerId?: string;
   messages: AiChatMessage[];
-  context: AiTerminalContext;
+  context: AiAskContext;
 }
 
 export type AiEvent =

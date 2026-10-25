@@ -214,7 +214,7 @@ Erkannt werden:
 
 Unter deiner Frage steht dann „Vertrauliche Werte maskiert: 2“. Die Antwort zeigt die Platzhalter unverändert. Shellherd setzt nie echte Werte in Antworten oder Befehle ein, sonst könnte eingeschleuster Terminaltext das Modell dazu bringen, dein Passwort in einen Befehl zu schreiben. Steht in einem vorgeschlagenen Befehl ein Platzhalter, steht darunter „Enthält maskierte Werte. Setze sie vor Enter selbst ein.“
 
-Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, denn ein lokaler Endpunkt kann Anfragen protokollieren oder weiterleiten. Abschalten lässt sie sich je Anbieter unter `Anbieter verwalten` → `Bearbeiten` → `Geheimnisse vor dem Senden maskieren`. Der Assistent zeigt dann „Maskierung ist für diesen Anbieter aus“. Lässt sich ein Text nicht prüfen, sendet Shellherd nichts.
+Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, denn ein lokaler Endpunkt kann Anfragen protokollieren oder weiterleiten. Abschalten lässt sie sich je Anbieter unter `Anbieter verwalten` → `Bearbeiten` → `Geheimnisse vor dem Senden maskieren`. Der Assistent zeigt dann „Maskierung ist für diesen Anbieter aus“. Für `Mit KI analysieren` im Cluster-Tab bleibt sie immer an. Lässt sich ein Text nicht prüfen, sendet Shellherd nichts.
 
 **Grenzen.** Die Maskierung erkennt Muster und bekannte Werte, sie versteht keinen Inhalt. Nicht erkannt werden zum Beispiel:
 - Passwörter ohne erkennbaren Namen, etwa direkt hinter einer Kurzoption (`mysql -pGeheim`, `sshpass -p Geheim`, `curl -u admin:Geheim`) oder im Fließtext, solange sie nicht im Vault stehen,
@@ -538,9 +538,9 @@ nutzt es `sudo -n` (dafür braucht der Benutzer NOPASSWD). Kubeconfigs mit `exec
 statt auf dem Server laufen würden.
 
 Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
-Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, YAML,
-Events, Describe und `Port weiterleiten…` bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
-Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird.
+Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, `Logs aller Pods`, YAML,
+Events, Describe, `Port weiterleiten…` und `Mit KI analysieren` bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
+Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird. Unter „Weboberflächen (optional)“ lassen sich die Adressen von Argo CD und Harbor hinterlegen (siehe „Argo CD und Harbor“).
 
 Der Cluster-Tab zeigt Nodes, Workloads, Pods und Events live. Eine Statusleiste unter dem
 Kopf nennt den Zustand: „Live“ mit dem Alter der Daten („Stand vor 12 s“), beim Neuverbinden
@@ -592,6 +592,65 @@ Rechtsklick auf einen laufenden Pod oder einen Service → `Port weiterleiten…
 - **Rechte:** Kubernetes verlangt `create` auf `pods/portforward` im Namespace (ältere Versionen `get`). Die Rolle `edit` hat das, `view` nicht. Für Services braucht es zusätzlich `get` auf den Service und `list` auf Pods. Fehlt das Recht, meldet die Leiste „Keine Berechtigung für Port-Weiterleitungen in …“.
 - **Grenzen:** Höchstens 10 Weiterleitungen gleichzeitig, je Weiterleitung höchstens 32 gleichzeitige Verbindungen, nur TCP. `Im Browser öffnen` nimmt `http`, bei Port 443 und 8443 `https`. Programme, die nach dem Senden ihre Seite der Verbindung schließen (z. B. `nc -N`, `socat`), bekommen keine Antwort.
 - **Wer den Port erreicht:** Jedes Programm und jeder Benutzer auf diesem Computer, auch Webseiten im Browser über Tricks wie DNS-Rebinding. Eine Anmeldung am Port gibt es nicht, genau wie bei `kubectl port-forward`. Lass Weiterleitungen deshalb nur so lange offen, wie du sie brauchst, und leite auf geteilten Rechnern (Terminalserver) nicht zu sensiblen Diensten weiter.
+
+### Logs aller Pods
+
+Rechtsklick auf ein Deployment, StatefulSet, DaemonSet, einen Job oder einen Service → `Logs aller Pods`. Der Reiter **Logs** im unteren Bereich zeigt dann die Logs aller zugehörigen Container zusammen. Ist die Zeile nur ausgewählt, startet `Logs aller Pods anzeigen` die Ansicht; durchs Blättern allein öffnet Shellherd keine Streams.
+
+- **Sortierung:** nach dem Zeitstempel, den Kubernetes an jede Zeile hängt, in UTC (`HH:MM:SS.mmm`), auch wenn ein Node in Ortszeit läuft. Davor steht `pod/container` in einer von vier Farben. Laufen die Uhren der Nodes auseinander, kann die Reihenfolge zwischen Pods um diesen Versatz abweichen.
+- **Filtern und Quellen:** Das Feld `Filtern` zeigt nur Zeilen, die den Text enthalten, im Präfix oder in der Meldung; Treffer sind markiert. Ein Klick auf einen Container-Chip blendet ihn aus und wieder ein.
+- **Folgen:** Neue Zeilen erscheinen unten. Scrollst du nach oben, bleibt die Ansicht stehen, und `Folgen (12 neu)` zeigt, was dazugekommen ist; ein Klick springt ans Ende.
+- **Rollouts:** Neue Pods kommen von selbst dazu, sobald ihr Container läuft. Beendete Pods bleiben mit „beendet“ stehen. Startet ein Container neu, liest Shellherd ab der letzten Zeile weiter. Beendet ein Proxy oder Load Balancer einen ruhigen Stream, liest Shellherd nach 5 Sekunden weiter. Bricht ein Stream mit Fehler ab, zeigt der Chip „Fehler“ mit dem Grund im Tooltip; `Kompakt`/`Roh` umschalten startet die Ansicht neu.
+- **Kompakt / Roh** gilt wie bei einzelnen Logs; Farben aus der App werden entfernt. `Kopieren` nimmt alle Treffer mit, auch die nicht angezeigten.
+- **Grenzen:** höchstens 20 Container gleichzeitig (weitere warten und rücken nach), je Container die letzten 200 Zeilen, insgesamt 10 000 Zeilen, angezeigt die neuesten 2 000 Treffer. Zeilen über 4 000 Zeichen werden gekürzt. Kommen mehr als 8 000 Zeilen pro Sekunde, lässt Shellherd welche aus und sagt es. Nur `matchLabels` des Selectors zählen, wie bei „Pods anzeigen“; Init-Container sind nicht dabei. Nach 100 Containern in einer Ansicht kommen keine neuen mehr dazu; `Kompakt`/`Roh` umschalten startet die Ansicht neu.
+- **Rechte:** `list` und `watch` auf Pods und `get` auf `pods/log`. „Nur lesen“ erlaubt die Ansicht. Wechselst du die Zeile, den Reiter oder die Darstellung, endet sie; nach einem Neuverbinden beginnt sie neu.
+
+### Rechte-Vorabprüfung
+
+Shellherd fragt je Namespace einmal ab, was das Kubernetes-Konto darf (`SelfSubjectRulesReview`, eine reine Abfrage ohne Wirkung auf den Cluster). Einträge im Kontextmenü, die das Konto nicht ausführen darf, sind dann vorab gesperrt und nennen das fehlende Recht, etwa „Keine Berechtigung: patch auf deployments in shop“. Das gilt für Neustart, Skalieren, Löschen, cordon/uncordon, Anhalten, Fortsetzen und `Jetzt ausführen…`, für Logs, Shell, `Logs aller Pods` und `Port weiterleiten…`. Die Tasten `r`, `S`, `Strg+D`, `s`, `l` und `p` melden denselben Grund.
+
+- Shellherd fragt höchstens einmal pro Minute und Namespace nach, solange der Cluster-Tab sichtbar ist, und sofort nach einem Neuverbinden. Ein gerade neu vergebenes Recht kann also bis zu einer Minute gesperrt erscheinen.
+- Kann der Cluster die Frage nicht vollständig beantworten (etwa mit einem externen Autorisierer wie bei GKE oder Azure-RBAC), ist sie verboten, meldet sie einen Auswertungsfehler (etwa eine Bindung an eine gelöschte Rolle) oder dauert sie länger als 10 Sekunden, sperrt Shellherd nichts; ein fehlendes Recht zeigt sich dann wie bisher erst beim Ausführen.
+- Regeln, die nur für bestimmte Objektnamen gelten, zählen als Erlaubnis. Gesperrt wird nur, was sicher nicht geht.
+- Nodes prüft Shellherd mit den Regeln des Standard-Namespace des Clusters.
+
+### Mit KI analysieren
+
+Rechtsklick auf einen Pod, ein Deployment, StatefulSet, DaemonSet, einen Job oder ein Event → `Mit KI analysieren`. Bei Pod-Problemen in der roten Leiste reicht `Analysieren` daneben. Der KI-Assistent öffnet sich mit einer passenden Frage, etwa „Warum startet dieser Pod immer wieder neu?“, die du ändern kannst, und einer Vorschau dessen, was Shellherd mitschicken will. Gesendet wird erst mit `Analyse senden`. `Verwerfen` bricht ab, ohne dass etwas hinausgeht.
+
+- **Was mitgeht:** Status, Conditions und Spezifikation des Objekts (Images, Befehl, Ressourcen, Probes, Env, Volumes), die letzten 15 Events und die letzten 100 Logzeilen der auffälligen Container. Nach einem Neustart kommen die Logzeilen des vorherigen Containers dazu, außerdem Owner-Workload und Node. Bei einem Workload kommen seine Pods dazu, mit Events und Logs des auffälligsten Pods. Bei einem Event gehen das Event selbst und das betroffene Objekt mit. `Gesendeten Text anzeigen` zeigt alles wörtlich, die Vorschau nennt die Größe.
+- **Was nie mitgeht:**
+  - Secrets: Shellherd liest keine Secrets und keine ConfigMaps.
+  - Env-Werte aus `secretKeyRef`: Sie stehen nur als Verweis da (`<Secret checkout-db/password>`).
+  - Werte von Variablen mit Namen wie `PASSWORD`, `TOKEN` oder `KEY`: Sie erscheinen als `<hidden>`.
+  - Annotations.
+
+  Was danach noch nach Geheimnis aussieht, etwa ein Passwort in einer Logzeile, ersetzt die Maskierung durch Platzhalter. Für Analysen ist sie immer an.
+- **Nur lesen:**
+  - Shellherd liest dafür nur (`get`, `list` und `get` auf `pods/log`) und führt nie aus, was die KI vorschlägt. Befehle in der Antwort haben keinen Knopf.
+  - Ändert ein Befehl den Cluster (etwa `delete`, `scale`, `rollout restart`, `apply`), steht darunter „Ändert den Cluster. Nur zur Information, Shellherd führt das nicht aus.“
+  - „Nur lesen“ erlaubt die Analyse.
+- **Rechte:** Darf das Konto Logs, Events, Owner oder Node nicht lesen, fehlt nur dieser Teil. Die Vorschau sagt, welcher und warum.
+- **Rückfragen:** Nach dem Senden kannst du weiterfragen. Shellherd schickt den Kontext jedes Mal wieder mit, damit das Modell ihn kennt. `Verlauf leeren` oder eine neue Analyse beginnt von vorn.
+- **Größe und Kosten:**
+  - höchstens 16.000 Zeichen, etwa 4.000 Tokens je Anfrage;
+  - jede Rückfrage kostet mindestens so viel wie die erste;
+  - für Modelle mit kleinem Kontextfenster (unter 8.000 Tokens) ist eine Analyse zu groß.
+- **Grenzen:**
+  - Die KI sieht nur diesen Ausschnitt: keine Metriken, keine Services, Ingress oder Netzwerk-Policies, keine anderen Namespaces, keine Logs vor den letzten 100 Zeilen und keinen Inhalt von ConfigMaps und Secrets.
+  - Ihre Antwort ist eine Vermutung aus diesen Daten. Prüfe sie mit den vorgeschlagenen lesenden Befehlen.
+  - Logs können personenbezogene Daten enthalten. Bei Produktions-Clustern weist die Vorschau eigens darauf hin.
+
+### Argo CD und Harbor
+
+Im Cluster-Eintrag (`Bearbeiten` → „Weboberflächen (optional)“) kannst du die Adresse von Argo CD und von Harbor hinterlegen, etwa `https://argocd.example.com` und `https://harbor.example.com`. Erlaubt sind nur `https`-Adressen ohne Benutzername.
+
+- **Argo CD erkennen:** Trägt ein Objekt die Annotation `argocd.argoproj.io/tracking-id` (Standard ab Argo CD 3) oder das Label `argocd.argoproj.io/instance`, zeigt sein Kontextmenü oben „Argo CD: App …“. Das Label `app.kubernetes.io/instance` wertet Shellherd nicht aus, weil Helm es ebenfalls setzt.
+- **`In Argo CD öffnen`** öffnet die App im Browser. Ohne hinterlegte Adresse ist der Eintrag gesperrt und sagt, warum.
+- **Self-Heal-Hinweis:** Skalieren, Anhalten, Fortsetzen und Job löschen an einem Objekt, das Argo CD verwaltet, sagen im Bestätigungsdialog, ob Argo CD die Änderung zurücksetzt, mit Sync- und Health-Stand der App. Dafür liest Shellherd die Application im Cluster (`get` auf `applications.argoproj.io`, im Namespace `argocd` oder dem Namespace vor `_` im App-Namen). Darf das Konto das nicht, läuft Argo CD in einem anderen Cluster oder antwortet der Cluster nicht binnen 5 Sekunden, steht dort „möglicherweise“. Bei einem Neustart sagt der Dialog, dass Argo CD ihn in der Regel nicht zurücksetzt.
+- **`In Harbor öffnen`** gibt es an Pods, Containern, Deployments, StatefulSets und DaemonSets, wenn der Registry-Host des Images der Harbor-Adresse entspricht. Bei Pods führt der Link zum laufenden Artefakt (mit Schwachstellen-Scan, falls Harbor scannt), sofern der Cluster dessen Digest meldet; sonst und bei Workloads führt er zur Repository-Seite mit allen Tags. Liegt das Image woanders, ist der Eintrag gesperrt: „Image liegt nicht in harbor.example.com.“
+- **Nur lesen, nur Links:** Shellherd löst kein Sync, kein Refresh, kein Rollback und keinen Scan aus und fragt weder Argo CD noch Harbor selbst ab. Es öffnet nur den Browser; Anmeldung und Rechte regeln Argo CD und Harbor dort wie gewohnt. Der Host eines Links kommt immer aus dem Cluster-Eintrag. Labels, Annotationen und Image-Namen aus dem Cluster bestimmen nur den Pfad.
+- **Grenzen:** Liegen die Applications in einem anderen Namespace als `argocd` (etwa `openshift-gitops`), sagt der Dialog „möglicherweise“. Die Harbor-Links nutzen den Projektnamen statt der internen Projekt-ID. Öffnet Harbor statt des Artefakts die Projektliste oder eine Fehlerseite, nimmt deine Harbor-Version den Namen nicht an.
 
 ## Dateiansicht: Tastatur und Übertragungen
 

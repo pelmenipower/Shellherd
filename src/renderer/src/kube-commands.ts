@@ -1,5 +1,7 @@
-import { ACTION_KINDS, refKey, type KubeAction, type KubeKind, type KubeRef, type KubeRow } from '../../shared/kubernetes';
+import { ACTION_KINDS, refKey, type ClusterStatus, type KubeAction, type KubeKind, type KubeRef, type KubeRow } from '../../shared/kubernetes';
 import { attentionChip } from '../../shared/kube-status';
+import { actionAccess } from '../../shared/kube-access';
+import { refAccessReason, type KubeAccessMap } from './kube-access';
 import { visibleRows, type KubeViewState } from './kube-view';
 import { t } from './i18n';
 
@@ -43,28 +45,38 @@ export interface ActionContext {
   reconnecting?: boolean;
   /** Kind of the current table, used when ref is null. */
   kind?: KubeKind;
+  /** RBAC pre-check per namespace; absent or unknown = allowed. */
+  access?: KubeAccessMap;
+  status?: ClusterStatus | null;
 }
 
-/** Undefined when the action may run on ref; otherwise the localized reason. Order: readOnly, connected, kind (ref.kind, else context.kind), ref. */
+/** Undefined when the action may run on ref; otherwise the localized reason. Order: readOnly, connected, kind (ref.kind, else context.kind), ref, rights. */
 export function actionReason(action: KubeAction, context: ActionContext): string | undefined {
   if (context.readOnly) return t('errors:kubernetes.readOnly');
   if (!context.connected) return context.reconnecting ? t('kubeActions:reasons.reconnecting') : t('errors:kubernetes.notConnected');
   const kind = context.ref?.kind ?? context.kind;
   if (kind && !ACTION_KINDS[action].includes(kind)) return t(WRONG_KIND_KEYS[action]);
   if (!context.ref) return t('kubeActions:reasons.selectRow');
-  return undefined;
+  const id = context.access ? actionAccess(action, context.ref.kind) : undefined;
+  return id && context.access ? refAccessReason(context.access, context.status ?? null, context.ref, id) : undefined;
 }
 
 const actionUnavailable = (action: KubeAction) => (context: CommandContext): string | undefined => actionReason(action, {
   ref: selectedRow(context.state)?.ref ?? null, readOnly: context.readOnly, connected: context.state.status?.state === 'ready', reconnecting: context.state.status?.state === 'reconnecting',
-  kind: context.state.containersOf ? 'pods' : context.state.query.kind,
+  kind: context.state.containersOf ? 'pods' : context.state.query.kind, access: context.state.access, status: context.state.status,
 });
+
+/** The right of the selected row (the pod drilled into, else the selection); nothing is greyed out when unknown. */
+const accessOfSelection = (context: CommandContext, id: 'logs' | 'shell'): string | undefined => {
+  const row = selectedRow(context.state);
+  return row ? refAccessReason(context.state.access, context.state.status, row.ref, id) : undefined;
+};
 
 const shellUnavailable = (context: CommandContext): string | undefined => {
   if (context.readOnly) return t('errors:kubernetes.readOnly');
   if (context.state.status?.state === 'reconnecting') return t('kubeActions:reasons.reconnecting');
   if (context.state.status?.state !== 'ready') return t('errors:kubernetes.notConnected');
-  return onlyForPods(context) ?? (podNotRunning(selectedRow(context.state)) ? t('kubeActions:reasons.notRunning') : undefined);
+  return onlyForPods(context) ?? (podNotRunning(selectedRow(context.state)) ? t('kubeActions:reasons.notRunning') : undefined) ?? accessOfSelection(context, 'shell');
 };
 
 export const KUBE_COMMANDS: KubeCommand[] = [
@@ -80,8 +92,8 @@ export const KUBE_COMMANDS: KubeCommand[] = [
   { id: 'attention', group: 'view', keys: ['w'], bindings: ['w'],
     unavailable: context => attentionChip(context.state.query.kind) ? undefined : t('kubeActions:reasons.noAttentionChip') },
   { id: 'resetFilter', group: 'view', keys: ['F'], bindings: ['F'] },
-  { id: 'logs', group: 'view', keys: ['l'], bindings: ['l'], unavailable: onlyForPods },
-  { id: 'previous', group: 'view', keys: ['p'], bindings: ['p'], unavailable: onlyForPods },
+  { id: 'logs', group: 'view', keys: ['l'], bindings: ['l'], unavailable: context => onlyForPods(context) ?? accessOfSelection(context, 'logs') },
+  { id: 'previous', group: 'view', keys: ['p'], bindings: ['p'], unavailable: context => onlyForPods(context) ?? accessOfSelection(context, 'logs') },
   { id: 'shell', group: 'view', keys: ['s'], bindings: ['s'],
     unavailable: shellUnavailable },
   { id: 'events', group: 'view', keys: ['e'], bindings: ['e'] },

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { onDiagnosis } from './kube-diagnose';
 import type { ConnectionCatalog } from '../../shared/windows';
 import { SplitTerminalArea } from './components/SplitTerminalArea';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -118,6 +119,8 @@ export function SecondaryWindow() {
   };
   const closingTab = terminals.tabs.find(tab => tab.id === pendingClose);
   const assistant = useAssistantToggle();
+  // "Mit KI analysieren" in a cluster tab opens the panel; the panel takes the request itself.
+  useEffect(() => onDiagnosis(() => assistant.setOpen(true)), [assistant.setOpen]);
   useCtrlShiftShortcut('Space', () => { if (!locked) setPaletteOpen(open => !open); });
 
   return <>

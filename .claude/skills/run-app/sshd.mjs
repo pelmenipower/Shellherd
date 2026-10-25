@@ -181,9 +181,11 @@ function serveRootShell(stream, command) {
 /** Host key persists in the run folder, otherwise known-hosts.json in the profile rejects every restart. */
 function loadHostKey(dir) {
   const file = path.join(dir, 'sshd-host-key');
-  if (existsSync(file)) return readFileSync(file);
+  if (existsSync(file) && !(utils.parseKey(readFileSync(file)) instanceof Error)) return readFileSync(file);
   mkdirSync(dir, { recursive: true });
-  const key = utils.generateKeyPairSync('ed25519').private;
+  // ssh2 generates an ed25519 key its own parser rejects about 1 in 300 times: draw again until it parses.
+  let key;
+  do key = utils.generateKeyPairSync('ed25519').private; while (utils.parseKey(key) instanceof Error);
   writeFileSync(file, key, { mode: 0o600 });
   return key;
 }

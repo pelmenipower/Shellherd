@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { describe, toYaml } from './describe';
+import { describe, envValue, toYaml } from './describe';
 import type { KubeObject } from './api';
 
 /** A label padded like describe.ts does, so alignment changes are caught in one place. */
@@ -119,4 +119,8 @@ it('shows secretKeyRef env vars as references only', () => {
   const text = describe(pod, []);
   expect(text).toContain('DB_PASS: <Secret db/pass>');
   expect(text).toContain('MODE: prod');
+});
+it('shows an unknown valueFrom as <unknown>, in English like the rest of the text', () => {
+  expect(envValue({ name: 'X', valueFrom: { somethingNew: {} } })).toBe('<unknown>');
+  expect(envValue({ name: 'DB_PASS', valueFrom: { secretKeyRef: { name: 'db', key: 'pass' } } })).toBe('<Secret db/pass>');
 });

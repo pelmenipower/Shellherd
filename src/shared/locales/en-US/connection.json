@@ -216,6 +216,12 @@
     "productionHint": "Actions require typing the name.",
     "readOnly": "Read-only",
     "readOnlyHint": "No actions and no shell; logs stay available.",
+    "links": {
+      "legend": "Web interfaces (optional)",
+      "hint": "For “Open in Argo CD” and “Open in Harbor”. Shellherd only opens links in your browser and requests nothing from these addresses itself. https addresses only.",
+      "argo": "Argo CD address",
+      "harbor": "Harbor address"
+    },
     "validation": {
       "noAccess": "Choose at least one SSH connection as access host.",
       "kubeconfigEmpty": "Enter the path to the kubeconfig.",
@@ -223,7 +229,8 @@
       "accessGone": "The access host “{{id}}” no longer exists.",
       "accessNotSsh": "The access host “{{name}}” is not an SSH connection.",
       "accessDisabled": "The access host “{{name}}” is disabled.",
-      "nameMissing": "Enter a name."
+      "nameMissing": "Enter a name.",
+      "linkUrl": "Enter an https address without user name, query or fragment."
     }
   }
 }

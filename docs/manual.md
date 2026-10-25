@@ -213,7 +213,7 @@ Recognized are:
 
 Below your question, the assistant then shows “Sensitive values masked: 2”. The answer shows the placeholders unchanged. Shellherd never puts real values into answers or commands; otherwise injected terminal text could make the model write your password into a command. If a suggested command contains a placeholder, it shows “Contains masked values. Fill them in yourself before pressing Enter.”
 
-Masking is on for every provider, local models included, because a local endpoint may log or forward requests. It can be switched off per provider under `Manage providers` → `Edit` → `Mask secrets before sending`. The assistant then shows “Masking is off for this provider”. If a text cannot be checked, Shellherd sends nothing.
+Masking is on for every provider, local models included, because a local endpoint may log or forward requests. It can be switched off per provider under `Manage providers` → `Edit` → `Mask secrets before sending`. The assistant then shows “Masking is off for this provider”. For `Analyze with AI` in a cluster tab it always stays on. If a text cannot be checked, Shellherd sends nothing.
 
 **Limits.** Masking recognizes patterns and known values; it does not understand content. Not recognized are, for example:
 - passwords without a recognizable name, such as right after a short option (`mysql -pSecret`, `sshpass -p Secret`, `curl -u admin:Secret`) or in running text, unless they are stored in the vault,
@@ -527,9 +527,9 @@ it uses `sudo -n` (the user needs NOPASSWD for that). Shellherd rejects kubeconf
 instead of on the server.
 
 In the setup form, “Production” is preselected; deselecting it is a deliberate
-decision. “Read-only” blocks restart, scale, delete and the shell; logs, YAML,
-events, describe and `Forward port…` stay allowed. Every change asks for confirmation. For
-production you have to type the resource name before the button becomes active.
+decision. “Read-only” blocks restart, scale, delete and the shell; logs, `Logs of all pods`, YAML,
+events, describe, `Forward port…` and `Analyze with AI` stay allowed. Every change asks for confirmation. For
+production you have to type the resource name before the button becomes active. Under “Web interfaces (optional)” you can enter the addresses of Argo CD and Harbor (see “Argo CD and Harbor”).
 
 The cluster tab shows nodes, workloads, pods and events live. A status bar below the
 header shows the state: “Live” with the age of the data (“updated 12 s ago”); while
@@ -581,6 +581,65 @@ Right-click a running pod or a service → `Forward port…`. In the dialog you 
 - **Permissions:** Kubernetes requires `create` on `pods/portforward` in the namespace (older versions `get`). The `edit` role has it, `view` does not. Services also need `get` on the service and `list` on pods. Without the permission the bar reports “No permission for port forwards in …”.
 - **Limits:** At most 10 forwards at a time, at most 32 simultaneous connections per forward, TCP only. `Open in browser` uses `http`, for ports 443 and 8443 `https`. Programs that close their side of the connection after sending (for example `nc -N`, `socat`) get no reply.
 - **Who reaches the port:** Every program and every user on this computer, including web pages in the browser through tricks such as DNS rebinding. There is no login on the port, just as with `kubectl port-forward`. So keep forwards open only as long as you need them, and on shared computers (terminal servers) do not forward to sensitive services.
+
+### Logs of all pods
+
+Right-click a Deployment, StatefulSet, DaemonSet, Job or Service → `Logs of all pods`. The **Logs** tab in the bottom panel then shows the logs of all its containers together. With the row only selected, `Show logs of all pods` starts the view; scrolling through rows alone never opens streams.
+
+- **Order:** by the timestamp Kubernetes adds to every line, in UTC (`HH:MM:SS.mmm`), even when a node runs in local time. Each line starts with `pod/container` in one of four colours. If the node clocks drift apart, the order across pods can be off by that drift.
+- **Filter and sources:** `Filter` shows only lines that contain the text, in the prefix or the message; matches are marked. Clicking a container chip hides it and shows it again.
+- **Follow:** New lines appear at the bottom. Scroll up and the view stops; `Follow (12 new)` shows what came in, and a click jumps to the end.
+- **Rollouts:** New pods join by themselves as soon as their container runs. Ended pods stay with “ended”. When a container restarts, Shellherd reads on from the last line. When a proxy or load balancer ends a quiet stream, Shellherd reads on after 5 seconds. When a stream fails, its chip shows “error” with the reason in the tooltip; switching `Compact`/`Raw` starts the view again.
+- **`Compact` / `Raw`** work as for single logs; colours from the app are removed. `Copy` takes all matches, including those not shown.
+- **Limits:** at most 20 containers at once (more wait and move up), the last 200 lines per container, 10,000 lines in total, the newest 2,000 matches shown. Lines over 4,000 characters are cut. With more than 8,000 lines per second Shellherd skips some and says so. Only the selector’s `matchLabels` count, as with “Show pods”; init containers are not included. After 100 containers in one view no new ones join; switching `Compact`/`Raw` starts the view again.
+- **Permissions:** `list` and `watch` on pods and `get` on `pods/log`. “Read-only” allows the view. Changing the row, the tab or the format ends it; after a reconnect it starts again.
+
+### Permission pre-check
+
+Shellherd asks once per namespace what the Kubernetes account may do (`SelfSubjectRulesReview`, a pure query with no effect on the cluster). Context menu entries the account may not run are greyed out up front and name the missing permission, e.g. “No permission: patch on deployments in shop”. This covers restart, scale, delete, cordon/uncordon, suspend, resume and `Run now…`, as well as logs, shell, `Logs of all pods` and `Forward port…`. The keys `r`, `S`, `Ctrl+D`, `s`, `l` and `p` report the same reason.
+
+- Shellherd asks at most once a minute per namespace while the cluster tab is visible, and right after a reconnect. A permission granted a moment ago can therefore look blocked for up to a minute.
+- If the cluster cannot answer completely (for example with an external authorizer as on GKE or with Azure RBAC), if the query is forbidden, reports an evaluation error (such as a binding to a deleted role) or takes longer than 10 seconds, Shellherd greys out nothing; a missing permission then shows up as before, when you run the action.
+- Rules that only cover certain object names count as allowed. Only what certainly fails is greyed out.
+- Nodes are checked with the rules of the cluster’s default namespace.
+
+### Analyze with AI
+
+Right-click a pod, a Deployment, StatefulSet, DaemonSet, a Job or an event → `Analyze with AI`. For pod problems in the red bar, `Analyze` next to them is enough. The AI assistant opens with a matching question, for example “Why does this pod keep restarting?”, which you can change, and a preview of what Shellherd wants to send. Nothing goes out before `Send analysis`. `Discard` cancels without sending anything.
+
+- **What goes along:** status, conditions and spec of the object (images, command, resources, probes, env, volumes), the last 15 events and the last 100 log lines of the conspicuous containers. After a restart the log lines of the previous container come along, plus the owning workload and the node. For a workload its pods come along, with events and logs of the most conspicuous pod. For an event, the event itself and the object it concerns go along. `Show the text to be sent` shows everything word for word, the preview names the size.
+- **What never goes along:**
+  - Secrets: Shellherd reads no Secrets and no ConfigMaps.
+  - Env values from `secretKeyRef`: they appear as a reference only (`<Secret checkout-db/password>`).
+  - Values of variables with names such as `PASSWORD`, `TOKEN` or `KEY`: they appear as `<hidden>`.
+  - Annotations.
+
+  Whatever still looks like a secret after that, for example a password in a log line, masking replaces with placeholders. For analyses it is always on.
+- **Read-only:**
+  - Shellherd only reads for this (`get`, `list` and `get` on `pods/log`) and never runs what the AI suggests. Commands in the answer have no button.
+  - If a command changes the cluster (for example `delete`, `scale`, `rollout restart`, `apply`), it says “Changes the cluster. For information only, Shellherd does not run it.” below it.
+  - “Read-only” allows the analysis.
+- **Permissions:** If the account may not read logs, events, the owner or the node, only that part is missing. The preview says which one and why.
+- **Follow-up questions:** After sending you can keep asking. Shellherd sends the context along every time so the model knows it. `Clear history` or a new analysis starts over.
+- **Size and cost:**
+  - at most 16,000 characters, about 4,000 tokens per request;
+  - every follow-up question costs at least as much as the first;
+  - for models with a small context window (below 8,000 tokens) an analysis is too large.
+- **Limits:**
+  - The AI only sees this excerpt: no metrics, no services, ingresses or network policies, no other namespaces, no logs before the last 100 lines and no content of ConfigMaps and Secrets.
+  - Its answer is a guess from this data. Check it with the suggested read-only commands.
+  - Logs can contain personal data. For production clusters the preview points this out separately.
+
+### Argo CD and Harbor
+
+In the cluster entry (`Edit` → “Web interfaces (optional)”) you can enter the address of Argo CD and of Harbor, for example `https://argocd.example.com` and `https://harbor.example.com`. Only `https` addresses without a user name are allowed.
+
+- **Recognizing Argo CD:** If an object carries the annotation `argocd.argoproj.io/tracking-id` (default since Argo CD 3) or the label `argocd.argoproj.io/instance`, its context menu shows “Argo CD: app …” at the top. Shellherd does not evaluate the label `app.kubernetes.io/instance`, because Helm sets it too.
+- **`Open in Argo CD`** opens the app in your browser. Without an address the entry is greyed out and says why.
+- **Self-heal hint:** Scaling, suspending, resuming and deleting a job on an object that Argo CD manages say in the confirmation whether Argo CD reverts the change, with the app’s sync and health status. For this Shellherd reads the Application in the cluster (`get` on `applications.argoproj.io`, in the namespace `argocd` or the namespace before `_` in the app name). If the account may not do that, if Argo CD runs in another cluster or if the cluster does not answer within 5 seconds, it says “may revert differences from Git (self-heal)”. For a restart the confirmation says that Argo CD usually does not revert it.
+- **`Open in Harbor`** is offered on pods, containers, Deployments, StatefulSets and DaemonSets when the registry host of the image matches the Harbor address. For pods the link leads to the running artifact (with the vulnerability scan, if Harbor scans) as long as the cluster reports its digest; otherwise, and for workloads, it leads to the repository page with all tags. If the image lies elsewhere, the entry is greyed out: “Image is not in harbor.example.com.”
+- **Read-only, links only:** Shellherd triggers no sync, no refresh, no rollback and no scan, and never queries Argo CD or Harbor itself. It only opens your browser; sign-in and permissions are handled there by Argo CD and Harbor as usual. The host of a link always comes from the cluster entry. Labels, annotations and image names from the cluster only decide the path.
+- **Limits:** If the Applications live in a namespace other than `argocd` (for example `openshift-gitops`), the confirmation says “may revert”. Harbor links use the project name instead of Harbor’s internal project ID. If Harbor shows the project list or an error page instead of the artifact, your Harbor version does not accept the name.
 
 ## File view: keyboard and transfers
 

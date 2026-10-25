@@ -4,7 +4,7 @@ import { request as httpsRequest } from 'node:https';
 import type { RequestOptions } from 'node:https';
 import { PassThrough, Writable } from 'node:stream';
 import type { Duplex } from 'node:stream';
-import { Exec, KubernetesObjectApi, Metrics, PatchStrategy, PortForward, Watch } from '@kubernetes/client-node';
+import { AuthorizationV1Api, CustomObjectsApi, Exec, KubernetesObjectApi, Metrics, PatchStrategy, PortForward, Watch } from '@kubernetes/client-node';
 import type { KubeConfig, KubernetesObject } from '@kubernetes/client-node';
 import { AppError } from '../../shared/errors';
 import type { CodedError, ErrorCode } from '../../shared/errors';
@@ -12,7 +12,7 @@ import { KIND_INFO } from '../../shared/kubernetes';
 import type { KubeKind, KubeRef, KubeSelector, KubeTerminalTarget } from '../../shared/kubernetes';
 import { SHELL_CHOICE } from '../containers/commands';
 import { KubeApiError } from './api';
-import type { KubeApi, KubeObject, KubeStream, ListResult, MetricsSample, TerminalIo, WatchHandle, WatchType } from './api';
+import type { KubeApi, KubeObject, KubeRulesReview, KubeStream, ListResult, LogFollowOptions, LogReadOptions, LogReadTarget, MetricsSample, TerminalIo, WatchHandle, WatchType } from './api';
 import { parseCpu, parseMemory } from './rows';
 
 type Socket = Awaited<ReturnType<Exec['exec']>>;
@@ -272,8 +272,67 @@ export function logUrl(server: string, target: KubeTerminalTarget): string {
   return url.toString();
 }
 
-function logStatusError(status: number, mode: KubeTerminalTarget['mode']): KubeApiError {
-  if (mode === 'previous' && status === 400) return new KubeApiError('No previous container', 400, { code: 'kubernetes.noPreviousContainer' });
+/** URL of a followed workload log: server timestamps on, the newest `tailLines` or everything since `sinceTime`. */
+export function followLogUrl(server: string, target: KubeTerminalTarget, options: LogFollowOptions): string {
+  const path = `/api/v1/namespaces/${encodeURIComponent(target.namespace)}/pods/${encodeURIComponent(target.pod)}/log`;
+  const url = new URL(server + path);
+  const params = url.searchParams;
+  params.set('container', target.container);
+  params.set('follow', 'true');
+  params.set('timestamps', 'true');
+  if (options.sinceTime) params.set('sinceTime', options.sinceTime);
+  else params.set('tailLines', String(options.tailLines ?? 200));
+  return url.toString();
+}
+
+/** Time limit of one log read for an analysis. */
+export const LOG_READ_TIMEOUT_MS = 10_000;
+
+/** URL of a one-time log read: no follow, no timestamps, the newest `tailLines`, at most `limitBytes`. */
+export function readLogUrl(server: string, target: LogReadTarget, options: LogReadOptions): string {
+  const path = `/api/v1/namespaces/${encodeURIComponent(target.namespace)}/pods/${encodeURIComponent(target.pod)}/log`;
+  const url = new URL(server + path);
+  const params = url.searchParams;
+  params.set('container', target.container);
+  params.set('follow', 'false');
+  params.set('previous', String(options.previous));
+  params.set('tailLines', String(options.tailLines));
+  params.set('limitBytes', String(options.limitBytes));
+  params.set('timestamps', 'false');
+  return url.toString();
+}
+
+/** Reads one log once, through the same request path as openLogs; the body is cut at `limitBytes` even if the server sends more. */
+export async function readLog(config: KubeConfig, target: LogReadTarget, options: LogReadOptions, sendRequest: LogRequest = requestLogs): Promise<string> {
+  const cluster = config.getCurrentCluster();
+  if (!cluster) throw new AppError('kubernetes.apiError');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LOG_READ_TIMEOUT_MS);
+  try {
+    const request: RequestOptions = { method: 'GET', headers: {}, signal: controller.signal };
+    await config.applyToHTTPSOptions(request);
+    const response = await sendRequest(new URL(readLogUrl(cluster.server, target, options)), request);
+    if (response.status !== 200) throw logStatusError(response.status, options.previous);
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of response.body) {
+      const bytes = Buffer.from(chunk);
+      chunks.push(bytes);
+      size += bytes.length;
+      if (size >= options.limitBytes) break;
+    }
+    return Buffer.concat(chunks).subarray(0, options.limitBytes).toString('utf8');
+  } catch (error) {
+    throw toApiError(error);
+  } finally {
+    clearTimeout(timer);
+    // Frees the socket, also when the read stopped at limitBytes.
+    controller.abort();
+  }
+}
+
+function logStatusError(status: number, previous: boolean): KubeApiError {
+  if (previous && status === 400) return new KubeApiError('No previous container', 400, { code: 'kubernetes.noPreviousContainer' });
   return toApiError({ code: status });
 }
 
@@ -282,7 +341,7 @@ function logStatusError(status: number, mode: KubeTerminalTarget['mode']): KubeA
  * Log pipes the response body into a stream without an error handler: aborting it crashes main.
  * Body errors are read and handled in this function.
  */
-export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: TerminalIo, sendRequest: LogRequest = requestLogs): KubeStream {
+export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: TerminalIo, sendRequest: LogRequest = requestLogs, follow?: LogFollowOptions): KubeStream {
   const controller = new AbortController();
   let finished = false;
   const finish = (code: number | null, error?: CodedError) => {
@@ -290,25 +349,28 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
     finished = true;
     io.end(code, error);
   };
-  const formatter = new LogFormatter(target.format ?? 'compact');
+  // Followed workload logs pass the raw bytes on: workload-logs.ts splits and cleans the lines itself.
+  const formatter = follow ? undefined : new LogFormatter(target.format ?? 'compact');
 
   const run = async () => {
     const cluster = config.getCurrentCluster();
     if (!cluster) throw new AppError('kubernetes.apiError');
-    const url = new URL(logUrl(cluster.server, target));
+    const url = new URL(follow ? followLogUrl(cluster.server, target, follow) : logUrl(cluster.server, target));
     // Same auth path as client-node's own requests: TLS agent, CA, client cert and token come from the kubeconfig.
     const options: RequestOptions = { method: 'GET', headers: {}, signal: controller.signal };
     await config.applyToHTTPSOptions(options);
     const response = await sendRequest(url, options);
-    if (response.status !== 200) throw logStatusError(response.status, target.mode);
+    if (response.status !== 200) throw logStatusError(response.status, target.mode === 'previous');
 
     for await (const chunk of response.body) {
       if (finished) break;
-      const text = formatter.feed(Buffer.from(chunk));
+      const bytes = Buffer.from(chunk);
+      if (!formatter) { io.data(bytes); continue; }
+      const text = formatter.feed(bytes);
       if (text) io.data(Buffer.from(text));
     }
     if (!finished) {
-      const rest = formatter.flush();
+      const rest = formatter?.flush();
       if (rest) io.data(Buffer.from(rest));
     }
     finish(0);
@@ -319,7 +381,7 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
     if (controller.signal.aborted) return;
     // Show the held partial line before the error, so it is not lost.
     if (!finished) {
-      const rest = formatter.flush();
+      const rest = formatter?.flush();
       if (rest) io.data(Buffer.from(rest));
     }
     finish(null, toApiError(error).coded);
@@ -509,6 +571,37 @@ export function createKubeApi(config: KubeConfig): KubeApi {
 
     portForward(namespace, pod, port, socket) {
       return openPortForward(config, namespace, pod, port, socket);
+    },
+
+    followLog(target, options, io) {
+      return openLogs(config, target, io, requestLogs, options);
+    },
+
+    readLog(target, options) {
+      return readLog(config, target, options);
+    },
+
+    async rulesReview(namespace) {
+      return call(async () => {
+        const review = await config.makeApiClient(AuthorizationV1Api).createSelfSubjectRulesReview({
+          body: { apiVersion: 'authorization.k8s.io/v1', kind: 'SelfSubjectRulesReview', spec: { namespace } },
+        });
+        const status = review.status;
+        return {
+          // A missing status or an evaluation error (e.g. a binding to a missing role) counts as incomplete: then nothing is greyed out.
+          incomplete: status?.incomplete !== false || Boolean(status?.evaluationError),
+          rules: (status?.resourceRules ?? []).map(rule => ({
+            verbs: rule.verbs ?? [], apiGroups: rule.apiGroups ?? [], resources: rule.resources ?? [],
+            ...(rule.resourceNames?.length ? { resourceNames: rule.resourceNames } : {}),
+          })),
+        } satisfies KubeRulesReview;
+      });
+    },
+
+    async readArgoApp(namespace, name) {
+      return call(async () => (await config.makeApiClient(CustomObjectsApi).getNamespacedCustomObject({
+        group: 'argoproj.io', version: 'v1alpha1', namespace, plural: 'applications', name,
+      })) as KubeObject);
     },
   };
 }

@@ -4,6 +4,22 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.30.0] – 2026-10-25
+
+- New: Argo CD and Harbor in the cluster tab. With the Argo CD and Harbor addresses in the cluster entry, `Open in Argo CD` and `Open in Harbor` open the app or the image in your browser, for pods the running artifact. Shellherd recognizes objects managed by Argo CD by the tracking annotation or the `argocd.argoproj.io/instance` label.
+- New: scaling, suspending, resuming and deleting a job on objects managed by Argo CD say in the confirmation whether Argo CD reverts the change through self-heal, with the app's sync and health status.
+- Security: Shellherd only reads for this (`get` on the Application) and triggers nothing in Argo CD or Harbor. Links only go to the https addresses you entered; labels, annotations and image names from the cluster never decide the host.
+
+## [0.29.0] – 2026-10-25
+
+- New: AI analysis in the cluster tab. Right-click a pod, workload, job or event → `Analyze with AI`; for pod problems also `Analyze` in the red bar. Shellherd collects status, events, the latest log lines (also of the previous container) and the spec and shows what goes out before sending. The AI assistant then explains the likely cause.
+- Security: the analysis only reads and runs nothing. Suggested commands have no button, changing ones are marked as such. Shellherd never reads Secrets, references to them stay references, and masking is always on for analyses.
+
+## [0.28.0] – 2026-10-25
+
+- New: logs of all pods. Right-click a Deployment, StatefulSet, DaemonSet, Job or Service → `Logs of all pods` shows the logs of all its containers together in the bottom panel, sorted by time and with a coloured `pod/container` prefix. With `Filter`, container chips to hide sources and `Follow`; new pods of a rollout join by themselves.
+- New: permission pre-check. Actions the Kubernetes account may not run (restart, scale, delete, cordon, shell, logs, port forward and more) are greyed out in the context menu up front and name the missing permission. Shellherd asks for the permissions once per namespace without changing anything in the cluster; if the cluster cannot answer, everything stays as before.
+
 ## [0.27.0] – 2026-10-25
 
 - New: Port forwards to pods and services. Right-click in the cluster tab → `Forward port…` picks the port and the local port. The “Port forwards” bar at the bottom of the cluster tab lists them with `Open in browser`, `Copy address` and `Stop`. A service goes to a ready pod and finds the next one by itself after a rollout.

@@ -3,7 +3,7 @@ import type { KubeConfig } from '@kubernetes/client-node';
 import { AppError } from '../../shared/errors';
 import type { CodedError, ErrorCode } from '../../shared/errors';
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
-import type { ClusterState, ClusterStatus, KubeAction, KubeDetail, KubeDetailMode, KubeEvent, KubeForwardStatus, KubeForwardTarget, KubeOpenResult, KubeQuery, KubeRef, KubeRow, KubeTerminalTarget, UsageHistory } from '../../shared/kubernetes';
+import type { ClusterState, ClusterStatus, KubeAction, KubeArgoState, KubeDetail, KubeDetailMode, KubeDiagnosis, KubeEvent, KubeForwardStatus, KubeForwardTarget, KubeLink, KubeOpenResult, KubeQuery, KubeRef, KubeRow, KubeTerminalTarget, UsageHistory } from '../../shared/kubernetes';
 import { queryKey } from '../../shared/kubernetes';
 import type { TerminalSize } from '../../shared/ssh';
 import { KubeApiError } from './api';
@@ -12,7 +12,10 @@ import type { KubeApi, KubeStream, TerminalIo } from './api';
 import { runAction } from './actions';
 import type { ClusterAccess } from './access';
 import { describe, toYaml } from './describe';
+import { buildDiagnosis } from './diagnose';
 import { KubeForwards } from './forwards';
+import { KubeWorkloadLogs, type LogsRequest } from './workload-logs';
+import { deniedAccess, type KubeDenied } from '../../shared/kube-access';
 import { parseKubeconfig } from './kubeconfig';
 import type { ParsedKubeconfig } from './kubeconfig';
 import { Overview } from './overview';
@@ -21,6 +24,9 @@ import { toRow } from './rows';
 import type { Tunnel } from './tunnel';
 import { ResourceWatcher, defaultCancel, defaultSchedule } from './watch';
 import type { RowBatch } from './watch';
+import { ARGO_TIMEOUT_MS, argoAppLocation, argoStateOf } from './argo';
+import { argoAppUrl, harborImageUrl, httpsBase } from '../../shared/kube-links';
+import { webLinkHref } from '../../shared/links';
 
 export const HEALTH_MS = 5000;
 const DEFAULT_IDLE_MS = 60_000;
@@ -34,6 +40,8 @@ const ENDED = 'kubernetes.sessionEnded' as const satisfies ErrorCode;
 const READ_ONLY = 'kubernetes.readOnly' as const satisfies ErrorCode;
 /** How long a terminal waits for a reconnect, like the SSH start timer. */
 const READY_WAIT_MS = 30_000;
+/** A rules review that takes longer counts as unknown: nothing is greyed out. */
+const ACCESS_TIMEOUT_MS = 10_000;
 
 export interface KubeSessionDependencies {
   getCluster: (id: string) => KubernetesConnectionNode;
@@ -81,6 +89,14 @@ export function userError(error: unknown): CodedError | undefined {
   return undefined;
 }
 
+/** A link opens only as https on the host of its vault address; main checks again right before the browser opens. */
+export function openableHref(href: string | null, base: string): string | null {
+  const safe = webLinkHref(href);
+  const root = httpsBase(base);
+  if (!safe || !root || !safe.startsWith('https://') || new URL(safe).host !== new URL(root).host) return null;
+  return safe;
+}
+
 /** Only a certificate that does not name the server's host is worth the `kubernetes` retry. */
 function isAltname(error: unknown): boolean {
   return error instanceof KubeApiError && isAltnameError(error);
@@ -122,7 +138,9 @@ class Session {
   private idle?: Timer;
 
   constructor(private readonly deps: KubeSessionDependencies, private readonly options: SessionOptions,
-    readonly clusterId: string, private readonly forget: () => void) {}
+    readonly clusterId: string, private readonly forget: () => void,
+    /** Called with the views whenever the live connection goes: their log runs hold the old API client and must end. */
+    private readonly liveEnded: (viewIds: string[]) => void = () => {}) {}
 
   /** Starts connecting. Views attached before this call receive the connecting status. */
   begin(): void {
@@ -354,6 +372,7 @@ class Session {
     for (const entry of this.entries.values()) entry.watcher.stop();
     this.entries.clear();
     for (const view of this.views.values()) view.key = undefined;
+    this.liveEnded([...this.views.keys()]);
     this.overview?.stop();
     this.overview = undefined;
     this.api = undefined;
@@ -467,6 +486,9 @@ class Session {
     this.emitStatus();
   }
 
+  /** The vault entry changed: open views get its new addresses and flags without a reconnect. */
+  refreshStatus(): void { this.emitStatus(); }
+
   private emitStatus(): void {
     for (const view of this.views.values()) this.sendStatus(view);
   }
@@ -487,6 +509,8 @@ class Session {
       metrics: this.metrics,
       // Vault setting first, then the kubeconfig context (known once the config was read).
       ...(cluster?.namespace || this.contextNamespace ? { namespace: cluster?.namespace || this.contextNamespace } : {}),
+      ...(cluster?.argoUrl ? { argoUrl: cluster.argoUrl } : {}),
+      ...(cluster?.harborUrl ? { harborUrl: cluster.harborUrl } : {}),
     };
   }
 
@@ -512,6 +536,12 @@ export class KubeSessions {
   private readonly views = new Map<string, View>();
   private readonly options: SessionOptions;
   private readonly forwards: KubeForwards;
+  private readonly logs: KubeWorkloadLogs;
+
+  /** After a vault change every open cluster view shows the current entry (addresses, production, read-only). */
+  refreshStatus(): void {
+    for (const session of this.sessions.values()) session.refreshStatus();
+  }
 
   constructor(private readonly deps: KubeSessionDependencies) {
     this.options = {
@@ -521,6 +551,8 @@ export class KubeSessions {
       backoffMs: deps.backoffMs ?? DEFAULT_BACKOFF_MS,
     };
     this.forwards = new KubeForwards((ownerId, viewId, forwards) => deps.emit(ownerId, { type: 'forwards', viewId, forwards }));
+    this.logs = new KubeWorkloadLogs((ownerId, viewId, batch) => deps.emit(ownerId, { type: 'logs', viewId, ...batch }),
+      { schedule: this.options.schedule, cancel: this.options.cancel });
   }
 
   /** Returns the session of a cluster, creating it when none is running. Created sessions are not begun. */
@@ -529,7 +561,7 @@ export class KubeSessions {
     if (existing) return { session: existing, fresh: false };
     const created: Session = new Session(this.deps, this.options, clusterId, () => {
       if (this.sessions.get(clusterId) === created) this.sessions.delete(clusterId);
-    });
+    }, viewIds => { for (const viewId of viewIds) this.logs.stopView(viewId); });
     this.sessions.set(clusterId, created);
     return { session: created, fresh: true };
   }
@@ -594,12 +626,97 @@ export class KubeSessions {
     this.forwards.stop(viewId, forwardId);
   }
 
+  /** Logs of all pods of a selector in a view. Reading: allowed on read-only clusters, refused on disabled ones. */
+  async startLogs(ownerId: number, viewId: string, request: LogsRequest): Promise<void> {
+    const view = this.viewOf(ownerId, viewId);
+    // Read at each call; reading the vault also refuses while it is locked.
+    if (this.deps.getCluster(view.session.clusterId).disabled) throw new AppError(DISABLED);
+    view.session.requireApi();
+    await this.logs.start({ ownerId, viewId, api: () => view.session.waitReady() }, request);
+    // The view closed while the run started: it must not outlive the view.
+    if (this.views.get(viewId) !== view) {
+      this.logs.stopView(viewId);
+      throw new AppError(NOT_AVAILABLE);
+    }
+  }
+
+  stopLogs(ownerId: number, viewId: string, id: string): void {
+    this.viewOf(ownerId, viewId);
+    this.logs.stop(viewId, id);
+  }
+
+  /** RBAC pre-check of one namespace. null whenever the answer cannot be trusted: forbidden, not served, incomplete, failed or slow. Throws on a disabled cluster or a locked vault, like the other entries. */
+  async access(ownerId: number, viewId: string, namespace: string): Promise<KubeDenied[] | null> {
+    const view = this.viewOf(ownerId, viewId);
+    // Read at each call, like the other entries: a disabled cluster or a locked vault refuses.
+    if (this.deps.getCluster(view.session.clusterId).disabled) throw new AppError(DISABLED);
+    const api = view.session.requireApi();
+    let timer: unknown;
+    const late = new Promise<null>(resolve => { timer = this.options.schedule(() => resolve(null), ACCESS_TIMEOUT_MS); });
+    try {
+      return await Promise.race([
+        api.rulesReview(namespace).then(review => (review.incomplete ? null : deniedAccess(review.rules)), () => null),
+        late,
+      ]);
+    } finally {
+      this.options.cancel(timer);
+    }
+  }
+
+  /** "Mit KI analysieren": reads status, events, logs and spec of one object. Reading: allowed on read-only clusters, refused on disabled ones. */
+  async diagnose(ownerId: number, viewId: string, ref: KubeRef, event?: KubeRef): Promise<KubeDiagnosis> {
+    const view = this.viewOf(ownerId, viewId);
+    // Read at each call, like the other entries: a disabled cluster or a locked vault refuses.
+    if (this.deps.getCluster(view.session.clusterId).disabled) throw new AppError(DISABLED);
+    return buildDiagnosis(view.session.requireApi(), ref, event);
+  }
+
+  /** Self-Heal state for the confirmation: get on applications.argoproj.io. null whenever it cannot be read (forbidden, no CRD, other cluster, slow): the dialog then says "möglicherweise". */
+  async argoApp(ownerId: number, viewId: string, app: string): Promise<KubeArgoState | null> {
+    const view = this.viewOf(ownerId, viewId);
+    // Read at each call, like the other entries: a disabled cluster or a locked vault refuses.
+    if (this.deps.getCluster(view.session.clusterId).disabled) throw new AppError(DISABLED);
+    const location = argoAppLocation(app);
+    if (!location) return null;
+    let api: KubeApi;
+    try { api = view.session.requireApi(); } catch { return null; }
+    let timer: unknown;
+    const late = new Promise<null>(resolve => { timer = this.options.schedule(() => resolve(null), ARGO_TIMEOUT_MS); });
+    try {
+      return await Promise.race([api.readArgoApp(location.namespace, location.name).then(argoStateOf, () => null), late]);
+    } finally {
+      this.options.cancel(timer);
+    }
+  }
+
+  /** The link of "In Argo CD öffnen" / "In Harbor öffnen" and the vault address it must stay on; the host always comes from the vault entry. */
+  linkTarget(ownerId: number, viewId: string, link: KubeLink): { href: string; base: string } {
+    const view = this.viewOf(ownerId, viewId);
+    const cluster = this.deps.getCluster(view.session.clusterId);
+    if (cluster.disabled) throw new AppError(DISABLED);
+    if (link.type === 'argo') {
+      if (!cluster.argoUrl) throw new AppError('kubernetes.noArgoUrl');
+      const href = argoAppUrl(cluster.argoUrl, link.app);
+      if (!href) throw new AppError('kubernetes.linkRefused');
+      return { href, base: cluster.argoUrl };
+    }
+    if (!cluster.harborUrl) throw new AppError('kubernetes.noHarborUrl');
+    const href = harborImageUrl(cluster.harborUrl, link.image, link.digest);
+    if (!href) throw new AppError('kubernetes.linkRefused');
+    return { href, base: cluster.harborUrl };
+  }
+
+  linkFor(ownerId: number, viewId: string, link: KubeLink): string {
+    return this.linkTarget(ownerId, viewId, link).href;
+  }
+
   close(ownerId: number, viewId: string): void {
     const view = this.views.get(viewId);
     if (!view) return;
     if (view.ownerId !== ownerId) throw new AppError(NOT_AVAILABLE);
     this.views.delete(viewId);
     this.forwards.stopView(viewId);
+    this.logs.stopView(viewId);
     view.session.detach(view);
   }
 
@@ -617,6 +734,7 @@ export class KubeSessions {
 
   closeAll(): void {
     this.forwards.stopAll();
+    this.logs.stopAll();
     for (const session of [...this.sessions.values()]) session.dispose();
     this.sessions.clear();
     this.views.clear();

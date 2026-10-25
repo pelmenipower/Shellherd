@@ -64,6 +64,7 @@
 .kube-banner-list { margin: var(--space-4) 0 0; padding: 0 0 0 var(--space-12); }
 .kube-link { min-height: 0; padding: 0; border: 0; background: none; color: var(--color-accent); text-align: left; text-decoration: underline; }
 .kube-link:hover:not(:disabled) { background: none; color: var(--color-accent-hover); }
+.kube-banner-analyze { margin-left: var(--space-8); }
 
 /* Table area */
 .kube-table-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -135,6 +136,8 @@
 @media (max-width: 640px) { .kube-help-columns { grid-template-columns: 1fr; } }
 
 .kube-confirm { width: min(420px, calc(100vw - 32px)); }
+.kube-confirm-argo { margin: var(--space-8) 0 0; padding-left: var(--space-8); border-left: 3px solid var(--color-border); font-size: var(--fs-sm); color: var(--color-text-muted); }
+.kube-confirm-argo.is-warn { border-left-color: var(--color-warn-border); color: var(--color-warn); }
 .kube-field { display: grid; gap: var(--space-4); margin: var(--space-8) 0; font-size: var(--fs-sm); color: var(--color-text-muted); }
 .kube-field input, .kube-field select { color: var(--color-text); }
 

@@ -1,4 +1,5 @@
-import type { KubeAction, KubeRef, KubeRow, KubeTerminalTarget } from '../../shared/kubernetes';
+import type { KubeAction, KubeLink, KubeRef, KubeRow, KubeTerminalTarget } from '../../shared/kubernetes';
+import type { DiagnoseTarget } from './kube-diagnose';
 import type { KubeViewAction } from './kube-view';
 import type { MenuAction, MenuTarget } from './kube-menus';
 
@@ -14,6 +15,12 @@ export interface MenuRunner {
   confirm(ref: KubeRef, action: KubeAction, currentReplicas?: number): void;
   /** Opens the port-forward dialog for a pod or service row. */
   forward(row: KubeRow): void;
+  /** Selects the row, opens the Logs tab of the dock and starts the logs of all its pods. */
+  logsAll(row: KubeRow): void;
+  /** "Mit KI analysieren": main collects the context, the assistant panel shows it before sending. */
+  analyze(target: DiagnoseTarget): void;
+  /** "In Argo CD öffnen" / "In Harbor öffnen": main builds the https address from the vault entry and opens the browser. */
+  openLink(link: KubeLink): void;
   popout(target: KubeTerminalTarget): void;
   ssh(connectionId: string): void;
   reloadDock(): void;
@@ -31,6 +38,9 @@ export function runMenuAction(action: MenuAction, runner: MenuRunner): void {
     case 'copy': runner.copy(action.text, action.label); return;
     case 'kubeAction': runner.confirm(action.ref, action.action, action.currentReplicas); return;
     case 'forward': runner.forward(action.row); return;
+    case 'logsAll': runner.logsAll(action.row); return;
+    case 'analyze': runner.analyze(action.target); return;
+    case 'link': runner.openLink(action.link); return;
     case 'popout': runner.popout(action.target); return;
     case 'ssh': runner.ssh(action.connectionId); return;
     case 'dockReload': runner.reloadDock(); return;

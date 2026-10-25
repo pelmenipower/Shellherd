@@ -1,5 +1,6 @@
 import { KIND_INFO } from '../../shared/kubernetes';
 import type { KubeKind, KubePort, KubeRef, KubeRow, NodeTile, RowTone } from '../../shared/kubernetes';
+import { argoAppOf, digestOf } from '../../shared/kube-links';
 import { jobTone, podTone } from '../../shared/kube-status';
 import type { JobStatus } from '../../shared/kube-status';
 import type { KubeObject } from './api';
@@ -40,7 +41,7 @@ const nodeIp = (node: KubeObject): string | undefined => {
 
 const OWNER_KINDS: Record<string, KubeKind> = { StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs' };
 
-function ownerOf(kind: KubeKind, meta: Dict, namespace: string | undefined): KubeRef | undefined {
+export function ownerOf(kind: KubeKind, meta: Dict, namespace: string | undefined): KubeRef | undefined {
   if (kind !== 'pods' && kind !== 'jobs') return undefined;
   const controller = list(meta.ownerReferences).map(rec).find(o => o.controller === true);
   const ownerKind = text(controller?.kind);
@@ -195,6 +196,8 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
   const namespace = text(meta.namespace);
   const ref: KubeRef = namespace ? { kind, namespace, name } : { kind, name };
   const row: KubeRow = { uid, ref, cells: { name }, tone: 'ok', labels: labelMap(meta.labels) };
+  const argoApp = argoAppOf(meta);
+  if (argoApp) row.argoApp = argoApp;
   const created = stamp(meta.creationTimestamp);
   if (created) row.cells.age = created;
 
@@ -217,6 +220,14 @@ export function toRow(kind: KubeKind, object: KubeObject): KubeRow | null {
         const image = text(container.image);
         if (containerName && image) row.cells[`image:${containerName}`] = image;
       }
+      const digests: Record<string, string> = {};
+      for (const entry of list(status.containerStatuses).map(rec)) {
+        const containerName = text(entry.name);
+        const image = containerName ? text(row.cells[`image:${containerName}`]) : undefined;
+        const digest = image ? digestOf(image, text(entry.imageID)) : undefined;
+        if (containerName && digest) digests[containerName] = digest;
+      }
+      if (Object.keys(digests).length > 0) row.digests = digests;
       if (nodeName) row.node = nodeName;
       const podIp = text(status.podIP);
       if (podIp) row.ip = podIp;

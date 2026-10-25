@@ -64,7 +64,7 @@ const ALIASES = ['--ui-bg', '--ui-panel', '--ui-raised', '--ui-border', '--ui-te
 const COLORS = ['bg-stage', 'bg-app', 'bg-panel', 'bg-raised', 'bg-hover', 'bg-input', 'bg-selected', 'bg-active', 'bg-drop', 'bg-tint',
   'overlay', 'backdrop', 'border', 'border-strong', 'text', 'text-muted', 'text-code', 'accent', 'accent-hover', 'on-accent',
   'selection-bg', 'selection-text', 'ok', 'warn', 'warn-border', 'warn-bg', 'ok-bg', 'danger', 'danger-strong', 'danger-text', 'danger-bg',
-  'danger-bg-hover', 'danger-border'].map(name => `--color-${name}`);
+  'danger-bg-hover', 'danger-border', 'source-1', 'source-2', 'source-3', 'source-4'].map(name => `--color-${name}`);
 
 const SPACES = [2, 4, 6, 8, 10, 12, 16, 20, 24, 32];
 // TSX couples to these: ROW_HEIGHT 24 (ResourceTable/ContainerTable), pane header 32 (SplitTerminalArea), sidebar 44/24.

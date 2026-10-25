@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|kube-ai|kube-links|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { AI_REQUEST_LOG, DEMO_KEPT, DEMO_SECRETS } from './ai-fake.mjs';
+import { KUBE_REQUEST_LOG } from './kube-fake.mjs';
+import { ARGO_HOST, HARBOR_DIGEST, HARBOR_HOST, KUBE_SECRETS } from './kube-fixtures.mjs';
 
 const PORT = Number(process.env.DRIVER_PORT ?? 9333);
 const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
@@ -352,6 +354,219 @@ const blocks = {
     } finally {
       // Closing the cluster tab ends its remaining forwards (they live only as long as the tab).
       await closeTabs();
+    }
+  },
+  // Logs of all pods of a deployment and the RBAC pre-check against the synthetic rules (shop: no patch on workloads).
+  async 'kube-logs'() {
+    if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) { console.log('Logs aller Pods übersprungen: prod-k8s fehlt im Baum.'); return; }
+    const view = '.kube-view:not([hidden])';
+    const disabledWith = (label, reason) => `[...document.querySelectorAll('[role=menuitem]')].some(i => i.disabled && i.textContent.includes(${JSON.stringify(label)}) && i.textContent.includes(${JSON.stringify(reason)}))`;
+    const enabled = label => `[...document.querySelectorAll('[role=menuitem]')].some(i => !i.disabled && i.textContent.trim().startsWith(${JSON.stringify(label)}))`;
+    try {
+      await click('text=prod-k8s >> nth=0');
+      await key('Enter');
+      await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
+      await click('.kube-kind-tabs button:has-text("Deployments")');
+      await waitFor('Deployments', `${count('.kube-table tbody tr')} >= 3`);
+      // 1. RBAC: restart and scale are greyed out with the reason from the synthetic rules. Nothing is clicked.
+      await rclick('.kube-table tbody tr:has-text("shop/api:2.4.1")');
+      const reason = 'Keine Berechtigung: patch auf deployments in shop';
+      await waitFor('Neustart und Skalieren gesperrt', `${disabledWith('Rollout neu starten', reason)} && ${disabledWith('Skalieren', reason)}`);
+      await waitFor('Menü im Fenster', `document.querySelector('[role=menu]').getBoundingClientRect().bottom <= innerHeight`);
+      await pause(300);
+      await shot('kube-rbac-menu');
+      // 2. Logs of all three api pods, merged by time, three colours.
+      await menuItem('Logs aller Pods');
+      await waitFor('drei Quellen', `${count(`${view} .kube-logs-chip`)} === 3 && ${count(`${view} .kube-logs-line`)} >= 45`);
+      await waitFor('drei Farben', `new Set([...document.querySelectorAll('${view} .kube-logs-line .kube-logs-src')].map(e => e.className)).size === 3`);
+      await pause(300);
+      await shot('kube-logs-all');
+      // 3. Following: new lines arrive every 2 s per pod.
+      const before = await evaluate(count(`${view} .kube-logs-line`));
+      await waitFor('neue Zeilen', `${count(`${view} .kube-logs-line`)} > ${before}`, { timeout: 8000 });
+      // 4. Filter: only ERROR lines, matches marked.
+      await fill(`${view} .kube-logs-filter`, 'ERROR');
+      await waitFor('Filter', `${count(`${view} .kube-logs-line mark`)} > 0 && [...document.querySelectorAll('${view} .kube-logs-line')].every(l => l.textContent.includes('ERROR'))`);
+      await pause(300);
+      await shot('kube-logs-all-filter');
+      // 5. Fallback: monitoring answers incomplete, so nothing is greyed out there. The contextBridge API is frozen,
+      // so the answers are recorded at the main-process handler; "nothing greyed out" only counts once monitoring answered.
+      const installed = await call('main', `const h = electron.ipcMain._invokeHandlers; const orig = h?.get('k8s:access'); if (!orig) return false;
+        globalThis.__accessAnswers = []; globalThis.__accessRestore = () => h.set('k8s:access', orig);
+        h.set('k8s:access', async (event, request) => { const denied = await orig(event, request); globalThis.__accessAnswers.push({ namespace: request?.namespace, denied }); return denied; });
+        return true;`);
+      if (!installed) throw new Error('kubeAccess nicht erfassbar');
+      try {
+        await evaluate(`(() => { const s = document.querySelector('${view} .kube-ns select'); s.value = 'monitoring'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+        await click('.kube-kind-tabs button:has-text("StatefulSets")');
+        await waitFor('StatefulSets', `${count('.kube-table tbody tr')} >= 1`);
+        for (let i = 0; ; i++) {
+          if (await call('main', `return globalThis.__accessAnswers.some(a => a.namespace === 'monitoring');`)) break;
+          if (i >= 50) throw new Error('Keine Rechte-Antwort für monitoring');
+          await pause(200);
+        }
+      } finally {
+        await call('main', 'globalThis.__accessRestore?.(); return true;');
+      }
+      await rclick('.kube-table tbody tr:has-text("postgres")');
+      await pause(300);
+      await waitFor('nichts gesperrt', enabled('Rollout neu starten'));
+      await key('Escape');
+    } finally {
+      await closeTabs();
+    }
+  },
+  // "Mit KI analysieren" on the crash-looping checkout pod: preview before sending, the request through the masking, an answer whose commands have no buttons.
+  async 'kube-ai'() {
+    if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) { console.log('KI-Analyse übersprungen: prod-k8s fehlt im Baum.'); return; }
+    const log = path.join(RUN_DIR, AI_REQUEST_LOG);
+    const kubeLog = path.join(RUN_DIR, 'kube', KUBE_REQUEST_LOG);
+    const sent = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '');
+    const kubeAsked = () => (fs.existsSync(kubeLog) ? fs.readFileSync(kubeLog, 'utf8') : '').split('\n').filter(Boolean);
+    fs.rmSync(log, { force: true });
+    fs.rmSync(kubeLog, { force: true });
+    try {
+      await click('text=prod-k8s >> nth=0');
+      await key('Enter');
+      await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
+      // 1. Entry in the row menu of the crash-looping pod; the panel opens with the preview and the prefilled question.
+      await rclick('.kube-table tbody tr:has-text("checkout-7f9c6b8d4-m2n5z")');
+      await menuItem('Mit KI analysieren');
+      await waitFor('Vorschau', `(document.querySelector('.assistant-diagnose')?.innerText ?? '').includes('Logs checkout-7f9c6b8d4-m2n5z/main (vorheriger Container)')
+        && document.querySelector('.assistant-input textarea')?.value === 'Warum startet dieser Pod immer wieder neu?'`);
+      if (sent().trim()) throw new Error('Vor dem Senden ging schon etwas an die KI');
+      await pause(300);
+      await shot('kube-ai-preview');
+      // 2. Send; the answer has a reading and a changing command, neither with a button, the changing one marked.
+      await click('.assistant-input button[type=submit]');
+      await waitFor('KI-Antwort', `!document.querySelector('.assistant-typing') && [...document.querySelectorAll('.assistant-message.is-assistant .assistant-command code')].some(c => c.textContent.includes('rollout restart'))`);
+      if (await evaluate(count('.assistant-message.is-assistant .assistant-command button')) !== 0) throw new Error('Ein Befehl im Cluster-Tab hat einen Knopf');
+      if (await evaluate(`[...document.querySelectorAll('.assistant-panel button')].some(b => ['Eintippen', 'Kopieren', 'Als Workflow'].includes(b.textContent.trim()))`)) throw new Error('Eintippen, Kopieren oder Als Workflow im Cluster-Tab');
+      if (!await evaluate(`[...document.querySelectorAll('.assistant-command.is-mutating code')].some(c => c.textContent.includes('rollout restart'))`)) throw new Error('Ändernder Befehl nicht markiert');
+      if (await evaluate(`[...document.querySelectorAll('.assistant-command.is-mutating code')].some(c => c.textContent.includes('get endpoints'))`)) throw new Error('Lesender Befehl als ändernd markiert');
+      await waitFor('Maskiert-Hinweis', `[...document.querySelectorAll('.assistant-note')].some(n => n.textContent.startsWith('Vertrauliche Werte maskiert:'))`);
+      await pause(300);
+      await shot('kube-ai-answer');
+      // 3. What went out: status, events and both logs; never a synthetic secret, not even base64-encoded.
+      const body = sent();
+      const user = body.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+        .flatMap(request => request.messages.filter(m => m.role === 'user').map(m => m.content)).join('\n');
+      for (const needle of ['CrashLoopBackOff', 'BackOff', 'previous container', 'connection refused', '<Secret checkout-db/password>', 'DB_PASSWORD: <hidden>']) {
+        if (!user.includes(needle)) throw new Error(`Kontext ohne ${needle}`);
+      }
+      const leaks = Object.entries(KUBE_SECRETS).filter(([, value]) => body.includes(value) || body.includes(Buffer.from(value).toString('base64'))).map(([name]) => name);
+      if (leaks.length) throw new Error(`Geheimnis erreicht den KI-Fake: ${leaks.join(', ')}`);
+      // 4. Shellherd asked the cluster only by GET (the rules review aside) and never for secrets or config maps.
+      const asked = kubeAsked();
+      if (asked.some(line => /\/secrets|\/configmaps/.test(line))) throw new Error('Shellherd hat Secrets oder ConfigMaps gelesen');
+      if (asked.some(line => !line.startsWith('GET ') && !line.startsWith('POST /apis/authorization.k8s.io/v1/selfsubjectrulesreviews'))) throw new Error('Schreibende Anfrage an den Cluster');
+      if (!asked.some(line => line.includes('/log?') && line.includes('previous=true'))) throw new Error('Vorheriger Container nicht gelesen');
+    } finally {
+      await closeTabs();
+    }
+  },
+  // Argo CD and Harbor links: addresses from the cluster entry, the browser replaced by the driver; the Self-Heal hint in the confirmation, read by GET only.
+  // The entry gets synthetic .test addresses; finally puts back the addresses the scene found.
+  async 'kube-links'() {
+    if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) { console.log('Argo/Harbor übersprungen: prod-k8s fehlt im Baum.'); return; }
+    const kubeLog = path.join(RUN_DIR, 'kube', KUBE_REQUEST_LOG);
+    const opened = () => call('main', 'return globalThis.__shellherdOpened ?? []');
+    const openedUntil = async (step, test) => {
+      for (const end = Date.now() + 5000; ; await pause(200)) {
+        const list = await opened();
+        if (test(list)) return list;
+        if (Date.now() > end) throw new Error(`${step}: ${JSON.stringify(list)}`);
+      }
+    };
+    const menuHas = (label, extra = '') => `[...document.querySelectorAll('[role=menuitem]')].some(i => i.textContent.includes(${JSON.stringify(label)})${extra})`;
+    // Saved: the submit button is disabled (no longer dirty) and not busy. The field error alone vanishes already on typing.
+    const saved = `(() => { const save = document.querySelector('button[type=submit].busy-button'); return !!save && save.disabled && !save.hasAttribute('aria-busy') && !document.querySelector('[id$="-argoUrl-error"]'); })()`;
+    // Addresses the entry had before this scene; null until the edit form has been read, so nothing is restored if the scene never touched the entry.
+    let original = null;
+    const restore = async () => {
+      if (!original) return;
+      await closeTabs();
+      if (!await evaluate(`!!document.querySelector('input[id$="-argoUrl"]')`)) {
+        await rclick('.vault-tree-row >> text=prod-k8s >> nth=0');
+        await menuItem('Bearbeiten');
+        await waitFor('Formular zum Zurücksetzen', `!!document.querySelector('input[id$="-argoUrl"]')`);
+      }
+      await fill('input[id$="-argoUrl"]', original.argo);
+      await fill('input[id$="-harborUrl"]', original.harbor);
+      // Nothing to save when the entry already holds the old addresses (the button stays disabled then).
+      if (await evaluate(`!document.querySelector('button[type=submit].busy-button').disabled`)) {
+        await click('button[type=submit]:has-text("Verbindung speichern")');
+        await waitFor('Ausgangszustand gespeichert', saved);
+      }
+    };
+    const before = (await opened()).length;
+    try {
+      // 1. Both addresses in the cluster entry; http is refused at the field, a trailing slash is normalized away.
+      await rclick('.vault-tree-row >> text=prod-k8s >> nth=0');
+      await menuItem('Bearbeiten');
+      await waitFor('Formular', `!!document.querySelector('input[id$="-argoUrl"]')`);
+      original = await evaluate(`({ argo: document.querySelector('input[id$="-argoUrl"]').value, harbor: document.querySelector('input[id$="-harborUrl"]').value })`);
+      await fill('input[id$="-argoUrl"]', `http://${ARGO_HOST}`);
+      await fill('input[id$="-harborUrl"]', `https://${HARBOR_HOST}`);
+      await click('button[type=submit]:has-text("Verbindung speichern")');
+      await waitFor('Feldfehler http', `(document.querySelector('[id$="-argoUrl-error"]')?.textContent ?? '').includes('https')`);
+      await fill('input[id$="-argoUrl"]', `https://${ARGO_HOST}/`);
+      await pause(300);
+      await evaluate(`document.querySelector('input[id$="-argoUrl"]').scrollIntoView({ block: 'center' })`);
+      await shot('cluster-links-form');
+      await click('button[type=submit]:has-text("Verbindung speichern")');
+      await waitFor('Gespeichert', saved);
+      await closeTabs();
+      fs.rmSync(kubeLog, { force: true });
+      await click('.vault-tree-row >> text=prod-k8s >> nth=0');
+      await key('Enter');
+      await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
+      // 2. Pod api: Harbor link to the running digest. checkout's image lies elsewhere: entry greyed out with the host.
+      await rclick('.kube-table tbody tr:has-text("api-6d8f9b7c5-x7k2p")');
+      await waitFor('Harbor im Pod-Menü', menuHas('In Harbor öffnen', ` && i.textContent.includes(${JSON.stringify(HARBOR_HOST)}) && !i.disabled`));
+      await pause(300);
+      await shot('kube-harbor-menu');
+      await menuItem('In Harbor öffnen');
+      await openedUntil('Harbor-Link', list => list.length === before + 1);
+      const harbor = (await opened()).at(-1);
+      if (harbor !== `https://${HARBOR_HOST}/harbor/projects/shop/repositories/api/artifacts-tab/artifacts/${HARBOR_DIGEST}`) throw new Error(`Harbor-Link falsch: ${harbor}`);
+      await rclick('.kube-table tbody tr:has-text("checkout-7f9c6b8d4-m2n5z")');
+      await waitFor('Harbor gesperrt', menuHas('In Harbor öffnen', ` && i.disabled && i.textContent.includes('Image liegt nicht in ${HARBOR_HOST}')`));
+      await key('Escape');
+      // 3. Deployments: api is tracked by label and opens in Argo CD; checkout's forged tracking id is ignored.
+      await click('.kube-kind-tabs button:has-text("Deployments")');
+      await waitFor('Deployments', `${count('.kube-table tbody tr')} >= 3`);
+      await rclick('.kube-table tbody tr:has-text("checkout")');
+      await waitFor('Menü checkout', `document.querySelectorAll('[role=menuitem]').length > 0`);
+      if (await evaluate(`document.querySelector('[role=menu]')?.textContent.includes('Argo CD') ?? false`)) throw new Error('Gefälschte Tracking-Annotation erzeugt einen Argo-Eintrag');
+      await key('Escape');
+      await rclick('.kube-table tbody tr:has-text("api")');
+      await waitFor('Argo im Menü', `document.querySelector('[role=menu]')?.textContent.includes('Argo CD: App shop') && ${menuHas('In Argo CD öffnen', ` && i.textContent.includes(${JSON.stringify(ARGO_HOST)})`)}`);
+      await pause(300);
+      await shot('kube-argo-menu');
+      await menuItem('In Argo CD öffnen');
+      const links = await openedUntil('Argo-Link', list => list.length === before + 2);
+      if (links.at(-1) !== `https://${ARGO_HOST}/applications/shop`) throw new Error(`Argo-Link falsch: ${links.at(-1)}`);
+      // 4. CronJob (annotation tracking): the confirmation reads the application and says Self-Heal reverts; cancelled, nothing changes.
+      // Scale on a Deployment is greyed out in shop (RBAC: no patch on workloads), so the CronJob's suspend shows the same hint.
+      await click('.kube-kind-tabs button:has-text("CronJobs")');
+      await waitFor('CronJobs', `${count('.kube-table tbody tr')} >= 1`);
+      await rclick('.kube-table tbody tr:has-text("nightly-report")');
+      await menuItem('Anhalten');
+      await waitFor('Self-Heal im Dialog', `(document.querySelector('dialog.kube-confirm[open] .kube-confirm-argo.is-warn')?.textContent ?? '').includes('mit Self-Heal')
+        && document.querySelector('dialog.kube-confirm[open] .kube-confirm-argo').textContent.includes('Synced, Healthy')`);
+      await pause(300);
+      await shot('kube-argo-selfheal');
+      await click('dialog.kube-confirm[open] .kube-confirm-cancel');
+      await waitFor('Dialog zu', `!document.querySelector('dialog.kube-confirm[open]')`);
+      // 5. Only GETs (the rules review aside), the application read exactly once; every opened link on the two .test hosts.
+      const asked = fs.readFileSync(kubeLog, 'utf8').split('\n').filter(Boolean);
+      if (asked.some(line => !line.startsWith('GET ') && !line.startsWith('POST /apis/authorization.k8s.io/v1/selfsubjectrulesreviews'))) throw new Error('Schreibende Anfrage an den Cluster');
+      if (asked.filter(line => line === 'GET /apis/argoproj.io/v1alpha1/namespaces/argocd/applications/shop').length !== 1) throw new Error('Application nicht genau einmal gelesen');
+      const all = (await opened()).slice(before);
+      if (all.length !== 2 || all.some(url => !url.startsWith(`https://${ARGO_HOST}/`) && !url.startsWith(`https://${HARBOR_HOST}/`))) throw new Error(`Unerwartete Links: ${JSON.stringify(all)}`);
+    } finally {
+      await restore();
     }
   },
   async settings() {

@@ -136,3 +136,35 @@ describe('commandDescription', () => {
     } finally { await i18n.changeLanguage('de-DE'); }
   });
 });
+
+describe('rights pre-check in actions and keys', () => {
+  const FORBIDDEN_PATCH = 'Keine Berechtigung: patch auf deployments in shop';
+  const denied = (...items: { id: 'patchDeployments' | 'deleteJobs' | 'shell' | 'logs'; verb: string; resource: string }[]) => ({ shop: { at: 1, denied: items } });
+  const command = (id: string) => KUBE_COMMANDS.find(c => c.id === id)!;
+
+  it('puts the missing right after every other reason and blocks nothing when unknown', () => {
+    const access = denied({ id: 'patchDeployments', verb: 'patch', resource: 'deployments' });
+    const right = ref('deployments');
+    expect(actionReason('restart', { ref: right, readOnly: false, connected: true, access, status: READY })).toBe(FORBIDDEN_PATCH);
+    expect(actionReason('scale', { ref: right, readOnly: false, connected: true, access, status: READY })).toBe(FORBIDDEN_PATCH);
+    expect(actionReason('restart', { ref: right, readOnly: true, connected: true, access, status: READY })).toBe('Dieser Cluster ist schreibgeschützt.');
+    expect(actionReason('restart', { ref: ref('pods'), readOnly: false, connected: true, access, status: READY })).toMatch(/^Nur für /);
+    expect(actionReason('restart', { ref: right, readOnly: false, connected: true, access: { shop: { at: 1, denied: null } }, status: READY })).toBeUndefined();
+    expect(actionReason('restart', { ref: right, readOnly: false, connected: true, access: {}, status: READY })).toBeUndefined();
+    expect(actionReason('restart', { ref: right, readOnly: false, connected: true })).toBeUndefined();
+  });
+
+  it('gives r, S, Ctrl+d, s, l and p the reason of the selected row', () => {
+    const deployments = { ...withRow('deployments'), access: denied({ id: 'patchDeployments', verb: 'patch', resource: 'deployments' }) };
+    expect(command('restart').unavailable?.({ state: deployments, readOnly: false })).toBe(FORBIDDEN_PATCH);
+    expect(command('scale').unavailable?.({ state: deployments, readOnly: false })).toBe(FORBIDDEN_PATCH);
+    const jobs = { ...withRow('jobs'), access: denied({ id: 'deleteJobs', verb: 'delete', resource: 'jobs' }) };
+    expect(command('delete').unavailable?.({ state: jobs, readOnly: false })).toBe('Keine Berechtigung: delete auf jobs in shop');
+    const pods = { ...withRow('pods', 'Running'), access: denied({ id: 'shell', verb: 'create', resource: 'pods/exec' }, { id: 'logs', verb: 'get', resource: 'pods/log' }) };
+    expect(command('shell').unavailable?.({ state: pods, readOnly: false })).toBe('Keine Berechtigung: create auf pods/exec in shop');
+    expect(command('logs').unavailable?.({ state: pods, readOnly: false })).toBe('Keine Berechtigung: get auf pods/log in shop');
+    expect(command('previous').unavailable?.({ state: pods, readOnly: false })).toBe('Keine Berechtigung: get auf pods/log in shop');
+    expect(command('shell').unavailable?.({ state: { ...pods, rows: [row('pods', 'Completed')] }, readOnly: false })).toBe('Der Pod läuft nicht.');
+    expect(command('logs').unavailable?.({ state: { ...withRow('deployments'), access: pods.access }, readOnly: false })).toBe('Nur für Pods.');
+  });
+});

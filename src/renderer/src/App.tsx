@@ -4,6 +4,7 @@ import {
   useState,
   useRef,
 } from 'react';
+import { onDiagnosis } from './kube-diagnose';
 
 import type {
   FormEvent,
@@ -134,6 +135,8 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const assistant = useAssistantToggle();
+  // "Mit KI analysieren" in a cluster tab opens the panel; the panel takes the request itself.
+  useEffect(() => onDiagnosis(() => assistant.setOpen(true)), [assistant.setOpen]);
   const [appDialog, setAppDialog] = useState<AppDialog | null>(null);
   const settingsReturnFocus = useRef<HTMLElement | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);

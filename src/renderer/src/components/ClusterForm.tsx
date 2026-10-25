@@ -15,6 +15,11 @@ interface ClusterFormProps {
   onChange: (patch: Partial<ConnectionFields>) => void;
 }
 
+const LINK_FIELDS = {
+  argoUrl: { label: 'connection:cluster.links.argo', placeholder: 'https://argocd.example.com' },
+  harborUrl: { label: 'connection:cluster.links.harbor', placeholder: 'https://harbor.example.com' },
+} as const;
+
 /** Cluster-specific fields; name, symbol, color, tags and comment come from ConnectionForm. */
 export function ClusterForm({ idPrefix, fields, nodes, busy, error, onChange }: ClusterFormProps) {
   const { t } = useT();
@@ -117,6 +122,19 @@ export function ClusterForm({ idPrefix, fields, nodes, busy, error, onChange }: 
           onChange={event => onChange({ namespace: event.target.value })} />
         {fieldError('namespace')}
       </div>
+
+      <fieldset>
+        <legend>{t('connection:cluster.links.legend')}</legend>
+        <p className="editor-hint">{t('connection:cluster.links.hint')}</p>
+        {(Object.keys(LINK_FIELDS) as (keyof typeof LINK_FIELDS)[]).map(field => <div className="editor-field" key={field}>
+          <label htmlFor={`${idPrefix}-${field}`}>{t(LINK_FIELDS[field].label)}</label>
+          <input id={`${idPrefix}-${field}`} type="url" inputMode="url" value={fields[field]} disabled={busy} autoComplete="off" spellCheck={false}
+            placeholder={LINK_FIELDS[field].placeholder} aria-invalid={error?.field === field || undefined}
+            aria-describedby={error?.field === field ? `${idPrefix}-${field}-error` : undefined}
+            onChange={event => onChange(field === 'argoUrl' ? { argoUrl: event.target.value } : { harborUrl: event.target.value })} />
+          {fieldError(field)}
+        </div>)}
+      </fieldset>
 
       <label className="editor-checkbox"><input type="checkbox" checked={fields.production === 'on'} disabled={busy}
         onChange={event => onChange({ production: event.target.checked ? 'on' : 'off' })} />{t('connection:cluster.production')}</label>

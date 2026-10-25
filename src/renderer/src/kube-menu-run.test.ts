@@ -4,7 +4,7 @@ import { rowMenuTarget, runMenuAction, type MenuRunner } from './kube-menu-run';
 import type { MenuAction } from './kube-menus';
 
 const runner = () => ({
-  dispatch: vi.fn(), setPrevious: vi.fn(), arm: vi.fn(), copy: vi.fn(), confirm: vi.fn(), popout: vi.fn(), ssh: vi.fn(), reloadDock: vi.fn(), help: vi.fn(), forward: vi.fn(),
+  dispatch: vi.fn(), setPrevious: vi.fn(), arm: vi.fn(), copy: vi.fn(), confirm: vi.fn(), popout: vi.fn(), ssh: vi.fn(), reloadDock: vi.fn(), help: vi.fn(), forward: vi.fn(), logsAll: vi.fn(), analyze: vi.fn(), openLink: vi.fn(),
 }) satisfies MenuRunner;
 
 const ref = { kind: 'deployments' as const, namespace: 'shop', name: 'api' };
@@ -37,6 +37,10 @@ describe('runMenuAction', () => {
       [{ type: 'dockReload' }, 'reloadDock', []],
       [{ type: 'help' }, 'help', []],
       [{ type: 'forward', row: forwardRow }, 'forward', [forwardRow]],
+      [{ type: 'logsAll', row: forwardRow }, 'logsAll', [forwardRow]],
+      [{ type: 'analyze', target: { ref, problem: 'crashloop' } }, 'analyze', [{ ref, problem: 'crashloop' }]],
+      [{ type: 'link', link: { type: 'argo', app: 'shop' } }, 'openLink', [{ type: 'argo', app: 'shop' }]],
+      [{ type: 'link', link: { type: 'harbor', image: 'harbor.example.test/shop/api:1' } }, 'openLink', [{ type: 'harbor', image: 'harbor.example.test/shop/api:1' }]],
     ];
     for (const [action, method, args] of cases) {
       const r = runner();
