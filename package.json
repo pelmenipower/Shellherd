@@ -1,7 +1,7 @@
 {
   "name": "shellherd",
   "productName": "Shellherd",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "private": true,
   "description": "Shellherd – a local, encrypted connection manager for SSH, RDP, containers and Kubernetes.",
   "author": "Alexander Schmidt",
@@ -14,8 +14,8 @@
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {
-    "dev": "npm run build:rdp-host && electron-vite dev",
-    "build": "npm run check:version && npm run typecheck && electron-vite build && npm run build:rdp-host",
+    "dev": "npm run build:rdp-host && npm run build:hello && electron-vite dev",
+    "build": "npm run check:version && npm run typecheck && electron-vite build && npm run build:rdp-host && npm run build:hello",
     "check:version": "node scripts/check-version.mjs",
     "version:patch": "npm version patch --no-git-tag-version",
     "version:minor": "npm version minor --no-git-tag-version",
@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "build:rdp-host": "node scripts/build-rdp-host.mjs",
+    "build:hello": "node scripts/build-hello.mjs",
     "dist": "npm run build && electron-builder --win --publish never",
     "release-notes": "node scripts/release-notes.mjs",
     "rdp:try": "node scripts/rdp-try.mjs",
