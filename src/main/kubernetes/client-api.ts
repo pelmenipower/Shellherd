@@ -4,7 +4,7 @@ import { request as httpsRequest } from 'node:https';
 import type { RequestOptions } from 'node:https';
 import { PassThrough, Writable } from 'node:stream';
 import type { Duplex } from 'node:stream';
-import { AuthorizationV1Api, Exec, KubernetesObjectApi, Metrics, PatchStrategy, PortForward, Watch } from '@kubernetes/client-node';
+import { AuthorizationV1Api, CustomObjectsApi, Exec, KubernetesObjectApi, Metrics, PatchStrategy, PortForward, Watch } from '@kubernetes/client-node';
 import type { KubeConfig, KubernetesObject } from '@kubernetes/client-node';
 import { AppError } from '../../shared/errors';
 import type { CodedError, ErrorCode } from '../../shared/errors';
@@ -596,6 +596,12 @@ export function createKubeApi(config: KubeConfig): KubeApi {
           })),
         } satisfies KubeRulesReview;
       });
+    },
+
+    async readArgoApp(namespace, name) {
+      return call(async () => (await config.makeApiClient(CustomObjectsApi).getNamespacedCustomObject({
+        group: 'argoproj.io', version: 'v1alpha1', namespace, plural: 'applications', name,
+      })) as KubeObject);
     },
   };
 }

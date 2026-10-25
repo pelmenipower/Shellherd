@@ -49,6 +49,7 @@ class FakeApi implements KubeApi {
   followLog(): never { throw new Error('unused'); }
   readLog(): never { throw new Error('unused'); }
   rulesReview(): never { throw new Error('unused'); }
+  readArgoApp(): never { throw new Error('unused'); }
 }
 
 /** Deterministic timers: nothing runs until advance() moves the clock. */

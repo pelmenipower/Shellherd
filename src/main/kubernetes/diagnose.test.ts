@@ -51,6 +51,7 @@ class RecordingApi implements KubeApi {
   portForward = forbidden;
   followLog = forbidden;
   rulesReview = forbidden;
+  readArgoApp = forbidden;
 }
 
 const POD: KubeRef = { kind: 'pods', namespace: 'shop', name: 'checkout-7f9c6b8d4-m2n5z' };

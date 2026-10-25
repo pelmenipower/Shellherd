@@ -66,6 +66,7 @@ class FakeApi implements KubeApi {
   followLog(): never { throw new Error('unused'); }
   readLog(): never { throw new Error('unused'); }
   rulesReview(): never { throw new Error('unused'); }
+  readArgoApp(): never { throw new Error('unused'); }
 }
 
 function pod(name: string, namespace: string, extra: Record<string, unknown> = {}): KubeObject {

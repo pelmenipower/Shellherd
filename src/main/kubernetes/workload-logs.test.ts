@@ -61,6 +61,7 @@ class FakeApi implements KubeApi {
   openTerminal(): never { throw new Error('unused'); }
   portForward(): never { throw new Error('unused'); }
   rulesReview(): never { throw new Error('unused'); }
+  readArgoApp(): never { throw new Error('unused'); }
 }
 
 const running = (startedAt = '2026-10-25T08:00:00Z') => ({ running: { startedAt } });

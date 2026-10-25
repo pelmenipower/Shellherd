@@ -56,4 +56,6 @@ export interface KubeApi {
   readLog(target: LogReadTarget, options: LogReadOptions): Promise<string>;
   /** SelfSubjectRulesReview of one namespace: a query, nothing is stored in the cluster. */
   rulesReview(namespace: string): Promise<KubeRulesReview>;
+  /** One Argo CD Application (get on applications.argoproj.io, v1alpha1). Rejects with KubeApiError: 403, 404 (also when the CRD is missing). */
+  readArgoApp(namespace: string, name: string): Promise<KubeObject>;
 }

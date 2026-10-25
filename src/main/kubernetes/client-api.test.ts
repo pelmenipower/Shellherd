@@ -5,7 +5,7 @@ import { connect, createServer as createNetServer } from 'node:net';
 import type { AddressInfo, Socket } from 'node:net';
 import { PassThrough } from 'node:stream';
 import type { Duplex } from 'node:stream';
-import { AuthorizationV1Api, KubeConfig, KubernetesObjectApi, Watch } from '@kubernetes/client-node';
+import { AuthorizationV1Api, CustomObjectsApi, KubeConfig, KubernetesObjectApi, Watch } from '@kubernetes/client-node';
 import { describe, expect, it, vi } from 'vitest';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
 import type { CodedError } from '../../shared/errors';
@@ -643,6 +643,36 @@ describe('createKubeApi.rulesReview', () => {
   it('maps a forbidden review to a KubeApiError with code 403', async () => {
     await expect(withReview(async () => { throw Object.assign(new Error('Unknown API Status Code!'), { code: 403, body: '{}' }); }))
       .rejects.toMatchObject({ code: 403 });
+  });
+});
+
+describe('createKubeApi.readArgoApp', () => {
+  const withApp = async (answer: () => Promise<unknown>) => {
+    const get = vi.fn(answer);
+    const spy = vi.spyOn(KubeConfig.prototype, 'makeApiClient').mockReturnValue({ getNamespacedCustomObject: get } as never);
+    try {
+      const result = await createKubeApi(testConfig()).readArgoApp('argocd', 'shop');
+      return { result, get, clients: spy.mock.calls.map(call => call[0]) };
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  it('gets exactly one Application through CustomObjectsApi', async () => {
+    const application = { metadata: { name: 'shop', namespace: 'argocd' }, spec: { syncPolicy: { automated: { selfHeal: true } } } };
+    const { result, get, clients } = await withApp(async () => application);
+    expect(clients).toEqual([CustomObjectsApi]);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith({ group: 'argoproj.io', version: 'v1alpha1', namespace: 'argocd', plural: 'applications', name: 'shop' });
+    expect(result).toEqual(application);
+  });
+
+  it('maps forbidden and missing (also a missing CRD) to a KubeApiError with the status code', async () => {
+    for (const code of [403, 404]) {
+      const error = await withApp(async () => { throw Object.assign(new Error('Unknown API Status Code!'), { code, body: '{}' }); }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(KubeApiError);
+      expect(error).toMatchObject({ code });
+    }
   });
 });
 
