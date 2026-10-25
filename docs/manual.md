@@ -527,7 +527,7 @@ it uses `sudo -n` (the user needs NOPASSWD for that). Shellherd rejects kubeconf
 instead of on the server.
 
 In the setup form, “Production” is preselected; deselecting it is a deliberate
-decision. “Read-only” blocks restart, scale, delete and the shell; logs, YAML,
+decision. “Read-only” blocks restart, scale, delete and the shell; logs, `Logs of all pods`, YAML,
 events, describe and `Forward port…` stay allowed. Every change asks for confirmation. For
 production you have to type the resource name before the button becomes active.
 
@@ -581,6 +581,27 @@ Right-click a running pod or a service → `Forward port…`. In the dialog you 
 - **Permissions:** Kubernetes requires `create` on `pods/portforward` in the namespace (older versions `get`). The `edit` role has it, `view` does not. Services also need `get` on the service and `list` on pods. Without the permission the bar reports “No permission for port forwards in …”.
 - **Limits:** At most 10 forwards at a time, at most 32 simultaneous connections per forward, TCP only. `Open in browser` uses `http`, for ports 443 and 8443 `https`. Programs that close their side of the connection after sending (for example `nc -N`, `socat`) get no reply.
 - **Who reaches the port:** Every program and every user on this computer, including web pages in the browser through tricks such as DNS rebinding. There is no login on the port, just as with `kubectl port-forward`. So keep forwards open only as long as you need them, and on shared computers (terminal servers) do not forward to sensitive services.
+
+### Logs of all pods
+
+Right-click a Deployment, StatefulSet, DaemonSet, Job or Service → `Logs of all pods`. The **Logs** tab in the bottom panel then shows the logs of all its containers together. With the row only selected, `Show logs of all pods` starts the view; scrolling through rows alone never opens streams.
+
+- **Order:** by the timestamp Kubernetes adds to every line, in UTC (`HH:MM:SS.mmm`), even when a node runs in local time. Each line starts with `pod/container` in one of four colours. If the node clocks drift apart, the order across pods can be off by that drift.
+- **Filter and sources:** `Filter` shows only lines that contain the text, in the prefix or the message; matches are marked. Clicking a container chip hides it and shows it again.
+- **Follow:** New lines appear at the bottom. Scroll up and the view stops; `Follow (12 new)` shows what came in, and a click jumps to the end.
+- **Rollouts:** New pods join by themselves as soon as their container runs. Ended pods stay with “ended”. When a container restarts, Shellherd reads on from the last line. When a proxy or load balancer ends a quiet stream, Shellherd reads on after 5 seconds. When a stream fails, its chip shows “error” with the reason in the tooltip; switching `Compact`/`Raw` starts the view again.
+- **`Compact` / `Raw`** work as for single logs; colours from the app are removed. `Copy` takes all matches, including those not shown.
+- **Limits:** at most 20 containers at once (more wait and move up), the last 200 lines per container, 10,000 lines in total, the newest 2,000 matches shown. Lines over 4,000 characters are cut. With more than 8,000 lines per second Shellherd skips some and says so. Only the selector’s `matchLabels` count, as with “Show pods”; init containers are not included. After 100 containers in one view no new ones join; switching `Compact`/`Raw` starts the view again.
+- **Permissions:** `list` and `watch` on pods and `get` on `pods/log`. “Read-only” allows the view. Changing the row, the tab or the format ends it; after a reconnect it starts again.
+
+### Permission pre-check
+
+Shellherd asks once per namespace what the Kubernetes account may do (`SelfSubjectRulesReview`, a pure query with no effect on the cluster). Context menu entries the account may not run are greyed out up front and name the missing permission, e.g. “No permission: patch on deployments in shop”. This covers restart, scale, delete, cordon/uncordon, suspend, resume and `Run now…`, as well as logs, shell, `Logs of all pods` and `Forward port…`. The keys `r`, `S`, `Ctrl+D`, `s`, `l` and `p` report the same reason.
+
+- Shellherd asks at most once a minute per namespace while the cluster tab is visible, and right after a reconnect. A permission granted a moment ago can therefore look blocked for up to a minute.
+- If the cluster cannot answer completely (for example with an external authorizer as on GKE or with Azure RBAC), if the query is forbidden, reports an evaluation error (such as a binding to a deleted role) or takes longer than 10 seconds, Shellherd greys out nothing; a missing permission then shows up as before, when you run the action.
+- Rules that only cover certain object names count as allowed. Only what certainly fails is greyed out.
+- Nodes are checked with the rules of the cluster’s default namespace.
 
 ## File view: keyboard and transfers
 

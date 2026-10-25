@@ -46,6 +46,8 @@ class FakeApi implements KubeApi {
   podMetrics(): never { throw new Error('unused'); }
   openTerminal(): Promise<KubeStream> { throw new Error('unused'); }
   portForward(): Promise<void> { throw new Error('unused'); }
+  followLog(): never { throw new Error('unused'); }
+  rulesReview(): never { throw new Error('unused'); }
 }
 
 /** Deterministic timers: nothing runs until advance() moves the clock. */

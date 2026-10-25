@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
-import { KIND_INFO, KUBE_KINDS, refKey, type KubeAction, type KubeForwardStatus, type KubeRef, type KubeRow, type KubeViewSnapshot, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
+import { KIND_INFO, KUBE_KINDS, LOGS_ALL_KINDS, refKey, type KubeAction, type KubeForwardStatus, type KubeRef, type KubeRow, type KubeViewSnapshot, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
 import type { SshStatus } from '../../../../shared/ssh';
 import { kubeTabName, type TerminalConnection } from '../../terminal-tabs';
 import { useClusterSession } from '../../hooks/useClusterSession';
@@ -23,6 +23,7 @@ import { ConfirmAction, type PendingAction } from './ConfirmAction';
 import { forwardAddress, forwardUrl } from '../../kube-forward';
 import { KubeForwardBar } from './KubeForwardBar';
 import { KubeForwardDialog } from './KubeForwardDialog';
+import { accessNamespace, accessStale, refAccessReason } from '../../kube-access';
 import '../../kubernetes-ui.css';
 
 interface ClusterViewProps {
@@ -53,11 +54,12 @@ const TICK_MS = 10_000;
 /** Cluster tab: header, node strip, problems, the resource table and the detail dock. */
 export function ClusterView({ connection, tabId, visible, focused = true, style, onFocus, onStatusChange, onPopout, initialView, onSnapshot, sshForNode, onOpenSsh }: ClusterViewProps) {
   const { t, i18n } = useT();
-  const { state, dispatch, retry, detail, action, startForward, stopForward } = useClusterSession(connection.id, initialView, null);
+  const { state, dispatch, retry, detail, action, startForward, stopForward, viewId, startLogs, stopLogs, ensureAccess } = useClusterSession(connection.id, initialView, null);
   const rootRef = useRef<HTMLElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const [previous, setPrevious] = useState(false);
   const [armedFor, setArmedFor] = useState<string | null>(null);
+  const [logsAllFor, setLogsAllFor] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dockReloads, setDockReloads] = useState(0);
   const [help, setHelp] = useState(false);
@@ -67,6 +69,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const status = state.status;
+  const statusState = status?.state;
   // Without a status nothing is known: treat the cluster as production and read-only until main says otherwise.
   const readOnly = status?.readOnly ?? true;
   const production = status?.production ?? true;
@@ -85,6 +88,20 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   // (during render, so it cannot race with arm()), and returning to that pod shows the placeholder again.
   const armed = settleArm(armedFor, armKey) !== null;
   if (armedFor !== null && !armed) setArmedFor(null);
+
+  // "Logs aller Pods" follows the selected workload, job or service. Like the shell it starts only on demand and ends when the selection moves.
+  const workloadRow = !state.containersOf && selectedRow && LOGS_ALL_KINDS.includes(selectedRow.ref.kind) && Object.keys(selectedRow.selector ?? {}).length > 0 ? selectedRow : null;
+  const logsAllArmed = settleArm(logsAllFor, workloadRow ? refKey(workloadRow.ref) : null) !== null;
+  if (logsAllFor !== null && !logsAllArmed) setLogsAllFor(null);
+
+  // RBAC pre-check: the view's namespace, the selected row's and the default one (cluster-wide kinds); fetched again when stale.
+  const accessKey = [state.query.namespace, selectedRow ? accessNamespace(selectedRow.ref, status) : null, status?.namespace ?? 'default']
+    .filter((name): name is string => !!name).join(' ');
+  // state.now (10 s tick) refreshes a stale answer at most once a minute, and only while the tab is shown.
+  useEffect(() => {
+    if (statusState !== 'ready' || !visible) return;
+    for (const namespace of new Set(accessKey.split(' '))) if (accessStale(state.access, namespace, Date.now())) ensureAccess(namespace);
+  }, [statusState, visible, accessKey, state.access, state.now, ensureAccess]);
 
   // One clock for the whole view: ages and time chips read state.now.
   useEffect(() => {
@@ -111,7 +128,6 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   // Status for the tab bar: ready = connected, error = error, everything else = connecting.
   const onStatusRef = useRef(onStatusChange);
   onStatusRef.current = onStatusChange;
-  const statusState = status?.state;
   useEffect(() => {
     if (!statusState) return;
     onStatusRef.current(tabId, statusState === 'ready' ? 'connected' : statusState === 'error' ? 'error' : 'connecting');
@@ -142,7 +158,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   }, [snapshotKey, tabId]);
 
   const confirm = (ref: KubeRef, kind: KubeAction, currentReplicas?: number, replicas?: number) => {
-    const reason = actionReason(kind, { ref, readOnly, connected: status?.state === 'ready' });
+    const reason = actionReason(kind, { ref, readOnly, connected: status?.state === 'ready', access: state.access, status });
     if (reason) { say(reason); return; }
     setPending({
       ref, action: kind,
@@ -154,7 +170,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   const startAction = (kind: KubeAction, replicas?: number) => {
     const target = state.containersOf ?? selectedRow;
     const reason = actionReason(kind, {
-      ref: target?.ref ?? null, readOnly, connected: status?.state === 'ready', kind: state.containersOf ? 'pods' : state.query.kind,
+      ref: target?.ref ?? null, readOnly, connected: status?.state === 'ready', access: state.access, status, kind: state.containersOf ? 'pods' : state.query.kind,
     });
     if (reason || !target) { say(reason ?? t('kubernetes:view.selectRowFirst')); return; }
     confirm(target.ref, kind, target.replicas, replicas);
@@ -180,7 +196,16 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     dispatch({ type: 'selectContainer', name: names[next] });
   };
 
-  const openMenu = (target: MenuTarget, x: number, y: number) => setMenu({ x, y, target, now: Date.now() });
+  const openMenu = (target: MenuTarget, x: number, y: number) => {
+    // The menu is computed on every render, so an answer that arrives while it is open updates it.
+    const ref = target.type === 'row' ? target.row.ref : target.type === 'container' ? target.pod.ref : target.type === 'problem' ? target.problem.ref
+      : target.type === 'node' ? { kind: 'nodes' as const, name: target.tile.name } : null;
+    if (ref && statusState === 'ready') {
+      const namespace = accessNamespace(ref, status);
+      if (accessStale(state.access, namespace, Date.now())) ensureAccess(namespace);
+    }
+    setMenu({ x, y, target, now: Date.now() });
+  };
 
   const openKeyboardMenu = () => {
     const table = tableRef.current;
@@ -218,6 +243,12 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     },
     confirm: (ref, kind, currentReplicas) => confirm(ref, kind, currentReplicas),
     forward: row => setForwardRow(row),
+    logsAll: row => {
+      setLogsAllFor(refKey(row.ref));
+      setPrevious(false);
+      dispatch({ type: 'select', key: refKey(row.ref) });
+      dispatch({ type: 'dock', mode: 'logs' });
+    },
     popout: openTab,
     ssh: id => onOpenSsh?.(id),
     reloadDock: () => setDockReloads(value => value + 1),
@@ -363,6 +394,9 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
           detail={detail} onMode={mode => dispatch({ type: 'dock', mode })} onArm={() => { setArmedFor(armKey); dispatch({ type: 'dock', mode: 'shell' }); }}
           onToggle={() => dispatch({ type: 'toggleDock' })} onPopout={onPopout ? popout : undefined} epoch={epoch + dockReloads} onMenu={(target, x, y) => openMenu(target, x, y)}
           logFormat={state.logFormat} onLogFormat={format => dispatch({ type: 'setLogFormat', format })} onSay={say}
+          viewId={viewId} workload={workloadRow} logsAllArmed={logsAllArmed} onArmLogsAll={() => { if (workloadRow) setLogsAllFor(refKey(workloadRow.ref)); }}
+          logsAllReason={statusState === 'reconnecting' ? t('kubeActions:reasons.reconnecting') : statusState !== 'ready' ? t('errors:kubernetes.notConnected') : workloadRow ? refAccessReason(state.access, status, workloadRow.ref, 'logsAll') : undefined}
+          startLogs={startLogs} stopLogs={stopLogs} shellForbidden={podRow ? refAccessReason(state.access, status, podRow.ref, 'shell') : undefined}
           onCopy={(text, label, info) => { window.desktopApi.writeClipboardText(text).then(() => say(copiedMessage(label, text, info)), () => say(t('kubernetes:view.copyFailed'))); }} />
       </div>
       {state.forwards.length > 0 && <KubeForwardBar forwards={state.forwards} onOpen={openForward} onCopy={copyForward} onStop={stopForwardOf} />}

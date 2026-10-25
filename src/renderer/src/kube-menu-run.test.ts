@@ -4,7 +4,7 @@ import { rowMenuTarget, runMenuAction, type MenuRunner } from './kube-menu-run';
 import type { MenuAction } from './kube-menus';
 
 const runner = () => ({
-  dispatch: vi.fn(), setPrevious: vi.fn(), arm: vi.fn(), copy: vi.fn(), confirm: vi.fn(), popout: vi.fn(), ssh: vi.fn(), reloadDock: vi.fn(), help: vi.fn(), forward: vi.fn(),
+  dispatch: vi.fn(), setPrevious: vi.fn(), arm: vi.fn(), copy: vi.fn(), confirm: vi.fn(), popout: vi.fn(), ssh: vi.fn(), reloadDock: vi.fn(), help: vi.fn(), forward: vi.fn(), logsAll: vi.fn(),
 }) satisfies MenuRunner;
 
 const ref = { kind: 'deployments' as const, namespace: 'shop', name: 'api' };
@@ -37,6 +37,7 @@ describe('runMenuAction', () => {
       [{ type: 'dockReload' }, 'reloadDock', []],
       [{ type: 'help' }, 'help', []],
       [{ type: 'forward', row: forwardRow }, 'forward', [forwardRow]],
+      [{ type: 'logsAll', row: forwardRow }, 'logsAll', [forwardRow]],
     ];
     for (const [action, method, args] of cases) {
       const r = runner();

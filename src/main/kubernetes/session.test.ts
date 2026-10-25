@@ -8,7 +8,7 @@ import type { KubernetesConnectionNode } from '../../shared/vault/types';
 import type { KubeEvent, KubeKind, KubeQuery, KubeRef, KubeTerminalTarget } from '../../shared/kubernetes';
 import { HostAccessError } from '../containers/runner';
 import { KubeApiError } from './api';
-import type { KubeApi, KubeObject, KubeStream, ListResult, MetricsSample, TerminalIo, WatchHandle, WatchType } from './api';
+import type { KubeApi, KubeObject, KubeRulesReview, KubeStream, ListResult, LogFollowOptions, MetricsSample, TerminalIo, WatchHandle, WatchType } from './api';
 import type { ClusterAccess } from './access';
 import { describe as describeText, toYaml } from './describe';
 import { toRow } from './rows';
@@ -136,6 +136,18 @@ class FakeApi implements KubeApi {
     this.forwards.push({ namespace, pod, port });
     socket.on('data', chunk => socket.write(chunk));
     socket.resume();
+  }
+
+  rules: KubeRulesReview | Error = { incomplete: false, rules: [] };
+  logStreams: { target: KubeTerminalTarget; options: LogFollowOptions; io: TerminalIo; close: Mock }[] = [];
+  followLog(target: KubeTerminalTarget, options: LogFollowOptions, io: TerminalIo): KubeStream {
+    const close = vi.fn();
+    this.logStreams.push({ target, options, io, close });
+    return { write() {}, resize() {}, pause() {}, resume() {}, close };
+  }
+  async rulesReview(): Promise<KubeRulesReview> {
+    if (this.rules instanceof Error) throw this.rules;
+    return this.rules;
   }
 }
 
@@ -703,5 +715,100 @@ suite('port forwards of a view', () => {
     const starting = world.sessions.startForward(1, viewId, target, 0);
     world.sessions.close(1, viewId);
     await expect(starting).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
+  });
+});
+
+suite('logs of all pods and the rights pre-check of a view', () => {
+  const request = { id: '1b4e28ba-2fa1-41d2-883f-0016d3cca427', namespace: 'shop', selector: { app: 'api' }, format: 'raw' as const };
+  const logsOf = (world: World, viewId: string) => eventsOf(world, 'logs', viewId);
+
+  it('answers the denied functions, and null when the review is incomplete, fails or hangs', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    expect((await world.sessions.access(1, viewId, 'shop'))?.map(item => item.id)).toContain('patchDeployments');
+    world.api.rules = { incomplete: false, rules: [{ verbs: ['*'], apiGroups: ['*'], resources: ['*'] }] };
+    expect(await world.sessions.access(1, viewId, 'shop')).toEqual([]);
+    world.api.rules = { incomplete: true, rules: [] };
+    expect(await world.sessions.access(1, viewId, 'shop')).toBeNull();
+    world.api.rules = new KubeApiError('Forbidden', 403, { code: 'kubernetes.forbidden' });
+    expect(await world.sessions.access(1, viewId, 'shop')).toBeNull();
+    world.api.rulesReview = () => new Promise(() => {});
+    const hanging = world.sessions.access(1, viewId, 'shop');
+    world.clock.run(10_000);
+    expect(await hanging).toBeNull();
+    await expect(world.sessions.access(2, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
+  });
+
+  it('refuses the pre-check on a disabled cluster or a locked vault without asking the cluster', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const review = vi.spyOn(world.api, 'rulesReview');
+    world.cluster.disabled = true;
+    await expect(world.sessions.access(1, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+    world.cluster.disabled = false;
+    vi.mocked(world.deps.getCluster).mockImplementationOnce(() => { throw new AppError('core.vaultLocked'); });
+    await expect(world.sessions.access(1, viewId, 'shop')).rejects.toMatchObject({ code: 'core.vaultLocked' });
+    expect(review).not.toHaveBeenCalled();
+  });
+
+  it('refuses the pre-check while the cluster is not ready', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await expect(world.sessions.access(1, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.notConnected' });
+  });
+
+  it('starts on a read-only cluster, refuses a disabled one and sends the batches as logs events of the view', async () => {
+    const world = setup();
+    world.cluster.readOnly = true;
+    world.api.pods = [pod('p1')];
+    world.api.pods[0].status = { phase: 'Running', containerStatuses: [{ name: 'app', restartCount: 0, state: { running: { startedAt: '2026-10-25T08:00:00Z' } } }] };
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    await world.sessions.startLogs(1, viewId, request);
+    await settle();
+    expect(world.api.logStreams.map(stream => stream.target)).toEqual([{ namespace: 'shop', pod: 'p1', container: 'app', mode: 'logs' }]);
+    world.api.logStreams[0].io.data(Buffer.from('2026-10-25T08:10:00Z hello\n'));
+    world.clock.run(250);
+    world.clock.run(250);
+    expect(logsOf(world, viewId).at(-1)).toMatchObject({ type: 'logs', viewId, id: request.id, lines: [{ source: 0, text: 'hello' }], sources: [{ pod: 'p1', container: 'app', live: true }] });
+    world.cluster.disabled = true;
+    await expect(world.sessions.startLogs(1, viewId, request)).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+  });
+
+  it('ends the run with stopLogs of its id only, with the view, with closeAll and when the connection drops', async () => {
+    const world = setup();
+    world.api.pods = [pod('p1')];
+    world.api.pods[0].status = { phase: 'Running', containerStatuses: [{ name: 'app', restartCount: 0, state: { running: { startedAt: '2026-10-25T08:00:00Z' } } }] };
+    const first = world.sessions.open(1, 'c1').viewId;
+    await settle();
+    await world.sessions.startLogs(1, first, request);
+    await settle();
+    world.sessions.stopLogs(1, first, '2c5ea4c0-4067-11e9-8bad-9b1deb4d3b7d');
+    expect(world.api.logStreams[0].close).not.toHaveBeenCalled();
+    world.sessions.stopLogs(1, first, request.id);
+    expect(world.api.logStreams[0].close).toHaveBeenCalledTimes(1);
+
+    await world.sessions.startLogs(1, first, request);
+    await settle();
+    world.sessions.close(1, first);
+    expect(world.api.logStreams[1].close).toHaveBeenCalledTimes(1);
+
+    const second = world.sessions.open(1, 'c1').viewId;
+    await world.sessions.startLogs(1, second, request);
+    await settle();
+    world.accesses[0].drop();
+    world.clock.run(HEALTH_MS);
+    // The old API client must not be used after a reconnect: the run ends with the live connection.
+    expect(world.api.logStreams[2].close).toHaveBeenCalledTimes(1);
+
+    const third = world.sessions.open(1, 'c1').viewId;
+    world.clock.run(10);
+    await settle();
+    await world.sessions.startLogs(1, third, request);
+    await settle();
+    world.sessions.closeAll();
+    expect(world.api.logStreams.at(-1)?.close).toHaveBeenCalledTimes(1);
   });
 });

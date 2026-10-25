@@ -146,7 +146,9 @@ export type KubeEvent =
   /** Why a table cannot load or stay live; `error` absent = trouble is over. */
   | { type: 'trouble'; viewId: string; query: KubeQuery; error?: CodedError }
   /** The port forwards of the view, complete; sent on every change. */
-  | { type: 'forwards'; viewId: string; forwards: KubeForwardStatus[] };
+  | { type: 'forwards'; viewId: string; forwards: KubeForwardStatus[] }
+  /** A batch of the logs of all pods of run `id`: sources complete, lines new since the last batch, dropped = lines skipped so far. */
+  | { type: 'logs'; viewId: string; id: string; lines: KubeLogLine[]; sources: KubeLogSource[]; waiting: number; full: number; dropped: number; error?: CodedError };
 
 export type KubeDetailMode = 'yaml' | 'describe' | 'events';
 export type KubeDetail = { mode: 'yaml' | 'describe'; text: string } | { mode: 'events'; rows: KubeRow[] };
@@ -188,6 +190,21 @@ export interface KubeForwardStatus {
   /** Why the last connection failed; cleared by the next one that opens. */
   error?: CodedError;
 }
+
+/** Kinds whose pods "Logs aller Pods" shows, found by the row's selector. */
+export const LOGS_ALL_KINDS: readonly KubeKind[] = ['deployments', 'statefulsets', 'daemonsets', 'jobs', 'services'];
+/** Log streams open at once per view, container sources kept per run, lines read back per container at the start. */
+export const MAX_LOG_STREAMS = 20;
+export const MAX_LOG_SOURCES = 100;
+export const LOG_TAIL_LINES = 200;
+/** One line of the logs of all pods. `source` indexes the sources of the run; `time` is the server timestamp with nine fraction digits, '' when unknown. */
+export interface KubeLogLine { source: number; time: string; text: string }
+/** One container of the logs of all pods. live: its stream is open; error: why its stream ended early. */
+export interface KubeLogSource { pod: string; container: string; live: boolean; error?: CodedError }
+/** `id` is chosen by the renderer (UUID), so events of an old run can be told apart. */
+export interface KubeLogsStartRequest { viewId: string; id: string; namespace: string; selector: Record<string, string>; format: 'compact' | 'raw' }
+export interface KubeLogsStopRequest { viewId: string; id: string }
+export interface KubeAccessRequest { viewId: string; namespace: string }
 
 export type KubeTerminalMode = 'logs' | 'previous' | 'shell';
 export interface KubeTerminalTarget { namespace: string; pod: string; container: string; mode: KubeTerminalMode;

@@ -39,3 +39,12 @@ export const KubeViewSnapshotSchema: z.ZodType<KubeViewSnapshot> = z.object({ qu
   selected: z.string().max(600).optional(), dock: DockModeSchema,
   filters: z.partialRecord(z.enum(KUBE_KINDS), KubeFilterSnapshotSchema).optional(),
   logFormat: z.enum(['compact', 'raw']).optional() }).strict();
+const LabelMapSchema = z.record(z.string().max(317).regex(LABEL_KEY), z.string().max(63).regex(LABEL_VALUE));
+export const KubeLogsStartRequestSchema = z.object({
+  viewId, id: z.string().uuid(), namespace: KubeNameSchema,
+  // An empty selector would follow every pod of the namespace.
+  selector: LabelMapSchema.refine(labels => { const count = Object.keys(labels).length; return count > 0 && count <= 32; }, { message: 'selector' }),
+  format: z.enum(['compact', 'raw']),
+}).strict();
+export const KubeLogsStopRequestSchema = z.object({ viewId, id: z.string().uuid() }).strict();
+export const KubeAccessRequestSchema = z.object({ viewId, namespace: KubeNameSchema }).strict();
