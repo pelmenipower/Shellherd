@@ -254,6 +254,7 @@ export const AiProviderSchema = z.object({
   apiKey: z.string().max(4096).optional(),
   baseUrl: z.string().url().max(2048).optional(),
   apiVersion: z.string().max(40).optional(),
+  maskSecrets: z.boolean().optional(),
 });
 
 export const AiSettingsSchema = z.object({

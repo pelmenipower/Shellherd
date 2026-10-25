@@ -208,6 +208,8 @@ export interface AiProvider {
   baseUrl?: string;
   /** Azure only, e.g. 2024-10-21. */
   apiVersion?: string;
+  /** Absent or true: secrets are masked before sending; false only by the user's choice. */
+  maskSecrets?: boolean;
 }
 
 export interface AiSettings {
