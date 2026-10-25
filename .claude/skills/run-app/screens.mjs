@@ -370,6 +370,7 @@ const blocks = {
       await rclick('.kube-table tbody tr:has-text("shop/api:2.4.1")');
       const reason = 'Keine Berechtigung: patch auf deployments in shop';
       await waitFor('Neustart und Skalieren gesperrt', `${disabledWith('Rollout neu starten', reason)} && ${disabledWith('Skalieren', reason)}`);
+      await waitFor('Menü im Fenster', `document.querySelector('[role=menu]').getBoundingClientRect().bottom <= innerHeight`);
       await pause(300);
       await shot('kube-rbac-menu');
       // 2. Logs of all three api pods, merged by time, three colours.

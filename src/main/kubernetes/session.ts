@@ -623,7 +623,7 @@ export class KubeSessions {
     this.logs.stop(viewId, id);
   }
 
-  /** RBAC pre-check of one namespace. null whenever the answer cannot be trusted: forbidden, not served, incomplete, failed or slow. */
+  /** RBAC pre-check of one namespace. null whenever the answer cannot be trusted: forbidden, not served, incomplete, failed or slow. Throws on a disabled cluster or a locked vault, like the other entries. */
   async access(ownerId: number, viewId: string, namespace: string): Promise<KubeDenied[] | null> {
     const view = this.viewOf(ownerId, viewId);
     // Read at each call, like the other entries: a disabled cluster or a locked vault refuses.

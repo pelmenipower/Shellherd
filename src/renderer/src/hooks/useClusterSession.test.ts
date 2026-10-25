@@ -6,10 +6,10 @@ const denied: KubeDenied[] = [{ id: 'patchDeployments', verb: 'patch', resource:
 
 /** Requests that the test resolves by hand, in order. */
 function setup() {
-  const asks: { viewId: string; namespace: string; resolve: (value: KubeDenied[] | null) => void }[] = [];
+  const asks: { viewId: string; namespace: string; resolve: (value: KubeDenied[] | null) => void; reject: (error: Error) => void }[] = [];
   const answers: { namespace: string; denied: KubeDenied[] | null }[] = [];
   const gate = accessRequests(
-    (viewId, namespace) => new Promise(resolve => { asks.push({ viewId, namespace, resolve }); }),
+    (viewId, namespace) => new Promise((resolve, reject) => { asks.push({ viewId, namespace, resolve, reject }); }),
     (namespace, value) => answers.push({ namespace, denied: value }),
   );
   return { gate, asks, answers };
@@ -50,5 +50,15 @@ describe('accessRequests', () => {
     asks[0].resolve(null);
     await settle();
     expect(answers).toEqual([{ namespace: 'shop', denied: null }]);
+  });
+
+  it('treats a refused request (disabled cluster, locked vault) as unknown and asks again later', async () => {
+    const { gate, asks, answers } = setup();
+    gate.ensure('v', 'shop');
+    asks[0].reject(new Error('kubernetes.disabled'));
+    await settle();
+    expect(answers).toEqual([{ namespace: 'shop', denied: null }]);
+    gate.ensure('v', 'shop');
+    expect(asks).toHaveLength(2);
   });
 });
