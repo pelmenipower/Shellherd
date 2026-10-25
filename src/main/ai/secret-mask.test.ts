@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Vault, VaultNode } from '../../shared/vault/types';
-import { MAX_NUMBERS, SecretMasker, vaultLiterals } from './secret-mask';
+import { MAX_NUMBERS, MAX_STORED_CHARS, SecretMasker, vaultLiterals } from './secret-mask';
 
 // Test secrets are assembled from parts so GitHub secret scanning stays quiet (R13). Never real values.
 const j = (...parts: string[]): string => parts.join('');
@@ -284,6 +284,26 @@ describe('SecretMasker', () => {
   it('masks the password of a .netrc entry', () => {
     expect(one('machine db login app password Synth-Pw-123')).toBe('machine db login app password [SECRET_1]');
     expect(one('default login app password Synth-Pw-123\n')).toBe('default login app password [SECRET_1]\n');
+  });
+
+  it('refuses to remember more than MAX_STORED_CHARS of found text', () => {
+    const masker = new SecretMasker();
+    const long = (n: number) => `password=${String(n).padStart(6, '0')}${'x'.repeat(4000)}`;
+    let rounds = 0;
+    expect(() => { for (; rounds < 400; rounds += 1) masker.mask(long(rounds), []); }).toThrow();
+    expect(rounds * 4006).toBeGreaterThan(MAX_STORED_CHARS - 4006);
+    // Vault values are never refused, even past the cap.
+    expect(masker.mask('Synth-Vault-Pw', ['Synth-Vault-Pw']).text).toMatch(/^\[SECRET_\d+\]$/);
+  });
+
+  it('masks the password of a multi-line .netrc entry', () => {
+    const netrc = 'machine db.intranet\n  login app\n  password Synth-Pw-123\n\nmachine git\n\tlogin ci\n\tpassword Synth-Pw-456\n';
+    expect(one(netrc)).toBe('machine db.intranet\n  login app\n  password [SECRET_1]\n\nmachine git\n\tlogin ci\n\tpassword [SECRET_2]\n');
+  });
+
+  it('keeps a password line outside a .netrc block', () => {
+    const kept = ['Welcome\npassword reset done', 'machine db\n\npassword reset done', 'Password for root: '];
+    for (const text of kept) expect(one(text)).toBe(text);
   });
 
   it('keeps .netrc lines without a password and other password prompts', () => {

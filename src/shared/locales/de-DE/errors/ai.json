@@ -5,7 +5,7 @@
     "requestRunning": "Diese Anfrage läuft bereits.",
     "requestFailed": "Die KI-Anfrage ist fehlgeschlagen.",
     "invalidRequest": "Ungültige KI-Anfrage.",
-    "maskFailed": "Shellherd konnte den Text nicht auf Geheimnisse prüfen und hat nichts gesendet.",
+    "maskFailed": "Shellherd konnte den Text nicht auf Geheimnisse prüfen und hat nichts gesendet. Leere den Verlauf und frag erneut.",
     "azureEndpointMissing": "Gib den Endpoint der Azure-Ressource an.",
     "endpointInvalid": "Der Endpoint ist keine gültige URL.",
     "noHttp": "Dieser Anbieter nutzt keine HTTP-Schnittstelle.",

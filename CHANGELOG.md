@@ -6,7 +6,7 @@ Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build
 
 ## [0.25.0] – 2026-10-25
 
-- Sicherheit: Der KI-Assistent maskiert Geheimnisse, bevor etwas an den Anbieter geht: Passwörter, Passphrasen und API-Schlüssel aus dem Vault, private Schlüssel, `password=`- und `secret:`-Werte, Passwörter in Adressen, Bearer- und Basic-Header, Schlüssel von AWS, GitHub, Slack, OpenAI, Anthropic, Google und Azure, JWTs und die Daten von Kubernetes-Secrets. Derselbe Wert behält im Verlauf denselben Platzhalter (`[SECRET_1]`), echte Werte setzt Shellherd nie zurück in Antworten oder Befehle.
+- Sicherheit: Der KI-Assistent maskiert Geheimnisse, bevor etwas an den Anbieter geht: Passwörter, Passphrasen und API-Schlüssel aus dem Vault, private Schlüssel, `password=`- und `secret:`-Werte, Passwörter in Adressen, Bearer- und Basic-Header, Schlüssel von AWS, GitHub, GitLab, Slack, Stripe, npm, OpenAI, Anthropic, Google und Azure, Passwörter in `.netrc` und `ConvertTo-SecureString`, JWTs und die Daten von Kubernetes-Secrets. Derselbe Wert behält im Verlauf denselben Platzhalter (`[SECRET_1]`), echte Werte setzt Shellherd nie zurück in Antworten oder Befehle.
 - Neu: Unter der Frage steht, wie viele vertrauliche Werte maskiert wurden. Befehle mit Platzhalter tragen einen Hinweis. Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, und lässt sich je Anbieter abschalten.
 - Behoben: Der Assistent liest umbrochene Terminalzeilen als eine Zeile und kürzt lange Ausgaben nur an Zeilengrenzen.
 
