@@ -244,6 +244,26 @@ describe('KubeForwards', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('forgets the remembered pod of a service after a handshake timeout', async () => {
+    const { fake, forwards, view } = setup();
+    fake.pods = [podObject('a')];
+    const status = await forwards.start(view, SERVICE, 0);
+    expect(await echo(status.localPort, 'one')).toBe('one');
+    expect(fake.list).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    cleanups.push(() => vi.useRealTimers());
+    fake.hang = true;
+    const client = await open(status.localPort);
+    const closed = new Promise(resolve => client.once('close', resolve));
+    await settle(() => fake.calls.length === 2);
+    vi.advanceTimersByTime(30_000);
+    await closed;
+    vi.useRealTimers();
+    fake.hang = false;
+    expect(await echo(status.localPort, 'two')).toBe('two');
+    expect(fake.list).toHaveBeenCalledTimes(2);
+  });
+
   it('clears the handshake timer once the stream is open', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     cleanups.push(() => vi.useRealTimers());

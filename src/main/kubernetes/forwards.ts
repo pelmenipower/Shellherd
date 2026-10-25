@@ -186,6 +186,8 @@ export class KubeForwards {
         let expired = false;
         const timer = setTimeout(() => {
           expired = true;
+          // A hanging pod must not stay the service's choice for the next connection.
+          entry.hop = undefined;
           socket.destroy();
           this.fail(entry, { code: 'kubernetes.portForwardFailed' });
         }, HANDSHAKE_WAIT_MS);
