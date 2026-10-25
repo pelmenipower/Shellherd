@@ -139,16 +139,25 @@ const FORWARD_HIGH_WATER = 1024 * 1024;
 /** Port forward over the API server (WebSocket, v4.channel.k8s.io): one stream per local connection, with back-pressure both ways. */
 async function openPortForward(config: KubeConfig, namespace: string, pod: string, port: number, socket: Duplex): Promise<void> {
   let ws: ForwardSocket | undefined;
+  // Set once data has arrived: later error text then means a failed stream, not a refused port.
+  let delivered = false;
   // Channel 1 carries the kubelet's error text (e.g. nothing listens on the port); the text itself is not passed on.
   const errors = new Writable({
     write(chunk: Buffer, _encoding, callback) {
-      if (chunk.length > 0) socket.destroy(new KubeApiError('The pod refused the port', undefined, { code: 'kubernetes.portForwardRefused', params: { port } }));
+      if (chunk.length > 0) {
+        socket.destroy(delivered
+          ? new KubeApiError('The port forward failed', undefined, { code: 'kubernetes.portForwardFailed' })
+          : new KubeApiError('The pod refused the port', undefined, { code: 'kubernetes.portForwardRefused', params: { port } }));
+      }
       callback();
     },
   });
   // Pod to local: a slow local reader pauses the WebSocket instead of buffering the whole download in main.
   const output = new Writable({
     write(chunk: Buffer, _encoding, callback) {
+      if (chunk.length > 0) delivered = true;
+      // A closed local socket must not pause the stream again: the closing handshake has to be read.
+      if (!socket.writable) { callback(); return; }
       if (!socket.write(chunk) && ws && !ws.isPaused) {
         const paused = ws;
         paused.pause();

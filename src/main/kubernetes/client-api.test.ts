@@ -413,6 +413,7 @@ describe('portForwardError', () => {
 /** The parts of ws's server side the fake kubelet below uses; ws ships without types. */
 interface FakeKubeletSocket { send(data: Buffer): void; close(): void; pause(): void; resume(): void; on(event: 'message', listener: (data: Buffer) => void): void }
 interface FakeKubeletServer {
+  clients: Set<unknown>;
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer, done: (ws: FakeKubeletSocket) => void): void;
   close(): void;
 }
@@ -447,7 +448,7 @@ describe('createKubeApi.portForward', () => {
     });
     await new Promise<void>(resolve => local.listen(0, '127.0.0.1', resolve));
     const close = () => { local.close(); wss.close(); server.closeAllConnections(); server.close(); };
-    return { port: (local.address() as AddressInfo).port, accepted, results, close };
+    return { port: (local.address() as AddressInfo).port, accepted, results, clients: wss.clients, close };
   }
 
   it('hands a slow reader everything the pod sent, without buffering it all in main, then ends cleanly', async () => {
@@ -516,6 +517,45 @@ describe('createKubeApi.portForward', () => {
       for (const end = Date.now() + 2000; !fake.accepted[0]?.destroyed && Date.now() < end;) await wait(10);
       const error = fake.accepted[0].errored;
       expect(error).toMatchObject({ coded: { code: 'kubernetes.portForwardRefused', params: { port: 8080 } } });
+      expect((error as Error).message).not.toContain('10.244');
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('closes the WebSocket promptly when the local side ends while the stream is paused', async () => {
+    const fake = await kubelet('p', ws => {
+      const chunk = Buffer.alloc(64 * 1024, 5);
+      for (let sent = 0; sent < 16 * 1024 * 1024; sent += chunk.length) ws.send(Buffer.concat([Buffer.from([0]), chunk]));
+    });
+    try {
+      const client = connect(fake.port, '127.0.0.1');
+      client.pause();
+      client.on('error', () => {});
+      await wait(300);
+      fake.accepted[0].destroy();
+      // Without the writable guard the paused WebSocket is never read again and only ws's 30 s timer closes it.
+      await vi.waitFor(() => expect(fake.clients.size).toBe(0), { timeout: 2_000 });
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('reports portForwardFailed when channel 1 carries text after data was delivered', async () => {
+    const fake = await kubelet('p', ws => {
+      ws.send(Buffer.concat([Buffer.from([0]), Buffer.from('HTTP/1.1 200 OK')]));
+      ws.send(Buffer.concat([Buffer.from([1]), Buffer.from('error copying: connection reset by peer 10.244.1.7')]));
+      ws.close();
+    });
+    try {
+      const client = connect(fake.port, '127.0.0.1');
+      client.on('error', () => {});
+      // Drain what the pod sent before the error, so the client socket can reach 'close'.
+      client.resume();
+      await new Promise(resolve => client.on('close', resolve));
+      for (const end = Date.now() + 2000; !fake.accepted[0]?.destroyed && Date.now() < end;) await wait(10);
+      const error = fake.accepted[0].errored;
+      expect(error).toMatchObject({ coded: { code: 'kubernetes.portForwardFailed' } });
       expect((error as Error).message).not.toContain('10.244');
     } finally {
       fake.close();
