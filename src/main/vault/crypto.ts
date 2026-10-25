@@ -200,6 +200,23 @@ export async function unlockVault(
   }
 }
 
+/**
+ * Opens a vault with a stored vault key (Windows Hello). Takes ownership of key:
+ * kept in the result on success, zeroed on failure. Only the main process may use it.
+ */
+export function unlockVaultWithKey(
+  file: EncryptedVaultFile,
+  key: Buffer,
+): UnlockedVault {
+  try {
+    const { vault, migratedFrom } = decryptVaultWithKey(file, key);
+    return { vault, key, kdf: { ...file.kdf }, ...(migratedFrom ? { migratedFrom } : {}) };
+  } catch (error) {
+    key.fill(0);
+    throw error;
+  }
+}
+
 function decryptVaultWithKey(
   file: EncryptedVaultFile,
   key: Uint8Array,

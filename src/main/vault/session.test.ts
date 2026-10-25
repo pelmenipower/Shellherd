@@ -236,3 +236,34 @@ describe('resumesLocked', () => {
     expect(resumesLocked(undefined, { filePath: 'a.term', vault: { id: 'v1' } })).toBe(false);
   });
 });
+
+describe('Windows Hello in the session', () => {
+  it('opens with a stored key, keeps the session on a wrong one and copies the key only for the same file', async () => {
+    const { filePath, password } = await createTestVault();
+    const manager = new VaultSessionManager();
+    await manager.unlock(filePath, password);
+    const file = await readEncryptedVaultFile(filePath);
+    expect(manager.helloTarget()).toEqual({ filePath, salt: file.kdf.salt });
+    const copy = manager.keyCopy(filePath, file.kdf.salt);
+    expect(() => manager.keyCopy(filePath, 'b3RoZXItc2FsdA==')).toThrow(expect.objectContaining({ code: 'core.vaultLocked' }));
+    expect(() => manager.keyCopy(`${filePath}.other`, file.kdf.salt)).toThrow(expect.objectContaining({ code: 'core.vaultLocked' }));
+
+    const wrong = Buffer.alloc(32, 1);
+    expect(() => manager.openWithKey(filePath, file, wrong)).toThrow(expect.objectContaining({ code: 'core.wrongPassword' }));
+    expect(wrong.equals(Buffer.alloc(32))).toBe(true);
+    expect(manager.isUnlocked()).toBe(true);
+
+    manager.lock();
+    const snapshot = manager.openWithKey(filePath, file, Buffer.from(copy));
+    copy.fill(0);
+    expect(snapshot.vault).toEqual(exampleVault);
+    expect(manager.isUnlocked()).toBe(true);
+    expect(manager.lockedVault()).toBeUndefined();
+    await manager.save({ ...snapshot.vault, name: 'Hello' });
+    expect((await decryptVault(await readEncryptedVaultFile(filePath), password)).name).toBe('Hello');
+
+    manager.lock();
+    expect(() => manager.helloTarget()).toThrow(expect.objectContaining({ code: 'core.vaultLocked' }));
+    expect(() => manager.keyCopy(filePath, file.kdf.salt)).toThrow(expect.objectContaining({ code: 'core.vaultLocked' }));
+  });
+});
