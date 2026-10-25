@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -351,6 +351,51 @@ const blocks = {
       if (await get(podPort).then(() => true, () => false)) throw new Error('Port antwortet nach dem Stoppen noch');
     } finally {
       // Closing the cluster tab ends its remaining forwards (they live only as long as the tab).
+      await closeTabs();
+    }
+  },
+  // Logs of all pods of a deployment and the RBAC pre-check against the synthetic rules (shop: no patch on workloads).
+  async 'kube-logs'() {
+    if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) { console.log('Logs aller Pods übersprungen: prod-k8s fehlt im Baum.'); return; }
+    const view = '.kube-view:not([hidden])';
+    const disabledWith = (label, reason) => `[...document.querySelectorAll('[role=menuitem]')].some(i => i.disabled && i.textContent.includes(${JSON.stringify(label)}) && i.textContent.includes(${JSON.stringify(reason)}))`;
+    const enabled = label => `[...document.querySelectorAll('[role=menuitem]')].some(i => !i.disabled && i.textContent.trim().startsWith(${JSON.stringify(label)}))`;
+    try {
+      await click('text=prod-k8s >> nth=0');
+      await key('Enter');
+      await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
+      await click('.kube-kind-tabs button:has-text("Deployments")');
+      await waitFor('Deployments', `${count('.kube-table tbody tr')} >= 3`);
+      // 1. RBAC: restart and scale are greyed out with the reason from the synthetic rules. Nothing is clicked.
+      await rclick('.kube-table tbody tr:has-text("shop/api:2.4.1")');
+      const reason = 'Keine Berechtigung: patch auf deployments in shop';
+      await waitFor('Neustart und Skalieren gesperrt', `${disabledWith('Rollout neu starten', reason)} && ${disabledWith('Skalieren', reason)}`);
+      await pause(300);
+      await shot('kube-rbac-menu');
+      // 2. Logs of all three api pods, merged by time, three colours.
+      await menuItem('Logs aller Pods');
+      await waitFor('drei Quellen', `${count(`${view} .kube-logs-chip`)} === 3 && ${count(`${view} .kube-logs-line`)} >= 45`);
+      await waitFor('drei Farben', `new Set([...document.querySelectorAll('${view} .kube-logs-line .kube-logs-src')].map(e => e.className)).size === 3`);
+      await pause(300);
+      await shot('kube-logs-all');
+      // 3. Following: new lines arrive every 2 s per pod.
+      const before = await evaluate(count(`${view} .kube-logs-line`));
+      await waitFor('neue Zeilen', `${count(`${view} .kube-logs-line`)} > ${before}`, { timeout: 8000 });
+      // 4. Filter: only ERROR lines, matches marked.
+      await fill(`${view} .kube-logs-filter`, 'ERROR');
+      await waitFor('Filter', `${count(`${view} .kube-logs-line mark`)} > 0 && [...document.querySelectorAll('${view} .kube-logs-line')].every(l => l.textContent.includes('ERROR'))`);
+      await pause(300);
+      await shot('kube-logs-all-filter');
+      // 5. Fallback: monitoring answers incomplete, so nothing is greyed out there. The pause lets the pre-check answer
+      // first; before that the item is enabled anyway and the check would pass trivially.
+      await evaluate(`(() => { const s = document.querySelector('${view} .kube-ns select'); s.value = 'monitoring'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+      await click('.kube-kind-tabs button:has-text("StatefulSets")');
+      await waitFor('StatefulSets', `${count('.kube-table tbody tr')} >= 1`);
+      await rclick('.kube-table tbody tr:has-text("postgres")');
+      await pause(3000);
+      await waitFor('nichts gesperrt', enabled('Rollout neu starten'));
+      await key('Escape');
+    } finally {
       await closeTabs();
     }
   },
