@@ -345,5 +345,15 @@
     "loadFailed": "Die Server-Schlüssel konnten nicht geladen werden.",
     "importFailed": "Der Import ist fehlgeschlagen.",
     "removeFailed": "Der Schlüssel konnte nicht entfernt werden."
+  },
+  "hello": {
+    "unlock": "Mit Windows Hello entsperren",
+    "open": "Mit Windows Hello öffnen",
+    "waiting": "Warte auf Windows Hello …",
+    "setting": "Mit Windows Hello entsperren (PIN, Gesicht oder Fingerabdruck)",
+    "hint": "Gilt nur für diesen Vault, auf diesem Gerät und in diesem Windows-Konto. Das Passwort funktioniert weiter.",
+    "unavailable": "Windows Hello ist auf diesem Gerät nicht eingerichtet. Einrichten unter Windows-Einstellungen → Konten → Anmeldeoptionen.",
+    "enabledMessage": "Windows Hello ist für diesen Vault eingeschaltet.",
+    "disabledMessage": "Windows Hello ist ausgeschaltet, der gespeicherte Schlüssel ist gelöscht."
   }
 }

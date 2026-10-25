@@ -10,11 +10,14 @@ import { LanguageSetting } from './LanguageSetting';
 import { ThemeSetting } from './ThemeSetting';
 import { FileTypeSetting } from './FileTypeSetting';
 import { UpdateSetting } from './UpdateSetting';
+import { HelloSetting } from './HelloSetting';
 import '../settings-ui.css';
 
 export interface SettingsDialogProps {
   /** null before unlocking (start card): only "Allgemein" and the locked hint. */
   vault: Vault | null;
+  /** File of the unlocked vault (null without one); Windows Hello applies to it. */
+  vaultPath: string | null;
   busy: boolean;
   /** Skip the open animation (Ctrl+, and the return from the AI providers). */
   instant?: boolean;
@@ -108,7 +111,7 @@ function FontSetting({ id, value, busy, hintId, onCommit }: FontSettingProps) {
 }
 
 /** Language, colour scheme, file association, vault, terminal and AI provider entry points; every value applies immediately. */
-export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', onClose, onManageAi, onManageHostKeys, onSaveSettings }: SettingsDialogProps) {
+export function SettingsDialog({ vault, vaultPath, busy, instant, initialFocus = 'close', onClose, onManageAi, onManageHostKeys, onSaveSettings }: SettingsDialogProps) {
   const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -147,6 +150,7 @@ export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', o
             onCommit={minutes => void onSaveSettings(withAutoLockMinutes(vault.settings, minutes))} />
           </div>
           <p className="settings-hint" id={`${id}-autolock-hint`}>{t('app:settings.autoLock.hint')}</p>
+          {vaultPath && <HelloSetting filePath={vaultPath} busy={busy} />}
         </>}
         {section === 'connections' && vault && <>
           <div className="settings-numbers">
