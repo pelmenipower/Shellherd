@@ -49,6 +49,20 @@ describe('ConnectionNodeSchema', () => {
         expect(ConnectionNodeSchema.safeParse({ ...cluster, namespace: 'Shop' }).success).toBe(false);
     });
 
+    it('accepts optional https addresses for Argo CD and Harbor and refuses anything else there', () => {
+        const cluster = { id: 'k1', type: 'connection', name: 'k8s', tags: [], protocol: 'kubernetes', accessHosts: ['cp1'],
+            kubeconfig: { source: 'auto' }, production: true, readOnly: false };
+        expect(ConnectionNodeSchema.parse({ ...cluster, argoUrl: 'https://argocd.example.test', harborUrl: 'https://harbor.example.test:8443/sub' }))
+            .toMatchObject({ argoUrl: 'https://argocd.example.test', harborUrl: 'https://harbor.example.test:8443/sub' });
+        expect(ConnectionNodeSchema.parse(cluster)).not.toHaveProperty('argoUrl');
+        for (const value of ['http://argocd.example.test', 'https://u@argocd.example.test', 'https://u:p@argocd.example.test', 'https://argocd.example.test/?a=1',
+            'https://argocd.example.test/#x', 'javascript:alert(1)', '', `https://argocd.example.test/${'x'.repeat(513)}`]) {
+            expect(ConnectionNodeSchema.safeParse({ ...cluster, argoUrl: value }).success).toBe(false);
+            expect(ConnectionNodeSchema.safeParse({ ...cluster, harborUrl: value }).success).toBe(false);
+        }
+        expect(ConnectionNodeSchema.safeParse({ ...cluster, argoUrl: 42 }).success).toBe(false);
+    });
+
     it('keeps the disabled flag and treats it as optional', () => {
         const connection = { id: 'c', type: 'connection', protocol: 'cmd', name: 'CMD', tags: [] };
         expect(ConnectionNodeSchema.parse({ ...connection, disabled: true })).toMatchObject({ disabled: true });

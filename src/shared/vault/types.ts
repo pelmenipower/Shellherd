@@ -150,6 +150,10 @@ export interface KubernetesConnectionNode extends ConnectionBase {
   namespace?: string;
   production: boolean;
   readOnly: boolean;
+  /** Argo CD web address, normalized https (kube-links.ts httpsBase); only for links, Shellherd never calls it. */
+  argoUrl?: string;
+  /** Harbor web address, normalized https; images on its host get "In Harbor öffnen". */
+  harborUrl?: string;
 }
 
 export type ConnectionNode = RemoteConnectionNode | LocalConnectionNode | KubernetesConnectionNode;
