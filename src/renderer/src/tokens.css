@@ -46,6 +46,11 @@
   --color-danger-bg: #341c25;
   --color-danger-bg-hover: #512333;
   --color-danger-border: #713442;
+  /* Source colours: only the text colour of a log line's origin in "Logs aller Pods" (prefix and chip); never a state, surface or border. */
+  --color-source-1: #7cb7ff;
+  --color-source-2: #c4a5ff;
+  --color-source-3: #5fd4d4;
+  --color-source-4: #e59af0;
 
   /* Spacing, named by value. The lint allows literal px only for 0, 1px, negatives, >= 48px and inside calc()/min()/max()/clamp(). */
   --space-2: 2px; --space-4: 4px; --space-6: 6px; --space-8: 8px; --space-10: 10px;
@@ -142,6 +147,10 @@
     --color-danger-bg: #fdeceb;
     --color-danger-bg-hover: #fadad7;
     --color-danger-border: #e59a93;
+    --color-source-1: #1d5fb8;
+    --color-source-2: #6b3fb8;
+    --color-source-3: #0f6f73;
+    --color-source-4: #9a2f8f;
 
     --shadow-overlay: 0 10px 28px rgb(40 30 20 / 18%);
   }
