@@ -188,7 +188,7 @@
     "started": "Weiterleitung aktiv: {{address}}"
   },
   "logsAll": {
-    "onDemand": "Logs aller Pods von {{name}}: startet erst auf Knopfdruck, weil dafür bis zu {{max}} Log-Streams gleichzeitig öffnen.",
+    "onDemand": "Logs aller Pods von {{name}}: Startet erst auf Knopfdruck, weil Shellherd dafür bis zu {{max}} Log-Streams gleichzeitig öffnet.",
     "start": "Logs aller Pods anzeigen",
     "filter": "Filtern",
     "filterLabel": "Logs filtern (Text oder Pod)",
@@ -200,9 +200,14 @@
     "loading": "Suche Pods …",
     "noPods": "Noch kein Container gestartet.",
     "summary": "Live: {{shown}} von {{total}} Containern",
-    "waiting": "{{count}} weitere warten (höchstens {{max}} gleichzeitig)",
-    "dropped": "{{count}} Zeilen ausgelassen (zu viele auf einmal)",
-    "olderHidden": "{{count}} ältere Treffer nicht angezeigt; Kopieren nimmt alle mit.",
+    "waiting_one": "1 weiterer Container wartet (höchstens {{max}} gleichzeitig)",
+    "waiting_other": "{{count}} weitere Container warten (höchstens {{max}} gleichzeitig)",
+    "full_one": "1 weiterer Container bleibt außen vor (höchstens {{max}} Quellen)",
+    "full_other": "{{count}} weitere Container bleiben außen vor (höchstens {{max}} Quellen)",
+    "dropped_one": "1 Zeile ausgelassen (zu viele auf einmal)",
+    "dropped_other": "{{count}} Zeilen ausgelassen (zu viele auf einmal)",
+    "olderHidden_one": "1 älterer Treffer nicht angezeigt; Kopieren nimmt alle mit.",
+    "olderHidden_other": "{{count}} ältere Treffer nicht angezeigt; Kopieren nimmt alle mit.",
     "linesLabel": "Logs aller Pods"
   },
   "forwards": {

@@ -200,9 +200,14 @@
     "loading": "Looking for pods…",
     "noPods": "No container has started yet.",
     "summary": "Live: {{shown}} of {{total}} containers",
-    "waiting": "{{count}} more waiting (at most {{max}} at once)",
-    "dropped": "{{count}} lines skipped (too many at once)",
-    "olderHidden": "{{count}} older matches not shown; Copy includes them.",
+    "waiting_one": "1 more container waiting (at most {{max}} at once)",
+    "waiting_other": "{{count}} more containers waiting (at most {{max}} at once)",
+    "full_one": "1 more container left out (at most {{max}} sources)",
+    "full_other": "{{count}} more containers left out (at most {{max}} sources)",
+    "dropped_one": "1 line skipped (too many at once)",
+    "dropped_other": "{{count}} lines skipped (too many at once)",
+    "olderHidden_one": "1 older match not shown; Copy includes it.",
+    "olderHidden_other": "{{count}} older matches not shown; Copy includes them.",
     "linesLabel": "Logs of all pods"
   },
   "forwards": {

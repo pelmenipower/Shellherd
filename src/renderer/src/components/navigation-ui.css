@@ -44,7 +44,8 @@
 /* Empty space below the tree still opens the "new" context menu. */
 .vault-tree { min-height: 50vh; }
 /* No motion: opened by right click, Shift+F10 and the menu key (gate). */
-.context-menu { position: fixed; z-index: var(--layer-menu); min-width: 230px; max-width: 320px; display: grid; gap: 1px; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-raised); box-shadow: var(--shadow-overlay); }
+/* max-height keeps the menu inside the window (4 px margin per side); box-sizing makes it count the padding and border. */
+.context-menu { position: fixed; z-index: var(--layer-menu); box-sizing: border-box; min-width: 230px; max-width: 320px; max-height: calc(100vh - 8px); overflow-y: auto; display: grid; gap: 1px; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-raised); box-shadow: var(--shadow-overlay); }
 .context-menu [role="menuitem"] { display: flex; justify-content: space-between; align-items: center; gap: var(--space-16); min-height: var(--control-sm); padding: var(--space-4) var(--space-10); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text); text-align: left; font: inherit; font-size: var(--fs-md); cursor: pointer; }
 .context-menu [role="menuitem"]:hover:not(:disabled), .context-menu [role="menuitem"]:focus-visible { background: var(--color-bg-active); outline: none; }
 .context-menu [role="menuitem"]:disabled { color: var(--color-text-muted); opacity: .5; cursor: default; }

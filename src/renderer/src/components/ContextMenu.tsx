@@ -15,6 +15,14 @@ interface ContextMenuProps {
   onClose: () => void;
 }
 
+/** Keeps a menu of this size inside the viewport, 4 px from each edge. */
+export function clampMenuPosition(x: number, y: number, width: number, height: number, viewportWidth: number, viewportHeight: number): { left: number; top: number } {
+  return {
+    left: Math.max(4, Math.min(x, viewportWidth - width - 4)),
+    top: Math.max(4, Math.min(y, viewportHeight - height - 4)),
+  };
+}
+
 /** Fixed-position menu with keyboard support; closes on Escape, outside click, blur and resize. */
 export function ContextMenu({ x, y, label, entries, onClose }: ContextMenuProps) {
   const menu = useRef<HTMLDivElement>(null);
@@ -22,10 +30,18 @@ export function ContextMenu({ x, y, label, entries, onClose }: ContextMenuProps)
 
   useLayoutEffect(() => {
     const element = menu.current!;
-    const rect = element.getBoundingClientRect();
-    element.style.left = `${Math.max(4, Math.min(x, window.innerWidth - rect.width - 4))}px`;
-    element.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - 4))}px`;
+    const place = () => {
+      const rect = element.getBoundingClientRect();
+      const { left, top } = clampMenuPosition(x, y, rect.width, rect.height, window.innerWidth, window.innerHeight);
+      element.style.left = `${left}px`;
+      element.style.top = `${top}px`;
+    };
+    place();
+    // Access reasons arrive after opening and grow the menu; re-clamp without moving the focus.
+    const observer = new ResizeObserver(place);
+    observer.observe(element);
     element.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    return () => observer.disconnect();
   }, [x, y]);
 
   useEffect(() => {
