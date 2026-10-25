@@ -3,6 +3,7 @@ import type { Rectangle, WebContents } from 'electron';
 import { join } from 'node:path';
 
 import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
+import { registerKnownHostsIpc } from './ssh/known-hosts-ipc';
 import { AuthPrompts } from './ssh/auth-prompts';
 import type { PromptTarget } from './ssh/auth-prompts';
 import { openJump } from './ssh/jump';
@@ -299,6 +300,7 @@ app.whenReady().then(() => {
   });
 
   const knownHosts = createKnownHosts();
+  registerKnownHostsIpc(knownHosts);
   const prompts = new AuthPrompts({ resolveTarget: resolvePromptTarget, isUnlocked: () => vaultSessionManager.isUnlocked() });
   authPrompts = prompts;
   // One memory of refused sudo passwords for container lists and container tabs.

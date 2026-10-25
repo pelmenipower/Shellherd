@@ -8,6 +8,8 @@
     "hostKeyChangedMeanwhile": "The stored server key was changed in the meantime.",
     "hostKeySaveFailed": "The server key could not be saved. Connection aborted.",
     "hostKeyRejected": "The server key was not confirmed.",
+    "hostKeyRevoked": "The server key is marked as revoked (@revoked from an imported known_hosts). Connection aborted.",
+    "hostKeysSaveFailed": "The server keys could not be saved.",
     "sessionLimit": "At most {{max}} sessions at a time. Close a tab first.",
     "notTerminal": "This connection is not a terminal connection.",
     "clusterInTab": "Clusters open in the cluster tab.",

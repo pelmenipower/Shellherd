@@ -37,6 +37,9 @@
     },
     "importMRemoteNg": {
       "title": "mRemoteNG-Verbindungsdatei auswählen"
+    },
+    "importKnownHosts": {
+      "title": "known_hosts-Datei auswählen"
     }
   },
   "assistant": {
