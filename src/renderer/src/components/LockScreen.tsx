@@ -34,10 +34,10 @@ export function LockScreen({ vaultName, minutes, running, onUnlock, onHelloUnloc
   const helloRef = useRef<HTMLButtonElement>(null);
   const [waiting, setWaiting] = useState(false);
   const helloOffered = onHelloUnlock !== undefined;
-  // The Hello status arrives after the first paint: take the focus only while no password was typed.
+  // The Hello status arrives after the first paint: take the focus only while no password was typed and the user has not moved it elsewhere.
   // A button that vanishes under the focus leaves it on body; the password field takes it over, as on the open screen (K8).
   useEffect(() => {
-    if (helloOffered && field.current?.value === '') helloRef.current?.focus();
+    if (helloOffered && field.current?.value === '' && (document.activeElement === field.current || document.activeElement === document.body)) helloRef.current?.focus();
     else if (!helloOffered && document.activeElement === document.body) field.current?.focus();
   }, [helloOffered]);
   useNativeSurfaceBlock(true);
