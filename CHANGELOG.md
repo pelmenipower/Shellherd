@@ -4,6 +4,17 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.20.0] – 2026-10-24
+
+- Neu: Suche im Terminal mit `Strg+Umschalt+F`. `Enter` sucht weiter, `Umschalt+Enter` zurück, `Esc` schließt die Suche. Groß- und Kleinschreibung spielen keine Rolle. Treffer werden über die Auswahl markiert und nicht in die Zwischenablage kopiert. In den Terminals der Container- und Cluster-Docks gibt es keine Suche; dort geht `Strg+Umschalt+F` an das Terminal.
+- Neu: Links im Terminal öffnen sich mit `Strg+Klick` im Browser. Erlaubt sind nur `http`- und `https`-Adressen bis 2048 Zeichen, ohne Benutzername und Passwort. Alles andere bleibt Text. Beim Überfahren zeigt das Terminal einen Hinweis.
+- Neu: Tab-Kürzel im fokussierten Bereich: `Strg+Tab` und `Strg+Umschalt+Tab` wechseln den Tab, `Strg+Umschalt+T` öffnet die Verbindungsauswahl, `Strg+Umschalt+W` schließt den aktiven Tab mit der üblichen Rückfrage. `Strg+F`, `Strg+T` und `Strg+W` bleiben der Shell (ein Zeichen vor, Zeichen tauschen, Wort löschen), deshalb die Umschalt-Varianten.
+- Neu: Einstellungen → Terminal (nach dem Entsperren) für Schriftart, Schriftgröße (8 bis 32 Pixel, Standard 14), Verlauf (1.000 bis 50.000 Zeilen, Standard 5.000), Cursorform und Blinken. Die Werte gelten sofort für alle offenen Terminals des Vaults; ein kleinerer Verlauf kürzt offene Terminals.
+- Neu: Das Hauptfenster merkt sich beim Schließen Größe, Position und Maximierung in `settings.json`, nicht im Vault. Beim nächsten Start öffnet es dort, wenn der Platz noch sichtbar ist. Minimiert geschlossen bleibt die gespeicherte Position.
+- Neu: Ein Tab, dessen Terminal nicht sichtbar ist, zeigt mit neuer Ausgabe einen Ring nach dem Namen; der Name wird hell und fett. Sobald der Tab sichtbar wird, verschwindet die Markierung.
+- Neu: Eingabe an alle Bereiche, im Menü des Bereichskopfs (ab zwei Bereichen). Was du tippst, geht an alle verbundenen SSH- und lokalen Terminals der angezeigten Ansicht. Container, Pods, RDP, SFTP, Cluster und die Willkommensseite bleiben aus. Die Bereiche zeigen eine Warnlinie und den Knopf „An alle“, der die Eingabe beendet. Beim Ansichtswechsel endet sie, ebenso unter zwei Terminals.
+- Hinweis: Ältere Shellherd-Versionen entfernen die Terminal-Einstellungen beim Speichern.
+
 ## [0.19.0] – 2026-10-24
 
 - Neu: Server, die bei der Anmeldung nachfragen (Einmalcode, PIN, zweites Passwort, 2FA), öffnen einen Dialog „Anmeldung bei …“. Fragt der Server nur nach dem Passwort, setzt Shellherd das gespeicherte Passwort einmal automatisch ein. Antworten werden nie gespeichert.

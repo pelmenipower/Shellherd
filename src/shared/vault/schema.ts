@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { CONNECTION_ICONS } from './appearance';
 import { TIMEOUT_LIMITS } from './timeouts';
+import { FONT_FAMILY_MAX, FONT_FAMILY_PATTERN, TERMINAL_LIMITS } from './terminal-settings';
 import type {
   FolderNode,
+  TerminalSettings,
   Vault,
   VaultNode,
   VaultSettings,
@@ -225,6 +227,14 @@ export const WorkspaceSchema: z.ZodType<Workspace> = z.object({
   })).max(8).optional(),
 });
 
+export const TerminalSettingsSchema: z.ZodType<TerminalSettings> = z.object({
+    fontFamily: z.string().max(FONT_FAMILY_MAX).regex(FONT_FAMILY_PATTERN),
+    fontSize: z.number().int().min(TERMINAL_LIMITS.fontSize[0]).max(TERMINAL_LIMITS.fontSize[1]),
+    scrollback: z.number().int().min(TERMINAL_LIMITS.scrollback[0]).max(TERMINAL_LIMITS.scrollback[1]),
+    cursorStyle: z.enum(['block', 'bar', 'underline']),
+    cursorBlink: z.boolean(),
+});
+
 export const VaultSettingsSchema: z.ZodType<VaultSettings> = z.object({
     theme: z.enum(['dark', 'light', 'system']),
 
@@ -233,6 +243,7 @@ export const VaultSettingsSchema: z.ZodType<VaultSettings> = z.object({
 
     confirmBeforeClosingSession: z.boolean(),
     timeouts: ConnectionTimeoutsSchema.optional(),
+    terminal: TerminalSettingsSchema.optional(),
 });
 
 export const AiProviderSchema = z.object({

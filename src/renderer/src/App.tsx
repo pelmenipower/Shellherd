@@ -70,6 +70,8 @@ import { useT } from './i18n';
 import { SettingsDialog } from './components/SettingsDialog';
 import { AuthPromptDialog } from './components/AuthPromptDialog';
 import { settingsShortcutAction } from './shortcut-match';
+import { terminalPrefs } from './terminal-prefs';
+import { effectiveTerminalSettings } from '../../shared/vault/terminal-settings';
 import mark from '../../../resources/mark-64.png';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
@@ -172,6 +174,7 @@ export default function App() {
   const viewControls = useViewControls(terminalLayout, terminals.select, transfer.transferView);
   // Announce readiness after the transfer listeners above are registered.
   useEffect(() => { void window.desktopApi.windowReady(); }, []);
+  useEffect(() => terminalPrefs.set(effectiveTerminalSettings(vault?.settings)), [vault?.settings]);
   const containerDiscovery = useContainerDiscovery();
   // Bumped on every lock; a save that settles under another epoch must not bring the vault back.
   const lockEpoch = useRef(0);

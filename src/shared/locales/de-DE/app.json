@@ -214,6 +214,7 @@
       "general": "Allgemein",
       "vault": "Vault",
       "connections": "Verbindungen",
+      "terminal": "Terminal",
       "assistant": "KI-Assistent"
     },
     "locked": "Vault-Einstellungen und KI-Anbieter erscheinen nach dem Entsperren.",
@@ -246,6 +247,29 @@
       "hint": "Gilt für neue SSH- und SFTP-Verbindungen dieses Vaults, auch für Container- und Cluster-Zugriffe über SSH. Der Verbindungs-Timeout läuft auch, solange die Rückfrage zum Host-Schlüssel offen ist. Einzelne Verbindungen können unter „Weitere Angaben“ abweichen."
     },
     "rangeError": "Gib eine ganze Zahl von {{min}} bis {{max}} ein.",
+    "terminal": {
+      "font": {
+        "label": "Schriftart",
+        "placeholder": "Consolas",
+        "error": "Nur Buchstaben, Ziffern, Leerzeichen, Punkt, Binde- und Unterstrich, höchstens 64 Zeichen."
+      },
+      "fontSize": {
+        "label": "Schriftgröße",
+        "unit": "Pixel"
+      },
+      "scrollback": {
+        "label": "Verlauf",
+        "unit": "Zeilen je Terminal"
+      },
+      "cursor": {
+        "label": "Cursor",
+        "block": "Block",
+        "bar": "Strich",
+        "underline": "Unterstrich"
+      },
+      "blink": "Cursor blinkt",
+      "hint": "Gilt sofort für alle offenen Terminals dieses Vaults. Leer oder auf diesem Computer nicht installiert: Consolas. Jede Verlaufszeile belegt Speicher, 10.000 Zeilen etwa 15 MB je Terminal, bei 16 offenen Terminals bis zu 240 MB. Ein kleinerer Wert kürzt den Verlauf offener Terminals."
+    },
     "assistant": {
       "none": "Noch kein Anbieter eingerichtet.",
       "summary_one": "{{count}} Anbieter, Standard: {{name}}",

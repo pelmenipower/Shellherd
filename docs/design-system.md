@@ -260,6 +260,8 @@ Jede Meldung beantwortet Was, Warum und Was jetzt. Der Verbindungszustand liegt 
 
 Die Leiste „Weiterleitungen“ (`.forward-bar`) steht unter der Ausgabe einer verbundenen SSH-Sitzung, mindestens `var(--control-sm)` hoch, ohne Bewegung.
 
+Die Suchleiste (`.terminal-search`) sitzt oben im Terminal-Panel und hat keine Bewegung. Der Link-Hinweis (`.terminal-link-hint`) erscheint unten rechts im Terminal, solange die Maus über einem Link steht, ohne Bewegung. Der Aktivitäts-Ring (`.tab-activity`) steht nach dem Namen eines nicht sichtbaren Tabs mit neuer Ausgabe, neutral in `--color-text` und mit fettem Namen, ohne Animation. „An alle“ (`.broadcast-chip`) und die Warn-Linie (`.pane-chrome.is-broadcast`) zeigen, dass die Eingabe an mehrere Bereiche geht. Gelb ist hier Zustand, nie Kupfer.
+
 ## Regeln für neues CSS
 
 - Jede Fläche hat ihre Datei mit eigenem Präfix (`.kube-`, `.ctr-`, `.file-`, `.assistant-`, `.workflow-`, `.tree-`/`.vault-`, `.pane-`/`.view-`).

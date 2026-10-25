@@ -59,6 +59,7 @@
     "vaultWriteLocked": "Die Vault-Datei ist von einem anderen Programm gesperrt.",
     "vaultWriteFolderUnreachable": "Der Ordner der Vault-Datei ist nicht erreichbar.",
     "vaultWriteDiskFull": "Auf dem Laufwerk ist kein Platz mehr.",
-    "settingsWriteFailed": "Die Einstellungen konnten nicht gespeichert werden."
+    "settingsWriteFailed": "Die Einstellungen konnten nicht gespeichert werden.",
+    "linkNotAllowed": "Dieser Link wird nicht geöffnet. Shellherd öffnet nur http- und https-Adressen."
   }
 }

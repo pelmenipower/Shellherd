@@ -8,6 +8,7 @@ import { AppError } from '../shared/errors';
 import { WorkspaceLayoutSchema, WorkspaceViewsSchema } from '../shared/vault/schema';
 import { TerminalTargetSchema } from '../shared/containers-schema';
 import { redactSecrets } from '../shared/vault/connections';
+import { effectiveTerminalSettings } from '../shared/vault/terminal-settings';
 import type { ConnectionCatalog, IncomingTab, IncomingView, TransferLayout, WindowLayoutReport, WorkspaceWindowState } from '../shared/windows';
 import { requireSshSender } from './ssh/ipc';
 import type { SshSessionManager } from './ssh/session';
@@ -80,7 +81,7 @@ export function moveSession(owners: Pick<WindowIpcDependencies, 'ssh' | 'rdp' | 
 
 export function catalog(): ConnectionCatalog {
   const { vault } = vaultSessionManager.getSnapshot();
-  return { nodes: redactSecrets(vault.nodes), confirmBeforeClosingSession: vault.settings.confirmBeforeClosingSession, workflows: vault.workflows ?? [] };
+  return { nodes: redactSecrets(vault.nodes), confirmBeforeClosingSession: vault.settings.confirmBeforeClosingSession, workflows: vault.workflows ?? [], terminal: effectiveTerminalSettings(vault.settings) };
 }
 
 export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSecondary, closeOwnerSessions }: WindowIpcDependencies): {

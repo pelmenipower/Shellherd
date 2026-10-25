@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, webContents } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, shell, webContents } from 'electron';
 import type { Rectangle, WebContents } from 'electron';
 import { join } from 'node:path';
 
@@ -18,7 +18,7 @@ import { findConnection } from './ssh/session';
 import type { SshSessionManager } from './ssh/session';
 import { rdpSurfaceMode, registerRdpIpcHandlers } from './rdp/ipc';
 import type { RdpSessionManager } from './rdp/host';
-import { windowRegistry } from './windows';
+import { visibleBounds, windowRegistry } from './windows';
 import type { WindowRole } from './windows';
 import { registerWindowIpcHandlers } from './window-ipc';
 import { FileAssociation, vaultFileFromArgs } from './file-association';
@@ -29,6 +29,8 @@ import { registerAiIpcHandlers } from './ai/ipc';
 import type { AssistantService } from './ai/assistant';
 import { ConnectionNodeSchema } from '../shared/vault/schema';
 import { effectiveTimeouts } from '../shared/vault/timeouts';
+import { webLinkHref } from '../shared/links';
+import { readAppSettings, writeAppSettings } from './app-settings';
 import { z } from 'zod';
 import { AppError } from '../shared/errors';
 import { LANGUAGE_SETTINGS, LOCALE_ARG } from '../shared/locale';
@@ -88,7 +90,7 @@ function closeSecondaryWindows(): void {
   }
 }
 
-function createWindow(role: WindowRole, bounds?: Rectangle): BrowserWindow {
+function createWindow(role: WindowRole, bounds?: Rectangle, maximized = false): BrowserWindow {
   const icon = brandIconPath();
   const window = new BrowserWindow({
     ...(bounds ?? { width: 1280, height: 800 }),
@@ -123,7 +125,7 @@ function createWindow(role: WindowRole, bounds?: Rectangle): BrowserWindow {
   if (role === 'main') guardMainWindowClose(window, ownerId);
   else guardSecondaryWindowClose(window, ownerId);
 
-  window.once('ready-to-show', () => window.show());
+  window.once('ready-to-show', () => { if (maximized) window.maximize(); window.show(); });
 
   const query = role === 'secondary' ? { role: 'secondary' } : undefined;
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -131,6 +133,18 @@ function createWindow(role: WindowRole, bounds?: Rectangle): BrowserWindow {
   } else {
     void window.loadFile(join(__dirname, '../renderer/index.html'), query ? { query } : undefined);
   }
+  return window;
+}
+
+/** Restores the saved main window placement; only the close of the main window writes it, never while minimized. */
+function createMainWindow(settingsFile: string): BrowserWindow {
+  const saved = readAppSettings(settingsFile).mainWindow;
+  const window = createWindow('main', saved ? visibleBounds(saved.bounds) : undefined, saved?.maximized ?? false);
+  window.on('close', () => {
+    if (window.isDestroyed() || window.isMinimized()) return;
+    const { x, y, width, height } = window.getNormalBounds();
+    writeAppSettings(settingsFile, { mainWindow: { bounds: { x, y, width, height }, maximized: window.isMaximized() } });
+  });
   return window;
 }
 
@@ -207,8 +221,9 @@ app.whenReady().then(() => {
   if (!singleInstance) return;
   // Before anything reads userData (known hosts, last vault): take over the legacy profile files once.
   migrateUserData(join(app.getPath('appData'), 'Terminus'), app.getPath('userData'));
+  const settingsFile = join(app.getPath('userData'), 'settings.json');
   const languageState = localeStore.init({
-    settingsFile: join(app.getPath('userData'), 'settings.json'),
+    settingsFile,
     systemLanguages: () => app.getPreferredSystemLanguages(),
   });
   setMainLocale(languageState.effective);
@@ -291,6 +306,13 @@ app.whenReady().then(() => {
     if (typeof text !== 'string' || text.length > 4 * 1024 * 1024) throw new AppError('core.clipboardTooLarge');
     clipboard.writeText(text);
   });
+  ipcMain.handle(IPC_CHANNELS.openExternal, async (event, raw: unknown) => {
+    requireSshSender(event);
+    vaultSessionManager.getSnapshot();
+    const href = webLinkHref(raw);
+    if (!href) throw new AppError('core.linkNotAllowed');
+    await shell.openExternal(href);
+  });
   const { broadcastCatalog } = registerWindowIpcHandlers({
     registry: windowRegistry, ssh: sshSessionManager, rdp: rdpSessionManager, sftp: sftpSessionManager, closeOwnerSessions,
     createSecondary: bounds => createWindow('secondary', bounds),
@@ -319,11 +341,11 @@ app.whenReady().then(() => {
   ipcMain.on(IPC_CHANNELS.vaultActivity, event => {
     if (windowRegistry.roleOf(event.sender.id) && event.senderFrame === event.sender.mainFrame) autoLock?.touch();
   });
-  createWindow('main');
+  createMainWindow(settingsFile);
 
   app.on('activate', () => {
     if (!windowRegistry.main()) {
-      createWindow('main');
+      createMainWindow(settingsFile);
     }
   });
 });

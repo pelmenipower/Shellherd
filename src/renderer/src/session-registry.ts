@@ -6,6 +6,8 @@ interface LiveSession extends TransferSession {
   snapshot?: () => string;
   /** Terminals only: what the assistant may read. */
   terminal?: TerminalAccess;
+  /** Terminals only: sends input through the panel's own queue and limits. */
+  input?: (data: string) => void;
 }
 
 // Panels register their session per tab so pane controls and tab transfers can address it.

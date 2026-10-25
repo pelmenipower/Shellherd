@@ -16,3 +16,7 @@
 .settings-number { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; }
 .settings-number input { width: var(--input-number); }
 .settings-number .field-error { grid-column: 2 / -1; margin: 0; color: var(--color-danger); }
+.settings-field { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: var(--space-8); margin-top: var(--space-8); color: var(--color-text); font-size: var(--fs-md); }
+.settings-field input { width: 100%; }
+.settings-field select { justify-self: start; }
+.settings-field .field-error { grid-column: 2; margin: 0; color: var(--color-danger); }

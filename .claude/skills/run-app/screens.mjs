@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -28,6 +28,9 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const menuItem = label => call('eval', `const item = [...document.querySelectorAll('[role=menuitem]')].find(i => i.textContent.trim().startsWith(${JSON.stringify(label)}) && !i.disabled);
   if (!item) throw new Error('Menüeintrag fehlt: ' + ${JSON.stringify(label)}); item.click();`);
 const evaluate = expression => call('eval', `return (${expression})`);
+// Layout menu buttons carry no role; matched by their full text.
+const menuButton = label => call('eval', `const item = [...document.querySelectorAll('.pane-layout-menu button')].find(b => b.textContent.trim() === ${JSON.stringify(label)});
+  if (!item) throw new Error('Menüknopf fehlt: ' + ${JSON.stringify(label)}); item.click();`);
 
 // Polls a renderer expression until it is truthy; the failure names the step, not just "timeout".
 async function waitFor(step, expression, { timeout = 20000, every = 250 } = {}) {
@@ -43,6 +46,25 @@ const shot = async name => {
     throw new Error('„Dieser Computer“ (lokale Container) in der Seitenleiste – kein README-Bild');
   shots.push(await call('ss', undefined, `?name=${name}&crop=status`));
 };
+
+// Hovers the first occurrence of `link` in the visible terminal. xterm caches the link answer per row, so the mouse first
+// rests on the bottom row (empty in these scenes); a move straight from the typed line would reuse the empty answer.
+async function hoverLink(link) {
+  const corner = await evaluate(`(() => { const r = document.querySelector('.terminal-panel:not([hidden]) .xterm-screen').getBoundingClientRect(); return { x: r.left + 5, y: r.bottom - 5 }; })()`);
+  await call('move', undefined, `?x=${corner.x}&y=${corner.y}`);
+  const point = await call('eval', `const rows = document.querySelector('.terminal-panel:not([hidden]) .xterm-rows');
+  const walker = document.createTreeWalker(rows, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const at = node.textContent.indexOf(${JSON.stringify(link)});
+    if (at < 0) continue;
+    const range = document.createRange();
+    range.setStart(node, at); range.setEnd(node, Math.min(node.textContent.length, at + ${link.length}));
+    const box = range.getBoundingClientRect();
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  }
+  throw new Error('Link nicht im Terminal gefunden');`);
+  await call('move', undefined, `?x=${point.x}&y=${point.y}`);
+}
 
 // Closes open dialogs and every terminal tab (confirming the close dialog if one appears) so each block starts from the same state.
 async function closeTabs() {
@@ -76,6 +98,10 @@ function localTarget() {
 const shots = [];
 // The web-01 tab (not the fixed welcome tab) is connected; proves a session is alive.
 const connectedTab = `[...document.querySelectorAll('.terminal-tab:not([data-fixed])')].some(b => b.querySelector('.tab-name')?.textContent === 'web-01' && b.querySelector('.tab-status-connected'))`;
+// Sidebar row by name: the tab bar shows the same name, so the row is named explicitly.
+const web01 = '.vault-tree-row >> text=web-01 >> nth=0';
+// Connected web-01 tabs; duplicates are labelled "web-01 (1)", so the name is matched by prefix.
+const web01Connected = `[...document.querySelectorAll('.terminal-tab:not([data-fixed])')].filter(b => /^web-01/.test(b.querySelector('.tab-name')?.textContent ?? '') && b.querySelector('.tab-status-connected')).length`;
 const blocks = {
   async sftp() {
     const { target, segment } = localTarget();
@@ -371,6 +397,112 @@ const blocks = {
     await waitFor('Willkommensseite', `document.querySelector('.welcome-page')`);
     await pause(300);
     await shot('welcome');
+  },
+  // Search bar over the output of uptime: Strg+Umschalt+F opens it, typing selects the first match.
+  async 'terminal-search'() {
+    await click(web01);
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener web-01-Tab', `${web01Connected} === 1`);
+    await click('.xterm-helper-textarea >> nth=0');
+    await call('type', 'uptime');
+    await key('Enter');
+    await pause(500);
+    await key('Control+Shift+F');
+    await waitFor('Suchfeld fokussiert', `document.activeElement?.matches('.terminal-search input')`);
+    await call('type', 'load');
+    await waitFor('Suchleiste mit Treffer', `!!document.querySelector('.terminal-search') && !document.querySelector('.terminal-search-status')?.textContent`);
+    await pause(300);
+    await shot('terminal-search');
+  },
+  // cat ~/LIESMICH prints two https links; the hover hint names Strg+Klick. The mouse goes to the middle of the first link.
+  async 'terminal-link'() {
+    await click(web01);
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener web-01-Tab', `${web01Connected} === 1`);
+    await click('.xterm-helper-textarea >> nth=0');
+    await call('type', 'cat ~/LIESMICH');
+    await key('Enter');
+    await waitFor('Link im Terminal', `(document.querySelector('.terminal-panel:not([hidden]) .xterm-rows')?.textContent ?? '').includes('https://intranet.demo/handbuch')`);
+    await hoverLink('https://intranet.demo/handbuch');
+    await waitFor('Link-Hinweis', `!!document.querySelector('.terminal-link-hint')`);
+    await pause(300);
+    await shot('terminal-link');
+  },
+  // cat ~/LINKS prints an OSC-8 link: the text is intranet.demo, the target status.intranet.demo, so the hint must name the target host.
+  async 'terminal-link-osc8'() {
+    await click(web01);
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener web-01-Tab', `${web01Connected} === 1`);
+    await click('.xterm-helper-textarea >> nth=0');
+    await call('type', 'cat ~/LINKS');
+    await key('Enter');
+    await waitFor('OSC-8-Link im Terminal', `(document.querySelector('.terminal-panel:not([hidden]) .xterm-rows')?.textContent ?? '').includes('https://intranet.demo/login')`);
+    await hoverLink('https://intranet.demo/login');
+    await waitFor('Link-Hinweis mit Ziel-Host', `(document.querySelector('.terminal-link-hint')?.textContent ?? '').includes('status.intranet.demo')`);
+    await pause(300);
+    await shot('terminal-link-osc8');
+  },
+  // Terminal section of the settings dialog: font, size, scrollback, cursor and blink.
+  async 'settings-terminal'() {
+    await click('.settings-button');
+    await waitFor('Einstellungsdialog', `document.querySelector('dialog.settings-dialog[open]')`);
+    await call('eval', `const section = [...document.querySelectorAll('dialog.settings-dialog .settings-section')].find(s => s.querySelector('h3')?.textContent.trim() === 'Terminal');
+  if (!section) throw new Error('Abschnitt „Terminal“ fehlt'); section.scrollIntoView({ block: 'start' });`);
+    await pause(300);
+    await shot('settings-terminal');
+    await key('Escape');
+    await waitFor('Einstellungen schließen', `!document.querySelector('dialog.settings-dialog[open]')`);
+  },
+  // Two tabs of web-01 in one view: the first runs a slow command, the second is selected at once; the ring marks the first when its output arrives.
+  async 'tab-activity'() {
+    await click(web01);
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener web-01-Tab', `${web01Connected} === 1`);
+    await click(web01);
+    await key('Enter');
+    await waitFor('zwei verbundene web-01-Tabs', `${web01Connected} === 2`, { timeout: 30000 });
+    await click('.terminal-tab:not([data-fixed]) >> nth=0');
+    await click('.terminal-panel:not([hidden]) .xterm');
+    await call('type', 'sleep 3; echo fertig');
+    await key('Enter');
+    await pause(300);
+    await click('.terminal-tab:not([data-fixed]) >> nth=1');
+    await waitFor('Ring am ersten Tab', `!!document.querySelector('.terminal-tab[data-activity]')`, { timeout: 15000 });
+    await pause(300);
+    await shot('tab-activity');
+  },
+  // Two web-01 panes side by side in one view; the broadcast mode sends one command to both and shows the warning line and chips.
+  async broadcast() {
+    await click(web01);
+    await key('Enter');
+    await waitFor('Terminal', `document.querySelector('.xterm')`);
+    await waitFor('verbundener web-01-Tab', `${web01Connected} === 1`);
+    await click('button[aria-label^="Layout für Bereich"] >> nth=0');
+    await waitFor('Layoutmenü', `document.querySelector('.pane-layout-menu')`);
+    await menuButton('Nebeneinander teilen');
+    await waitFor('zweiter Bereich', `document.querySelectorAll('.pane-chrome').length === 2`);
+    // The split leaves the old pane empty; "Hier verbinden" focuses it, so the next sidebar Enter connects there.
+    await waitFor('leerer Bereich', `!!document.querySelector('.empty-pane button')`);
+    await click('.empty-pane button');
+    await click(web01);
+    await key('Enter');
+    await waitFor('zwei verbundene web-01-Tabs', `${web01Connected} === 2`, { timeout: 30000 });
+    await click('button[aria-label^="Layout für Bereich"] >> nth=0');
+    await waitFor('Layoutmenü', `document.querySelector('.pane-layout-menu')`);
+    await menuButton('Eingabe an alle Bereiche senden');
+    await waitFor('An-alle-Kennzeichen in beiden Bereichen', `document.querySelectorAll('.broadcast-chip').length === 2`);
+    await click('.terminal-panel:not([hidden]) .xterm >> nth=0');
+    await call('type', 'uptime');
+    await key('Enter');
+    await waitFor('uptime in beiden Bereichen', `[...document.querySelectorAll('.terminal-panel:not([hidden]) .xterm-rows')].filter(rows => rows.textContent.includes('load average')).length === 2`, { timeout: 10000 });
+    await pause(300);
+    await shot('broadcast');
+    await click('.broadcast-chip >> nth=0');
+    await waitFor('Eingabe an alle beendet', `document.querySelectorAll('.broadcast-chip').length === 0`);
   },
 };
 

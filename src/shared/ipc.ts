@@ -116,6 +116,7 @@ export const IPC_CHANNELS = {
   appGetLanguage: 'app:get-language',
   appSetLanguage: 'app:set-language',
   appLocaleChanged: 'app:locale-changed',
+  openExternal: 'app:open-external',
   kubeOpen: 'k8s:open',
   kubeSubscribe: 'k8s:subscribe',
   kubeDetail: 'k8s:detail',
@@ -171,6 +172,8 @@ export type SaveVaultResult =
 export interface DesktopApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
+  /** Opens an http(s) link in the default browser; main validates it again. */
+  openExternal: (url: string) => Promise<void>;
   sshPrepare: (request: SshPrepareRequest) => Promise<{ sessionId: string }>;
   sshConnect: (request: SshSessionRequest) => Promise<void>;
   sshInput: (request: SshInputRequest) => Promise<void>;

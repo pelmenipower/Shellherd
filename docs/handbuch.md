@@ -76,7 +76,35 @@ Rechtsklick fügt den Text aus der Zwischenablage in das angeklickte Terminal ei
 Das Einfügen läuft über xterm und berücksichtigt den Bracketed-Paste-Modus des
 Servers. Die üblichen Kopier- und Einfüge-Tastenkürzel bleiben verfügbar.
 
+Im Terminal suchst du mit `Strg+Umschalt+F`. `Enter` sucht weiter, `Umschalt+Enter` zurück, `Esc` schließt die Suche. Groß- und Kleinschreibung spielen keine Rolle. Treffer werden über die Auswahl markiert und nicht in die Zwischenablage kopiert. In den Terminals der Docks in Container- und Cluster-Ansicht gibt es keine Suche; dort geht `Strg+Umschalt+F` an das Terminal.
+
+Links öffnest du mit `Strg+Klick`. Erlaubt sind nur `http`- und `https`-Adressen bis 2048 Zeichen ohne Benutzername und Passwort; alles andere bleibt Text. Beim Überfahren eines Links zeigt das Terminal einen Hinweis, der das Ziel nennt: „Strg+Klick öffnet <Host> im Browser“. Erscheint ein Link unter der ruhenden Maus, bewege die Maus kurz auf eine andere Zeile.
+
+Ein Tab, dessen Terminal gerade nicht sichtbar ist, zeigt mit neuer Ausgabe einen Ring nach dem Namen; der Name wird hell und fett. Sobald du den Tab siehst, verschwindet die Markierung.
+
+Das Hauptfenster merkt sich beim Schließen Größe, Position und Maximierung. Die Angaben stehen in `settings.json` im Benutzerdatenordner, nicht im Vault. Ein minimiert geschlossenes Fenster behält die bisherige Position.
+
 Dateiansicht: `Bearbeiten` öffnet nur Text-, Konfigurations- und Quelltextdateien im Standardprogramm, alles andere in Notepad.
+
+### Tastenkürzel
+
+| Kürzel | Wirkung |
+|---|---|
+| `Strg+,` | Einstellungen öffnen |
+| `Strg+Umschalt+K` | KI-Assistenten ein- oder ausblenden |
+| `Strg+Umschalt+Leertaste` | Workflow-Palette öffnen |
+| `Strg+Umschalt+F` | Suche im Terminal |
+| `Strg+Klick` | Link im Terminal öffnen (nur http und https) |
+| `Strg+Tab` | Nächsten Tab im fokussierten Bereich wählen |
+| `Strg+Umschalt+Tab` | Vorherigen Tab im fokussierten Bereich wählen |
+| `Strg+Umschalt+T` | Verbindungsauswahl des fokussierten Bereichs öffnen |
+| `Strg+Umschalt+W` | Aktiven Tab des fokussierten Bereichs schließen (mit Rückfrage) |
+
+`Strg+F`, `Strg+T` und `Strg+W` bleiben der Shell (ein Zeichen vor, Zeichen tauschen, Wort löschen), deshalb die Umschalt-Varianten. Die Tab-Kürzel wirken nicht, solange ein Dialog offen ist oder du in einem Textfeld tippst; im Terminal selbst funktionieren sie. `Strg+Umschalt+T` und `Strg+Umschalt+W` wiederholen sich nicht, wenn du die Taste gedrückt hältst.
+
+### Eingabe an alle
+
+Im Menü des Bereichskopfs schaltet `Eingabe an alle Bereiche senden` ein; der Eintrag erscheint ab zwei Bereichen. Was du tippst, geht dann an alle verbundenen SSH- und lokalen Terminals der angezeigten Ansicht. Container, Pods, RDP, SFTP, Cluster und die Willkommensseite bleiben aus. Workflows und der Assistent schreiben weiter nur in einen Tab. Die Bereiche der Mitglieder zeigen eine Warnlinie und den Knopf `An alle`; ein Klick darauf beendet die Eingabe. Sie endet auch beim Ansichtswechsel und wenn weniger als zwei Terminals übrig sind.
 
 ## Einstellungen
 
@@ -121,6 +149,21 @@ Unter Einstellungen → Verbindungen (erst nach dem Entsperren) stehen vier Wert
 - **Leerlauf:** Eingabe oder Ausgabe setzt die Zeit zurück. Danach zeigt die Leiste „wegen Leerlauf getrennt“ und `Neu verbinden` (`Enter`). Das gilt für SSH-Terminals, Container-Tabs, Pod-Terminals und die Dateiansicht. Lokale Shells, RDP und Cluster-Ansichten haben keinen Leerlauf. Eine Dateiansicht mit laufendem Transfer, aktivem Auto-Upload oder offener Bearbeitung trennt sich nicht durch Leerlauf.
 - **Pro Verbindung:** Unter `Weitere Angaben` einer SSH- oder SFTP-Verbindung lassen sich die vier Werte einzeln überschreiben (`Leerlauf-Trennung (min)`, `Keepalive (s)`, `Keepalive-Fehlversuche`, `Verbindungs-Timeout (s)`). Leer heißt: Vorgabe aus den Einstellungen. Container und Cluster erben die Werte des genutzten SSH-Knotens.
 - **Kurzer Verbindungs-Timeout:** Er läuft auch, solange die Rückfrage zum Server-Schlüssel offen ist. Bei sehr kurzem Wert scheitert das Annehmen eines neuen Schlüssels, wenn du länger liest. Nimm neue Schlüssel dann über `Verbindung testen` an (dessen Zeitmesser pausiert in der Rückfrage) oder stelle einen größeren Wert ein.
+
+### Terminal
+
+Unter Einstellungen → Terminal (nach dem Entsperren) stehen Schriftart, Schriftgröße, Verlauf, Cursorform und Blinken. Die Werte gelten sofort für alle offenen Terminals dieses Vaults und werden mit ihm gespeichert. Ältere Shellherd-Versionen entfernen sie beim Speichern.
+
+| Wert | Standard | Grenzen |
+|---|---|---|
+| `Schriftart` | Consolas | höchstens 64 Zeichen: Buchstaben, Ziffern, Leerzeichen, `.`, `_`, `-` |
+| `Schriftgröße` | 14 Pixel | 8 bis 32 |
+| `Verlauf` | 5.000 Zeilen | 1.000 bis 50.000 |
+| `Cursor` | Block | Block, Strich oder Unterstrich |
+| `Cursor blinkt` | ja | ja oder nein |
+
+- **Schriftart:** Ein Name, keine Liste der installierten Schriften. Leer oder auf diesem Computer nicht installiert, nimmt Shellherd Consolas, danach Cascadia Mono und eine Standard-Festbreitenschrift.
+- **Verlauf:** Jede Zeile belegt Speicher; 10.000 Zeilen brauchen etwa 15 MB je Terminal, bei 16 offenen Terminals bis zu 240 MB. Ein kleinerer Wert kürzt den Verlauf offener Terminals.
 
 ### KI-Anbieter
 

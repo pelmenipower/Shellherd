@@ -1,9 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import type { Vault, VaultSettings } from '../../../shared/vault/types';
-import { AUTO_LOCK_LIMITS, TIMEOUT_LIMITS, effectiveTimeouts, parseBounded } from '../../../shared/vault/timeouts';
+import type { TerminalCursorStyle, Vault, VaultSettings } from '../../../shared/vault/types';
+import { AUTO_LOCK_LIMITS, TIMEOUT_LIMITS, effectiveTimeouts } from '../../../shared/vault/timeouts';
+import { TERMINAL_LIMITS, effectiveTerminalSettings } from '../../../shared/vault/terminal-settings';
+import { formatNumber } from '../../../shared/format';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { t, useT } from '../i18n';
-import { aiProviderSummary, settingsSections, withAutoLockMinutes, withConfirmBeforeClosing, withTimeouts, type SettingsSection } from '../settings-sections';
+import { aiProviderSummary, parseFontFamily, parseGroupedNumber, settingsSections, withAutoLockMinutes, withConfirmBeforeClosing, withTerminal, withTimeouts, type SettingsSection } from '../settings-sections';
 import { LanguageSetting } from './LanguageSetting';
 import { FileTypeSetting } from './FileTypeSetting';
 import '../settings-ui.css';
@@ -26,6 +28,7 @@ const sectionTitle = (section: SettingsSection): string => ({
   general: t('app:settings.sections.general'),
   vault: t('app:settings.sections.vault'),
   connections: t('app:settings.sections.connections'),
+  terminal: t('app:settings.sections.terminal'),
   assistant: t('app:settings.sections.assistant'),
 })[section];
 
@@ -35,6 +38,8 @@ interface NumberSettingProps {
   unit: string;
   value: number;
   limits: readonly [number, number];
+  /** Shown text of the value; default plain digits. */
+  format?: (value: number) => string;
   busy: boolean;
   /** Section hint, referenced by aria-describedby. */
   hintId: string;
@@ -42,13 +47,13 @@ interface NumberSettingProps {
 }
 
 /** Whole-number field: commits on blur or Enter only, so focus survives Tab between fields. */
-function NumberSetting({ id, label, unit, value, limits, busy, hintId, onCommit }: NumberSettingProps) {
+function NumberSetting({ id, label, unit, value, limits, format = String, busy, hintId, onCommit }: NumberSettingProps) {
   const { t } = useT();
-  const [draft, setDraft] = useState(String(value));
+  const [draft, setDraft] = useState(format(value));
   const [invalid, setInvalid] = useState(false);
-  useEffect(() => { setDraft(String(value)); setInvalid(false); }, [value]);
+  useEffect(() => { setDraft(format(value)); setInvalid(false); }, [value]);
   function commit(): void {
-    const parsed = parseBounded(draft, limits);
+    const parsed = parseGroupedNumber(draft, limits);
     setInvalid(parsed === null);
     if (parsed !== null && parsed !== value) onCommit(parsed);
   }
@@ -61,18 +66,52 @@ function NumberSetting({ id, label, unit, value, limits, busy, hintId, onCommit 
         onChange={event => setDraft(event.target.value)} onBlur={commit}
         onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); } }} />
       <span id={`${id}-unit`}>{unit}</span>
-      {invalid && <p className="field-error" id={`${id}-error`} role="alert">{t('app:settings.rangeError', { min: limits[0], max: limits[1] })}</p>}
+      {invalid && <p className="field-error" id={`${id}-error`} role="alert">{t('app:settings.rangeError', { min: format(limits[0]), max: format(limits[1]) })}</p>}
     </div>
   );
 }
 
-/** Language, file association, vault and AI provider entry points; every value applies immediately. */
+interface FontSettingProps {
+  id: string;
+  /** Saved font name; '' = default. */
+  value: string;
+  busy: boolean;
+  hintId: string;
+  onCommit: (value: string) => void;
+}
+
+/** Font name: commits on blur or Enter; an invalid name keeps the saved one. */
+function FontSetting({ id, value, busy, hintId, onCommit }: FontSettingProps) {
+  const { t } = useT();
+  const [draft, setDraft] = useState(value);
+  const [invalid, setInvalid] = useState(false);
+  useEffect(() => { setDraft(value); setInvalid(false); }, [value]);
+  function commit(): void {
+    const parsed = parseFontFamily(draft);
+    setInvalid(parsed === null);
+    if (parsed !== null && parsed !== value) onCommit(parsed);
+  }
+  return (
+    <div className="settings-field">
+      <label htmlFor={id}>{t('app:settings.terminal.font.label')}</label>
+      {/* readOnly, not disabled: see NumberSetting. */}
+      <input id={id} type="text" placeholder={t('app:settings.terminal.font.placeholder')} autoComplete="off" spellCheck={false} value={draft} readOnly={busy}
+        aria-invalid={invalid || undefined} aria-describedby={`${hintId}${invalid ? ` ${id}-error` : ''}`}
+        onChange={event => setDraft(event.target.value)} onBlur={commit}
+        onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commit(); } }} />
+      {invalid && <p className="field-error" id={`${id}-error`} role="alert">{t('app:settings.terminal.font.error')}</p>}
+    </div>
+  );
+}
+
+/** Language, file association, vault, terminal and AI provider entry points; every value applies immediately. */
 export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', onClose, onManageAi, onSaveSettings }: SettingsDialogProps) {
   const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const manageRef = useRef<HTMLButtonElement>(null);
+  const terminal = effectiveTerminalSettings(vault?.settings);
   useNativeSurfaceBlock(true);
   useEffect(() => {
     dialogRef.current?.showModal();
@@ -119,6 +158,32 @@ export function SettingsDialog({ vault, busy, instant, initialFocus = 'close', o
             onCommit={connectSeconds => void onSaveSettings(withTimeouts(vault.settings, { connectSeconds }))} />
           </div>
           <p className="settings-hint" id={`${id}-timeouts-hint`}>{t('app:settings.timeouts.hint')}</p>
+        </>}
+        {section === 'terminal' && vault && <>
+          <FontSetting id={`${id}-font`} value={terminal.fontFamily} busy={busy} hintId={`${id}-terminal-hint`}
+            onCommit={fontFamily => void onSaveSettings(withTerminal(vault.settings, { fontFamily }))} />
+          <div className="settings-numbers">
+          <NumberSetting id={`${id}-font-size`} label={t('app:settings.terminal.fontSize.label')} unit={t('app:settings.terminal.fontSize.unit')}
+            value={terminal.fontSize} limits={TERMINAL_LIMITS.fontSize} busy={busy} hintId={`${id}-terminal-hint`}
+            onCommit={fontSize => void onSaveSettings(withTerminal(vault.settings, { fontSize }))} />
+          <NumberSetting id={`${id}-scrollback`} label={t('app:settings.terminal.scrollback.label')} unit={t('app:settings.terminal.scrollback.unit')}
+            value={terminal.scrollback} limits={TERMINAL_LIMITS.scrollback} format={formatNumber} busy={busy} hintId={`${id}-terminal-hint`}
+            onCommit={scrollback => void onSaveSettings(withTerminal(vault.settings, { scrollback }))} />
+          </div>
+          <div className="settings-field">
+            <label htmlFor={`${id}-cursor`}>{t('app:settings.terminal.cursor.label')}</label>
+            <select id={`${id}-cursor`} value={terminal.cursorStyle} disabled={busy} aria-describedby={`${id}-terminal-hint`}
+              onChange={event => void onSaveSettings(withTerminal(vault.settings, { cursorStyle: event.target.value as TerminalCursorStyle }))}>
+              <option value="block">{t('app:settings.terminal.cursor.block')}</option>
+              <option value="bar">{t('app:settings.terminal.cursor.bar')}</option>
+              <option value="underline">{t('app:settings.terminal.cursor.underline')}</option>
+            </select>
+          </div>
+          <label className="settings-check">
+            <input type="checkbox" checked={terminal.cursorBlink} disabled={busy} aria-describedby={`${id}-terminal-hint`}
+              onChange={event => void onSaveSettings(withTerminal(vault.settings, { cursorBlink: event.target.checked }))} />
+            {t('app:settings.terminal.blink')}</label>
+          <p className="settings-hint" id={`${id}-terminal-hint`}>{t('app:settings.terminal.hint')}</p>
         </>}
         {section === 'assistant' && vault && <>
           <p className="settings-summary">{aiProviderSummary(vault.ai)}</p>
