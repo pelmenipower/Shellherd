@@ -15,6 +15,7 @@ export function KnownHostsDialog({ busy, onClose }: KnownHostsDialogProps) {
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const importRef = useRef<HTMLButtonElement>(null);
   const [hosts, setHosts] = useState<KnownHostView[] | null>(null);
   const [query, setQuery] = useState('');
   const [pending, setPending] = useState(false);
@@ -49,6 +50,8 @@ export function KnownHostsDialog({ busy, onClose }: KnownHostsDialogProps) {
       setMessage({ text: errorText(error, t('app:hostKeys.importFailed')), error: true });
     } finally {
       setPending(false);
+      // The button is disabled while pending, so focus only after the re-render; a null ref means the dialog closed meanwhile.
+      requestAnimationFrame(() => importRef.current?.focus());
     }
   }
 
@@ -74,7 +77,7 @@ export function KnownHostsDialog({ busy, onClose }: KnownHostsDialogProps) {
         <input ref={searchRef} type="text" spellCheck={false} maxLength={256} value={query}
           aria-label={t('app:hostKeys.search')} placeholder={t('app:hostKeys.searchPlaceholder')}
           onChange={event => setQuery(event.target.value)} />
-        <button type="button" className="secondary-button" disabled={locked} onClick={() => void importFile()}>{t('app:hostKeys.import')}</button>
+        <button ref={importRef} type="button" className="secondary-button" disabled={locked} onClick={() => void importFile()}>{t('app:hostKeys.import')}</button>
       </div>
       {message && <div className={message.error ? 'field-error known-hosts-message' : 'settings-hint known-hosts-message'} role={message.error ? 'alert' : 'status'}>
         <p>{message.text}</p>

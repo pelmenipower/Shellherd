@@ -792,6 +792,13 @@ const blocks = {
       const message = await status();
       const confirmedCase = message.includes('4 neu') && message.includes('1 schon bekannt') && message.includes('127.0.0.1:2222');
       if (!(message.includes('1 widerrufen') && message.includes('3 übersprungen') && (confirmedCase || message.includes('5 neu')))) throw new Error(`Import-Zahlen weichen ab: ${message}`);
+      // Layout guard (I-1): only the list scrolls, and the close button stays inside the viewport.
+      const layout = await evaluate(`(() => {
+        const list = document.querySelector('.known-hosts-list');
+        const close = document.querySelector('dialog.known-hosts-dialog > .form-actions .primary-button');
+        return { overflowY: list ? getComputedStyle(list).overflowY : 'none', closeInView: !!close && close.getBoundingClientRect().bottom <= innerHeight };
+      })()`);
+      if (layout.overflowY !== 'auto' || !layout.closeInView) throw new Error(`Server-Schlüssel-Dialog scrollt falsch: ${JSON.stringify(layout)}`);
       await pause(300);
       await shot('host-keys-import');
       await fill('dialog.known-hosts-dialog .known-hosts-tools input', 'build');
