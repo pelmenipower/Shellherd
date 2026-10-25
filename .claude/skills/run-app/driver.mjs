@@ -35,6 +35,8 @@ const app = await electron.launch({
   executablePath: path.join(REPO, 'node_modules/electron/dist', exe),
   args: [APP_DIR],
   cwd: REPO,
+  // No emulated colour scheme: Playwright defaults to light, the app follows nativeTheme instead.
+  colorScheme: null,
   env: {
     ...process.env,
     SHELLHERD_PROFILE: PROFILE,

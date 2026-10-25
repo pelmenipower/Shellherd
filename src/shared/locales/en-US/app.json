@@ -304,5 +304,17 @@
       "label": "Check for new versions",
       "hint": "At most once a day, after unlocking, Shellherd asks GitHub for the latest version and shows it in the status bar. Only the request itself is sent, nothing from the vault. You install updates yourself."
     }
+  },
+  "recent": {
+    "title": "Recently used",
+    "missing": "File not found",
+    "removeAria": "Remove “{{name}}” from the list"
+  },
+  "theme": {
+    "label": "Appearance",
+    "aria": "Interface color scheme",
+    "system": "System",
+    "dark": "Dark",
+    "light": "Light"
   }
 }

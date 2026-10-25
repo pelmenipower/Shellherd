@@ -19,6 +19,8 @@
   /* Lines */
   --color-border: #2e3a4c;
   --color-border-strong: #4d5b70;
+  /* Input border: >= 3:1 on --color-bg-input (#0f1520, 3.78) and on --color-bg-panel (#151d2a, 3.50) */
+  --color-border-control: #637389;
 
   /* Text */
   --color-text: #ebe7e2;
@@ -94,6 +96,55 @@
   /* Notice display time (no motion; R4 checks only --dur-*) */
   --notice-ttl-info: 5000ms;        /* info notice */
   --notice-ttl-ok: 3000ms;          /* success notice */
+}
+
+/* Light scheme: main sets nativeTheme.themeSource from settings.json, so this query follows "Darstellung" in every window. Colours only; roles stay the same. */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --color-bg-stage: #ffffff;
+    --color-bg-app: #f1eee9;
+    --color-bg-panel: #f8f6f3;
+    --color-bg-raised: #ebe7e1;
+    --color-bg-hover: #e4dfd8;
+    --color-bg-input: #ffffff;
+    --color-bg-selected: #f5dfcc;
+    --color-bg-active: rgb(148 70 26 / 12%);
+    --color-bg-drop: rgb(148 70 26 / 20%);
+    --color-bg-tint: rgb(148 70 26 / 6%);
+    --color-overlay: rgb(0 0 0 / 5%);
+    --color-backdrop: rgb(29 25 21 / 40%);
+
+    --color-border: #d6cfc6;
+    --color-border-strong: #8a7f73;
+    /* Input border: >= 3:1 on --color-bg-input (#ffffff, 4.20) and on --color-bg-panel (#f8f6f3, 3.89) */
+    --color-border-control: #857a6d;
+
+    --color-text: #1d1915;
+    --color-text-muted: #5a534b;
+    --color-text-code: #221e1a;
+
+    --color-accent: #94461a;
+    --color-accent-hover: #7a3a12;
+    --color-on-accent: #ffffff;
+    --color-selection-bg: #f2cfb3;
+    --color-selection-text: #1d1915;
+
+    --color-ok: #116b34;
+    --color-warn: #765c00;
+    --color-warn-border: #d4b34a;
+    --color-warn-bg: #fbf3d5;
+    --color-ok-bg: #e3f3e8;
+    --color-danger: #b42318;
+    --color-danger-strong: #d92d20;
+    --color-danger-text: #7a1a12;
+    --color-danger-bg: #fdeceb;
+    --color-danger-bg-hover: #fadad7;
+    --color-danger-border: #e59a93;
+
+    --shadow-overlay: 0 10px 28px rgb(40 30 20 / 18%);
+  }
 }
 
 @keyframes tm-pulse { 50% { opacity: .35; } }

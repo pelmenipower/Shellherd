@@ -10,7 +10,7 @@ import '../terminal-comfort-ui.css';
 import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import { liveSessions } from '../session-registry';
 import { terminalAccess } from '../terminal-access';
-import { xtermTheme } from '../terminal-theme';
+import { LIGHT_SCHEME_QUERY, xtermContrast, xtermTheme } from '../terminal-theme';
 import { terminalPrefs, xtermOptions } from '../terminal-prefs';
 import { linkHintHost, openTerminalLink } from '../terminal-links';
 import { tabActivity } from '../terminal-activity';
@@ -104,7 +104,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     const styles = getComputedStyle(document.documentElement);
     const term = new Terminal({ ...xtermOptions(terminalPrefs.get()), screenReaderMode: true, allowProposedApi: false,
       linkHandler: { activate: (event, uri) => openTerminalLink(event, uri), hover: (_event, uri) => setLinkTarget(linkHintHost(uri)), leave: () => setLinkTarget(null), allowNonHttpProtocols: false },
-      theme: xtermTheme(name => styles.getPropertyValue(name)) });
+      theme: xtermTheme(name => styles.getPropertyValue(name)), minimumContrastRatio: xtermContrast(window.matchMedia(LIGHT_SCHEME_QUERY).matches) });
     const fit = new FitAddon();
     const serialize = new SerializeAddon();
     const search = new SearchAddon();
@@ -295,6 +295,20 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     Object.assign(term.options, xtermOptions(terminalPrefs.get()));
     if (container.current?.clientWidth) fitAddon.current?.fit();
   }), []);
+
+  // The colour scheme can change at runtime (setting or Windows); xterm keeps its own copy of the colours.
+  useEffect(() => {
+    const query = window.matchMedia(LIGHT_SCHEME_QUERY);
+    const apply = (): void => {
+      const term = terminal.current;
+      if (!term) return;
+      const styles = getComputedStyle(document.documentElement);
+      term.options.theme = xtermTheme(name => styles.getPropertyValue(name));
+      term.options.minimumContrastRatio = xtermContrast(query.matches);
+    };
+    query.addEventListener('change', apply);
+    return () => query.removeEventListener('change', apply);
+  }, []);
 
   // Becoming visible means the output has been seen.
   useEffect(() => {

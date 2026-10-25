@@ -13,6 +13,7 @@ import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlace
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 import type { ImportReadResult, ImportSource } from './import';
 import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
+import type { ThemeSetting } from './theme';
 
 /** Sent to every window when the vault locks; without minutes = manual lock. */
 export interface VaultLockedInfo { minutes?: number }
@@ -99,6 +100,8 @@ export const IPC_CHANNELS = {
   closeSecondaryWindows: 'window:close-secondaries',
   vaultLaunchFile: 'vault:launch-file',
   lastVaultFile: 'vault:last-file',
+  recentVaults: 'vault:recent-list',
+  removeRecentVault: 'vault:recent-remove',
   connectionTest: 'connection:test',
   containersList: 'containers:list',
   containersAction: 'containers:action',
@@ -116,6 +119,8 @@ export const IPC_CHANNELS = {
   fileTypeUnregister: 'app:file-type-unregister',
   appGetLanguage: 'app:get-language',
   appSetLanguage: 'app:set-language',
+  appGetTheme: 'app:get-theme',
+  appSetTheme: 'app:set-theme',
   appLocaleChanged: 'app:locale-changed',
   openExternal: 'app:open-external',
   importRead: 'import:read',
@@ -176,6 +181,9 @@ export type SaveVaultResult =
 
 /** Version check state for the main window; see docs/superpowers/specs/2026-10-24-import-update-design.md. */
 export interface UpdateStatus { enabled: boolean; current: string; available: { version: string; url: string } | null }
+
+/** One entry of the open screen list. filePath is for display and for the existing unlockVault; the list itself only changes in main. */
+export interface RecentVault { id: string; filePath: string; name: string; folder: string; openedAt: number; missing: boolean }
 
 export interface DesktopApi {
   readClipboardText: () => Promise<string>;
@@ -272,6 +280,14 @@ export interface DesktopApi {
   vaultLaunchFile: () => Promise<string | null>;
   /** Path of the vault opened last, if the file still exists; preselected on the open screen. */
   lastVaultFile: () => Promise<string | null>;
+  /** Newest first, at most 8. Main window only. */
+  recentVaults: () => Promise<RecentVault[]>;
+  /** Removes one entry by id and returns the new list; the file itself is untouched. */
+  removeRecentVault: (id: string) => Promise<RecentVault[]>;
+  /** Stored colour scheme (default 'dark'). Main window only. */
+  getTheme: () => Promise<ThemeSetting>;
+  /** Persists first, then applies to all windows; throws core.settingsWriteFailed. */
+  setTheme: (setting: ThemeSetting) => Promise<ThemeSetting>;
   /** Dry run of a possibly unsaved connection. */
   connectionTest: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
   /** Probes an SSH connection or this computer for Docker and Podman and lists Proxmox guests; always fresh. */

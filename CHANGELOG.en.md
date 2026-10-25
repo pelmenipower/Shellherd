@@ -4,6 +4,12 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.22.0] – 2026-10-25
+
+- New: `Open vault` shows the up to eight most recently used vault files with date and folder. One click selects a file; missing files are marked and can be removed from the list with `×`. Only paths and times are stored in `settings.json`, never contents.
+- New: Light theme. Settings → General → `Appearance` offers `System`, `Dark` and `Light`; the default stays `Dark`. The change applies at once in all windows, including window frames and Windows dialogs; in the light terminal Shellherd raises colors that are too pale to a readable contrast.
+- Docs: chapter “Workflows” in the manual (palette, placeholders, managing, taking over from the assistant).
+
 ## [0.21.0] – 2026-10-24
 
 - New: Import connections from OpenSSH (`~/.ssh/config`, choose the file), PuTTY and WinSCP (sessions from the Windows registry, not from a portable `WinSCP.ini`) and mRemoteNG (`confCons.xml`, choose the file). Find it under `New` → `Import` and on the welcome page. A preview shows all connections found with checkboxes before anything is saved. Existing connections stay unchanged. Reading runs apart from the rest of the app and stops after 5 seconds, so a damaged file cannot block Shellherd.

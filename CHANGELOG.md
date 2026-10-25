@@ -4,6 +4,12 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.22.0] – 2026-10-25
+
+- Neu: `Vault öffnen` zeigt die bis zu acht zuletzt benutzten Vault-Dateien mit Datum und Ordner. Ein Klick wählt eine Datei aus; fehlende Dateien sind markiert und lassen sich mit `×` aus der Liste nehmen. Gespeichert werden nur Pfade und Zeitpunkte in `settings.json`, nie Inhalte.
+- Neu: Helles Theme. Einstellungen → Allgemein → `Darstellung` bietet `System`, `Dunkel` und `Hell`, Standard bleibt `Dunkel`. Der Wechsel gilt sofort in allen Fenstern, auch für Fensterrahmen und Windows-Dialoge; im hellen Terminal hebt Shellherd zu blasse Farben auf lesbaren Kontrast an.
+- Doku: Kapitel „Workflows“ im Handbuch (Palette, Platzhalter, Verwalten, Übernahme aus dem Assistenten).
+
 ## [0.21.0] – 2026-10-24
 
 - Neu: Verbindungen importieren aus OpenSSH (`~/.ssh/config`, Datei wählen), PuTTY und WinSCP (Sitzungen aus der Windows-Registry, nicht aus einer portablen `WinSCP.ini`) und mRemoteNG (`confCons.xml`, Datei wählen). Zu finden unter `Neu` → `Importieren` und auf der Willkommensseite. Eine Vorschau zeigt alle gefundenen Verbindungen mit Häkchen, bevor etwas gespeichert wird. Bestehende Verbindungen bleiben unverändert. Das Lesen läuft getrennt vom Rest der App und bricht nach 5 Sekunden ab, damit eine beschädigte Datei Shellherd nicht blockiert.

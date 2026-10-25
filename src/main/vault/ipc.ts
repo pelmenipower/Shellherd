@@ -5,7 +5,7 @@ import {
   ipcMain,
 } from 'electron';
 import { basename, join } from 'node:path';
-import { LastVaultFile } from './last-vault';
+import { RecentVaults } from './recent-vaults';
 
 import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
@@ -61,8 +61,10 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
       }
     });
   };
-  const lastVault = new LastVaultFile(join(app.getPath('userData'), 'last-vault.json'));
-  handle(IPC_CHANNELS.lastVaultFile, () => lastVault.get());
+  const recent = new RecentVaults(join(app.getPath('userData'), 'settings.json'), join(app.getPath('userData'), 'last-vault.json'));
+  handle(IPC_CHANNELS.lastVaultFile, () => recent.latest());
+  handle(IPC_CHANNELS.recentVaults, () => recent.list());
+  handle(IPC_CHANNELS.removeRecentVault, (_event, id: unknown) => recent.remove(id));
 
   handle(IPC_CHANNELS.selectPrivateKeyFile, async (event): Promise<SelectVaultFileResult> => {
     vaultSessionManager.getSnapshot();
@@ -116,7 +118,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
         filePath,
         request.password,
       );
-      await lastVault.set(filePath);
+      await recent.touch(filePath);
 
       onSessionChange();
       onUnlock();
@@ -136,7 +138,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
       const options: OpenDialogOptions = {
         title: mainT('dialogs.vaultOpen.title'),
         // Starts in the folder of the last vault; any other file can still be picked.
-        ...(await lastVault.get().then(last => last ? { defaultPath: last } : {})),
+        ...(await recent.latest().then(last => last ? { defaultPath: last } : {})),
         properties: ['openFile'],
         filters: [
           {
@@ -184,7 +186,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
         request.filePath,
         request.password,
       );
-      await lastVault.set(snapshot.filePath);
+      await recent.touch(snapshot.filePath);
 
       if (!resumesLocked(previous, snapshot)) onSessionChange();
       onUnlock();
@@ -213,7 +215,7 @@ export function registerVaultIpcHandlers({ onSessionChange = () => {}, onUnlock 
         throw code ? new AppError(code) : error;
       }
       // save may have renamed the file (extension added), so the stored path must follow.
-      await lastVault.set(result.filePath);
+      await recent.touch(result.filePath);
       onVaultChange();
       return result;
     },
