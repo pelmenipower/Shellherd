@@ -9,7 +9,7 @@ import { typeIntoTerminal } from '../terminal-input';
 import { liveSessions } from '../session-registry';
 import type { TerminalMark } from '../terminal-access';
 import { compactMessage, historyForRequest, insertableCommand, outputMessage, parseAnswer, questionMessage, SCREEN_LINES } from '../assistant-chat';
-import { diagnoseMessage, diagnosePartLabel, diagnoseQuestion, estimatedTokens, isClusterTab, kubeHistory, mutatingCommand, onDiagnosis, takeDiagnosis, type DiagnoseRequest } from '../kube-diagnose';
+import { diagnoseMessage, diagnosePartLabel, diagnoseQuestion, estimatedTokens, isClusterTab, kubeHistory, mutatingCommand, onDiagnosis, takeDiagnosis, withTabDraft, type DiagnoseRequest } from '../kube-diagnose';
 import { errorText } from '../error-text';
 import { Trans, useT } from '../i18n';
 import '../assistant-ui.css';
@@ -80,7 +80,8 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
   const [autoEvaluate, setAutoEvaluate] = useState(() => read(AUTO_KEY) !== 'off');
   const [conversations, setConversations] = useState<Record<string, Conversation>>({});
   const [diagnoses, setDiagnoses] = useState<Record<string, DiagnoseDraft>>({});
-  const [draft, setDraft] = useState('');
+  /** The input's text per tab: a question of a cluster tab never shows up in another tab's input. */
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const requests = useRef(new Map<string, { tabId: string; entryId: string; userEntryId: string; text: string }>());
   /** One conversation id per tab; main keeps [SECRET_n] stable within it. "Clear history" and a new analysis start a new one. */
   const conversationIds = useRef(new Map<string, string>());
@@ -95,6 +96,8 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
   const shell = shellOf(tab);
   const kubeMode = isClusterTab(tab);
   const diagnosis = tab ? diagnoses[tab.id] : undefined;
+  const draft = tab ? drafts[tab.id] ?? '' : '';
+  const setDraft = (value: string): void => { if (tab) setDrafts(current => withTabDraft(current, tab.id, value)); };
   const conversation = (tab && conversations[tab.id]) || { entries: [] };
   const busy = conversation.entries.some(entry => entry.pending);
   // A Kubernetes conversation shows commands as text only, whichever tab it is in (user ruling: read-only analysis).
@@ -112,7 +115,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
   useEffect(() => {
     const accept = (request: DiagnoseRequest): void => {
       setDiagnoses(current => ({ ...current, [request.tabId]: { request } }));
-      setDraft(diagnoseQuestion(request.target));
+      setDrafts(current => withTabDraft(current, request.tabId, diagnoseQuestion(request.target)));
       request.context.then(
         context => setDiagnoses(current => (current[request.tabId]?.request === request ? { ...current, [request.tabId]: { request, context } } : current)),
         (error: unknown) => setDiagnoses(current => (current[request.tabId]?.request === request ? { ...current, [request.tabId]: { request, error: errorText(error) } } : current)));

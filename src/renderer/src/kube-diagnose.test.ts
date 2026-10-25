@@ -3,7 +3,7 @@ import type { AiChatMessage } from '../../shared/ai';
 import type { KubeDiagnosis, KubeRef } from '../../shared/kubernetes';
 import { historyForRequest } from './assistant-chat';
 import {
-  diagnoseMessage, diagnosePartLabel, diagnoseQuestion, isClusterTab, kubeHistory, mutatingCommand, onDiagnosis, requestDiagnosis, takeDiagnosis, type DiagnoseRequest,
+  diagnoseMessage, diagnosePartLabel, diagnoseQuestion, isClusterTab, kubeHistory, mutatingCommand, onDiagnosis, requestDiagnosis, takeDiagnosis, withTabDraft, type DiagnoseRequest,
 } from './kube-diagnose';
 import type { TerminalTab } from './terminal-tabs';
 
@@ -51,6 +51,9 @@ describe('mutatingCommand', () => {
     'helm rollback app 3',
     'argocd app sync shop',
     'flux reconcile kustomization shop',
+    'kubectl "delete" pod x',
+    "kubectl 'scale' deploy x --replicas=0",
+    'kubectl -n shop "delete" pod x',
   ])('is true for %s', command => {
     expect(mutatingCommand(command)).toBe(true);
   });
@@ -70,8 +73,20 @@ describe('mutatingCommand', () => {
     'helm list -n shop',
     'helm get values app',
     'docker run alpine',
+    'kubectl get pods -l app="delete"',
+    'kubectl auth can-i "delete" pods',
   ])('is false for %s', command => {
     expect(mutatingCommand(command)).toBe(false);
+  });
+});
+
+describe('withTabDraft', () => {
+  it('keeps one draft per tab, so a question of the cluster tab stays out of another tab', () => {
+    const drafts = withTabDraft({}, 'cluster', 'Warum?');
+    const other = withTabDraft(drafts, 'ssh', 'ls');
+    expect(other).toEqual({ cluster: 'Warum?', ssh: 'ls' });
+    expect(withTabDraft(other, 'cluster', '')).toEqual({ cluster: '', ssh: 'ls' });
+    expect(drafts).toEqual({ cluster: 'Warum?' });
   });
 });
 

@@ -66,10 +66,15 @@ const MUTATING_GITOPS = /(?<![\w.-])(?:argocd\s(?:.*\s)?(?:sync|rollback|delete|
 
 /** True when a command changes or enters the cluster. Only positive: a command not recognised is never called safe. */
 export function mutatingCommand(command: string): boolean {
+  // Quotes at a word edge are a shell wrapper around a verb: "delete" is delete. Inside a word (app="delete") they stay.
   // "auth can-i delete pods" asks, it does not delete: drop the verb it asks about, keep the rest of the line.
-  return command.replace(/\\\r?\n/g, ' ').split(/[;&|\n]/).map(part => part.replace(/\bauth\s+can-i\s+\S+/gi, 'auth can-i'))
+  return command.replace(/\\\r?\n/g, ' ').split(/[;&|\n]/)
+    .map(part => part.replace(/(?<=^|\s)["'`]|["'`](?=\s|$)/g, ' ').replace(/\bauth\s+can-i\s+\S+/gi, 'auth can-i'))
     .some(part => MUTATING_KUBECTL.test(part) || MUTATING_ROLLOUT.test(part) || MUTATING_HELM.test(part) || MUTATING_GITOPS.test(part));
 }
+
+/** The assistant input keeps one draft per tab; a new draft of one tab leaves the others as they are. */
+export const withTabDraft = (drafts: Record<string, string>, tabId: string, value: string): Record<string, string> => ({ ...drafts, [tabId]: value });
 
 /** History of a Kubernetes conversation: the context message and its answer always go along, then the newest turns. */
 export function kubeHistory(turns: AiChatMessage[], max = 12): AiChatMessage[] {
