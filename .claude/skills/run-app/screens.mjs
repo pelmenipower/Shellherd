@@ -386,13 +386,19 @@ const blocks = {
       await waitFor('Filter', `${count(`${view} .kube-logs-line mark`)} > 0 && [...document.querySelectorAll('${view} .kube-logs-line')].every(l => l.textContent.includes('ERROR'))`);
       await pause(300);
       await shot('kube-logs-all-filter');
-      // 5. Fallback: monitoring answers incomplete, so nothing is greyed out there. The pause lets the pre-check answer
-      // first; before that the item is enabled anyway and the check would pass trivially.
+      // 5. Fallback: monitoring answers incomplete, so nothing is greyed out there. The answers are recorded on the
+      // renderer side first: "nothing greyed out" only counts once the monitoring answer has arrived (null, not pending).
+      await evaluate(`(() => {
+        const api = window.desktopApi; const ask = api.kubeAccess; window.__accessAnswers = [];
+        api.kubeAccess = request => ask(request).then(denied => { window.__accessAnswers.push({ namespace: request.namespace, denied }); return denied; });
+        return api.kubeAccess !== ask;
+      })()`).then(installed => { if (!installed) throw new Error('kubeAccess nicht erfassbar'); });
       await evaluate(`(() => { const s = document.querySelector('${view} .kube-ns select'); s.value = 'monitoring'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
       await click('.kube-kind-tabs button:has-text("StatefulSets")');
       await waitFor('StatefulSets', `${count('.kube-table tbody tr')} >= 1`);
+      await waitFor('Antwort für monitoring', `window.__accessAnswers.some(a => a.namespace === 'monitoring')`);
       await rclick('.kube-table tbody tr:has-text("postgres")');
-      await pause(3000);
+      await pause(300);
       await waitFor('nichts gesperrt', enabled('Rollout neu starten'));
       await key('Escape');
     } finally {

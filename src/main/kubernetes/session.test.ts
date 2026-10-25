@@ -740,6 +740,19 @@ suite('logs of all pods and the rights pre-check of a view', () => {
     await expect(world.sessions.access(2, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
   });
 
+  it('refuses the pre-check on a disabled cluster or a locked vault without asking the cluster', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const review = vi.spyOn(world.api, 'rulesReview');
+    world.cluster.disabled = true;
+    await expect(world.sessions.access(1, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+    world.cluster.disabled = false;
+    vi.mocked(world.deps.getCluster).mockImplementationOnce(() => { throw new AppError('core.vaultLocked'); });
+    await expect(world.sessions.access(1, viewId, 'shop')).rejects.toMatchObject({ code: 'core.vaultLocked' });
+    expect(review).not.toHaveBeenCalled();
+  });
+
   it('refuses the pre-check while the cluster is not ready', async () => {
     const world = setup();
     const { viewId } = world.sessions.open(1, 'c1');

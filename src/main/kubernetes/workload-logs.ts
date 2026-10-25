@@ -22,7 +22,7 @@ const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 export type LogsRequest = Omit<KubeLogsStartRequest, 'viewId'>;
 /** The view a run belongs to; `api` waits through a reconnect (Session.waitReady). */
 export interface LogsView { ownerId: number; viewId: string; api: () => Promise<KubeApi> }
-export interface LogsBatch { id: string; lines: KubeLogLine[]; sources: KubeLogSource[]; waiting: number; dropped: number; error?: CodedError }
+export interface LogsBatch { id: string; lines: KubeLogLine[]; sources: KubeLogSource[]; waiting: number; full: number; dropped: number; error?: CodedError }
 export type LogsEmit = (ownerId: number, viewId: string, batch: LogsBatch) => void;
 export interface LogsTimers { schedule: (fn: () => void, ms: number) => unknown; cancel: (handle: unknown) => void }
 
@@ -97,6 +97,8 @@ class LogRun {
   private pods: KubeObject[] = [];
   private lines: KubeLogLine[] = [];
   private waiting = 0;
+  /** Containers that never get a source, because the run already has MAX_LOG_SOURCES. */
+  private full = 0;
   private dropped = 0;
   private error?: CodedError;
   /** The renderer has not seen the current state; true at the start, so the first sync reports even without pods. */
@@ -139,17 +141,20 @@ class LogRun {
       .filter(entry => entry.name !== '')
       .sort((a, b) => byName(a.name, b.name));
     let waiting = 0;
+    let full = 0;
     for (const { pod, name } of named) {
       for (const { container, instance, running } of startedContainers(pod)) {
         const key = `${name}/${container}`;
         const known = this.sources.find(source => source.key === key);
         // Live, or this container instance was read to its end (a running one may resume after a clean end).
         if (known?.stream || (known?.instance === instance && !(running && known.resume))) continue;
-        if (this.openStreams() >= MAX_LOG_STREAMS || (!known && this.sources.length >= MAX_LOG_SOURCES)) { waiting++; continue; }
+        // A new source is never added past MAX_LOG_SOURCES, so such a container stays out: it is not waiting for a stream.
+        if (!known && this.sources.length >= MAX_LOG_SOURCES) { full++; continue; }
+        if (this.openStreams() >= MAX_LOG_STREAMS) { waiting++; continue; }
         this.open(known ?? this.add(key, name, container), instance);
       }
     }
-    if (waiting !== this.waiting) { this.waiting = waiting; this.dirty = true; }
+    if (waiting !== this.waiting || full !== this.full) { this.waiting = waiting; this.full = full; this.dirty = true; }
     this.touch();
   }
 
@@ -257,7 +262,7 @@ class LogRun {
     }
     this.dirty = false;
     this.emit(this.view.ownerId, this.view.viewId, {
-      id: this.request.id, lines, sources: this.sources.map(source => source.info), waiting: this.waiting, dropped: this.dropped,
+      id: this.request.id, lines, sources: this.sources.map(source => source.info), waiting: this.waiting, full: this.full, dropped: this.dropped,
       ...(this.error ? { error: this.error } : {}),
     });
   }

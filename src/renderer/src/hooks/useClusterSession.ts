@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { codedFrom } from '../../../shared/errors';
+import type { KubeDenied } from '../../../shared/kube-access';
 import { queryKey } from '../../../shared/kubernetes';
 import type { KubeActionRequest, KubeDetail, KubeDetailMode, KubeForwardStatus, KubeForwardTarget, KubeLogsStartRequest, KubeRef, KubeViewSnapshot } from '../../../shared/kubernetes';
 import { t } from '../i18n';
@@ -101,19 +102,51 @@ export function useClusterSession(clusterId: string, initial?: KubeViewSnapshot,
     return window.desktopApi.kubeLogsStop({ viewId: id, id: logsId });
   }, []);
 
-  // One request per namespace at a time; a failed request counts as unknown (nothing greyed out) until it is stale.
-  const accessPending = useRef(new Set<string>());
+  const [access] = useState(() => accessRequests(
+    (viewId, namespace) => window.desktopApi.kubeAccess({ viewId, namespace }),
+    (namespace, denied) => dispatch({ type: 'access', namespace, entry: { at: Date.now(), denied } }),
+  ));
+  // A connection that drops makes its pending answers stale; the next ready state asks again.
+  const statusState = state.status?.state;
+  useEffect(() => { if (statusState !== 'ready') access.reset(); }, [statusState, access]);
   const ensureAccess = useCallback((namespace: string): void => {
     const id = viewIdRef.current;
-    if (!id || accessPending.current.has(namespace)) return;
-    accessPending.current.add(namespace);
-    void window.desktopApi.kubeAccess({ viewId: id, namespace }).catch(() => null).then(denied => {
-      accessPending.current.delete(namespace);
-      dispatch({ type: 'access', namespace, entry: { at: Date.now(), denied } });
-    });
-  }, []);
+    if (id) access.ensure(id, namespace);
+  }, [access]);
 
   return { state, dispatch: dispatch as (action: KubeViewAction) => void, viewId, retry, detail, action, startForward, stopForward, startLogs, stopLogs, ensureAccess };
+}
+
+export interface AccessRequests {
+  /** Asks once per namespace while no answer is pending; a failed request counts as unknown (nothing greyed out). */
+  ensure(viewId: string, namespace: string): void;
+  /** Connection lost: answers still on their way are dropped when they arrive. */
+  reset(): void;
+}
+
+/** Pending requests per namespace, with a generation that reset() ends. */
+export function accessRequests(
+  ask: (viewId: string, namespace: string) => Promise<KubeDenied[] | null>,
+  answer: (namespace: string, denied: KubeDenied[] | null) => void,
+): AccessRequests {
+  let generation = 0;
+  const pending = new Set<string>();
+  return {
+    ensure(viewId, namespace) {
+      if (pending.has(namespace)) return;
+      const asked = generation;
+      pending.add(namespace);
+      void ask(viewId, namespace).catch(() => null).then(denied => {
+        if (asked !== generation) return;
+        pending.delete(namespace);
+        answer(namespace, denied);
+      });
+    },
+    reset() {
+      generation++;
+      pending.clear();
+    },
+  };
 }
 
 /** A status for failures that happen before or outside the main side's own status events. */

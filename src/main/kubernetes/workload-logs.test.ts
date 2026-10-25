@@ -158,7 +158,7 @@ describe('KubeWorkloadLogs', () => {
   it('reports a first batch without pods and formats compact lines without escape sequences', async () => {
     const empty = await setup([]);
     empty.clock.run(LOG_BATCH_MS);
-    expect(empty.batches).toEqual([{ id: 'run', lines: [], sources: [], waiting: 0, dropped: 0 }]);
+    expect(empty.batches).toEqual([{ id: 'run', lines: [], sources: [], waiting: 0, full: 0, dropped: 0 }]);
     const compact = await setup([pod('a', { app: running() })], 'compact');
     compact.api.streams[0].io.data(Buffer.from('2026-10-25T08:10:00Z {"level":"error","msg":"x"}\n'));
     compact.clock.run(LOG_BATCH_MS);
@@ -176,6 +176,19 @@ describe('KubeWorkloadLogs', () => {
     expect(api.streams[20].target.pod).toBe('p20');
     clock.run(LOG_BATCH_MS);
     expect(batches.at(-1)?.waiting).toBe(4);
+  });
+
+  it('counts containers beyond 100 sources as full, not as waiting; sources open only as streams end', async () => {
+    const pods = Array.from({ length: 101 }, (_, i) => pod(`p${String(i).padStart(3, '0')}`, { app: running() }));
+    const { api, clock, batches } = await setup(pods);
+    // Every clean end frees one stream for the next container: 80 ends bring the source count to 100.
+    for (let i = 0; i < 80; i++) api.streams[i].io.end(0);
+    clock.run(LOG_BATCH_MS);
+    const last = batches.at(-1);
+    expect(last?.sources).toHaveLength(100);
+    expect(last?.sources.some(source => source.pod === 'p100')).toBe(false);
+    expect(last?.full).toBe(1);
+    expect(last?.waiting).toBe(0);
   });
 
   it('keeps an instance that ended with an error, and reads a new instance from the second of the last line without duplicates', async () => {

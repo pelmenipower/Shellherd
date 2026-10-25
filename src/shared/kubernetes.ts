@@ -148,7 +148,7 @@ export type KubeEvent =
   /** The port forwards of the view, complete; sent on every change. */
   | { type: 'forwards'; viewId: string; forwards: KubeForwardStatus[] }
   /** A batch of the logs of all pods of run `id`: sources complete, lines new since the last batch, dropped = lines skipped so far. */
-  | { type: 'logs'; viewId: string; id: string; lines: KubeLogLine[]; sources: KubeLogSource[]; waiting: number; dropped: number; error?: CodedError };
+  | { type: 'logs'; viewId: string; id: string; lines: KubeLogLine[]; sources: KubeLogSource[]; waiting: number; full: number; dropped: number; error?: CodedError };
 
 export type KubeDetailMode = 'yaml' | 'describe' | 'events';
 export type KubeDetail = { mode: 'yaml' | 'describe'; text: string } | { mode: 'events'; rows: KubeRow[] };

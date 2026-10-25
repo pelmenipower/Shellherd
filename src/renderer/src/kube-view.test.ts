@@ -1101,7 +1101,7 @@ describe('rights pre-check and logs of all pods', () => {
 
   it('returns the same state for a logs event and never saves the answers', () => {
     const filled = kubeViewReducer(ready, { type: 'access', namespace: 'shop', entry });
-    const event: KubeEvent = { type: 'logs', viewId: 'v1', id: 'r', lines: [], sources: [], waiting: 0, dropped: 0 };
+    const event: KubeEvent = { type: 'logs', viewId: 'v1', id: 'r', lines: [], sources: [], waiting: 0, full: 0, dropped: 0 };
     expect(kubeViewReducer(filled, { type: 'event', event })).toBe(filled);
     expect(JSON.stringify(snapshotOf(filled))).not.toContain('access');
   });

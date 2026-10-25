@@ -625,7 +625,10 @@ export class KubeSessions {
 
   /** RBAC pre-check of one namespace. null whenever the answer cannot be trusted: forbidden, not served, incomplete, failed or slow. */
   async access(ownerId: number, viewId: string, namespace: string): Promise<KubeDenied[] | null> {
-    const api = this.viewOf(ownerId, viewId).session.requireApi();
+    const view = this.viewOf(ownerId, viewId);
+    // Read at each call, like the other entries: a disabled cluster or a locked vault refuses.
+    if (this.deps.getCluster(view.session.clusterId).disabled) throw new AppError(DISABLED);
+    const api = view.session.requireApi();
     let timer: unknown;
     const late = new Promise<null>(resolve => { timer = this.options.schedule(() => resolve(null), ACCESS_TIMEOUT_MS); });
     try {

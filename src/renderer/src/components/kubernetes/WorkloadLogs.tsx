@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { MAX_LOG_STREAMS, type KubeLogSource, type KubeLogsStartRequest, type KubeRow } from '../../../../shared/kubernetes';
+import { MAX_LOG_SOURCES, MAX_LOG_STREAMS, type KubeLogSource, type KubeLogsStartRequest, type KubeRow } from '../../../../shared/kubernetes';
 import { errorText } from '../../error-text';
 import { useT } from '../../i18n';
 import { MAX_BUFFER_LINES, SOURCE_COLORS, highlightParts, logTime, logsText, mergeLines, shownLines, sourceLabel, toggleSource, type LogEntry } from '../../kube-logs';
@@ -23,6 +23,7 @@ export function WorkloadLogs({ viewId, row, format, start, stop, textRef }: Work
   const [log, setLog] = useState<{ entries: LogEntry[]; received: number }>({ entries: [], received: 0 });
   const [sources, setSources] = useState<KubeLogSource[]>([]);
   const [waiting, setWaiting] = useState(0);
+  const [full, setFull] = useState(0);
   const [dropped, setDropped] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -42,6 +43,7 @@ export function WorkloadLogs({ viewId, row, format, start, stop, textRef }: Work
       setLog(current => ({ entries: mergeLines(current.entries, event.lines, current.received, MAX_BUFFER_LINES), received: current.received + event.lines.length }));
       setSources(event.sources);
       setWaiting(event.waiting);
+      setFull(event.full);
       setDropped(event.dropped);
       setError(event.error ? errorText(event.error) : null);
       setLoaded(true);
@@ -81,6 +83,7 @@ export function WorkloadLogs({ viewId, row, format, start, stop, textRef }: Work
     : [
       t('kubernetes:logsAll.summary', { shown: live, total: sources.length }),
       ...(waiting > 0 ? [t('kubernetes:logsAll.waiting', { count: waiting, max: MAX_LOG_STREAMS })] : []),
+      ...(full > 0 ? [t('kubernetes:logsAll.full', { count: full, max: MAX_LOG_SOURCES })] : []),
       ...(dropped > 0 ? [t('kubernetes:logsAll.dropped', { count: dropped })] : []),
     ].join(' · '));
 
