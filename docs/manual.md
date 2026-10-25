@@ -529,7 +529,7 @@ instead of on the server.
 In the setup form, “Production” is preselected; deselecting it is a deliberate
 decision. “Read-only” blocks restart, scale, delete and the shell; logs, `Logs of all pods`, YAML,
 events, describe, `Forward port…` and `Analyze with AI` stay allowed. Every change asks for confirmation. For
-production you have to type the resource name before the button becomes active.
+production you have to type the resource name before the button becomes active. Under “Web interfaces (optional)” you can enter the addresses of Argo CD and Harbor (see “Argo CD and Harbor”).
 
 The cluster tab shows nodes, workloads, pods and events live. A status bar below the
 header shows the state: “Live” with the age of the data (“updated 12 s ago”); while
@@ -629,6 +629,17 @@ Right-click a pod, a Deployment, StatefulSet, DaemonSet, a Job or an event → `
   - The AI only sees this excerpt: no metrics, no services, ingresses or network policies, no other namespaces, no logs before the last 100 lines and no content of ConfigMaps and Secrets.
   - Its answer is a guess from this data. Check it with the suggested read-only commands.
   - Logs can contain personal data. For production clusters the preview points this out separately.
+
+### Argo CD and Harbor
+
+In the cluster entry (`Edit` → “Web interfaces (optional)”) you can enter the address of Argo CD and of Harbor, for example `https://argocd.example.com` and `https://harbor.example.com`. Only `https` addresses without a user name are allowed.
+
+- **Recognizing Argo CD:** If an object carries the annotation `argocd.argoproj.io/tracking-id` (default since Argo CD 3) or the label `argocd.argoproj.io/instance`, its context menu shows “Argo CD: app …” at the top. Shellherd does not evaluate the label `app.kubernetes.io/instance`, because Helm sets it too.
+- **`Open in Argo CD`** opens the app in your browser. Without an address the entry is greyed out and says why.
+- **Self-heal hint:** Scaling, suspending, resuming and deleting a job on an object that Argo CD manages say in the confirmation whether Argo CD reverts the change, with the app’s sync and health status. For this Shellherd reads the Application in the cluster (`get` on `applications.argoproj.io`, in the namespace `argocd` or the namespace before `_` in the app name). If the account may not do that, if Argo CD runs in another cluster or if the cluster does not answer within 5 seconds, it says “may revert differences from Git (self-heal)”. For a restart the confirmation says that Argo CD usually does not revert it.
+- **`Open in Harbor`** is offered on pods, containers, Deployments, StatefulSets and DaemonSets when the registry host of the image matches the Harbor address. For pods the link leads to the running artifact (with the vulnerability scan, if Harbor scans) as long as the cluster reports its digest; otherwise, and for workloads, it leads to the repository page with all tags. If the image lies elsewhere, the entry is greyed out: “Image is not in harbor.example.com.”
+- **Read-only, links only:** Shellherd triggers no sync, no refresh, no rollback and no scan, and never queries Argo CD or Harbor itself. It only opens your browser; sign-in and permissions are handled there by Argo CD and Harbor as usual. The host of a link always comes from the cluster entry. Labels, annotations and image names from the cluster only decide the path.
+- **Limits:** If the Applications live in a namespace other than `argocd` (for example `openshift-gitops`), the confirmation says “may revert”. Harbor links use the project name instead of Harbor’s internal project ID. If Harbor shows the project list or an error page instead of the artifact, your Harbor version does not accept the name.
 
 ## File view: keyboard and transfers
 

@@ -4,6 +4,12 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.30.0] – 2026-10-25
+
+- Neu: Argo CD und Harbor im Cluster-Tab. Mit der Argo-CD- und der Harbor-Adresse im Cluster-Eintrag öffnen `In Argo CD öffnen` und `In Harbor öffnen` die App bzw. das Image im Browser, bei Pods das laufende Artefakt. Argo-verwaltete Objekte erkennt Shellherd an der Tracking-Annotation oder am Label `argocd.argoproj.io/instance`.
+- Neu: Skalieren, Anhalten, Fortsetzen und Job löschen an Argo-verwalteten Objekten sagen im Bestätigungsdialog, ob Argo CD die Änderung per Self-Heal zurücksetzt, mit Sync- und Health-Stand der App.
+- Sicherheit: Shellherd liest dafür nur (`get` auf die Application) und löst in Argo CD und Harbor nichts aus. Links gehen nur an die hinterlegten https-Adressen; Labels, Annotationen und Image-Namen aus dem Cluster bestimmen nie den Host.
+
 ## [0.29.0] – 2026-10-25
 
 - Neu: KI-Analyse im Cluster-Tab. Rechtsklick auf einen Pod, Workload, Job oder ein Event → `Mit KI analysieren`; bei Pod-Problemen auch `Analysieren` in der roten Leiste. Shellherd sammelt Status, Events, die letzten Logzeilen (auch des vorherigen Containers) und die Spezifikation und zeigt vor dem Senden, was hinausgeht. Der KI-Assistent erklärt dann die wahrscheinliche Ursache.

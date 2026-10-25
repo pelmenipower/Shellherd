@@ -540,7 +540,7 @@ statt auf dem Server laufen würden.
 Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
 Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, `Logs aller Pods`, YAML,
 Events, Describe, `Port weiterleiten…` und `Mit KI analysieren` bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
-Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird.
+Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird. Unter „Weboberflächen (optional)“ lassen sich die Adressen von Argo CD und Harbor hinterlegen (siehe „Argo CD und Harbor“).
 
 Der Cluster-Tab zeigt Nodes, Workloads, Pods und Events live. Eine Statusleiste unter dem
 Kopf nennt den Zustand: „Live“ mit dem Alter der Daten („Stand vor 12 s“), beim Neuverbinden
@@ -640,6 +640,17 @@ Rechtsklick auf einen Pod, ein Deployment, StatefulSet, DaemonSet, einen Job ode
   - Die KI sieht nur diesen Ausschnitt: keine Metriken, keine Services, Ingress oder Netzwerk-Policies, keine anderen Namespaces, keine Logs vor den letzten 100 Zeilen und keinen Inhalt von ConfigMaps und Secrets.
   - Ihre Antwort ist eine Vermutung aus diesen Daten. Prüfe sie mit den vorgeschlagenen lesenden Befehlen.
   - Logs können personenbezogene Daten enthalten. Bei Produktions-Clustern weist die Vorschau eigens darauf hin.
+
+### Argo CD und Harbor
+
+Im Cluster-Eintrag (`Bearbeiten` → „Weboberflächen (optional)“) kannst du die Adresse von Argo CD und von Harbor hinterlegen, etwa `https://argocd.example.com` und `https://harbor.example.com`. Erlaubt sind nur `https`-Adressen ohne Benutzername.
+
+- **Argo CD erkennen:** Trägt ein Objekt die Annotation `argocd.argoproj.io/tracking-id` (Standard ab Argo CD 3) oder das Label `argocd.argoproj.io/instance`, zeigt sein Kontextmenü oben „Argo CD: App …“. Das Label `app.kubernetes.io/instance` wertet Shellherd nicht aus, weil Helm es ebenfalls setzt.
+- **`In Argo CD öffnen`** öffnet die App im Browser. Ohne hinterlegte Adresse ist der Eintrag gesperrt und sagt, warum.
+- **Self-Heal-Hinweis:** Skalieren, Anhalten, Fortsetzen und Job löschen an einem Objekt, das Argo CD verwaltet, sagen im Bestätigungsdialog, ob Argo CD die Änderung zurücksetzt, mit Sync- und Health-Stand der App. Dafür liest Shellherd die Application im Cluster (`get` auf `applications.argoproj.io`, im Namespace `argocd` oder dem Namespace vor `_` im App-Namen). Darf das Konto das nicht, läuft Argo CD in einem anderen Cluster oder antwortet der Cluster nicht binnen 5 Sekunden, steht dort „möglicherweise“. Bei einem Neustart sagt der Dialog, dass Argo CD ihn in der Regel nicht zurücksetzt.
+- **`In Harbor öffnen`** gibt es an Pods, Containern, Deployments, StatefulSets und DaemonSets, wenn der Registry-Host des Images der Harbor-Adresse entspricht. Bei Pods führt der Link zum laufenden Artefakt (mit Schwachstellen-Scan, falls Harbor scannt), sofern der Cluster dessen Digest meldet; sonst und bei Workloads führt er zur Repository-Seite mit allen Tags. Liegt das Image woanders, ist der Eintrag gesperrt: „Image liegt nicht in harbor.example.com.“
+- **Nur lesen, nur Links:** Shellherd löst kein Sync, kein Refresh, kein Rollback und keinen Scan aus und fragt weder Argo CD noch Harbor selbst ab. Es öffnet nur den Browser; Anmeldung und Rechte regeln Argo CD und Harbor dort wie gewohnt. Der Host eines Links kommt immer aus dem Cluster-Eintrag. Labels, Annotationen und Image-Namen aus dem Cluster bestimmen nur den Pfad.
+- **Grenzen:** Liegen die Applications in einem anderen Namespace als `argocd` (etwa `openshift-gitops`), sagt der Dialog „möglicherweise“. Die Harbor-Links nutzen den Projektnamen statt der internen Projekt-ID. Öffnet Harbor statt des Artefakts die Projektliste oder eine Fehlerseite, nimmt deine Harbor-Version den Namen nicht an.
 
 ## Dateiansicht: Tastatur und Übertragungen
 
