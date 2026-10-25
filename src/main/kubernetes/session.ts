@@ -3,7 +3,7 @@ import type { KubeConfig } from '@kubernetes/client-node';
 import { AppError } from '../../shared/errors';
 import type { CodedError, ErrorCode } from '../../shared/errors';
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
-import type { ClusterState, ClusterStatus, KubeAction, KubeDetail, KubeDetailMode, KubeEvent, KubeForwardStatus, KubeForwardTarget, KubeOpenResult, KubeQuery, KubeRef, KubeRow, KubeTerminalTarget, UsageHistory } from '../../shared/kubernetes';
+import type { ClusterState, ClusterStatus, KubeAction, KubeDetail, KubeDetailMode, KubeDiagnosis, KubeEvent, KubeForwardStatus, KubeForwardTarget, KubeOpenResult, KubeQuery, KubeRef, KubeRow, KubeTerminalTarget, UsageHistory } from '../../shared/kubernetes';
 import { queryKey } from '../../shared/kubernetes';
 import type { TerminalSize } from '../../shared/ssh';
 import { KubeApiError } from './api';
@@ -12,6 +12,7 @@ import type { KubeApi, KubeStream, TerminalIo } from './api';
 import { runAction } from './actions';
 import type { ClusterAccess } from './access';
 import { describe, toYaml } from './describe';
+import { buildDiagnosis } from './diagnose';
 import { KubeForwards } from './forwards';
 import { KubeWorkloadLogs, type LogsRequest } from './workload-logs';
 import { deniedAccess, type KubeDenied } from '../../shared/kube-access';
@@ -639,6 +640,14 @@ export class KubeSessions {
     } finally {
       this.options.cancel(timer);
     }
+  }
+
+  /** "Mit KI analysieren": reads status, events, logs and spec of one object. Reading: allowed on read-only clusters, refused on disabled ones. */
+  async diagnose(ownerId: number, viewId: string, ref: KubeRef, event?: KubeRef): Promise<KubeDiagnosis> {
+    const view = this.viewOf(ownerId, viewId);
+    // Read at each call, like the other entries: a disabled cluster or a locked vault refuses.
+    if (this.deps.getCluster(view.session.clusterId).disabled) throw new AppError(DISABLED);
+    return buildDiagnosis(view.session.requireApi(), ref, event);
   }
 
   close(ownerId: number, viewId: string): void {

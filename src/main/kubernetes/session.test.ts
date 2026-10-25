@@ -81,6 +81,7 @@ class FakeApi implements KubeApi {
   terminals: { target: KubeTerminalTarget; size: { cols: number; rows: number } }[] = [];
   streams: { close: Mock }[] = [];
   forwards: { namespace: string; pod: string; port: number }[] = [];
+  logReads: string[] = [];
 
   async list(kind: KubeKind, namespace: string | null): Promise<ListResult> {
     this.lists.push({ kind, namespace });
@@ -148,6 +149,10 @@ class FakeApi implements KubeApi {
   async rulesReview(): Promise<KubeRulesReview> {
     if (this.rules instanceof Error) throw this.rules;
     return this.rules;
+  }
+  async readLog(target: { pod: string; container: string }, options: { previous: boolean }): Promise<string> {
+    this.logReads.push(`${target.pod}/${target.container}/${options.previous}`);
+    return 'line 1\nline 2\n';
   }
 }
 
@@ -810,5 +815,36 @@ suite('logs of all pods and the rights pre-check of a view', () => {
     await settle();
     world.sessions.closeAll();
     expect(world.api.logStreams.at(-1)?.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+suite('KubeSessions.diagnose', () => {
+  const deployment = { kind: 'deployments' as const, namespace: 'shop', name: 'api' };
+
+  it('reads the object on a read-only cluster and answers the context as text', async () => {
+    const world = setup();
+    world.cluster.readOnly = true;
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const result = await world.sessions.diagnose(1, viewId, deployment);
+    expect(result.text).toContain('Kind: Deployment');
+    expect(result.parts.map(part => part.id)).toEqual(['object', 'events', 'pods']);
+    expect(world.api.patches).toEqual([]);
+    expect(world.api.removed).toEqual([]);
+  });
+
+  it('refuses a disabled cluster, a locked vault, another window and a cluster that is not ready, without reading', async () => {
+    const world = setup();
+    const notReady = world.sessions.open(1, 'c1').viewId;
+    await expect(world.sessions.diagnose(1, notReady, deployment)).rejects.toMatchObject({ code: 'kubernetes.notConnected' });
+    await settle();
+    const read = vi.spyOn(world.api, 'read');
+    world.cluster.disabled = true;
+    await expect(world.sessions.diagnose(1, notReady, deployment)).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+    world.cluster.disabled = false;
+    vi.mocked(world.deps.getCluster).mockImplementationOnce(() => { throw new AppError('core.vaultLocked'); });
+    await expect(world.sessions.diagnose(1, notReady, deployment)).rejects.toMatchObject({ code: 'core.vaultLocked' });
+    await expect(world.sessions.diagnose(2, notReady, deployment)).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
+    expect(read).not.toHaveBeenCalled();
   });
 });
