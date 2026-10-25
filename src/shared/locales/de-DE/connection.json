@@ -216,6 +216,12 @@
     "productionHint": "Aktionen verlangen das Eintippen des Namens.",
     "readOnly": "Nur lesen",
     "readOnlyHint": "Keine Aktionen und keine Shell, Logs bleiben erlaubt.",
+    "links": {
+      "legend": "Weboberflächen (optional)",
+      "hint": "Für „In Argo CD öffnen“ und „In Harbor öffnen“. Shellherd öffnet damit nur Links im Browser und ruft dort selbst nichts ab. Nur https-Adressen.",
+      "argo": "Argo-CD-Adresse",
+      "harbor": "Harbor-Adresse"
+    },
     "validation": {
       "noAccess": "Wähle mindestens eine SSH-Verbindung als Zugang.",
       "kubeconfigEmpty": "Gib den Pfad zur Kubeconfig an.",
@@ -223,7 +229,8 @@
       "accessGone": "Die Zugangs-Verbindung „{{id}}“ gibt es nicht mehr.",
       "accessNotSsh": "Die Zugangs-Verbindung „{{name}}“ ist keine SSH-Verbindung.",
       "accessDisabled": "Die Zugangs-Verbindung „{{name}}“ ist deaktiviert.",
-      "nameMissing": "Gib einen Namen an."
+      "nameMissing": "Gib einen Namen an.",
+      "linkUrl": "Gib eine https-Adresse ohne Benutzername, Abfrage oder Anker an."
     }
   }
 }

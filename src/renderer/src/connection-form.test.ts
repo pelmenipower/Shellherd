@@ -10,7 +10,7 @@ const fields: ConnectionFields = {
   method: 'agent', password: 'synthetic-only', keyPath: '/synthetic/key', passphrase: 'synthetic-only',
   domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
   tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off', loginSudo: 'off', loginCommands: '', disabled: 'off',
-  accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
+  accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off', argoUrl: '', harborUrl: '',
   idleMinutes: '', keepaliveSeconds: '', keepaliveCount: '', connectSeconds: '',
   jumpHost: '', forwards: [],
 };
@@ -150,6 +150,24 @@ describe('kubernetes clusters in the form', () => {
     expect(() => connectionFromFields('k', { ...cluster, accessHosts: [] }, 'kubernetes')).toThrow(ConnectionFieldError);
     expect(() => connectionFromFields('k', { ...cluster, kubeconfigSource: 'path', kubeconfigPath: 'rel' }, 'kubernetes')).toThrow('beginnen');
     expect(() => connectionFromFields('k', { ...cluster, namespace: 'Bad_NS' }, 'kubernetes')).toThrow('Namespace');
+  });
+  it('stores the Argo CD and Harbor addresses normalized and reads them back', () => {
+    const node = connectionFromFields('k', { ...cluster, argoUrl: ' https://ArgoCD.example.test/ ', harborUrl: 'https://harbor.example.test:443/' }, 'kubernetes');
+    expect(node).toMatchObject({ argoUrl: 'https://argocd.example.test', harborUrl: 'https://harbor.example.test' });
+    expect(fieldsFromConnection('kubernetes', node)).toMatchObject({ argoUrl: 'https://argocd.example.test', harborUrl: 'https://harbor.example.test' });
+    const plain = connectionFromFields('k', { ...cluster, argoUrl: '  ', harborUrl: '' }, 'kubernetes');
+    expect(plain).not.toHaveProperty('argoUrl');
+    expect(plain).not.toHaveProperty('harborUrl');
+    expect(fieldsFromConnection('kubernetes', plain)).toMatchObject({ argoUrl: '', harborUrl: '' });
+  });
+  it('reports an address that is not plain https on its field', () => {
+    for (const field of ['argoUrl', 'harborUrl'] as const) {
+      for (const value of ['http://argocd.example.test', 'argocd.example.test', 'https://u@argocd.example.test', 'https://argocd.example.test/?x=1', 'javascript:alert(1)']) {
+        const error = (() => { try { connectionFromFields('k', { ...cluster, [field]: value }, 'kubernetes'); } catch (caught) { return caught; } return null; })();
+        expect(error).toBeInstanceOf(ConnectionFieldError);
+        expect(error).toMatchObject({ field, message: 'Gib eine https-Adresse ohne Benutzername, Abfrage oder Anker an.' });
+      }
+    }
   });
 });
 

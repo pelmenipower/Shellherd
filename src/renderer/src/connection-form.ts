@@ -3,6 +3,7 @@ import { CONNECTION_ICONS } from '../../shared/vault/appearance';
 import { PROTOCOLS } from '../../shared/vault/connections';
 import { TIMEOUT_LIMITS, parseBounded } from '../../shared/vault/timeouts';
 import { KUBE_NAME } from '../../shared/kubernetes';
+import { httpsBase } from '../../shared/kube-links';
 import type { Authentication, ConnectionNode, ConnectionProtocol, PortForward, VaultNode } from '../../shared/vault/types';
 import { flattenConnections, kubeconfigPathError, noAccessMessage } from './cluster-form';
 import { draftsFromForwards, forwardsFromDrafts } from './forward-form';
@@ -45,6 +46,9 @@ export interface ConnectionFields {
   namespace: string;
   production: 'on' | 'off';
   readOnly: 'on' | 'off';
+  /** Kubernetes only: Argo CD and Harbor web addresses; empty = none. */
+  argoUrl: string;
+  harborUrl: string;
   /** SSH/SFTP only: id of the SSH connection to hop through; empty = connect directly. */
   jumpHost: string;
   /** SSH only: port forwards, see forward-form.ts. */
@@ -78,7 +82,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     icon: connection?.icon ?? PROTOCOLS[protocol].defaultIcon,
     containerSudo: 'off', loginSudo: 'off', loginCommands: '',
     disabled: connection?.disabled ? 'on' : 'off',
-    accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
+    accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off', argoUrl: '', harborUrl: '',
     idleMinutes: '', keepaliveSeconds: '', keepaliveCount: '', connectSeconds: '',
     jumpHost: '', forwards: [],
   };
@@ -112,6 +116,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     kubeconfigPath: connection.kubeconfig.source === 'path' ? connection.kubeconfig.path : '',
     context: connection.context ?? '', namespace: connection.namespace ?? '',
     production: connection.production ? 'on' : 'off', readOnly: connection.readOnly ? 'on' : 'off',
+    argoUrl: connection.argoUrl ?? '', harborUrl: connection.harborUrl ?? '',
   });
   return fields;
 }
@@ -205,10 +210,17 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
     const namespace = fields.namespace.trim();
     if (namespace && !KUBE_NAME.test(namespace)) throw new ConnectionFieldError('namespace', t('connection:validation.namespaceInvalid'));
     const context = fields.context.trim();
+    const links: { argoUrl?: string; harborUrl?: string } = {};
+    for (const field of ['argoUrl', 'harborUrl'] as const) {
+      if (!fields[field].trim()) continue;
+      const root = httpsBase(fields[field]);
+      if (!root) throw new ConnectionFieldError(field, t('connection:cluster.validation.linkUrl'));
+      links[field] = root;
+    }
     node = { ...base, protocol, accessHosts: [...fields.accessHosts],
       kubeconfig: fields.kubeconfigSource === 'path' ? { source: 'path', path: kubeconfigPath } : { source: 'auto' },
       ...(context ? { context } : {}), ...(namespace ? { namespace } : {}),
-      production: fields.production === 'on', readOnly: fields.readOnly === 'on' };
+      production: fields.production === 'on', readOnly: fields.readOnly === 'on', ...links };
   } else {
     node = { ...base, protocol, ...(fields.workingDirectory.trim() ? { workingDirectory: fields.workingDirectory.trim() } : {}) };
   }
