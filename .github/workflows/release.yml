@@ -56,7 +56,7 @@ jobs:
 
       - run: npx vitest run
 
-      # check:version, typecheck, electron-vite build, RDP helper, then electron-builder
+      # check:version, typecheck, electron-vite build, RDP and Hello helpers, then electron-builder
       - run: npm run dist
 
       - run: node scripts/release-notes.mjs "$TAG" > release-notes.md

@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -412,13 +412,13 @@ const blocks = {
     await evaluate(`document.getElementById('lock-probe')?.remove()`);
     if (!onTop) throw new Error('Sperrbildschirm liegt nicht oben (Neuanhebung)');
     // The switch confirmation is a child of the lock screen; raising the lock screen must close it, or the next click would do nothing.
-    await click('.lock-screen .secondary-button');
+    await click('.lock-screen .form-actions .secondary-button');
     await waitFor('Wechsel-Rückfrage', `document.querySelector('.lock-screen dialog[open]')`);
     await evaluate(`(() => { const d = document.createElement('dialog'); d.id = 'lock-probe'; document.body.appendChild(d); d.showModal(); })()`);
     await pause(300);
     const confirmClosed = await evaluate(`!document.querySelector('.lock-screen dialog[open]')`);
     if (!confirmClosed) { await evaluate(`document.getElementById('lock-probe')?.remove()`); throw new Error('Wechsel-Rückfrage bleibt nach der Neuanhebung offen'); }
-    await click('.lock-screen .secondary-button');
+    await click('.lock-screen .form-actions .secondary-button');
     const confirmReopened = await evaluate(`!!document.querySelector('.lock-screen dialog[open]')`);
     await key('Escape'); await pause(300);
     await evaluate(`document.getElementById('lock-probe')?.remove()`);
@@ -886,6 +886,89 @@ const blocks = {
     await waitFor('zurück in den Einstellungen', `document.querySelector('dialog.settings-dialog[open]') && !document.querySelector('dialog.known-hosts-dialog[open]') && document.activeElement?.textContent === 'Server-Schlüssel verwalten'`);
     await key('Escape');
     await waitFor('Einstellungen schließen', `!document.querySelector('dialog.settings-dialog[open]')`);
+  },
+  // Windows Hello with the run-app fake: unavailable hint, enable, lock screen, cancel, unlock, stale key, open screen.
+  // The fake (driver.mjs) replaces the helper, so no real Hello prompt appears. finally: fake back to ok, Hello off for the demo vault.
+  async hello() {
+    if (insideHome(RUN_DIR)) console.warn(`Warnung: RUN_DIR liegt im Benutzerordner (${RUN_DIR}). hello-open.png zeigt dann den Windows-Benutzernamen; Screenshot nicht teilen.`);
+    const fake = mode => call('main', `process.env.SHELLHERD_HELLO_FAKE = ${JSON.stringify(mode)}; return true`);
+    if (await call('main', 'return process.env.SHELLHERD_HELLO_FAKE ?? null') === null) throw new Error('hello: SHELLHERD_HELLO_FAKE fehlt – Treiber neu starten');
+    const lockOpen = `!!document.querySelector('dialog.lock-screen[open]')`;
+    const helloButton = text => `[...document.querySelectorAll('button')].find(b => b.textContent.includes(${JSON.stringify(text)}))`;
+    const lockButton = helloButton('Mit Windows Hello entsperren');
+    const unlockWithPassword = async () => {
+      await fill('.lock-screen input[type=password]', 'synthetic-vault-demo');
+      await click('.lock-screen .primary-button');
+      await waitFor('Entsperren mit Passwort', `!document.querySelector('dialog.lock-screen[open]')`, { timeout: 30000 });
+    };
+    try {
+      await fake('ok');
+      await evaluate(`window.desktopApi.helloDisable()`);   // clean start after an aborted run
+      // 1. Without Windows Hello: hint only.
+      await fake('unavailable');
+      await click('.settings-button');
+      await waitFor('Hinweis ohne Windows Hello', `document.querySelector('dialog.settings-dialog[open]')?.textContent.includes('Windows Hello ist auf diesem Gerät nicht eingerichtet')`);
+      await key('Escape');
+      await waitFor('Einstellungen geschlossen', `!document.querySelector('dialog.settings-dialog[open]')`);
+      // 2. Enable in the settings.
+      await fake('ok');
+      await click('.settings-button');
+      await click('dialog.settings-dialog label:has-text("Mit Windows Hello entsperren") input');
+      await waitFor('Eingeschaltet', `document.querySelector('dialog.settings-dialog [role=status]')?.textContent.includes('Windows Hello ist für diesen Vault eingeschaltet')`);
+      // Scroll to the section heading, so the shot shows "Vault" and the settings above the checkbox.
+      await call('eval', `const heading = [...document.querySelectorAll('dialog.settings-dialog .settings-section')].find(s => s.querySelector('h3')?.textContent.trim() === 'Vault')?.querySelector('h3');
+  if (!heading) throw new Error('Abschnitt „Vault“ fehlt'); heading.scrollIntoView({ block: 'start' });`);
+      await pause(300);
+      await shot('hello-setting');
+      await key('Escape');
+      await waitFor('Einstellungen geschlossen', `!document.querySelector('dialog.settings-dialog[open]')`);
+      // 3. Lock screen: the button takes the focus; a cancel stays silent.
+      await click('.lock-button');
+      await waitFor('Hello-Knopf', `${lockOpen} && !!${lockButton} && document.activeElement === ${lockButton}`);
+      await pause(300);
+      await shot('hello-lock');
+      await fake('cancel');
+      await evaluate(`${lockButton}.click()`);
+      await waitFor('Abbruch verarbeitet', `!!${lockButton} && !${lockButton}.hasAttribute('aria-disabled')`);
+      if (!await evaluate(`${lockOpen} && !document.querySelector('.lock-screen .error-message') && document.activeElement === ${lockButton}`)) throw new Error('Abbruch zeigt einen Fehler, entsperrt oder verliert den Fokus');
+      // 4. Unlock with Windows Hello.
+      await fake('ok');
+      await evaluate(`${lockButton}.click()`);
+      await waitFor('Mit Windows Hello entsperrt', `!${lockOpen}`, { timeout: 30000 });
+      // 5. Re-created Hello key: message, button gone, password still works.
+      await fake('reset');
+      await click('.lock-button');
+      await waitFor('Hello-Knopf', `${lockOpen} && !!${lockButton}`);
+      await evaluate(`${lockButton}.click()`);
+      await waitFor('Meldung', `document.querySelector('.lock-screen .error-message')?.textContent.includes('passt nicht mehr')`);
+      await waitFor('Hello-Knopf weg', `!${lockButton}`);
+      await pause(300);
+      await shot('hello-stale');
+      await fake('ok');
+      await unlockWithPassword();
+      // 5b. Switched off in the settings and locked again: no stale button, the password field keeps the focus.
+      await evaluate(`window.desktopApi.helloDisable()`);
+      await click('.lock-button');
+      await waitFor('Sperrbildschirm ohne Hello', lockOpen);
+      await pause(500);   // a stale button would vanish after the fresh status arrives (~200 ms)
+      if (await evaluate(`!${lockButton} && document.activeElement === document.querySelector('.lock-screen input[type=password]')`) !== true) throw new Error('Ohne Hello verliert das Passwortfeld den Fokus oder zeigt einen veralteten Knopf');
+      await unlockWithPassword();
+      // 6. Open screen: "Andere Vault-Datei" → the file dialog returns the demo vault → "Mit Windows Hello öffnen".
+      await evaluate(`window.desktopApi.helloEnable()`);
+      await click('.lock-button');
+      await waitFor('Sperrbildschirm', lockOpen);
+      await click('.lock-screen .form-actions .secondary-button');
+      await click('button:has-text("Trennen und wechseln")');
+      await waitFor('Öffnen mit Hello', `!!${helloButton('Mit Windows Hello öffnen')}`);
+      await pause(300);
+      await shot('hello-open');
+      await evaluate(`${helloButton('Mit Windows Hello öffnen')}.click()`);
+      await waitFor('Vault offen', `!!document.querySelector('.lock-button')`, { timeout: 30000 });
+    } finally {
+      await fake('ok');
+      if (await evaluate(lockOpen)) await unlockWithPassword();
+      await evaluate(`window.desktopApi.helloDisable().catch(() => {})`);
+    }
   },
 };
 

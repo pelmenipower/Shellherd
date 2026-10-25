@@ -345,5 +345,15 @@
     "loadFailed": "The server keys could not be loaded.",
     "importFailed": "The import failed.",
     "removeFailed": "The key could not be removed."
+  },
+  "hello": {
+    "unlock": "Unlock with Windows Hello",
+    "open": "Open with Windows Hello",
+    "waiting": "Waiting for Windows Hello…",
+    "setting": "Unlock with Windows Hello (PIN, face or fingerprint)",
+    "hint": "Applies only to this vault, on this device and in this Windows account. The password keeps working.",
+    "unavailable": "Windows Hello is not set up on this device. Set it up under Windows Settings → Accounts → Sign-in options.",
+    "enabledMessage": "Windows Hello is on for this vault.",
+    "disabledMessage": "Windows Hello is off; the stored key has been deleted."
   }
 }

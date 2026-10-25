@@ -74,6 +74,7 @@ The lock button in the header locks without a confirmation. An opaque lock scree
 
 - **Credentials in memory:** The credentials of open sessions stay in Shellherd's memory while locked. A changed, unsaved connection editor keeps its content, including the connection's stored password; an unchanged editor closes on lock. The lock does not protect against reading the process memory.
 - **Screen captures:** While locked, Shellherd excludes all its windows from screen captures and screen sharing (Teams, Zoom, Snipping Tool); there the background appears instead. After unlocking this is lifted. Photos of the screen and the preview of a minimized window in the taskbar are not reliably covered by this.
+- **Windows Hello:** If it is on for the vault, `Unlock with Windows Hello` stands above the password field, also after the automatic lock. See “Windows Hello”.
 - **Idle disconnect:** It keeps running while locked. A long lock can disconnect sessions; the disconnected bar waits after unlocking.
 - **Assistant:** Automatic assistant requests (reading output) fail while locked with “No vault is unlocked.”
 - **Host key:** An open host key prompt can appear above the lock screen. It shows only the host and fingerprint.
@@ -93,6 +94,17 @@ A tab whose terminal is not visible shows a ring after its name when new output 
 When closed, the main window remembers its size, position and maximized state. The values are stored in `settings.json` in the user data folder, not in the vault. A window closed while minimized keeps its previous position.
 
 File view: `Edit` opens only text, configuration and source files in the default program, everything else in Notepad.
+
+### Windows Hello
+
+Settings → Vault → `Unlock with Windows Hello (PIN, face or fingerprint)` turns on unlocking the open vault with Windows Hello. Windows asks once for PIN, face or fingerprint, the very first time twice, because Shellherd then creates its Windows Hello key. Afterwards the lock screen shows `Unlock with Windows Hello`, and `Open vault` shows `Open with Windows Hello` for this file, also after a restart. Shellherd never asks on its own, only after a click or `Enter` on the button. The password keeps working; if you cancel the Windows prompt, the password field simply stays.
+
+- **What is stored:** not the password, but the key of this vault derived from it, encrypted with a key that only a Windows Hello signature creates. It lies in `hello-unlock.json` in the user data folder, for at most eight vaults. The private Windows Hello key stays with Windows, in the TPM security chip where available; Shellherd never sees it.
+- **Only here:** for this vault file, on this device, in this Windows account. It does not work on another computer or with a copy of the user data folder.
+- **When it ends:** Switching it off in the settings and `×` under `Recently used` delete the stored key. If the vault file is replaced or newly created, or you set up Windows Hello again (for example after resetting the PIN), Shellherd reports “Windows Hello no longer matches this vault …” and deletes the entry. You then unlock with the password and can turn Windows Hello on again. The Shellherd Windows Hello key stays in Windows until you reset the PIN; without an entry it opens nothing.
+- **What it protects against:** people at your device who do not know the vault password, and reading the stored key without your confirmation; with a TPM also from a copy of the disk.
+- **What it does not protect against:** malware under your Windows account can trigger a Windows Hello prompt; only confirm prompts you started yourself. Against malware that reads the memory of an unlocked Shellherd or records your password, Windows Hello does not help. Without a TPM (for example in some virtual machines) Windows protects the key only in software.
+- **Limits:** Detached windows still unlock only through the main window. In a Remote Desktop session Windows Hello is usually not available. The Windows prompt is a Windows window and is not part of the lock's window protection; it shows nothing from the vault.
 
 ### Keyboard shortcuts
 
@@ -147,6 +159,8 @@ The AI assistant answers in the selected language. kubectl-like output and raw s
 - **Nothing is asked:** The lock works like manual locking, without a confirmation. Open settings and provider dialogs close. Detached windows are locked, not closed. After the lock, the lock screen names the reason.
 - **Imprecision:** The lock comes up to 10 seconds earlier or up to 30 seconds later than set; after waking from sleep, Shellherd locks immediately if the time has run out.
 - **Existing vaults:** Every vault carries the value 15, so from this version on they lock after 15 minutes; `0` turns the lock off.
+
+`Unlock with Windows Hello (PIN, face or fingerprint)` applies only to this vault on this device and is not stored in the vault. If Windows Hello is not set up, a hint appears here instead. See “Windows Hello”.
 
 ### Connections
 

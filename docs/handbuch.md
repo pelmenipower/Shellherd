@@ -73,6 +73,7 @@ Der Sperrknopf in der Kopfzeile sperrt ohne Rückfrage. Ein undurchsichtiger Spe
 
 - **Zugangsdaten im Speicher:** Die Zugangsdaten offener Sitzungen bleiben während der Sperre im Speicher von Shellherd. Ein geänderter, ungespeicherter Verbindungseditor behält seinen Inhalt, auch das gespeicherte Passwort der Verbindung; ein unveränderter Editor schließt beim Sperren. Gegen das Auslesen des Arbeitsspeichers schützt die Sperre nicht.
 - **Bildschirmaufnahmen:** Während der Sperre nimmt Shellherd alle seine Fenster aus Bildschirmaufnahmen und -freigaben heraus (Teams, Zoom, Snipping Tool); dort erscheint stattdessen der Hintergrund. Nach dem Entsperren ist das wieder aufgehoben. Fotos des Bildschirms und die Vorschau eines minimierten Fensters in der Taskleiste deckt das nicht sicher ab.
+- **Windows Hello:** Ist es für den Vault eingeschaltet, steht über dem Passwortfeld `Mit Windows Hello entsperren`, auch nach der automatischen Sperre. Siehe „Windows Hello“.
 - **Leerlauf-Trennung:** Sie läuft während der Sperre weiter. Eine lange Sperre kann Sitzungen trennen; die Getrennt-Leiste wartet dann nach dem Entsperren.
 - **Assistent:** Automatische Rückfragen des Assistenten (gelesene Ausgabe) scheitern während der Sperre mit „Es ist kein Vault entsperrt.“
 - **Host-Schlüssel:** Eine offene Host-Schlüssel-Rückfrage kann über dem Sperrbildschirm erscheinen. Sie zeigt nur Host und Fingerabdruck.
@@ -92,6 +93,17 @@ Ein Tab, dessen Terminal gerade nicht sichtbar ist, zeigt mit neuer Ausgabe eine
 Das Hauptfenster merkt sich beim Schließen Größe, Position und Maximierung. Die Angaben stehen in `settings.json` im Benutzerdatenordner, nicht im Vault. Ein minimiert geschlossenes Fenster behält die bisherige Position.
 
 Dateiansicht: `Bearbeiten` öffnet nur Text-, Konfigurations- und Quelltextdateien im Standardprogramm, alles andere in Notepad.
+
+### Windows Hello
+
+Einstellungen → Vault → `Mit Windows Hello entsperren (PIN, Gesicht oder Fingerabdruck)` schaltet für den offenen Vault das Entsperren per Windows Hello ein. Windows fragt dabei einmal nach PIN, Gesicht oder Fingerabdruck, beim allerersten Mal zweimal, weil Shellherd dann seinen Windows-Hello-Schlüssel anlegt. Danach zeigt der Sperrbildschirm `Mit Windows Hello entsperren` und `Vault öffnen` für diese Datei `Mit Windows Hello öffnen`, auch nach einem Neustart. Shellherd fragt nie von selbst, erst nach einem Klick oder `Enter` auf dem Knopf. Das Passwort funktioniert immer weiter; brichst du die Windows-Abfrage ab, bleibt einfach das Passwortfeld.
+
+- **Was gespeichert wird:** nicht das Passwort, sondern der daraus abgeleitete Schlüssel dieses Vaults, verschlüsselt mit einem Schlüssel, den nur eine Windows-Hello-Signatur erzeugt. Er liegt in `hello-unlock.json` im Benutzerdatenordner, für höchstens acht Vaults. Den privaten Windows-Hello-Schlüssel hält Windows, mit TPM im Sicherheitschip; Shellherd sieht ihn nie.
+- **Gilt nur hier:** für diese Vault-Datei, auf diesem Gerät, in diesem Windows-Konto. Auf einem anderen Rechner oder mit einer Kopie des Benutzerdatenordners geht es nicht.
+- **Wann es endet:** Ausschalten in den Einstellungen und `×` unter `Zuletzt benutzt` löschen den gespeicherten Schlüssel. Wird die Vault-Datei ersetzt oder neu angelegt oder richtest du Windows Hello neu ein (etwa nach dem Zurücksetzen der PIN), meldet Shellherd „Windows Hello passt nicht mehr zu diesem Vault …“ und löscht den Eintrag. Du entsperrst dann mit dem Passwort und kannst Windows Hello wieder einschalten. Der leere Windows-Hello-Schlüssel von Shellherd bleibt in Windows, bis du die PIN zurücksetzt; ohne Eintrag öffnet er nichts.
+- **Wogegen es schützt:** gegen Menschen an deinem Gerät, die das Vault-Passwort nicht kennen, und gegen das Auslesen des gespeicherten Schlüssels ohne deine Bestätigung, mit TPM auch von einer Kopie der Festplatte.
+- **Wogegen nicht:** Schadsoftware unter deinem Windows-Konto kann eine Windows-Hello-Abfrage auslösen; bestätige nur Abfragen, die du selbst angestoßen hast. Gegen Schadsoftware, die den Arbeitsspeicher eines entsperrten Shellherd liest oder dein Passwort mitschneidet, hilft Windows Hello nicht. Ohne TPM (etwa in manchen virtuellen Maschinen) schützt Windows den Schlüssel nur per Software.
+- **Grenzen:** Nebenfenster entsperren weiter nur über das Hauptfenster. In einer Remotedesktop-Sitzung steht Windows Hello meist nicht zur Verfügung. Die Windows-Abfrage ist ein Fenster von Windows und gehört nicht zum Fensterschutz der Sperre; sie zeigt nichts aus dem Vault.
 
 ### Tastenkürzel
 
@@ -148,6 +160,8 @@ Fehlermeldungen, Dialoge und Fenstertitel folgen der Sprache, ebenso Datum, Zahl
 - **Nichts wird gefragt:** Die Sperre arbeitet wie das manuelle Sperren, ohne Rückfrage. Offene Einstellungs- und Anbieter-Dialoge schließen sich. Nebenfenster werden mitgesperrt, nicht geschlossen. Nach der Sperre nennt der Sperrbildschirm den Grund.
 - **Ungenauigkeit:** Die Sperre kommt bis zu 10 Sekunden früher oder bis zu 30 Sekunden später als eingestellt; nach dem Aufwachen aus dem Ruhezustand sperrt Shellherd sofort, wenn die Zeit abgelaufen ist.
 - **Bestehende Vaults:** Jeder Vault trägt den Wert 15. Sie sperren sich daher ab dieser Version nach 15 Minuten; `0` schaltet die Sperre ab.
+
+`Mit Windows Hello entsperren (PIN, Gesicht oder Fingerabdruck)` gilt nur für diesen Vault auf diesem Gerät und wird nicht im Vault gespeichert. Ist Windows Hello nicht eingerichtet, steht hier stattdessen ein Hinweis. Siehe „Windows Hello“.
 
 ### Verbindungen
 

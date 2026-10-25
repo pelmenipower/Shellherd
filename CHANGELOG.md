@@ -4,6 +4,11 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.26.0] – 2026-10-25
+
+- Neu: Windows Hello. Einstellungen → Vault → `Mit Windows Hello entsperren (PIN, Gesicht oder Fingerabdruck)` schaltet es je Vault und Gerät ein. Danach entsperrt `Mit Windows Hello entsperren` den Sperrbildschirm, auch nach der automatischen Sperre, und `Mit Windows Hello öffnen` öffnet die Datei in `Vault öffnen`, auch nach einem Neustart. Das Passwort funktioniert immer weiter.
+- Sicherheit: Shellherd speichert dafür nie das Passwort, sondern den Vault-Schlüssel, verschlüsselt mit einem Schlüssel, den nur eine Windows-Hello-Signatur erzeugt (mit TPM im Sicherheitschip). Eine ersetzte Vault-Datei oder ein neu eingerichtetes Windows Hello macht ihn ungültig; `×` unter `Zuletzt benutzt` löscht ihn.
+
 ## [0.25.0] – 2026-10-25
 
 - Sicherheit: Der KI-Assistent maskiert Geheimnisse, bevor etwas an den Anbieter geht: Passwörter, Passphrasen und API-Schlüssel aus dem Vault, private Schlüssel, `password=`- und `secret:`-Werte, Passwörter in Adressen, Bearer- und Basic-Header, Schlüssel von AWS, GitHub, GitLab, Slack, Stripe, npm, OpenAI, Anthropic, Google und Azure, Passwörter in `.netrc` und `ConvertTo-SecureString`, JWTs und die Daten von Kubernetes-Secrets. Derselbe Wert behält im Verlauf denselben Platzhalter (`[SECRET_1]`), echte Werte setzt Shellherd nie zurück in Antworten oder Befehle.
