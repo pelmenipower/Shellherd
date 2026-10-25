@@ -915,6 +915,9 @@ const blocks = {
       await click('.settings-button');
       await click('dialog.settings-dialog label:has-text("Mit Windows Hello entsperren") input');
       await waitFor('Eingeschaltet', `document.querySelector('dialog.settings-dialog [role=status]')?.textContent.includes('Windows Hello ist für diesen Vault eingeschaltet')`);
+      // Scroll to the section heading, so the shot shows "Vault" and the settings above the checkbox.
+      await call('eval', `const heading = [...document.querySelectorAll('dialog.settings-dialog .settings-section')].find(s => s.querySelector('h3')?.textContent.trim() === 'Vault')?.querySelector('h3');
+  if (!heading) throw new Error('Abschnitt „Vault“ fehlt'); heading.scrollIntoView({ block: 'start' });`);
       await pause(300);
       await shot('hello-setting');
       await key('Escape');
@@ -942,6 +945,13 @@ const blocks = {
       await pause(300);
       await shot('hello-stale');
       await fake('ok');
+      await unlockWithPassword();
+      // 5b. Switched off in the settings and locked again: no stale button, the password field keeps the focus.
+      await evaluate(`window.desktopApi.helloDisable()`);
+      await click('.lock-button');
+      await waitFor('Sperrbildschirm ohne Hello', lockOpen);
+      await pause(500);   // a stale button would vanish after the fresh status arrives (~200 ms)
+      if (await evaluate(`!${lockButton} && document.activeElement === document.querySelector('.lock-screen input[type=password]')`) !== true) throw new Error('Ohne Hello verliert das Passwortfeld den Fokus oder zeigt einen veralteten Knopf');
       await unlockWithPassword();
       // 6. Open screen: "Andere Vault-Datei" → the file dialog returns the demo vault → "Mit Windows Hello öffnen".
       await evaluate(`window.desktopApi.helloEnable()`);
