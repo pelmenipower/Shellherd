@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -289,6 +289,70 @@ const blocks = {
     await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
     await pause(1500); // first metrics round
     await shot('kubernetes');
+  },
+  // Port forwards from the cluster tab: pod dialog, pod and service forward proven by an HTTP GET, a service without a ready pod, stop.
+  async 'kube-forward'() {
+    if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) { console.log('Port-Weiterleitung übersprungen: prod-k8s fehlt im Baum.'); return; }
+    const dialogOpen = `!!document.querySelector('dialog.kube-forward[open]')`;
+    const items = () => evaluate(`[...document.querySelectorAll('.kube-view:not([hidden]) .forward-item')].map(item => item.innerText)`);
+    // Local port of the bar entry whose target text is `target` (e.g. "svc/api:80").
+    const portOf = async target => {
+      const line = (await items()).find(text => text.includes(`→ ${target}`));
+      const port = Number(/127\.0\.0\.1:(\d+)/.exec(line ?? '')?.[1]);
+      if (!port) throw new Error(`Leiste ohne ${target}: ${JSON.stringify(await items())}`);
+      return port;
+    };
+    // The timeout keeps a forward that accepts TCP but never answers from hanging the block.
+    const get = async port => (await fetch(`http://127.0.0.1:${port}/run-app`, { headers: { connection: 'close' }, signal: AbortSignal.timeout(5000) })).text();
+    // Starts a forward from the row menu; an empty local port lets Shellherd pick a free one.
+    const forward = async (rowText, step) => {
+      await rclick(`.kube-table tbody tr:has-text("${rowText}")`);
+      await menuItem('Port weiterleiten');
+      await waitFor(`Dialog ${step}`, dialogOpen);
+      await fill('dialog.kube-forward input[name=local]', '');
+      await click('dialog.kube-forward .primary-button');
+      await waitFor(`Weiterleitung ${step}`, `!(${dialogOpen})`);
+    };
+    try {
+      await click('text=prod-k8s >> nth=0');
+      await key('Enter');
+      await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
+      // 1. Pod: the dialog offers the declared port and names the production cluster.
+      await rclick('.kube-table tbody tr:has-text("api-6d8f9b7c5-x7k2p")');
+      await menuItem('Port weiterleiten');
+      await waitFor('Dialog Pod', `${dialogOpen} && document.querySelector('dialog.kube-forward select[name=port]')?.value === '8080' && document.querySelector('dialog.kube-forward')?.innerText.includes('Produktions-Cluster')`);
+      await pause(300);
+      await shot('kube-forward-dialog');
+      await fill('dialog.kube-forward input[name=local]', '');
+      await click('dialog.kube-forward .primary-button');
+      await waitFor('Leiste mit Pod', `(document.querySelector('.kube-view:not([hidden]) .forward-bar')?.innerText ?? '').includes('api-6d8f9b7c5-x7k2p:8080')`);
+      const podPort = await portOf('api-6d8f9b7c5-x7k2p:8080');
+      if (!(await get(podPort)).includes('synthetic pod page /run-app')) throw new Error('Pod-Weiterleitung liefert die Seite nicht');
+      // 2. Service api:80 resolves to the first ready api pod on its named targetPort.
+      await click('.kube-kind-tabs button:has-text("Services")');
+      await waitFor('Services', `${count('.kube-table tbody tr')} >= 2`);
+      await forward('10.96.12.40', 'Service api');
+      const servicePort = await portOf('svc/api:80');
+      if (!(await get(servicePort)).includes('synthetic pod page /run-app')) throw new Error('Service-Weiterleitung liefert die Seite nicht');
+      await waitFor('Service aufgelöst', `(document.querySelector('.kube-view:not([hidden]) .forward-bar')?.innerText ?? '').includes('über api-6d8f9b7c5-h5t8w:8080')`);
+      await pause(300);
+      await shot('kube-forward');
+      // 3. checkout has no ready pod: the connection fails and the bar says why.
+      await forward('10.96.33.7', 'Service checkout');
+      await get(await portOf('svc/checkout:8080')).catch(() => '');
+      await waitFor('Fehler in der Leiste', `(document.querySelector('.kube-view:not([hidden]) .forward-bar')?.innerText ?? '').includes('keinen bereiten Pod')`);
+      await pause(300);
+      await shot('kube-forward-error');
+      // 4. Stop: every entry goes, the bar disappears and the pod port refuses connections.
+      for (const end = Date.now() + 10000; await evaluate(count('.kube-view:not([hidden]) .forward-bar')) > 0; await pause(200)) {
+        if (Date.now() > end) throw new Error('Weiterleitungen lassen sich nicht stoppen');
+        await click('.kube-view:not([hidden]) .forward-item button:has-text("Stoppen") >> nth=0');
+      }
+      if (await get(podPort).then(() => true, () => false)) throw new Error('Port antwortet nach dem Stoppen noch');
+    } finally {
+      // Closing the cluster tab ends its remaining forwards (they live only as long as the tab).
+      await closeTabs();
+    }
   },
   async settings() {
     await click('.settings-button');
