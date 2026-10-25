@@ -16,6 +16,7 @@ import { readKubeconfig } from '../../../src/main/kubernetes/access';
 import { parseKubeconfig } from '../../../src/main/kubernetes/kubeconfig';
 import { openTunnel } from '../../../src/main/kubernetes/tunnel';
 import { createKubeApi } from '../../../src/main/kubernetes/client-api';
+import { KubeForwards } from '../../../src/main/kubernetes/forwards';
 import { streamChat } from '../../../src/main/ai/providers';
 import { SecretMasker } from '../../../src/main/ai/secret-mask';
 import { startSshd } from './sshd.mjs';
@@ -118,6 +119,45 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
 
     await expect(host.forward('k8s-cp1', 22)).rejects.toBeDefined();
     await expect(host.forward('127.0.0.1', 6443)).rejects.toBeDefined();
+  });
+
+  it.skipIf(!findOpenssl())('forwards a pod and a service port through the SSH tunnel to the pod page', async () => {
+    const kube = await startKubeFake({ port: 0, dir: join(base, 'kube-forward') });
+    cleanup.push(() => kube.close());
+    const { host } = await connect((await start('kube-forward', { kubeconfig: kube.kubeconfig, kubePort: kube.port })).port);
+    const parsed = parseKubeconfig(kube.kubeconfig);
+    const tunnel = await openTunnel((h, p) => host.forward(h, p), parsed.server);
+    cleanup.push(async () => tunnel.close());
+    const api = createKubeApi(parsed.build(tunnel.port));
+    const latest = new Map();
+    const forwards = new KubeForwards((_owner, _view, list) => { for (const forward of list) latest.set(forward.id, forward); });
+    cleanup.push(async () => forwards.stopAll());
+    const view = { ownerId: 1, viewId: 'v', api: async () => api };
+    const get = async port => (await fetch(`http://127.0.0.1:${port}/check`, { headers: { connection: 'close' } })).text();
+    const until = async (id, test) => {
+      for (const end = Date.now() + 5000; !test(latest.get(id)); await new Promise(resolve => setTimeout(resolve, 50))) {
+        if (Date.now() > end) throw new Error(`forward ${id}: ${JSON.stringify(latest.get(id))}`);
+      }
+    };
+
+    const pod = await forwards.start(view, { kind: 'pods', namespace: 'shop', name: 'api-6d8f9b7c5-x7k2p', port: 8080 }, 0);
+    expect(await get(pod.localPort)).toContain('synthetic pod page /check');
+
+    const service = await forwards.start(view, { kind: 'services', namespace: 'shop', name: 'api', port: 80 }, 0);
+    expect(await get(service.localPort)).toContain('synthetic pod page /check');
+    await until(service.id, forward => forward?.pod === 'api-6d8f9b7c5-h5t8w' && forward.podPort === 8080);
+
+    const refused = await forwards.start(view, { kind: 'pods', namespace: 'shop', name: 'api-6d8f9b7c5-x7k2p', port: 9999 }, 0);
+    await get(refused.localPort).catch(() => '');
+    await until(refused.id, forward => forward?.error?.code === 'kubernetes.portForwardRefused');
+
+    const pending = await forwards.start(view, { kind: 'pods', namespace: 'shop', name: 'report-0', port: 8080 }, 0);
+    await get(pending.localPort).catch(() => '');
+    await until(pending.id, forward => forward?.error?.code === 'kubernetes.portForwardNotRunning');
+
+    const noReady = await forwards.start(view, { kind: 'services', namespace: 'shop', name: 'checkout', port: 8080 }, 0);
+    await get(noReady.localPort).catch(() => '');
+    await until(noReady.id, forward => forward?.error?.code === 'kubernetes.portForwardNoReadyPod');
   });
 
   it('streams the AI fake, checks the key and answers the connection test', async () => {

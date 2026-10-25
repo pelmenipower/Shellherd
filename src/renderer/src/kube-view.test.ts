@@ -1066,3 +1066,16 @@ describe('column filters and grouping', () => {
     expect(navigableRows(state).map(r => r.ref.name)).toEqual(['b', 'a']);
   });
 });
+
+describe('port forwards', () => {
+  it('starts empty, takes the list main sends and never saves it', () => {
+    const state = initialKubeView('shop');
+    expect(state.forwards).toEqual([]);
+    const forwards = [{ id: 'f1', target: { kind: 'pods' as const, namespace: 'shop', name: 'api-1', port: 8080 }, localPort: 8080, open: 1 }];
+    const next = kubeViewReducer(state, { type: 'event', event: { type: 'forwards', viewId: 'v1', forwards } });
+    expect(next.forwards).toEqual(forwards);
+    expect(kubeViewReducer(next, { type: 'event', event: { type: 'forwards', viewId: 'v1', forwards: [] } }).forwards).toEqual([]);
+    expect(snapshotOf(next)).not.toHaveProperty('forwards');
+    expect(snapshotOf(next)).toEqual(snapshotOf(state));
+  });
+});

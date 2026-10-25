@@ -1,15 +1,20 @@
-// Synthetic Kubernetes API server for the run-app skill. HTTPS on 127.0.0.1 only, read-only (writes get 403).
+// Synthetic Kubernetes API server for the run-app skill. HTTPS on 127.0.0.1 only, read-only (writes get 403); pods/portforward over WebSocket.
 // The certificate is generated per start with openssl into the run dir; nothing secret lives in the repo.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
+import http from 'node:http';
 import https from 'node:https';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { WebSocketServer } from 'ws';
 import { buildCluster } from './kube-fixtures.mjs';
 
 export const KUBE_SERVER = 'https://k8s-cp1:6443';
 export const KUBE_TOKEN = 'synthetic-kube-token';
+// Running pods serve one synthetic text page on this port; every other port is refused like by a kubelet.
+export const POD_HTTP_PORT = 8080;
 const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
 
 const probe = candidate => {
@@ -57,6 +62,47 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
   const cert = readFileSync(certFile);
   const data = buildCluster();
   const open = new Set();
+  const podPage = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end(`synthetic pod page ${req.url}\n`);
+  });
+  await new Promise((resolve, reject) => { podPage.once('error', reject); podPage.listen(0, '127.0.0.1', resolve); });
+  // Port forward like the kubelet (v4.channel.k8s.io): channel 0 data, channel 1 errors, each opened with the port (2 bytes, little endian).
+  const forwards = new WebSocketServer({ noServer: true, handleProtocols: protocols => (protocols.has('v4.channel.k8s.io') ? 'v4.channel.k8s.io' : false) });
+  const portFrame = (channel, port) => Buffer.from([channel, port & 0xff, port >> 8]);
+  const relay = (ws, port) => {
+    ws.on('error', () => ws.terminate());
+    ws.send(portFrame(0, port));
+    ws.send(portFrame(1, port));
+    if (port !== POD_HTTP_PORT) {
+      ws.send(Buffer.concat([Buffer.from([1]), Buffer.from(`error forwarding port ${port} to pod: connect: connection refused`)]));
+      ws.close();
+      return;
+    }
+    const upstream = net.connect(podPage.address().port, '127.0.0.1');
+    upstream.on('data', chunk => ws.send(Buffer.concat([Buffer.from([0]), chunk])));
+    upstream.on('close', () => ws.close());
+    upstream.on('error', () => ws.close());
+    ws.on('message', data => {
+      const frame = Buffer.from(data);
+      if (frame[0] === 0 && frame.length > 1) upstream.write(frame.subarray(1));
+    });
+    ws.on('close', () => upstream.destroy());
+  };
+  const upgrade = (req, socket, head) => {
+    socket.on('error', () => socket.destroy());
+    const refuse = code => socket.end(`HTTP/1.1 ${code} ${http.STATUS_CODES[code]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    if (req.headers.authorization !== `Bearer ${KUBE_TOKEN}`) return refuse(401);
+    const url = new URL(req.url ?? '/', 'https://k8s-cp1');
+    const match = /^\/api\/v1\/namespaces\/([^/]+)\/pods\/([^/]+)\/portforward$/.exec(url.pathname);
+    const pod = match && data.pods.find(item => item.metadata.namespace === match[1] && item.metadata.name === match[2]);
+    if (!pod) return refuse(404);
+    // A pod without a running container cannot be reached; the API server answers 400 (report-0 is Pending).
+    if (pod.status.phase !== 'Running') return refuse(400);
+    const port = Number(url.searchParams.get('ports'));
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return refuse(400);
+    forwards.handleUpgrade(req, socket, head, ws => relay(ws, port));
+  };
 
   const json = (res, code, body, type = 'application/json') => {
     res.writeHead(code, { 'content-type': type });
@@ -138,6 +184,7 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
 
   const server = https.createServer({ key: readFileSync(keyFile), cert }, handle);
   server.requestTimeout = 0; // watches must outlive Node's default request timeout
+  server.on('upgrade', upgrade);
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
 
   const kubeconfig = [
@@ -152,6 +199,9 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
     kubeconfig,
     close: () => new Promise(resolve => {
       for (const res of open) res.end();
+      for (const client of forwards.clients) client.terminate();
+      podPage.closeAllConnections();
+      podPage.close();
       server.close(() => resolve());
       server.closeAllConnections();
     }),

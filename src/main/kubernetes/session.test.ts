@@ -1,6 +1,9 @@
+import { connect } from 'node:net';
+import type { Duplex } from 'node:stream';
 import { describe as suite, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import type { KubeConfig } from '@kubernetes/client-node';
+import { AppError } from '../../shared/errors';
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
 import type { KubeEvent, KubeKind, KubeQuery, KubeRef, KubeTerminalTarget } from '../../shared/kubernetes';
 import { HostAccessError } from '../containers/runner';
@@ -77,6 +80,7 @@ class FakeApi implements KubeApi {
   created: { cron: KubeRef; jobName: string }[] = [];
   terminals: { target: KubeTerminalTarget; size: { cols: number; rows: number } }[] = [];
   streams: { close: Mock }[] = [];
+  forwards: { namespace: string; pod: string; port: number }[] = [];
 
   async list(kind: KubeKind, namespace: string | null): Promise<ListResult> {
     this.lists.push({ kind, namespace });
@@ -126,6 +130,12 @@ class FakeApi implements KubeApi {
     const close = vi.fn();
     this.streams.push({ close });
     return { write: vi.fn(), resize: vi.fn(), pause: vi.fn(), resume: vi.fn(), close };
+  }
+
+  async portForward(namespace: string, pod: string, port: number, socket: Duplex): Promise<void> {
+    this.forwards.push({ namespace, pod, port });
+    socket.on('data', chunk => socket.write(chunk));
+    socket.resume();
   }
 }
 
@@ -624,5 +634,74 @@ suite('userError', () => {
     const view = world.sessions.open(1, 'c1').viewId;
     await settle();
     expect(statusesOf(world, view).at(-1)).toMatchObject({ state: 'error', error: { code: 'kubernetes.connectFailed' } });
+  });
+});
+
+suite('port forwards of a view', () => {
+  const target = { kind: 'pods' as const, namespace: 'shop', name: 'p1', port: 8080 };
+  const forwardsOf = (world: World, viewId: string) => world.events
+    .filter(entry => entry.ownerId === 1)
+    .map(entry => entry.event)
+    .filter((event): event is Extract<KubeEvent, { type: 'forwards' }> => event.type === 'forwards' && event.viewId === viewId)
+    .map(event => event.forwards);
+  const echo = (port: number, text: string) => new Promise<string>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1', () => socket.write(text));
+    socket.once('data', data => { resolve(data.toString()); socket.end(); });
+    socket.once('error', reject);
+  });
+
+  it('forwards through the session of the view, also on a read-only cluster', async () => {
+    const world = setup();
+    world.cluster.readOnly = true;
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const status = await world.sessions.startForward(1, viewId, target, 0);
+    expect(await echo(status.localPort, 'ping')).toBe('ping');
+    expect(world.api.forwards).toEqual([{ namespace: 'shop', pod: 'p1', port: 8080 }]);
+    expect(forwardsOf(world, viewId).at(-1)?.[0]).toMatchObject({ id: status.id, pod: 'p1', podPort: 8080 });
+    world.sessions.stopForward(1, viewId, status.id);
+    expect(forwardsOf(world, viewId).at(-1)).toEqual([]);
+  });
+
+  it('refuses a session that is not ready, other owners, a locked vault and disabled clusters', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await expect(world.sessions.startForward(1, viewId, target, 0)).rejects.toMatchObject({ code: 'kubernetes.notConnected' });
+    await settle();
+    await expect(world.sessions.startForward(2, viewId, target, 0)).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
+    vi.mocked(world.deps.getCluster).mockImplementationOnce(() => { throw new AppError('core.vaultLocked'); });
+    await expect(world.sessions.startForward(1, viewId, target, 0)).rejects.toMatchObject({ code: 'core.vaultLocked' });
+    world.cluster.disabled = true;
+    await expect(world.sessions.startForward(1, viewId, target, 0)).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+    expect(world.api.forwards).toEqual([]);
+  });
+
+  it('ends the forwards of a view with the view, silently, and all of them with closeAll', async () => {
+    const world = setup();
+    const first = world.sessions.open(1, 'c1').viewId;
+    const second = world.sessions.open(1, 'c1').viewId;
+    await settle();
+    const a = await world.sessions.startForward(1, first, target, 0);
+    const b = await world.sessions.startForward(1, second, target, 0);
+    const before = forwardsOf(world, first).length;
+    world.sessions.close(1, first);
+    expect(forwardsOf(world, first)).toHaveLength(before);
+    expect(await echo(b.localPort, 'still')).toBe('still');
+    // A closed listener frees its port: the next forward can take it.
+    expect((await world.sessions.startForward(1, second, target, a.localPort)).localPort).toBe(a.localPort);
+    world.sessions.closeAll();
+    const third = world.sessions.open(1, 'c1').viewId;
+    await settle();
+    expect((await world.sessions.startForward(1, third, target, b.localPort)).localPort).toBe(b.localPort);
+    world.sessions.closeAll();
+  });
+
+  it('drops a forward whose view closed while it started', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const starting = world.sessions.startForward(1, viewId, target, 0);
+    world.sessions.close(1, viewId);
+    await expect(starting).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
   });
 });
