@@ -208,6 +208,8 @@ Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, denn ein lo
 - Passwörter in Adressen, die `/`, `?` oder `#` unkodiert enthalten, und Werte über 4.096 Zeichen (dann nur der Anfang),
 - Schlüssel ohne festes Format, etwa reine Hex-Schlüssel von Azure, außer sie stehen hinter einem Namen wie `api-key`,
 - Kubernetes-Secrets als JSON (`-o json`),
+- Cookies (`Cookie: …`, `Set-Cookie: …`) und PuTTY-Schlüssel im Format `.ppk`,
+- mehr als 256 Verläufe in einer Sitzung: Shellherd vergisst dann die Platzhalter des ältesten. Dort früher erkannte Werte werden in späteren Fragen nur noch durch die Regeln und die Vault-Werte maskiert,
 - eine einzelne Zeile, die länger ist als der mitgeschickte Ausschnitt (6 000 bzw. 8 000 Zeichen); sie wird angeschnitten.
 
 Hashes, Commit-IDs und UUIDs bleiben absichtlich stehen. KI-Kommandozeilen in eigenen Tabs (Claude Code, Codex …) senden selbst und laufen nicht über diese Maskierung. Stehen sensible Ausgaben auf dem Bildschirm, leere ihn (`clear`), bevor du den Assistenten fragst.

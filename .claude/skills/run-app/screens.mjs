@@ -367,7 +367,9 @@ const blocks = {
     if (leaks.length) throw new Error(`Geheimnis erreicht den KI-Fake: ${leaks.join(', ')}`);
     const lost = DEMO_KEPT.filter(value => !masked.includes(value));
     if (lost.length) throw new Error(`Falsch maskiert: ${lost.join(', ')}`);
-    if (!/\[SECRET_\d+\]/.test(masked)) throw new Error('Keine Platzhalter im Protokoll');
+    // Only user messages count: the system prompt always names [SECRET_1] as an example.
+    const userText = masked.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)).flatMap(body => body.messages.filter(m => m.role === 'user').map(m => m.content)).join('\n');
+    if ((userText.match(/\[SECRET_\d+\]/g) ?? []).length < 14) throw new Error('Zu wenige Platzhalter in den Nutzer-Nachrichten');
     await pause(300);
     await shot('assistant-masked');
     try {

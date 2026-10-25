@@ -207,6 +207,8 @@ Masking is on for every provider, local models included, because a local endpoin
 - passwords in addresses that contain `/`, `?` or `#` unencoded, and values longer than 4,096 characters (then only the beginning),
 - keys without a fixed format, such as plain hex keys from Azure, unless they follow a name such as `api-key`,
 - Kubernetes secrets as JSON (`-o json`),
+- cookies (`Cookie: …`, `Set-Cookie: …`) and PuTTY key files in the `.ppk` format,
+- more than 256 histories in one session: Shellherd then forgets the placeholders of the oldest one. Values it recognized there earlier are later masked only by the patterns and the vault values,
 - a single line longer than the excerpt sent along (6,000 or 8,000 characters); it is cut.
 
 Hashes, commit IDs and UUIDs stay on purpose. AI command line tools in their own tabs (Claude Code, Codex …) send by themselves and do not go through this masking. If sensitive output is on the screen, clear it (`clear`) before asking the assistant.

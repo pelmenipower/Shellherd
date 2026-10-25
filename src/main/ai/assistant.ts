@@ -9,7 +9,7 @@ import { SecretMasker } from './secret-mask';
 
 const MAX_PARALLEL = 3;
 /** Conversations whose placeholders main remembers; the oldest is dropped first. */
-const MAX_CONVERSATIONS = 32;
+const MAX_CONVERSATIONS = 256;
 
 const PROMPT_LINES = [
   'assistant.prompt.data', 'assistant.prompt.brevity', 'assistant.prompt.command', 'assistant.prompt.explain',

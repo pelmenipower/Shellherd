@@ -40,6 +40,10 @@ describe('rangeText', () => {
     expect(rangeText(lines(['abc', false], ['def', true]), 0, 1)).toBe('abcdef');
     expect(rangeText(lines(['abc', false], ['def', true]), 1, 1)).toBe('abcdef');
   });
+  it('reads the wrapped rows that continue the end of the range', () => {
+    expect(rangeText(lines(['abc', false], ['def', true]), 0, 0)).toBe('abcdef');
+    expect(rangeText(lines(['abc', false], ['def', true], ['ghi']), 0, 0)).toBe('abcdef');
+  });
   it('trims only the last row of a line and drops trailing empty lines', () => {
     expect(rangeText(lines(['ab  ', false], ['cd  ', true], ['x  '], [''], ['  ']), 0, 4)).toBe('ab  cd\nx');
   });

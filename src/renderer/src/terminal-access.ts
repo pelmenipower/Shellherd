@@ -49,10 +49,13 @@ export function bufferText(buffer: BufferLike, maxLines: number): string {
 export function rangeText(buffer: BufferLike, from: number, to: number): string {
   let start = Math.max(0, from);
   while (start > 0 && buffer.getLine(start)?.isWrapped === true) start -= 1;
+  // Rows after the end that continue it belong to the same line, so the range extends over them.
+  let end = to;
+  while (end + 1 < buffer.length && buffer.getLine(end + 1)?.isWrapped === true) end += 1;
   const lines: string[] = [];
-  for (let index = start; index <= to; index += 1) {
+  for (let index = start; index <= end; index += 1) {
     const line = buffer.getLine(index);
-    const continued = index < to && buffer.getLine(index + 1)?.isWrapped === true;
+    const continued = index < end && buffer.getLine(index + 1)?.isWrapped === true;
     const text = line?.translateToString(!continued) ?? '';
     if (line?.isWrapped && lines.length > 0) lines[lines.length - 1] += text;
     else lines.push(text);
