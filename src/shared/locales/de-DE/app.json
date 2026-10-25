@@ -14,6 +14,7 @@
     "sessionLimitText": "Maximal {{max}} Sessions gleichzeitig. Schließe zuerst einen Tab.",
     "tabNotMoved": "Tab nicht verschoben",
     "notVaultFileTitle": "Keine Vault-Datei",
+    "vaultPathRefusedTitle": "Vault-Datei nicht geöffnet",
     "vaultNotSaved": "Vault nicht gespeichert",
     "notRetried": "Nicht erneut gespeichert",
     "retryBusy": "Gerade läuft eine andere Speicherung. Wiederhole die Änderung danach.",
@@ -276,6 +277,10 @@
       "summary_one": "{{count}} Anbieter, Standard: {{name}}",
       "summary_other": "{{count}} Anbieter, Standard: {{name}}",
       "manage": "Anbieter verwalten"
+    },
+    "hostKeys": {
+      "manage": "Server-Schlüssel verwalten",
+      "hint": "Bestätigte und importierte Server-Schlüssel ansehen, durchsuchen und entfernen; OpenSSH-known_hosts übernehmen."
     }
   },
   "icons": {
@@ -316,5 +321,29 @@
     "system": "System",
     "dark": "Dunkel",
     "light": "Hell"
+  },
+  "hostKeys": {
+    "title": "Server-Schlüssel",
+    "intro": "Shellherd vertraut diesen Schlüsseln beim Verbinden. Entfernst du einen, fragt Shellherd beim nächsten Verbinden wieder nach.",
+    "search": "Server-Schlüssel durchsuchen",
+    "searchPlaceholder": "Host, Typ oder Fingerprint …",
+    "import": "Aus known_hosts importieren …",
+    "importDone": "Import: {{added}} neu, {{known}} schon bekannt, {{revoked}} widerrufen, {{skipped}} übersprungen.",
+    "conflicts": "Shellherd kennt für diese Server einen anderen Schlüssel und behält ihn: {{hosts}}",
+    "hashed": "Gehashter Hostname",
+    "anyHost": "Alle Hosts",
+    "origin": {
+      "confirmed": "Bestätigt",
+      "imported": "Importiert",
+      "revoked": "Widerrufen"
+    },
+    "remove": "Entfernen",
+    "removeLabel": "{{host}} entfernen",
+    "empty": "Noch keine Server-Schlüssel gespeichert.",
+    "noMatch": "Keine Treffer.",
+    "shown": "{{shown}} von {{total}}",
+    "loadFailed": "Die Server-Schlüssel konnten nicht geladen werden.",
+    "importFailed": "Der Import ist fehlgeschlagen.",
+    "removeFailed": "Der Schlüssel konnte nicht entfernt werden."
   }
 }
