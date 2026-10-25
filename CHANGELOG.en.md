@@ -4,6 +4,11 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.26.0] – 2026-10-25
+
+- New: Windows Hello. Settings → Vault → `Unlock with Windows Hello (PIN, face or fingerprint)` turns it on per vault and device. Afterwards `Unlock with Windows Hello` unlocks the lock screen, also after the automatic lock, and `Open with Windows Hello` opens the file in `Open vault`, also after a restart. The password keeps working.
+- Security: Shellherd never stores the password for this, but the vault key, encrypted with a key that only a Windows Hello signature creates (with a TPM in the security chip). A replaced vault file or a newly set up Windows Hello makes it invalid; `×` under `Recently used` deletes it.
+
 ## [0.25.0] – 2026-10-25
 
 - Security: The AI assistant masks secrets before anything goes to the provider: passwords, passphrases and API keys from the vault, private keys, `password=` and `secret:` values, passwords in addresses, Bearer and Basic headers, keys from AWS, GitHub, Slack, OpenAI, Anthropic, Google and Azure, JWTs and the data of Kubernetes secrets. The same value keeps the same placeholder in the history (`[SECRET_1]`); Shellherd never puts real values back into answers or commands.
