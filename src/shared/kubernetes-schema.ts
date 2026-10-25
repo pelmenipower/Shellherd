@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { GROUP_BY_IDS, KUBE_KINDS, KUBE_NAME, LABEL_KEY, LABEL_VALUE, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH, MAX_REPLICAS } from './kubernetes';
-import type { DockMode, KubeQuery, KubeRef, KubeTerminalTarget, KubeViewSnapshot } from './kubernetes';
+import type { DockMode, KubeForwardTarget, KubeQuery, KubeRef, KubeTerminalTarget, KubeViewSnapshot } from './kubernetes';
 
 export const KubeNameSchema = z.string().max(253).regex(KUBE_NAME);
 const viewId = z.string().uuid();
@@ -17,6 +17,12 @@ export const KubeDetailRequestSchema = z.object({ viewId, ref: KubeRefSchema, mo
 export const KubeActionRequestSchema = z.object({ viewId, ref: KubeRefSchema, action: z.enum(['restart', 'scale', 'delete', 'cordon', 'uncordon', 'suspend', 'resume', 'trigger']),
   replicas: z.number().int().min(0).max(MAX_REPLICAS).optional() }).strict();
 export const KubeProbeRequestSchema = z.object({ connectionId: z.string().min(1).max(256) }).strict();
+const portNumber = z.number().int().min(1).max(65_535);
+export const KubeForwardTargetSchema: z.ZodType<KubeForwardTarget> = z.object({
+  kind: z.enum(['pods', 'services']), namespace: KubeNameSchema, name: KubeNameSchema, port: portNumber,
+}).strict();
+export const KubeForwardStartRequestSchema = z.object({ viewId, target: KubeForwardTargetSchema, localPort: z.number().int().min(0).max(65_535) }).strict();
+export const KubeForwardStopRequestSchema = z.object({ viewId, forwardId: z.string().uuid() }).strict();
 export const KubeTerminalTargetSchema: z.ZodType<KubeTerminalTarget> = z.object({ namespace: KubeNameSchema, pod: KubeNameSchema, container: KubeNameSchema,
   mode: z.enum(['logs', 'previous', 'shell']), format: z.enum(['compact', 'raw']).optional() }).strict();
 const DockModeSchema: z.ZodType<DockMode> = z.enum(['logs', 'shell', 'events', 'yaml', 'describe']);

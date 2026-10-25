@@ -12,7 +12,7 @@ import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlace
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 import type { ImportReadResult, ImportSource } from './import';
-import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
+import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeForwardStartRequest, KubeForwardStatus, KubeForwardStopRequest, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
 import type { ThemeSetting } from './theme';
 import type { KnownHostsImportReply, KnownHostView } from './known-hosts';
 
@@ -142,6 +142,8 @@ export const IPC_CHANNELS = {
   kubeAction: 'k8s:action',
   kubeClose: 'k8s:close',
   kubeProbe: 'k8s:probe',
+  kubeForwardStart: 'k8s:forward-start',
+  kubeForwardStop: 'k8s:forward-stop',
   kubeEvent: 'k8s:event',
 } as const;
 
@@ -239,6 +241,9 @@ export interface DesktopApi {
   kubeClose: (request: KubeViewRequest) => Promise<void>;
   /** Reads contexts of the kubeconfig on an SSH host; never returns the config itself. */
   kubeProbe: (request: KubeProbeRequest) => Promise<KubeProbeResult>;
+  /** Listens on 127.0.0.1 only and forwards to a pod or service port of the view's cluster; resolves with the running forward. */
+  kubeForwardStart: (request: KubeForwardStartRequest) => Promise<KubeForwardStatus>;
+  kubeForwardStop: (request: KubeForwardStopRequest) => Promise<void>;
   onKubeEvent: (listener: (event: KubeEvent) => void) => () => void;
   sftpOpen: (request: SftpOpenRequest) => Promise<{ sessionId: string }>;
   sftpHome: (request: SftpSessionRequest) => Promise<string>;

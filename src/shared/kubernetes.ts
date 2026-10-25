@@ -36,6 +36,8 @@ export const queryKey = (query: KubeQuery): string => JSON.stringify([query.kind
   Object.entries(query.selector?.labels ?? {}).sort(), query.selector?.node ?? null]);
 
 export type RowTone = 'ok' | 'warn' | 'bad' | 'muted';
+/** A TCP port of a pod container or a service, with its name when the manifest names it. */
+export interface KubePort { port: number; name?: string }
 export interface KubeRow {
   uid: string;
   ref: KubeRef;
@@ -63,6 +65,8 @@ export interface KubeRow {
   pressure?: string[];
   /** Events: the object concerned; `ref` only when its kind maps to a KubeKind. */
   involved?: { kind: string; name: string; ref?: KubeRef };
+  /** Pods: TCP ports of all containers; services: TCP service ports. Absent when there are none. */
+  ports?: KubePort[];
 }
 
 /** Labels come from `columnLabel(key)` in renderer/kube-labels.ts. */
@@ -140,7 +144,9 @@ export type KubeEvent =
   | { type: 'overview'; viewId: string; nodes: NodeTile[]; problems: KubeProblem[]; namespaces: string[] }
   | { type: 'usage'; viewId: string; pods: UsageHistory }
   /** Why a table cannot load or stay live; `error` absent = trouble is over. */
-  | { type: 'trouble'; viewId: string; query: KubeQuery; error?: CodedError };
+  | { type: 'trouble'; viewId: string; query: KubeQuery; error?: CodedError }
+  /** The port forwards of the view, complete; sent on every change. */
+  | { type: 'forwards'; viewId: string; forwards: KubeForwardStatus[] };
 
 export type KubeDetailMode = 'yaml' | 'describe' | 'events';
 export type KubeDetail = { mode: 'yaml' | 'describe'; text: string } | { mode: 'events'; rows: KubeRow[] };
@@ -163,6 +169,25 @@ export interface KubeDetailRequest { viewId: string; ref: KubeRef; mode: KubeDet
 export interface KubeActionRequest { viewId: string; ref: KubeRef; action: KubeAction; replicas?: number }
 export interface KubeProbeRequest { connectionId: string }
 export interface KubeProbeResult { source: string; contexts: string[]; currentContext?: string; clusterName?: string }
+/** Port-forward target: a pod port, or a service port that main resolves to a ready pod. */
+export interface KubeForwardTarget { kind: 'pods' | 'services'; namespace: string; name: string; port: number }
+/** localPort 0 = any free port; the listener is always 127.0.0.1. */
+export interface KubeForwardStartRequest { viewId: string; target: KubeForwardTarget; localPort: number }
+export interface KubeForwardStopRequest { viewId: string; forwardId: string }
+/** One running port forward of a cluster view, as main reports it. */
+export interface KubeForwardStatus {
+  id: string;
+  target: KubeForwardTarget;
+  /** The port on 127.0.0.1. */
+  localPort: number;
+  /** Pod and port the last opened connection reached; for services where they resolved to. */
+  pod?: string;
+  podPort?: number;
+  /** Connections open right now, including those still opening. */
+  open: number;
+  /** Why the last connection failed; cleared by the next one that opens. */
+  error?: CodedError;
+}
 
 export type KubeTerminalMode = 'logs' | 'previous' | 'shell';
 export interface KubeTerminalTarget { namespace: string; pod: string; container: string; mode: KubeTerminalMode;
