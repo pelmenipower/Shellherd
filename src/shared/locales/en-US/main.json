@@ -57,7 +57,8 @@
       "goal": "If the user names a goal, guide them there step by step, each time with the next command.",
       "afterOutput": "After command output: one sentence of interpretation with concrete values, at most a short clause on a possible next step. Give a command only while a stated goal is still open; on an error: the cause in one sentence, then the corrected command.",
       "danger": "Deleting, overwriting, stopping, restarting: start with “Warning:” and the risk.",
-      "question": "If information is missing, ask exactly one short question."
+      "question": "If information is missing, ask exactly one short question.",
+      "masked": "Shellherd masked values such as [SECRET_1] before sending. Keep them unchanged, never guess them and do not ask for them."
     },
     "test": {
       "system": "Reply with the word OK only.",
