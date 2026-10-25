@@ -258,6 +258,15 @@ suite('KubeSessions', () => {
     expect(JSON.stringify(world.events)).not.toContain('secret-token');
   });
 
+  it('sends a fresh status to open views when the vault entry changes', async () => {
+    const world = setup();
+    const view = world.sessions.open(1, 'c1');
+    await settle();
+    Object.assign(world.cluster, { argoUrl: 'https://argocd.example.test', production: false });
+    world.sessions.refreshStatus();
+    expect(statusesOf(world, view.viewId).at(-1)).toMatchObject({ argoUrl: 'https://argocd.example.test', production: false });
+  });
+
   it('hands a view that opens on a running session the status, the overview and the namespace in the open result', async () => {
     const world = setup();
     world.api.nodes = [node('n1')];

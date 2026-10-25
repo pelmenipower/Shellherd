@@ -486,6 +486,9 @@ class Session {
     this.emitStatus();
   }
 
+  /** The vault entry changed: open views get its new addresses and flags without a reconnect. */
+  refreshStatus(): void { this.emitStatus(); }
+
   private emitStatus(): void {
     for (const view of this.views.values()) this.sendStatus(view);
   }
@@ -534,6 +537,11 @@ export class KubeSessions {
   private readonly options: SessionOptions;
   private readonly forwards: KubeForwards;
   private readonly logs: KubeWorkloadLogs;
+
+  /** After a vault change every open cluster view shows the current entry (addresses, production, read-only). */
+  refreshStatus(): void {
+    for (const session of this.sessions.values()) session.refreshStatus();
+  }
 
   constructor(private readonly deps: KubeSessionDependencies) {
     this.options = {

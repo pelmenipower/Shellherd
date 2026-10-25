@@ -512,6 +512,7 @@ const blocks = {
       await waitFor('Feldfehler http', `(document.querySelector('[id$="-argoUrl-error"]')?.textContent ?? '').includes('https')`);
       await fill('input[id$="-argoUrl"]', `https://${ARGO_HOST}/`);
       await pause(300);
+      await evaluate(`document.querySelector('input[id$="-argoUrl"]').scrollIntoView({ block: 'center' })`);
       await shot('cluster-links-form');
       await click('button[type=submit]:has-text("Verbindung speichern")');
       await waitFor('Gespeichert', saved);
