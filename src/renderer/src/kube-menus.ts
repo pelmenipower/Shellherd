@@ -1,7 +1,7 @@
 /** Context menus of the cluster tab as pure data; see docs/superpowers/specs/2026-10-16-kubernetes-context-menus-design.md. */
 import {
-  KIND_INFO, refKey,
-  type ClusterStatus, type ColumnInfo, type DockMode, type KubeAction, type KubeKind, type KubeProblem, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget, type NodeTile,
+  DIAGNOSE_KINDS, KIND_INFO, refKey,
+  type ClusterStatus, type ColumnInfo, type DockMode, type KubeAction, type KubeKind, type KubeProblem, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget, type NodeTile, type ProblemKind,
 } from '../../shared/kubernetes';
 import { KUBE_COMMANDS, actionReason, podNotRunning, type CommandId } from './kube-commands';
 import * as kubectl from './kube-kubectl';
@@ -12,6 +12,7 @@ import { primaryChip } from '../../shared/kube-status';
 import type { KubeAccessId } from '../../shared/kube-access';
 import { refAccessReason } from './kube-access';
 import { defaultSort, filterOf, type KubeViewAction, type KubeViewState } from './kube-view';
+import type { DiagnoseTarget } from './kube-diagnose';
 
 export type MenuTarget =
   | { type: 'row'; row: KubeRow }
@@ -33,7 +34,8 @@ export type MenuAction =
   | { type: 'popout'; target: KubeTerminalTarget }
   | { type: 'ssh'; connectionId: string }
   | { type: 'dockReload' }
-  | { type: 'help' };
+  | { type: 'help' }
+  | { type: 'analyze'; target: DiagnoseTarget };
 
 export type MenuEntry =
   | { kind: 'item'; id: string; label: string; hint?: string; disabled?: boolean; run: MenuAction }
@@ -180,6 +182,14 @@ function logsAllItem(env: Env, row: KubeRow): MenuEntry {
   return item(env, 'logs-all', t('kubeActions:menu.logsAll'), { type: 'logsAll', row }, { reason });
 }
 
+/** "Mit KI analysieren": pods, workloads and jobs; events through the object they concern. Reading only, so read-only clusters allow it. */
+function analyzeItem(env: Env, ref: KubeRef, extra: { event?: KubeRef; problem?: ProblemKind } = {}): MenuEntry {
+  const reason = connectedReason(env) ?? (DIAGNOSE_KINDS.includes(ref.kind) ? undefined : t('kubeActions:reasons.analyzeUnsupported', { kind: KIND_INFO[ref.kind].kind }));
+  const problem = extra.problem ?? env.ctx.state.problems.find(item => refKey(item.ref) === refKey(ref))?.kind;
+  const target: DiagnoseTarget = { ref, ...(extra.event ? { event: extra.event } : {}), ...(problem ? { problem } : {}) };
+  return item(env, 'analyze', t('kubeActions:menu.analyze'), { type: 'analyze', target }, { reason });
+}
+
 function imageLines(row: KubeRow): string | undefined {
   const names = row.containers ?? Object.keys(row.cells).filter(key => key.startsWith('image:')).map(key => key.slice('image:'.length));
   const images = names.filter(name => cell(row, `image:${name}`) !== '').map(name => [name, cell(row, `image:${name}`)] as const);
@@ -211,7 +221,7 @@ function podRowGroups(env: Env, row: KubeRow): Group[] {
       ...namespaceGroup(env, row),
       ...filterItems(env, row),
     ],
-    [...terminalItems(env, row, first, prefix, extra), ...viewItems(env, [select(row)]), ...popoutItems(env, row, first, extra), forwardItem(env, row)],
+    [...terminalItems(env, row, first, prefix, extra), ...viewItems(env, [select(row)]), ...popoutItems(env, row, first, extra), forwardItem(env, row), analyzeItem(env, row.ref)],
     copyGroup(env, [
       ['name', t('kubeActions:copy.name'), name],
       ['namespaced-name', t('kubeActions:copy.namespacedName'), namespacedName(row)],
@@ -239,7 +249,7 @@ function workloadGroups(env: Env, row: KubeRow): Group[] {
       item(env, 'drill', t('kubeActions:menu.showPods'), view(select(row), { type: 'drill' }), { hotkey: 'drill', reason: hasSelector(row) ? undefined : t('kubeActions:reasons.noSelectorWorkload') }),
       ...namespaceGroup(env, row),
     ],
-    [logsAllItem(env, row), ...viewItems(env, [select(row)])],
+    [logsAllItem(env, row), ...viewItems(env, [select(row)]), analyzeItem(env, row.ref)],
     copyGroup(env, [
       ['name', t('kubeActions:copy.name'), name],
       ['namespaced-name', t('kubeActions:copy.namespacedName'), namespacedName(row)],
@@ -267,7 +277,7 @@ function jobGroups(env: Env, row: KubeRow): Group[] {
       ...ownerItem(env, row, ['cronjobs']),
       ...namespaceGroup(env, row),
     ],
-    [logsAllItem(env, row), ...viewItems(env, [select(row)])],
+    [logsAllItem(env, row), ...viewItems(env, [select(row)]), analyzeItem(env, row.ref)],
     copyGroup(env, [
       ['name', t('kubeActions:copy.name'), name],
       ['namespaced-name', t('kubeActions:copy.namespacedName'), namespacedName(row)],
@@ -392,6 +402,8 @@ function eventGroups(env: Env, row: KubeRow): Group[] {
     item(env, 'involved-events', t('kubeActions:menu.objectEvents'), jumpTo(dock('events')), { reason: viaConnection }),
     item(env, 'involved-describe', t('kubeActions:menu.objectDescribe'), jumpTo(dock('describe')), { reason: viaConnection }),
     ...(ref?.kind === 'pods' ? [item(env, 'involved-logs', t('kubeActions:menu.podLogs'), { type: 'view', actions: [select(row), { type: 'jump', ref }, dock('logs')], previous: false }, { reason: viaConnection ?? forbidden(env, ref, 'logs') })] : []),
+    involved.ref ? analyzeItem(env, involved.ref, { event: row.ref })
+      : item(env, 'analyze', t('kubeActions:menu.analyze'), { type: 'analyze', target: { ref: row.ref } }, { reason: involvedReason(involved) }),
   ] : [];
   return [nav, views, copyGroup(env, [
     ['message', t('kubeActions:copy.message'), cell(row, 'message')],
@@ -476,6 +488,7 @@ function problemMenu(env: Env, problem: KubeProblem): MenuEntry[] {
       ...(podProblem ? [item(env, 'logs', t('kubeActions:menu.logs'), { type: 'view', actions: [jump, dock('logs')], previous: false }, { reason: logsReason })] : []),
       item(env, 'describe', t('kubeActions:menu.describe'), view(jump, dock('describe')), { reason }),
       item(env, 'events', t('kubeActions:menu.events'), view(jump, dock('events')), { reason }),
+      ...(podProblem ? [analyzeItem(env, ref, { problem: kind })] : []),
       ...(kind === 'node' ? [sshItem(env, { name: ref.name, ip: nodeTile?.ip })] : []),
     ],
     copyGroup(env, [
