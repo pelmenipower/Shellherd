@@ -8,6 +8,8 @@ const MAX_VALUE = 4096;
 const MAX_KNOWN = 1000;
 /** Hard cap on distinct values per conversation; past it, new finds fail closed (vault values are never refused). */
 export const MAX_NUMBERS = 50_000;
+/** Total characters of remembered finds per conversation; past it masking fails closed. */
+export const MAX_STORED_CHARS = 1_000_000;
 
 interface Span { start: number; end: number }
 
@@ -52,6 +54,8 @@ const PEM_EDGE = /-----(BEGIN|END) [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----/g;
 const BASE64_LINE = /^[A-Za-z0-9+/=]{16,}$/;
 /** `machine h login u password p` (.netrc): the value after `password` on a line with `machine` or `login`. */
 const NETRC = /\b(?:machine|login)[ \t]{1,8}[^\n]{0,1024}?\bpassword[ \t]{1,8}/gi;
+const NETRC_BLOCK = /^[ \t]{0,64}(?:machine[ \t]|default\b)/;
+const NETRC_LINE_PASSWORD = /(?:^|[ \t])password[ \t]{1,8}/g;
 /** `ConvertTo-SecureString "value"` or `-String 'value'`: only the text inside the quotes is the secret. */
 const SECURE_STRING = /ConvertTo-SecureString[ \t]{1,8}(?:-String[ \t]{1,8})?(["'])([^"'\r\n]{1,4096})\1/gi;
 const SECRET_KIND = /\bkind:[ \t]*Secret\b/;
@@ -116,6 +120,23 @@ function netrcSpans(text: string): Span[] {
   for (let match = NETRC.exec(text); match; match = NETRC.exec(text)) {
     const span = valueSpan(text, NETRC.lastIndex);
     if (span) { spans.push(span); NETRC.lastIndex = Math.max(NETRC.lastIndex, span.end); }
+  }
+  // Multi-line form: a `machine`/`default` line opens a block, a blank line closes it.
+  let inBlock = false;
+  for (let start = 0; start < text.length;) {
+    const newline = text.indexOf('\n', start);
+    const end = newline < 0 ? text.length : newline;
+    const line = text.slice(start, end);
+    if (!line.trim()) inBlock = false;
+    else if (NETRC_BLOCK.test(line)) inBlock = true;
+    if (inBlock) {
+      NETRC_LINE_PASSWORD.lastIndex = 0;
+      for (let match = NETRC_LINE_PASSWORD.exec(line); match; match = NETRC_LINE_PASSWORD.exec(line)) {
+        const span = valueSpan(text, start + NETRC_LINE_PASSWORD.lastIndex);
+        if (span) { spans.push(span); NETRC_LINE_PASSWORD.lastIndex = span.end - start; }
+      }
+    }
+    start = end + 1;
   }
   return spans;
 }
@@ -216,11 +237,18 @@ export class SecretMasker {
   /** Values of MIN_LITERAL_LENGTH or more characters, oldest first, at most MAX_KNOWN; the search runs over these. */
   private readonly recent: string[] = [];
 
-  private placeholder(value: string, used: Set<number>, fromText: boolean): string {
-    let number = this.numbers.get(value);
+  private storedChars = 0;
+
+  private placeholder(found: string, used: Set<number>, fromText: boolean): string {
+    let number = this.numbers.get(found);
     if (number === undefined) {
-      // Only finds from text can overflow the cap; vault values always get their placeholder.
-      if (fromText && this.numbers.size >= MAX_NUMBERS) throw new Error('secret-mask: too many distinct values');
+      // Only finds from text can overflow the caps; vault values always get their placeholder.
+      if (fromText && (this.numbers.size >= MAX_NUMBERS || this.storedChars + found.length > MAX_STORED_CHARS)) {
+        throw new Error('secret-mask: too many distinct values');
+      }
+      // A slice can keep its whole source message alive; store a flat copy instead.
+      const value = Buffer.from(found, 'utf16le').toString('utf16le');
+      this.storedChars += value.length;
       number = this.numbers.size + 1;
       this.numbers.set(value, number);
       if (value.length >= MIN_LITERAL_LENGTH) {

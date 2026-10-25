@@ -208,7 +208,8 @@ Erkannt werden:
 - Werte hinter Namen wie `password`, `DB_PASSWORD`, `secret`, `token`, `api_key`, `client_secret` oder `AccountKey`, mit `=` oder `:` und als Option (`--password …`),
 - Passwörter in Adressen (`postgres://app:…@db`),
 - `Authorization: Bearer …` und `Basic …`,
-- Schlüssel von AWS (`AKIA…`), GitHub (`ghp_…`, `github_pat_…`), Slack (`xox…`, Webhooks), OpenAI und Anthropic (`sk-…`) und Google (`AIza…`), Azure-Signaturen (`sig=`) und JWTs,
+- Schlüssel von AWS (`AKIA…`), GitHub (`ghp_…`, `github_pat_…`), Slack (`xox…`, Webhooks), OpenAI und Anthropic (`sk-…`) und Google (`AIza…`), GitLab (`glpat-…`), Stripe (`sk_live_…`, `rk_live_…`), npm (`npm_…`), Azure-Signaturen (`sig=`) und JWTs,
+- Passwörter in `.netrc` (`password …`, auch über mehrere Zeilen) und die Zeichenkette von `ConvertTo-SecureString`,
 - Werte unter `data:` und `stringData:`, wenn der Text ein Kubernetes-Secret (`kind: Secret`) enthält.
 
 Unter deiner Frage steht dann „Vertrauliche Werte maskiert: 2“. Die Antwort zeigt die Platzhalter unverändert. Shellherd setzt nie echte Werte in Antworten oder Befehle ein, sonst könnte eingeschleuster Terminaltext das Modell dazu bringen, dein Passwort in einen Befehl zu schreiben. Steht in einem vorgeschlagenen Befehl ein Platzhalter, steht darunter „Enthält maskierte Werte. Setze sie vor Enter selbst ein.“

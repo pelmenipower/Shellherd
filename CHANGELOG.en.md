@@ -11,7 +11,7 @@ Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails 
 
 ## [0.25.0] – 2026-10-25
 
-- Security: The AI assistant masks secrets before anything goes to the provider: passwords, passphrases and API keys from the vault, private keys, `password=` and `secret:` values, passwords in addresses, Bearer and Basic headers, keys from AWS, GitHub, Slack, OpenAI, Anthropic, Google and Azure, JWTs and the data of Kubernetes secrets. The same value keeps the same placeholder in the history (`[SECRET_1]`); Shellherd never puts real values back into answers or commands.
+- Security: The AI assistant masks secrets before anything goes to the provider: passwords, passphrases and API keys from the vault, private keys, `password=` and `secret:` values, passwords in addresses, Bearer and Basic headers, keys from AWS, GitHub, GitLab, Slack, Stripe, npm, OpenAI, Anthropic, Google and Azure, passwords in `.netrc` and `ConvertTo-SecureString`, JWTs and the data of Kubernetes secrets. The same value keeps the same placeholder in the history (`[SECRET_1]`); Shellherd never puts real values back into answers or commands.
 - New: Below the question, the assistant shows how many sensitive values were masked. Commands with a placeholder carry a hint. Masking is on for every provider, local models included, and can be switched off per provider.
 - Fixed: The assistant reads wrapped terminal lines as one line and cuts long output only at line boundaries.
 

@@ -207,7 +207,8 @@ Recognized are:
 - values after names such as `password`, `DB_PASSWORD`, `secret`, `token`, `api_key`, `client_secret` or `AccountKey`, with `=` or `:` and as an option (`--password …`),
 - passwords in addresses (`postgres://app:…@db`),
 - `Authorization: Bearer …` and `Basic …`,
-- keys from AWS (`AKIA…`), GitHub (`ghp_…`, `github_pat_…`), Slack (`xox…`, webhooks), OpenAI and Anthropic (`sk-…`) and Google (`AIza…`), Azure signatures (`sig=`) and JWTs,
+- keys from AWS (`AKIA…`), GitHub (`ghp_…`, `github_pat_…`), Slack (`xox…`, webhooks), OpenAI and Anthropic (`sk-…`) and Google (`AIza…`), GitLab (`glpat-…`), Stripe (`sk_live_…`, `rk_live_…`), npm (`npm_…`), Azure signatures (`sig=`) and JWTs,
+- passwords in `.netrc` (`password …`, also across several lines) and the string of `ConvertTo-SecureString`,
 - values under `data:` and `stringData:` when the text contains a Kubernetes secret (`kind: Secret`).
 
 Below your question, the assistant then shows “Sensitive values masked: 2”. The answer shows the placeholders unchanged. Shellherd never puts real values into answers or commands; otherwise injected terminal text could make the model write your password into a command. If a suggested command contains a placeholder, it shows “Contains masked values. Fill them in yourself before pressing Enter.”
