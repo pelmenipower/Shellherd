@@ -91,7 +91,7 @@ describe('A1 pods', () => {
     const entries = rowMenu(pod());
     expect(labels(entries)).toEqual([
       'Container anzeigen', 'Pods auf Node worker2 anzeigen', 'Deployment api anzeigen', 'Filtern: app=api', 'Filtern: app.kubernetes.io/name=api', 'Nur Läuft anzeigen', '---',
-      'Logs', 'Logs des vorherigen Containers', 'Shell öffnen', 'Events', 'YAML', 'Describe', 'Logs als Tab öffnen', 'Shell als Tab öffnen', '---',
+      'Logs', 'Logs des vorherigen Containers', 'Shell öffnen', 'Events', 'YAML', 'Describe', 'Logs als Tab öffnen', 'Shell als Tab öffnen', 'Port weiterleiten…', '---',
       'Kopieren', 'Name', 'Namespace/Name', 'Image', 'Labels', 'Pod-IP', 'kubectl logs -f', 'kubectl exec', 'kubectl describe', '---', 'Pod löschen…',
     ]);
   });
@@ -366,7 +366,7 @@ describe('A5 services', () => {
   const service = (patch: Partial<KubeRow> = {}) => row('services', 'web', { cells: { clusterIp: '10.1.2.3', ports: '8080:30080/TCP,443/TCP' }, selector: { app: 'web' }, ...patch });
   it('lists the service menu without actions', () => {
     expect(labels(rowMenu(service()))).toEqual([
-      'Pods anzeigen', '---', 'Events', 'YAML', 'Describe', '---', 'Kopieren', 'Name', 'Cluster-IP', 'DNS-Name', 'Ports', 'Selector', 'kubectl port-forward',
+      'Pods anzeigen', 'Port weiterleiten…', '---', 'Events', 'YAML', 'Describe', '---', 'Kopieren', 'Name', 'Cluster-IP', 'DNS-Name', 'Ports', 'Selector', 'kubectl port-forward',
     ]);
   });
   it('copies dns name and a port-forward with the first port', () => {
@@ -861,5 +861,24 @@ describe('English catalog', () => {
       expect(find(entries, 'events').label).toBe('Events');
       expect(labels(menu({ type: 'background' }))).toContain('Help…');
     } finally { await i18n.changeLanguage('de-DE'); }
+  });
+});
+
+describe('port forward entry', () => {
+  const service = (patch: Partial<KubeRow> = {}) => row('services', 'web', { cells: { ports: '80/TCP' }, selector: { app: 'web' }, ports: [{ port: 80 }], ...patch });
+
+  it('opens the dialog for a running pod, also on a read-only cluster', () => {
+    const target = pod();
+    expect(find(rowMenu(target), 'forward')).toMatchObject({ label: 'Port weiterleiten…', run: { type: 'forward', row: target } });
+    expect(find(rowMenu(target), 'forward').disabled).toBeUndefined();
+    expect(find(rowMenu(target, withStatus(READ_ONLY)), 'forward').disabled).toBeUndefined();
+  });
+
+  it('explains why it is not available', () => {
+    expect(find(rowMenu(pod({ cells: { status: 'Pending' } })), 'forward')).toMatchObject({ disabled: true, hint: 'Der Pod läuft nicht.' });
+    expect(find(rowMenu(pod(), withStatus(RECONNECTING)), 'forward')).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
+    expect(find(rowMenu(service({ ports: undefined })), 'forward')).toMatchObject({ disabled: true, hint: 'Dieser Service hat keinen TCP-Port.' });
+    expect(find(rowMenu(service({ selector: undefined })), 'forward')).toMatchObject({ disabled: true, hint: 'Dieser Service hat keinen Selector, z. B. ExternalName.' });
+    expect(find(rowMenu(service()), 'forward').disabled).toBeUndefined();
   });
 });

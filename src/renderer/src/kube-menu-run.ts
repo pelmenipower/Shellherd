@@ -12,6 +12,8 @@ export interface MenuRunner {
   copy(text: string, label: string): void;
   /** The only way to a cluster action: opens the confirmation. */
   confirm(ref: KubeRef, action: KubeAction, currentReplicas?: number): void;
+  /** Opens the port-forward dialog for a pod or service row. */
+  forward(row: KubeRow): void;
   popout(target: KubeTerminalTarget): void;
   ssh(connectionId: string): void;
   reloadDock(): void;
@@ -28,6 +30,7 @@ export function runMenuAction(action: MenuAction, runner: MenuRunner): void {
       return;
     case 'copy': runner.copy(action.text, action.label); return;
     case 'kubeAction': runner.confirm(action.ref, action.action, action.currentReplicas); return;
+    case 'forward': runner.forward(action.row); return;
     case 'popout': runner.popout(action.target); return;
     case 'ssh': runner.ssh(action.connectionId); return;
     case 'dockReload': runner.reloadDock(); return;

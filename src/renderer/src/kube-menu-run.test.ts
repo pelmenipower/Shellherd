@@ -4,10 +4,11 @@ import { rowMenuTarget, runMenuAction, type MenuRunner } from './kube-menu-run';
 import type { MenuAction } from './kube-menus';
 
 const runner = () => ({
-  dispatch: vi.fn(), setPrevious: vi.fn(), arm: vi.fn(), copy: vi.fn(), confirm: vi.fn(), popout: vi.fn(), ssh: vi.fn(), reloadDock: vi.fn(), help: vi.fn(),
+  dispatch: vi.fn(), setPrevious: vi.fn(), arm: vi.fn(), copy: vi.fn(), confirm: vi.fn(), popout: vi.fn(), ssh: vi.fn(), reloadDock: vi.fn(), help: vi.fn(), forward: vi.fn(),
 }) satisfies MenuRunner;
 
 const ref = { kind: 'deployments' as const, namespace: 'shop', name: 'api' };
+const forwardRow = { uid: 'p', ref: { kind: 'pods', namespace: 'shop', name: 'api-1' }, cells: { status: 'Running' }, tone: 'ok', labels: {} } as KubeRow;
 
 describe('runMenuAction', () => {
   it('dispatches every view action in order', () => {
@@ -35,6 +36,7 @@ describe('runMenuAction', () => {
       [{ type: 'ssh', connectionId: 'id' }, 'ssh', ['id']],
       [{ type: 'dockReload' }, 'reloadDock', []],
       [{ type: 'help' }, 'help', []],
+      [{ type: 'forward', row: forwardRow }, 'forward', [forwardRow]],
     ];
     for (const [action, method, args] of cases) {
       const r = runner();
