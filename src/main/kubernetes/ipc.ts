@@ -2,7 +2,7 @@ import { ipcMain, webContents } from 'electron';
 import { AppError } from '../../shared/errors';
 import type { IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc';
-import { KubeActionRequestSchema, KubeDetailRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeOpenRequestSchema, KubeProbeRequestSchema, KubeSubscribeRequestSchema, KubeViewRequestSchema } from '../../shared/kubernetes-schema';
+import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeDetailRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeOpenRequestSchema, KubeProbeRequestSchema, KubeSubscribeRequestSchema, KubeViewRequestSchema } from '../../shared/kubernetes-schema';
 import type { KubeProbeResult } from '../../shared/kubernetes';
 import type { ConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import { openRemoteWithJump } from '../containers/ipc';
@@ -80,6 +80,21 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, prompts: A
     const ownerId = requireSshSender(event);
     const parsed = parseRequest(KubeForwardStopRequestSchema, request);
     sessions.stopForward(ownerId, parsed.viewId, parsed.forwardId);
+  });
+  handle(IPC_CHANNELS.kubeLogsStart, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeLogsStartRequestSchema, request);
+    return sessions.startLogs(ownerId, parsed.viewId, { id: parsed.id, namespace: parsed.namespace, selector: parsed.selector, format: parsed.format });
+  });
+  handle(IPC_CHANNELS.kubeLogsStop, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeLogsStopRequestSchema, request);
+    sessions.stopLogs(ownerId, parsed.viewId, parsed.id);
+  });
+  handle(IPC_CHANNELS.kubeAccess, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeAccessRequestSchema, request);
+    return sessions.access(ownerId, parsed.viewId, parsed.namespace);
   });
   // Reads the contexts of a kubeconfig on an SSH host; the config text itself never leaves the main process.
   handle(IPC_CHANNELS.kubeProbe, async (event, request): Promise<KubeProbeResult> => {
