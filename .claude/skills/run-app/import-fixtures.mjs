@@ -2,6 +2,7 @@
 // Only made-up hosts and names; the one Password attribute holds an obviously wrong value.
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash, createHmac } from 'node:crypto';
 
 const PUTTY = String.raw`HKEY_CURRENT_USER\Software\SimonTatham\PuTTY\Sessions`;
 const WINSCP = String.raw`HKEY_CURRENT_USER\Software\Martin Prikryl\WinSCP 2\Sessions`;
@@ -103,6 +104,24 @@ const CONF_CONS = `<?xml version="1.0" encoding="utf-8"?>
 </Connections>
 `;
 
+// Synthetic known_hosts: deterministic made-up keys, one line per parser case (see haertung research 6.0).
+const bytes = (label, length) => Buffer.concat([0, 1, 2, 3, 4].map(i => createHash('sha512').update(`${label}:${i}`).digest())).subarray(0, length);
+const sshString = value => { const head = Buffer.alloc(4); const body = Buffer.from(value); head.writeUInt32BE(body.length); return Buffer.concat([head, body]); };
+const keyBlob = (type, ...parts) => Buffer.concat([sshString(type), ...parts.map(sshString)]).toString('base64');
+const ed25519 = label => keyBlob('ssh-ed25519', bytes(label, 32));
+const SALT = bytes('salt', 20);
+const KNOWN_HOSTS = [
+  '# Synthetic demo data only',
+  `build-01,10.20.0.11 ssh-ed25519 ${ed25519('build-01')} demo`,
+  `[db-01]:2200 ecdsa-sha2-nistp256 ${keyBlob('ecdsa-sha2-nistp256', 'nistp256', Buffer.concat([Buffer.from([4]), bytes('db-01', 64)]))}`,
+  `|1|${SALT.toString('base64')}|${createHmac('sha1', SALT).update('legacy-01').digest('base64')} ssh-ed25519 ${ed25519('legacy-01')}`,
+  `[127.0.0.1]:2222 ssh-ed25519 ${ed25519('demo-conflict')}`,
+  `@revoked * ssh-rsa ${keyBlob('ssh-rsa', Buffer.from([1, 0, 1]), Buffer.concat([Buffer.from([0]), bytes('revoked', 256)]))}`,
+  `@cert-authority *.example.internal ssh-ed25519 ${ed25519('ca')}`,
+  `*.internal ssh-ed25519 ${ed25519('pattern')}`,
+  'web-02 ssh-ed25519 !!!notbase64',
+].join('\n') + '\n';
+
 // reg export writes UTF-16LE with a BOM and CRLF line endings
 function regBytes(text) {
   const crlf = text.split(/\r?\n/).join('\r\n');
@@ -117,8 +136,10 @@ export function writeImportFixtures(dir) {
     puttyReg: path.join(dir, 'putty.reg'),
     winscpReg: path.join(dir, 'winscp.reg'),
     confCons: path.join(dir, 'confCons.xml'),
+    knownHosts: path.join(dir, 'known_hosts'),
   };
   fs.writeFileSync(files.sshConfig, SSH_CONFIG, 'utf8');
+  fs.writeFileSync(files.knownHosts, KNOWN_HOSTS, 'utf8');
   fs.writeFileSync(files.puttyReg, regBytes(PUTTY_REG));
   fs.writeFileSync(files.winscpReg, regBytes(WINSCP_REG));
   fs.writeFileSync(files.confCons, CONF_CONS, 'utf8');
