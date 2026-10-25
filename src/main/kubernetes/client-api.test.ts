@@ -5,12 +5,12 @@ import { connect, createServer as createNetServer } from 'node:net';
 import type { AddressInfo, Socket } from 'node:net';
 import { PassThrough } from 'node:stream';
 import type { Duplex } from 'node:stream';
-import { KubeConfig, KubernetesObjectApi, Watch } from '@kubernetes/client-node';
+import { AuthorizationV1Api, KubeConfig, KubernetesObjectApi, Watch } from '@kubernetes/client-node';
 import { describe, expect, it, vi } from 'vitest';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
 import type { CodedError } from '../../shared/errors';
 import { KubeApiError } from './api';
-import { createKubeApi, isAltnameError, manualJobBody, openLogs, portForwardError, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
+import { createKubeApi, followLogUrl, isAltnameError, manualJobBody, openLogs, portForwardError, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
 import type { LogRequest } from './client-api';
 
 function testConfig(server = 'https://k8s.example:6443'): KubeConfig {
@@ -572,5 +572,76 @@ describe('createKubeApi.portForward', () => {
     } finally {
       fake.close();
     }
+  });
+});
+
+describe('followed workload logs', () => {
+  it('builds the URL with timestamps and either tailLines or sinceTime, names encoded', () => {
+    expect(followLogUrl('https://k8s.example:6443', logsTarget, { tailLines: 200 }))
+      .toBe('https://k8s.example:6443/api/v1/namespaces/shop/pods/api-1/log?container=app&follow=true&timestamps=true&tailLines=200');
+    expect(followLogUrl('https://k8s.example:6443', logsTarget, { sinceTime: '2026-10-25T08:10:00Z' }))
+      .toBe('https://k8s.example:6443/api/v1/namespaces/shop/pods/api-1/log?container=app&follow=true&timestamps=true&sinceTime=2026-10-25T08%3A10%3A00Z');
+    expect(followLogUrl('https://k8s.example:6443', { ...logsTarget, pod: 'a b', container: 'c&d' }, {}))
+      .toBe('https://k8s.example:6443/api/v1/namespaces/shop/pods/a%20b/log?container=c%26d&follow=true&timestamps=true&tailLines=200');
+  });
+
+  it('passes the raw bytes on, JSON unchanged and a partial last line without holding it back', async () => {
+    const fake = fakeLogRequest();
+    const io = fakeIo();
+    openLogs(testConfig(), logsTarget, io, fake.sendRequest, { tailLines: 200 });
+    await flush();
+    expect(fake.calls[0].url).toContain('timestamps=true');
+    fake.push('2026-10-25T08:10:00.1Z {"level":"info","msg":"one"}\n2026-10-25T08:10:01Z par');
+    await flush();
+    expect(Buffer.concat(io.data.mock.calls.map(call => call[0])).toString()).toBe('2026-10-25T08:10:00.1Z {"level":"info","msg":"one"}\n2026-10-25T08:10:01Z par');
+    fake.end();
+    await flush();
+    expect(io.end).toHaveBeenCalledWith(0, undefined);
+  });
+
+  it('ends a failed followed log with the mapped error and nothing held back', async () => {
+    const io = fakeIo();
+    openLogs(testConfig(), logsTarget, io, fakeLogRequest(403).sendRequest, { tailLines: 200 });
+    await flush();
+    await flush();
+    expect(io.data).not.toHaveBeenCalled();
+    expect(io.end.mock.calls[0][1]).toMatchObject({ code: 'kubernetes.forbidden' });
+  });
+});
+
+describe('createKubeApi.rulesReview', () => {
+  const withReview = async (answer: () => Promise<unknown>) => {
+    const create = vi.fn(answer);
+    const spy = vi.spyOn(KubeConfig.prototype, 'makeApiClient').mockReturnValue({ createSelfSubjectRulesReview: create } as never);
+    try {
+      const result = await createKubeApi(testConfig()).rulesReview('shop');
+      return { result, create, clients: spy.mock.calls.map(call => call[0]) };
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  it('sends one SelfSubjectRulesReview for the namespace through AuthorizationV1Api and takes the rules over', async () => {
+    const { result, create, clients } = await withReview(async () => ({ status: { incomplete: false, nonResourceRules: [], resourceRules: [
+      { verbs: ['get'], apiGroups: [''], resources: ['pods/log'], resourceNames: [] },
+      { verbs: ['patch'], apiGroups: ['apps'], resources: ['deployments'], resourceNames: ['api'] },
+    ] } }));
+    expect(clients).toEqual([AuthorizationV1Api]);
+    expect(create).toHaveBeenCalledWith({ body: { apiVersion: 'authorization.k8s.io/v1', kind: 'SelfSubjectRulesReview', spec: { namespace: 'shop' } } });
+    expect(result).toEqual({ incomplete: false, rules: [
+      { verbs: ['get'], apiGroups: [''], resources: ['pods/log'] },
+      { verbs: ['patch'], apiGroups: ['apps'], resources: ['deployments'], resourceNames: ['api'] },
+    ] });
+  });
+
+  it('counts a missing status, incomplete and an evaluation error as incomplete', async () => {
+    expect((await withReview(async () => ({}))).result.incomplete).toBe(true);
+    expect((await withReview(async () => ({ status: { incomplete: true, resourceRules: [], nonResourceRules: [] } }))).result.incomplete).toBe(true);
+    expect((await withReview(async () => ({ status: { incomplete: false, evaluationError: 'role.rbac.authorization.k8s.io "gone" not found', resourceRules: [], nonResourceRules: [] } }))).result.incomplete).toBe(true);
+  });
+
+  it('maps a forbidden review to a KubeApiError with code 403', async () => {
+    await expect(withReview(async () => { throw Object.assign(new Error('Unknown API Status Code!'), { code: 403, body: '{}' }); }))
+      .rejects.toMatchObject({ code: 403 });
   });
 });
