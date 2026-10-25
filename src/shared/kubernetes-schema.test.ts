@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GROUP_BY_IDS, KUBE_NAME, manualJobName, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH } from './kubernetes';
-import { KubeActionRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
+import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
 
 describe('kubernetes schemas', () => {
   it('accepts a namespaced ref and rejects bad names', () => {
@@ -133,5 +133,32 @@ describe('port-forward requests', () => {
   it('stops only by uuid', () => {
     expect(KubeForwardStopRequestSchema.safeParse({ viewId, forwardId: viewId }).success).toBe(true);
     expect(KubeForwardStopRequestSchema.safeParse({ viewId, forwardId: 'f1' }).success).toBe(false);
+  });
+});
+
+describe('logs and access requests', () => {
+  const viewId = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
+  const id = '1b4e28ba-2fa1-41d2-883f-0016d3cca427';
+  const valid = { viewId, id, namespace: 'shop', selector: { app: 'api', 'app.kubernetes.io/instance': 'shop-api' }, format: 'compact' };
+  it('accepts a valid start and rejects empty, oversized and malformed selectors', () => {
+    expect(KubeLogsStartRequestSchema.safeParse(valid).success).toBe(true);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: {} }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`k${i}`, 'v'])) }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: Object.fromEntries(Array.from({ length: 32 }, (_, i) => [`k${i}`, 'v'])) }).success).toBe(true);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: { 'a,b': 'c' } }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: { app: 'a,b' } }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: { app: 'x!=y' } }).success).toBe(false);
+  });
+  it('rejects a bad id, namespace or format and unknown fields', () => {
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, id: 'run-1' }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, namespace: 'Shop' }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, format: 'ansi' }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, container: 'app' }).success).toBe(false);
+  });
+  it('checks the stop request and the access request', () => {
+    expect(KubeLogsStopRequestSchema.safeParse({ viewId, id }).success).toBe(true);
+    expect(KubeLogsStopRequestSchema.safeParse({ viewId, id: 'run-1' }).success).toBe(false);
+    expect(KubeAccessRequestSchema.safeParse({ viewId, namespace: 'shop' }).success).toBe(true);
+    expect(KubeAccessRequestSchema.safeParse({ viewId, namespace: 'shop', verb: 'patch' }).success).toBe(false);
   });
 });

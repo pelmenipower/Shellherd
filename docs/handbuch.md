@@ -538,7 +538,7 @@ nutzt es `sudo -n` (dafür braucht der Benutzer NOPASSWD). Kubeconfigs mit `exec
 statt auf dem Server laufen würden.
 
 Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
-Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, YAML,
+Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, `Logs aller Pods`, YAML,
 Events, Describe und `Port weiterleiten…` bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
 Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird.
 
@@ -592,6 +592,27 @@ Rechtsklick auf einen laufenden Pod oder einen Service → `Port weiterleiten…
 - **Rechte:** Kubernetes verlangt `create` auf `pods/portforward` im Namespace (ältere Versionen `get`). Die Rolle `edit` hat das, `view` nicht. Für Services braucht es zusätzlich `get` auf den Service und `list` auf Pods. Fehlt das Recht, meldet die Leiste „Keine Berechtigung für Port-Weiterleitungen in …“.
 - **Grenzen:** Höchstens 10 Weiterleitungen gleichzeitig, je Weiterleitung höchstens 32 gleichzeitige Verbindungen, nur TCP. `Im Browser öffnen` nimmt `http`, bei Port 443 und 8443 `https`. Programme, die nach dem Senden ihre Seite der Verbindung schließen (z. B. `nc -N`, `socat`), bekommen keine Antwort.
 - **Wer den Port erreicht:** Jedes Programm und jeder Benutzer auf diesem Computer, auch Webseiten im Browser über Tricks wie DNS-Rebinding. Eine Anmeldung am Port gibt es nicht, genau wie bei `kubectl port-forward`. Lass Weiterleitungen deshalb nur so lange offen, wie du sie brauchst, und leite auf geteilten Rechnern (Terminalserver) nicht zu sensiblen Diensten weiter.
+
+### Logs aller Pods
+
+Rechtsklick auf ein Deployment, StatefulSet, DaemonSet, einen Job oder einen Service → `Logs aller Pods`. Der Reiter **Logs** im unteren Bereich zeigt dann die Logs aller zugehörigen Container zusammen. Ist die Zeile nur ausgewählt, startet `Logs aller Pods anzeigen` die Ansicht; durchs Blättern allein öffnet Shellherd keine Streams.
+
+- **Sortierung:** nach dem Zeitstempel, den Kubernetes an jede Zeile hängt, in UTC (`HH:MM:SS.mmm`), auch wenn ein Node in Ortszeit läuft. Davor steht `pod/container` in einer von vier Farben. Laufen die Uhren der Nodes auseinander, kann die Reihenfolge zwischen Pods um diesen Versatz abweichen.
+- **Filtern und Quellen:** Das Feld `Filtern` zeigt nur Zeilen, die den Text enthalten, im Präfix oder in der Meldung; Treffer sind markiert. Ein Klick auf einen Container-Chip blendet ihn aus und wieder ein.
+- **Folgen:** Neue Zeilen erscheinen unten. Scrollst du nach oben, bleibt die Ansicht stehen, und `Folgen (12 neu)` zeigt, was dazugekommen ist; ein Klick springt ans Ende.
+- **Rollouts:** Neue Pods kommen von selbst dazu, sobald ihr Container läuft. Beendete Pods bleiben mit „beendet“ stehen. Startet ein Container neu, liest Shellherd ab der letzten Zeile weiter. Beendet ein Proxy oder Load Balancer einen ruhigen Stream, liest Shellherd nach 5 Sekunden weiter. Bricht ein Stream mit Fehler ab, zeigt der Chip „Fehler“ mit dem Grund im Tooltip; `Kompakt`/`Roh` umschalten startet die Ansicht neu.
+- **Kompakt / Roh** gilt wie bei einzelnen Logs; Farben aus der App werden entfernt. `Kopieren` nimmt alle Treffer mit, auch die nicht angezeigten.
+- **Grenzen:** höchstens 20 Container gleichzeitig (weitere warten und rücken nach), je Container die letzten 200 Zeilen, insgesamt 10 000 Zeilen, angezeigt die neuesten 2 000 Treffer. Zeilen über 4 000 Zeichen werden gekürzt. Kommen mehr als 8 000 Zeilen pro Sekunde, lässt Shellherd welche aus und sagt es. Nur `matchLabels` des Selectors zählen, wie bei „Pods anzeigen“; Init-Container sind nicht dabei. Nach 100 Containern in einer Ansicht kommen keine neuen mehr dazu; `Kompakt`/`Roh` umschalten startet die Ansicht neu.
+- **Rechte:** `list` und `watch` auf Pods und `get` auf `pods/log`. „Nur lesen“ erlaubt die Ansicht. Wechselst du die Zeile, den Reiter oder die Darstellung, endet sie; nach einem Neuverbinden beginnt sie neu.
+
+### Rechte-Vorabprüfung
+
+Shellherd fragt je Namespace einmal ab, was das Kubernetes-Konto darf (`SelfSubjectRulesReview`, eine reine Abfrage ohne Wirkung auf den Cluster). Einträge im Kontextmenü, die das Konto nicht ausführen darf, sind dann vorab gesperrt und nennen das fehlende Recht, etwa „Keine Berechtigung: patch auf deployments in shop“. Das gilt für Neustart, Skalieren, Löschen, cordon/uncordon, Anhalten, Fortsetzen und `Jetzt ausführen…`, für Logs, Shell, `Logs aller Pods` und `Port weiterleiten…`. Die Tasten `r`, `S`, `Strg+D`, `s`, `l` und `p` melden denselben Grund.
+
+- Shellherd fragt höchstens einmal pro Minute und Namespace nach, solange der Cluster-Tab sichtbar ist, und sofort nach einem Neuverbinden. Ein gerade neu vergebenes Recht kann also bis zu einer Minute gesperrt erscheinen.
+- Kann der Cluster die Frage nicht vollständig beantworten (etwa mit einem externen Autorisierer wie bei GKE oder Azure-RBAC), ist sie verboten, meldet sie einen Auswertungsfehler (etwa eine Bindung an eine gelöschte Rolle) oder dauert sie länger als 10 Sekunden, sperrt Shellherd nichts; ein fehlendes Recht zeigt sich dann wie bisher erst beim Ausführen.
+- Regeln, die nur für bestimmte Objektnamen gelten, zählen als Erlaubnis. Gesperrt wird nur, was sicher nicht geht.
+- Nodes prüft Shellherd mit den Regeln des Standard-Namespace des Clusters.
 
 ## Dateiansicht: Tastatur und Übertragungen
 

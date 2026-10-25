@@ -13,6 +13,8 @@ import { runAction } from './actions';
 import type { ClusterAccess } from './access';
 import { describe, toYaml } from './describe';
 import { KubeForwards } from './forwards';
+import { KubeWorkloadLogs, type LogsRequest } from './workload-logs';
+import { deniedAccess, type KubeDenied } from '../../shared/kube-access';
 import { parseKubeconfig } from './kubeconfig';
 import type { ParsedKubeconfig } from './kubeconfig';
 import { Overview } from './overview';
@@ -34,6 +36,8 @@ const ENDED = 'kubernetes.sessionEnded' as const satisfies ErrorCode;
 const READ_ONLY = 'kubernetes.readOnly' as const satisfies ErrorCode;
 /** How long a terminal waits for a reconnect, like the SSH start timer. */
 const READY_WAIT_MS = 30_000;
+/** A rules review that takes longer counts as unknown: nothing is greyed out. */
+const ACCESS_TIMEOUT_MS = 10_000;
 
 export interface KubeSessionDependencies {
   getCluster: (id: string) => KubernetesConnectionNode;
@@ -122,7 +126,9 @@ class Session {
   private idle?: Timer;
 
   constructor(private readonly deps: KubeSessionDependencies, private readonly options: SessionOptions,
-    readonly clusterId: string, private readonly forget: () => void) {}
+    readonly clusterId: string, private readonly forget: () => void,
+    /** Called with the views whenever the live connection goes: their log runs hold the old API client and must end. */
+    private readonly liveEnded: (viewIds: string[]) => void = () => {}) {}
 
   /** Starts connecting. Views attached before this call receive the connecting status. */
   begin(): void {
@@ -354,6 +360,7 @@ class Session {
     for (const entry of this.entries.values()) entry.watcher.stop();
     this.entries.clear();
     for (const view of this.views.values()) view.key = undefined;
+    this.liveEnded([...this.views.keys()]);
     this.overview?.stop();
     this.overview = undefined;
     this.api = undefined;
@@ -512,6 +519,7 @@ export class KubeSessions {
   private readonly views = new Map<string, View>();
   private readonly options: SessionOptions;
   private readonly forwards: KubeForwards;
+  private readonly logs: KubeWorkloadLogs;
 
   constructor(private readonly deps: KubeSessionDependencies) {
     this.options = {
@@ -521,6 +529,8 @@ export class KubeSessions {
       backoffMs: deps.backoffMs ?? DEFAULT_BACKOFF_MS,
     };
     this.forwards = new KubeForwards((ownerId, viewId, forwards) => deps.emit(ownerId, { type: 'forwards', viewId, forwards }));
+    this.logs = new KubeWorkloadLogs((ownerId, viewId, batch) => deps.emit(ownerId, { type: 'logs', viewId, ...batch }),
+      { schedule: this.options.schedule, cancel: this.options.cancel });
   }
 
   /** Returns the session of a cluster, creating it when none is running. Created sessions are not begun. */
@@ -529,7 +539,7 @@ export class KubeSessions {
     if (existing) return { session: existing, fresh: false };
     const created: Session = new Session(this.deps, this.options, clusterId, () => {
       if (this.sessions.get(clusterId) === created) this.sessions.delete(clusterId);
-    });
+    }, viewIds => { for (const viewId of viewIds) this.logs.stopView(viewId); });
     this.sessions.set(clusterId, created);
     return { session: created, fresh: true };
   }
@@ -594,12 +604,50 @@ export class KubeSessions {
     this.forwards.stop(viewId, forwardId);
   }
 
+  /** Logs of all pods of a selector in a view. Reading: allowed on read-only clusters, refused on disabled ones. */
+  async startLogs(ownerId: number, viewId: string, request: LogsRequest): Promise<void> {
+    const view = this.viewOf(ownerId, viewId);
+    // Read at each call; reading the vault also refuses while it is locked.
+    if (this.deps.getCluster(view.session.clusterId).disabled) throw new AppError(DISABLED);
+    view.session.requireApi();
+    await this.logs.start({ ownerId, viewId, api: () => view.session.waitReady() }, request);
+    // The view closed while the run started: it must not outlive the view.
+    if (this.views.get(viewId) !== view) {
+      this.logs.stopView(viewId);
+      throw new AppError(NOT_AVAILABLE);
+    }
+  }
+
+  stopLogs(ownerId: number, viewId: string, id: string): void {
+    this.viewOf(ownerId, viewId);
+    this.logs.stop(viewId, id);
+  }
+
+  /** RBAC pre-check of one namespace. null whenever the answer cannot be trusted: forbidden, not served, incomplete, failed or slow. Throws on a disabled cluster or a locked vault, like the other entries. */
+  async access(ownerId: number, viewId: string, namespace: string): Promise<KubeDenied[] | null> {
+    const view = this.viewOf(ownerId, viewId);
+    // Read at each call, like the other entries: a disabled cluster or a locked vault refuses.
+    if (this.deps.getCluster(view.session.clusterId).disabled) throw new AppError(DISABLED);
+    const api = view.session.requireApi();
+    let timer: unknown;
+    const late = new Promise<null>(resolve => { timer = this.options.schedule(() => resolve(null), ACCESS_TIMEOUT_MS); });
+    try {
+      return await Promise.race([
+        api.rulesReview(namespace).then(review => (review.incomplete ? null : deniedAccess(review.rules)), () => null),
+        late,
+      ]);
+    } finally {
+      this.options.cancel(timer);
+    }
+  }
+
   close(ownerId: number, viewId: string): void {
     const view = this.views.get(viewId);
     if (!view) return;
     if (view.ownerId !== ownerId) throw new AppError(NOT_AVAILABLE);
     this.views.delete(viewId);
     this.forwards.stopView(viewId);
+    this.logs.stopView(viewId);
     view.session.detach(view);
   }
 
@@ -617,6 +665,7 @@ export class KubeSessions {
 
   closeAll(): void {
     this.forwards.stopAll();
+    this.logs.stopAll();
     for (const session of [...this.sessions.values()]) session.dispose();
     this.sessions.clear();
     this.views.clear();

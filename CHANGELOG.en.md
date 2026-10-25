@@ -4,6 +4,11 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.28.0] – 2026-10-25
+
+- New: logs of all pods. Right-click a Deployment, StatefulSet, DaemonSet, Job or Service → `Logs of all pods` shows the logs of all its containers together in the bottom panel, sorted by time and with a coloured `pod/container` prefix. With `Filter`, container chips to hide sources and `Follow`; new pods of a rollout join by themselves.
+- New: permission pre-check. Actions the Kubernetes account may not run (restart, scale, delete, cordon, shell, logs, port forward and more) are greyed out in the context menu up front and name the missing permission. Shellherd asks for the permissions once per namespace without changing anything in the cluster; if the cluster cannot answer, everything stays as before.
+
 ## [0.27.0] – 2026-10-25
 
 - New: Port forwards to pods and services. Right-click in the cluster tab → `Forward port…` picks the port and the local port. The “Port forwards” bar at the bottom of the cluster tab lists them with `Open in browser`, `Copy address` and `Stop`. A service goes to a ready pod and finds the next one by itself after a rollout.

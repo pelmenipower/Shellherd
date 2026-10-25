@@ -10,7 +10,7 @@ Dunkel ist der Standard. Das helle Theme tauscht nur Werte, nie Rollen: dieselbe
 
 1. **Drei Flächenstufen, eine Linie.** Bühne `#0b1018` (Terminal, Code, Manifest), App-Grund `#0e141e` (Hintergrund, View-Leiste), Panel `#151d2a` (Leisten, Seitenleiste, Dialoge, Menüs), erhöht `#1c2635` (Controls, Zeilen-Hover), Hover `#253043`. Eine Linienfarbe `#2e3a4c`, eine stärkere `#4d5b70` für Hover-Ränder und aktive Tabs.
 2. **Kupfer ist das einzige Signal.** `#e8935a` steht für Fokus, aktive Tabs, Links, Auswahl-Rand, Fortschritt und Primärbutton. Ausgewählt (dauerhaft, Zeilen) ist **ein** opakes dunkles Kupfer `#2e2620`. Aktiv in View-Tabs, Menüfokus und Badges ist **eine** Tönung `rgb(232 147 90 / 14%)`. Hover auf Buttons, Tabs und Chips ist `--color-bg-hover`. Ein einzelnes Drop-Ziel bekommt 22 %, eine ganze Ablagefläche 6 %. Mehr Stufen gibt es nicht.
-3. **Ampel nur für Zustände.** Ein Grün `#4ade80`, ein Gelb `#facc15`, ein Rot `#fb7185` für Punkte und Icons. Gefahr-Text ist `#fda4af`, die Gefahr-Fläche `#341c25`, der Gefahr-Rand `#713442`. Nie dekorativ. **Kupfer ist nie ein Zustand, Gelb ist nie ein Akzent**: Kupfer bedeutet „hier bist du oder hier kannst du handeln“, Gelb bedeutet „Achtung, Zustand“. Ein Zustand steht nie auf einer Kupferfläche (Kontrast); deshalb behält der Punkt im „Gespeichert“-Label `currentColor`, und der Text trägt den Zustand. Zustandsflächen: Warnung `--color-warn-bg` `#2a2614`, Erfolg `--color-ok-bg` `#16261f`.
+3. **Ampel nur für Zustände.** Ein Grün `#4ade80`, ein Gelb `#facc15`, ein Rot `#fb7185` für Punkte und Icons. Gefahr-Text ist `#fda4af`, die Gefahr-Fläche `#341c25`, der Gefahr-Rand `#713442`. Nie dekorativ. **Kupfer ist nie ein Zustand, Gelb ist nie ein Akzent**: Kupfer bedeutet „hier bist du oder hier kannst du handeln“, Gelb bedeutet „Achtung, Zustand“. Ein Zustand steht nie auf einer Kupferfläche (Kontrast); deshalb behält der Punkt im „Gespeichert“-Label `currentColor`, und der Text trägt den Zustand. Zustandsflächen: Warnung `--color-warn-bg` `#2a2614`, Erfolg `--color-ok-bg` `#16261f`. Einzige Ausnahme sind die vier Quellenfarben `--color-source-1` bis `-4`: Sie unterscheiden nur die Herkunft einer Logzeile in „Logs aller Pods“ und sind nie Zustand, Fläche oder Rand.
 4. **Zwei Textstufen.** Text `#ebe7e2`, gedämpft `#aeb3bc`, dazu Code-Text `#e6e2dc`. Dunklere Grautöne gibt es nicht.
 5. **Vier Control-Höhen.** 24 in Tabellen und Chip-Leisten, 28 in Leisten und Menüs, 32 Standard, 36 für Formulareingaben und Suche, 32 für die Inline-Eingaben im Datei-Prompt und im Rechte-Dialog. Die Umbenennen-Eingabe der View-Tabs und die Pfad-Eingabe im Dateibrowser sind 24 hoch. Leisten sind 32 hoch (Pane, View, Datei, Dock, Transfer, Editor- und Assistent-Kopf), der App-Kopf 44, die Statusleiste 24.
 6. **Drei Radien.** 4 innen (Tabs, Zeilen, Menüeinträge, Icon-Knöpfe in Leisten), 5 Standard (Buttons, Eingaben, Popover, Menüs), 8 für Dialoge und Karten. Pillen nutzen `999px` (Chips, Badges). Ausnahme: Das Layout-Menü hat 4.
@@ -62,6 +62,10 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 | `--color-danger-bg` | Gefahr-Fläche | `#341c25` | Gefahr-Button |
 | `--color-danger-bg-hover` | Gefahr-Fläche beim Hover | `#512333` | Gefahr-Button |
 | `--color-danger-border` | Gefahr-Rand | `#713442` | Gefahr-Button |
+| `--color-source-1` | Herkunft einer Logzeile (nur Text): Blau | `#7cb7ff` | `.kube-logs-src-0` |
+| `--color-source-2` | Herkunft einer Logzeile (nur Text): Violett | `#c4a5ff` | `.kube-logs-src-1` |
+| `--color-source-3` | Herkunft einer Logzeile (nur Text): Türkis | `#5fd4d4` | `.kube-logs-src-2` |
+| `--color-source-4` | Herkunft einer Logzeile (nur Text): Magenta | `#e59af0` | `.kube-logs-src-3` |
 
 ### Helles Theme
 
@@ -103,6 +107,10 @@ Main setzt `nativeTheme.themeSource` aus `settings.json`. Der Renderer liest das
 | `--color-danger-bg` | `#fdeceb` | Gefahr-Fläche (Banner, Produktions-Chip); Text 15,3 |
 | `--color-danger-bg-hover` | `#fadad7` | Gefahr-Knopf beim Hover |
 | `--color-danger-border` | `#e59a93` | Gefahr-Rand, dekorativ wie dunkel |
+| `--color-source-1` | `#1d5fb8` | Herkunft (nur Text): 6,21 Bühne, 5,76 Panel, 5,04 erhöht (Chip); dunkel 9,15 / 8,12 / 7,31 |
+| `--color-source-2` | `#6b3fb8` | Herkunft (nur Text): 6,93 Bühne, 6,43 Panel, 5,63 erhöht; dunkel 9,24 / 8,20 / 7,38 |
+| `--color-source-3` | `#0f6f73` | Herkunft (nur Text): 5,93 Bühne, 5,50 Panel, 4,81 erhöht; dunkel 10,76 / 9,55 / 8,60 |
+| `--color-source-4` | `#9a2f8f` | Herkunft (nur Text): 6,61 Bühne, 6,13 Panel, 5,37 erhöht; dunkel 9,27 / 8,23 / 7,41 |
 | `--shadow-overlay` | `0 10px 28px rgb(40 30 20 / 18%)` | 45 % Schwarz wäre auf Hell ein Fleck |
 
 ### Abstände (`--space-*`)
@@ -235,7 +243,7 @@ Aliase: entfernt in Stufe 2; die Namen `--ui-*`, `--surface*`, `--border`, `--te
 | Hover Zeile | Baum und Kube-Tabelle `--color-bg-raised`, Dateizeile `--color-overlay` |
 | Aktiv/an | View-Tab `--color-bg-active`. Kube-Art, Chip und Dock-Tab `--color-bg-hover` + `--color-border-strong` + Akzenttext. Terminal-Tab `--color-bg-stage` + `--color-border-strong` + Akzent-Unterkante |
 | Ausgewählt (dauerhaft) | `--color-bg-selected`, Cursor `box-shadow: var(--focus-inset)` |
-| Gedrückt (`aria-pressed`) | Icon-Wahl: Rand `--color-accent` + `--color-bg-selected`. `.assistant-toggle` bekommt zusätzlich `background: var(--color-bg-selected)`. `.root-row` hat nur `--color-bg-selected`. Der Dock-Format-Umschalter behält `--color-accent` + `--color-on-accent` |
+| Gedrückt (`aria-pressed`) | Icon-Wahl: Rand `--color-accent` + `--color-bg-selected`. `.assistant-toggle` bekommt zusätzlich `background: var(--color-bg-selected)`. `.root-row` hat nur `--color-bg-selected`. Der Dock-Format-Umschalter behält `--color-accent` + `--color-on-accent`. Quellen-Chip (`.kube-logs-chip`): an = Quellenfarbe, aus = `--color-text-muted` und durchgestrichen. `Folgen` an = `--color-bg-selected`. |
 | Drop-Ziel | einzelnes Ziel (Zeile, Tab, Pane-Vorschau, Ordner) `--color-bg-drop`, ganze Fläche (Dateiliste) `--color-bg-tint` + Akzent-Inset |
 | Disabled | `.45` global, Menüeintrag und deaktivierte Baumzeile `.5` |
 | Fokus | `outline: var(--focus-outline); outline-offset: var(--focus-offset)`, Listen `var(--focus-inset)`, Split-Griff und View-Drop `outline-offset: -2px`, Controls in den Köpfen von Editor und Assistent `outline-offset: calc(-1 * var(--focus-offset))` |
@@ -286,6 +294,7 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 | `.ctr-busy` | gelegentlich | nicht | Zustand, kein Übergang nötig; die Status-Zelle nennt den Zielzustand („stoppt“) statt Blässe | – | – |
 | Tooltips | – | nicht | nur natives `title=` | – | – |
 | Welcome-Liste, Release-Box | bei jedem leeren Workspace | nicht | kein Delight-Budget | – | – |
+| „Logs aller Pods“: neue Zeilen, Sprung ans Ende (`.kube-logs-lines`) | laufend, bis 4×/s | nicht | Ausgabe wie Terminal; `Folgen` setzt `scrollTop` ohne `smooth` | – | – |
 | Spinner, Skelette | – | nicht einführen | Warteanzeigen sind Text und Punkt nach 400 ms | – | – |
 | Terminalausgabe, xterm-Cursor | – | nie | Terminal | xterm-Theme unangetastet | – |
 | Theme-Wechsel | selten, Einstellung oder Windows | nicht | Farbwechsel ist Zustand, kein Ereignis | – | – |
@@ -293,7 +302,7 @@ Neue Bewegung braucht einen Eintrag in dieser Tabelle. Maßstab sind Häufigkeit
 
 ### Ausnahmeliste für das Druck-Feedback
 
-Das Druck-Feedback steht als eine einzige Regel am Ende von `styles.css`. Sie nimmt diese flachen Elemente per `:not()` aus: `:disabled`, `[role='tab']` (Terminal-Tab, View-Tab, Kube-Art, Dock-Tab), `[role='menuitem']`, `.tree-toggle`, `.tree-node-button`, `.root-row`, `.welcome-list button`, `.kube-crumb`, `.kube-link`, `.kube-filter-chip`, `.kube-node`, `.kube-dock-format button`, `.link-button`, `.version-button`, `.update-button`, `.connection-picker-option`, `.workspace-definition-actions button`, `.workspace-current-actions button`, `.pane-layout-menu button`, `.file-row-head button` , `.file-path nav button` und `.recent-vault-open`. Es gibt keine Override-Regel und damit keinen Spezifitätswettlauf, denn `styles.css` steht im Bundle zuletzt. Neue flache Druckelemente kommen in diese Liste.
+Das Druck-Feedback steht als eine einzige Regel am Ende von `styles.css`. Sie nimmt diese flachen Elemente per `:not()` aus: `:disabled`, `[role='tab']` (Terminal-Tab, View-Tab, Kube-Art, Dock-Tab), `[role='menuitem']`, `.tree-toggle`, `.tree-node-button`, `.root-row`, `.welcome-list button`, `.kube-crumb`, `.kube-link`, `.kube-filter-chip`, `.kube-logs-chip`, `.kube-node`, `.kube-dock-format button`, `.link-button`, `.version-button`, `.update-button`, `.connection-picker-option`, `.workspace-definition-actions button`, `.workspace-current-actions button`, `.pane-layout-menu button`, `.file-row-head button` , `.file-path nav button` und `.recent-vault-open`. Es gibt keine Override-Regel und damit keinen Spezifitätswettlauf, denn `styles.css` steht im Bundle zuletzt. Neue flache Druckelemente kommen in diese Liste.
 
 ## Meldungen
 

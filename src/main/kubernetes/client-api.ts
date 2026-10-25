@@ -4,7 +4,7 @@ import { request as httpsRequest } from 'node:https';
 import type { RequestOptions } from 'node:https';
 import { PassThrough, Writable } from 'node:stream';
 import type { Duplex } from 'node:stream';
-import { Exec, KubernetesObjectApi, Metrics, PatchStrategy, PortForward, Watch } from '@kubernetes/client-node';
+import { AuthorizationV1Api, Exec, KubernetesObjectApi, Metrics, PatchStrategy, PortForward, Watch } from '@kubernetes/client-node';
 import type { KubeConfig, KubernetesObject } from '@kubernetes/client-node';
 import { AppError } from '../../shared/errors';
 import type { CodedError, ErrorCode } from '../../shared/errors';
@@ -12,7 +12,7 @@ import { KIND_INFO } from '../../shared/kubernetes';
 import type { KubeKind, KubeRef, KubeSelector, KubeTerminalTarget } from '../../shared/kubernetes';
 import { SHELL_CHOICE } from '../containers/commands';
 import { KubeApiError } from './api';
-import type { KubeApi, KubeObject, KubeStream, ListResult, MetricsSample, TerminalIo, WatchHandle, WatchType } from './api';
+import type { KubeApi, KubeObject, KubeRulesReview, KubeStream, ListResult, LogFollowOptions, MetricsSample, TerminalIo, WatchHandle, WatchType } from './api';
 import { parseCpu, parseMemory } from './rows';
 
 type Socket = Awaited<ReturnType<Exec['exec']>>;
@@ -272,6 +272,19 @@ export function logUrl(server: string, target: KubeTerminalTarget): string {
   return url.toString();
 }
 
+/** URL of a followed workload log: server timestamps on, the newest `tailLines` or everything since `sinceTime`. */
+export function followLogUrl(server: string, target: KubeTerminalTarget, options: LogFollowOptions): string {
+  const path = `/api/v1/namespaces/${encodeURIComponent(target.namespace)}/pods/${encodeURIComponent(target.pod)}/log`;
+  const url = new URL(server + path);
+  const params = url.searchParams;
+  params.set('container', target.container);
+  params.set('follow', 'true');
+  params.set('timestamps', 'true');
+  if (options.sinceTime) params.set('sinceTime', options.sinceTime);
+  else params.set('tailLines', String(options.tailLines ?? 200));
+  return url.toString();
+}
+
 function logStatusError(status: number, mode: KubeTerminalTarget['mode']): KubeApiError {
   if (mode === 'previous' && status === 400) return new KubeApiError('No previous container', 400, { code: 'kubernetes.noPreviousContainer' });
   return toApiError({ code: status });
@@ -282,7 +295,7 @@ function logStatusError(status: number, mode: KubeTerminalTarget['mode']): KubeA
  * Log pipes the response body into a stream without an error handler: aborting it crashes main.
  * Body errors are read and handled in this function.
  */
-export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: TerminalIo, sendRequest: LogRequest = requestLogs): KubeStream {
+export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: TerminalIo, sendRequest: LogRequest = requestLogs, follow?: LogFollowOptions): KubeStream {
   const controller = new AbortController();
   let finished = false;
   const finish = (code: number | null, error?: CodedError) => {
@@ -290,12 +303,13 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
     finished = true;
     io.end(code, error);
   };
-  const formatter = new LogFormatter(target.format ?? 'compact');
+  // Followed workload logs pass the raw bytes on: workload-logs.ts splits and cleans the lines itself.
+  const formatter = follow ? undefined : new LogFormatter(target.format ?? 'compact');
 
   const run = async () => {
     const cluster = config.getCurrentCluster();
     if (!cluster) throw new AppError('kubernetes.apiError');
-    const url = new URL(logUrl(cluster.server, target));
+    const url = new URL(follow ? followLogUrl(cluster.server, target, follow) : logUrl(cluster.server, target));
     // Same auth path as client-node's own requests: TLS agent, CA, client cert and token come from the kubeconfig.
     const options: RequestOptions = { method: 'GET', headers: {}, signal: controller.signal };
     await config.applyToHTTPSOptions(options);
@@ -304,11 +318,13 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
 
     for await (const chunk of response.body) {
       if (finished) break;
-      const text = formatter.feed(Buffer.from(chunk));
+      const bytes = Buffer.from(chunk);
+      if (!formatter) { io.data(bytes); continue; }
+      const text = formatter.feed(bytes);
       if (text) io.data(Buffer.from(text));
     }
     if (!finished) {
-      const rest = formatter.flush();
+      const rest = formatter?.flush();
       if (rest) io.data(Buffer.from(rest));
     }
     finish(0);
@@ -319,7 +335,7 @@ export function openLogs(config: KubeConfig, target: KubeTerminalTarget, io: Ter
     if (controller.signal.aborted) return;
     // Show the held partial line before the error, so it is not lost.
     if (!finished) {
-      const rest = formatter.flush();
+      const rest = formatter?.flush();
       if (rest) io.data(Buffer.from(rest));
     }
     finish(null, toApiError(error).coded);
@@ -509,6 +525,27 @@ export function createKubeApi(config: KubeConfig): KubeApi {
 
     portForward(namespace, pod, port, socket) {
       return openPortForward(config, namespace, pod, port, socket);
+    },
+
+    followLog(target, options, io) {
+      return openLogs(config, target, io, requestLogs, options);
+    },
+
+    async rulesReview(namespace) {
+      return call(async () => {
+        const review = await config.makeApiClient(AuthorizationV1Api).createSelfSubjectRulesReview({
+          body: { apiVersion: 'authorization.k8s.io/v1', kind: 'SelfSubjectRulesReview', spec: { namespace } },
+        });
+        const status = review.status;
+        return {
+          // A missing status or an evaluation error (e.g. a binding to a missing role) counts as incomplete: then nothing is greyed out.
+          incomplete: status?.incomplete !== false || Boolean(status?.evaluationError),
+          rules: (status?.resourceRules ?? []).map(rule => ({
+            verbs: rule.verbs ?? [], apiGroups: rule.apiGroups ?? [], resources: rule.resources ?? [],
+            ...(rule.resourceNames?.length ? { resourceNames: rule.resourceNames } : {}),
+          })),
+        } satisfies KubeRulesReview;
+      });
     },
   };
 }

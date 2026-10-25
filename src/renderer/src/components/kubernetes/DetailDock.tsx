@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { KIND_COLUMNS, refKey, type DockMode, type KubeDetail, type KubeDetailMode, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
+import { KIND_COLUMNS, MAX_LOG_STREAMS, refKey, type DockMode, type KubeLogsStartRequest, type KubeDetail, type KubeDetailMode, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
 import { errorText } from '../../error-text';
 import { useT } from '../../i18n';
 import { columnLabel } from '../../kube-labels';
@@ -10,6 +10,7 @@ import '../../kubernetes-dock.css';
 import { liveSessions } from '../../session-registry';
 import { capText, eventsTsv } from '../../kube-copy';
 import { isKeyboardContextMenu, isMenuKey, menuHandlers, type MenuOpener } from '../../kube-menu-trigger';
+import { WorkloadLogs } from './WorkloadLogs';
 
 const DOCK_TABS: { mode: DockMode; key: string }[] = [
   { mode: 'logs', key: 'l' },
@@ -63,13 +64,26 @@ interface DetailDockProps {
   onCopy: (text: string, label: string, info?: { lines?: number; shortened?: boolean }) => void;
   /** Reports a status line (nothing to copy). */
   onSay: (message: string) => void;
+  viewId: string | null;
+  /** Selected workload, job or service with a selector: the Logs tab shows the logs of all its pods. */
+  workload: KubeRow | null;
+  /** The logs of all pods of `workload` were started (menu or button); dropped when the selection moves. */
+  logsAllArmed: boolean;
+  /** Why "Logs aller Pods anzeigen" is blocked (not connected, no permission). */
+  logsAllReason?: string | undefined;
+  onArmLogsAll: () => void;
+  startLogs: (request: Omit<KubeLogsStartRequest, 'viewId'>) => Promise<void>;
+  stopLogs: (id: string) => Promise<void>;
+  /** Missing RBAC permission for the shell of the selected pod. */
+  shellForbidden?: string | undefined;
 }
 
 type DetailResult = { id: string; data?: KubeDetail; error?: string };
 
 /** Bottom dock: logs and shell as embedded terminal, events and manifests as text. Follows the selection. */
 export function DetailDock(props: DetailDockProps) {
-  const { connection, tabId, visible, open, mode, previous, armed, selected, podRef, podRow, container, readOnly, detail, onMode, onArm, onToggle, onPopout, epoch, onMenu, logFormat, onLogFormat, onCopy, onSay } = props;
+  const { connection, tabId, visible, open, mode, previous, armed, selected, podRef, podRow, container, readOnly, detail, onMode, onArm, onToggle, onPopout, epoch, onMenu, logFormat, onLogFormat, onCopy, onSay,
+    viewId, workload, logsAllArmed, logsAllReason, onArmLogsAll, startLogs, stopLogs, shellForbidden } = props;
   const { t } = useT();
   const dockRef = useRef<HTMLElement>(null);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
@@ -116,16 +130,20 @@ export function DetailDock(props: DetailDockProps) {
   };
 
   const currentResult = result?.id === resultId ? result : null;
+  const workloadText = useRef<(() => string) | null>(null);
+  const workloadShown = mode === 'logs' && workload !== null;
+  const shellBlocked = readOnly ? t('errors:kubernetes.readOnly') : shellForbidden;
 
   const shellWaiting = terminalKind === 'shell' && !armed;
-  const copyLabel = terminalKind === 'previous' ? t('kubernetes:dock.previousLogs') : t(DOCK_TAB_LABEL_KEYS[mode]);
+  const copyLabel = workloadShown ? t('kubernetes:logsAll.linesLabel') : terminalKind === 'previous' ? t('kubernetes:dock.previousLogs') : t(DOCK_TAB_LABEL_KEYS[mode]);
   const copyText = (): string => {
+    if (workloadShown) return workloadText.current?.() ?? '';
     if (terminalKind) return liveSessions.get(`${tabId}:dock`)?.terminal?.allText(5000) ?? '';
     const data = currentResult?.data;
     if (data?.mode === 'events') return eventsTsv(data.rows, Date.now());
     return data?.text ?? '';
   };
-  const nothingToCopy = terminalKind ? !target || shellWaiting : !currentResult?.data || (currentResult.data.mode === 'events' ? currentResult.data.rows.length === 0 : currentResult.data.text === '');
+  const nothingToCopy = workloadShown ? !logsAllArmed : (terminalKind ? !target || shellWaiting : !currentResult?.data || (currentResult.data.mode === 'events' ? currentResult.data.rows.length === 0 : currentResult.data.text === ''));
   const copy = () => {
     const full = copyText();
     if (full.trim() === '') { onSay(t('kubernetes:dock.nothingToCopy')); return; }
@@ -164,16 +182,29 @@ export function DetailDock(props: DetailDockProps) {
         </button>
       </div>
       <div className="kube-dock-body" hidden={!open}>
-        {terminalKind ? (
+        {workloadShown && workload ? (
+          logsAllArmed ? (
+            <WorkloadLogs key={`${refKey(workload.ref)}/${logFormat}/${epoch}`} viewId={viewId} row={workload} format={logFormat}
+              start={startLogs} stop={stopLogs} textRef={workloadText} />
+          ) : (
+            <div className="kube-placeholder">
+              <p>{t('kubernetes:logsAll.onDemand', { name: workload.ref.name, max: MAX_LOG_STREAMS })}</p>
+              <button type="button" className="primary-button" disabled={Boolean(logsAllReason)} title={logsAllReason} onClick={onArmLogsAll}>
+                {t('kubernetes:logsAll.start')}
+              </button>
+              {logsAllReason && <p className="kube-muted">{logsAllReason}</p>}
+            </div>
+          )
+        ) : terminalKind ? (
           !podRef ? <p className="kube-placeholder">{terminalKind === 'shell' ? t('kubernetes:dock.selectPodForShell') : t('kubernetes:dock.selectPodForLogs')}</p>
           : !container ? <p className="kube-placeholder">{t('kubernetes:dock.noContainer')}</p>
           : terminalKind === 'shell' && !armed ? (
             <div className="kube-placeholder">
               <p>{t('kubernetes:dock.shellOnDemand')}</p>
-              <button type="button" className="primary-button" disabled={readOnly} title={readOnly ? t('errors:kubernetes.readOnly') : undefined} onClick={onArm}>
+              <button type="button" className="primary-button" disabled={Boolean(shellBlocked)} title={shellBlocked} onClick={onArm}>
                 {t('kubernetes:dock.openShell')}
               </button>
-              {readOnly && <p className="kube-muted">{t('errors:kubernetes.readOnly')}</p>}
+              {shellBlocked && <p className="kube-muted">{shellBlocked}</p>}
             </div>
           ) : terminalConnection && target && (
             <div className="kube-dock-terminal">
