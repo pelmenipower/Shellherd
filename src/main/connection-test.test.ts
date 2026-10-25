@@ -7,6 +7,7 @@ import { AppError } from '../shared/errors';
 import type { ConnectionNode } from '../shared/vault/types';
 import { testConnection } from './connection-test';
 import type { Jump } from './ssh/jump';
+import { testHostKey } from './ssh/test-host-key';
 
 const trust = { verifyHost: async () => true, resolve: async () => '127.0.0.1' };
 /** Replaces the socket handshake: `run` plays the events a server would send. */
@@ -17,7 +18,7 @@ describe('connection test (dry run)', () => {
   let server: Server;
   let port: number;
   beforeAll(async () => {
-    server = new Server({ hostKeys: [utils.generateKeyPairSync('ed25519').private] }, client => {
+    server = new Server({ hostKeys: [testHostKey()] }, client => {
       client.on('authentication', context => context.method === 'password' && context.password === 'synthetic-secret' ? context.accept() : context.reject(['password']));
       client.on('ready', () => client.on('session', accept => accept().on('sftp', acceptSftp => { acceptSftp(); })));
       client.on('error', () => {});
