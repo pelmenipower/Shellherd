@@ -79,6 +79,7 @@ import type { ImportSource } from '../../shared/import';
 import { ImportDialog } from './components/ImportDialog';
 import { UpdateBadge } from './components/UpdateBadge';
 import { RecentVaults } from './components/RecentVaults';
+import { helloReady, isHelloCancel, useHelloStatus } from './hello';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
 type LockState = { minutes?: number; vaultId: string };
@@ -193,6 +194,19 @@ export default function App() {
   const lockedRef = useRef<LockState | null>(null);
   const setLocked = (value: LockState | null): void => { lockedRef.current = value; setLockedState(value); };
   const lockReturnFocus = useRef<HTMLElement | null>(null);
+  // Windows Hello: for the locked vault and for the file selected on the open screen.
+  const [lockHello, refreshLockHello] = useHelloStatus(locked ? vaultPath : null);
+  const [openHello, refreshOpenHello] = useHelloStatus(screen === 'open' ? selectedVaultPath : null);
+  const [helloWaiting, setHelloWaiting] = useState(false);
+  const helloOpenRef = useRef<HTMLButtonElement>(null);
+  const helloOpenShown = useRef(false);
+  const openHelloReady = helloReady(openHello);
+  useEffect(() => {
+    if (openHelloReady && !passwordInputRef.current?.value) helloOpenRef.current?.focus();
+    // A stale key hides the focused button: the password is the way on.
+    if (!openHelloReady && helloOpenShown.current && document.activeElement === document.body) passwordInputRef.current?.focus();
+    helloOpenShown.current = openHelloReady;
+  }, [openHelloReady]);
   // While locked, the redacted vault must never reach the disk.
   const persistVault = usePersistVault(locked ? null : vault, { setVault, setVaultPath, setBusy, setSaved, epoch: getLockEpoch });
   const vaultId = vault?.id;
@@ -422,6 +436,18 @@ export default function App() {
     }
   }
 
+  async function handleHelloOpen(): Promise<void> {
+    if (!selectedVaultPath || busy) return;
+    setFormError(null); setBusy(true); setHelloWaiting(true);
+    try {
+      openFresh(await window.desktopApi.helloUnlock({ filePath: selectedVaultPath }));
+    } catch (caughtError) {
+      if (!isHelloCancel(caughtError)) { setFormError(errorText(caughtError, t('app:errors.vaultFailed'))); refreshOpenHello(); }
+    } finally {
+      setBusy(false); setHelloWaiting(false);
+    }
+  }
+
   async function handleSelectVaultFile(): Promise<void> {
     setFormError(null);
     setBusy(true);
@@ -635,10 +661,10 @@ export default function App() {
   afterLockRef.current = afterLock;
   useEffect(() => window.desktopApi.onVaultLocked(info => afterLockRef.current(info.minutes)), []);
 
-  async function unlockFromLock(password: string): Promise<void> {
+  async function unlockFromLock(unlock: (filePath: string) => Promise<UnlockVaultResult>): Promise<void> {
     const current = lockedRef.current;
     if (!current || !vaultPath) throw new AppError('core.vaultFileMissing');
-    const result = await window.desktopApi.unlockVault({ filePath: vaultPath, password });
+    const result = await unlock(vaultPath);
     if (result.vault.id !== current.vaultId) { openFresh(result); return; }   // main already ended the old sessions
     setVault(result.vault); setVaultPath(result.filePath); setSaved(false);
     // Tabs of connections deleted elsewhere close, the same filter as deleteSelectedNode.
@@ -833,7 +859,7 @@ export default function App() {
     mremoteng: t('vault:import.mremoteng'),
   };
   const settingsVault = screen === 'vault' ? vault : null;
-  const settingsDialog = appDialog?.kind === 'settings' && <SettingsDialog vault={settingsVault} busy={busy}
+  const settingsDialog = appDialog?.kind === 'settings' && <SettingsDialog vault={settingsVault} vaultPath={settingsVault ? vaultPath : null} busy={busy}
     instant={appDialog.instant} initialFocus={appDialog.focus} onClose={closeDialogs}
     onManageAi={() => { if (settingsVault) setAppDialog({ kind: 'ai', backToSettings: true }); }}
     onManageHostKeys={() => { if (settingsVault) setAppDialog({ kind: 'hostKeys' }); }}
@@ -981,7 +1007,12 @@ export default function App() {
       {showReleaseNotes && <ReleaseNotesDialog version={version} onClose={() => setShowReleaseNotes(false)} />}
     </main>
     <AuthPromptDialog locked={locked !== null} />
-    {locked && <LockScreen vaultName={vault.name} minutes={locked.minutes} running={runningCount} onUnlock={unlockFromLock} onSwitch={() => switchVault()} />}
+    {locked && <LockScreen vaultName={vault.name} minutes={locked.minutes} running={runningCount}
+      onUnlock={password => unlockFromLock(filePath => window.desktopApi.unlockVault({ filePath, password }))}
+      onHelloUnlock={helloReady(lockHello)
+        ? () => unlockFromLock(filePath => window.desktopApi.helloUnlock({ filePath })).catch((error: unknown) => { refreshLockHello(); throw error; })
+        : undefined}
+      onSwitch={() => switchVault()} />}
     </>;
   }
 
@@ -1130,6 +1161,13 @@ export default function App() {
                   title={selectedVaultPath}
                 />
               </label>
+            )}
+
+            {openHelloReady && (
+              <button ref={helloOpenRef} className="secondary-button" type="button" aria-disabled={busy || undefined}
+                onClick={() => void handleHelloOpen()}>
+                {helloWaiting ? t('app:hello.waiting') : t('app:hello.open')}
+              </button>
             )}
 
             <label>
