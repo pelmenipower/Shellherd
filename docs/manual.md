@@ -213,7 +213,7 @@ Recognized are:
 
 Below your question, the assistant then shows “Sensitive values masked: 2”. The answer shows the placeholders unchanged. Shellherd never puts real values into answers or commands; otherwise injected terminal text could make the model write your password into a command. If a suggested command contains a placeholder, it shows “Contains masked values. Fill them in yourself before pressing Enter.”
 
-Masking is on for every provider, local models included, because a local endpoint may log or forward requests. It can be switched off per provider under `Manage providers` → `Edit` → `Mask secrets before sending`. The assistant then shows “Masking is off for this provider”. If a text cannot be checked, Shellherd sends nothing.
+Masking is on for every provider, local models included, because a local endpoint may log or forward requests. It can be switched off per provider under `Manage providers` → `Edit` → `Mask secrets before sending`. The assistant then shows “Masking is off for this provider”. For `Analyze with AI` in a cluster tab it always stays on. If a text cannot be checked, Shellherd sends nothing.
 
 **Limits.** Masking recognizes patterns and known values; it does not understand content. Not recognized are, for example:
 - passwords without a recognizable name, such as right after a short option (`mysql -pSecret`, `sshpass -p Secret`, `curl -u admin:Secret`) or in running text, unless they are stored in the vault,
@@ -528,7 +528,7 @@ instead of on the server.
 
 In the setup form, “Production” is preselected; deselecting it is a deliberate
 decision. “Read-only” blocks restart, scale, delete and the shell; logs, `Logs of all pods`, YAML,
-events, describe and `Forward port…` stay allowed. Every change asks for confirmation. For
+events, describe, `Forward port…` and `Analyze with AI` stay allowed. Every change asks for confirmation. For
 production you have to type the resource name before the button becomes active.
 
 The cluster tab shows nodes, workloads, pods and events live. A status bar below the
@@ -602,6 +602,33 @@ Shellherd asks once per namespace what the Kubernetes account may do (`SelfSubje
 - If the cluster cannot answer completely (for example with an external authorizer as on GKE or with Azure RBAC), if the query is forbidden, reports an evaluation error (such as a binding to a deleted role) or takes longer than 10 seconds, Shellherd greys out nothing; a missing permission then shows up as before, when you run the action.
 - Rules that only cover certain object names count as allowed. Only what certainly fails is greyed out.
 - Nodes are checked with the rules of the cluster’s default namespace.
+
+### Analyze with AI
+
+Right-click a pod, a Deployment, StatefulSet, DaemonSet, a Job or an event → `Analyze with AI`. For pod problems in the red bar, `Analyze` next to them is enough. The AI assistant opens with a matching question, for example “Why does this pod keep restarting?”, which you can change, and a preview of what Shellherd wants to send. Nothing goes out before `Send analysis`. `Discard` cancels without sending anything.
+
+- **What goes along:** status, conditions and spec of the object (images, command, resources, probes, env, volumes), the last 15 events and the last 100 log lines of the conspicuous containers. After a restart the log lines of the previous container come along, plus the owning workload and the node. For a workload its pods come along, with events and logs of the most conspicuous pod. For an event, the event itself and the object it concerns go along. `Show the text to be sent` shows everything word for word, the preview names the size.
+- **What never goes along:**
+  - Secrets: Shellherd reads no Secrets and no ConfigMaps.
+  - Env values from `secretKeyRef`: they appear as a reference only (`<Secret checkout-db/password>`).
+  - Values of variables with names such as `PASSWORD`, `TOKEN` or `KEY`: they appear as `<hidden>`.
+  - Annotations.
+
+  Whatever still looks like a secret after that, for example a password in a log line, masking replaces with placeholders. For analyses it is always on.
+- **Read-only:**
+  - Shellherd only reads for this (`get`, `list` and `get` on `pods/log`) and never runs what the AI suggests. Commands in the answer have no button.
+  - If a command changes the cluster (for example `delete`, `scale`, `rollout restart`, `apply`), it says “Changes the cluster. For information only, Shellherd does not run it.” below it.
+  - “Read-only” allows the analysis.
+- **Permissions:** If the account may not read logs, events, the owner or the node, only that part is missing. The preview says which one and why.
+- **Follow-up questions:** After sending you can keep asking. Shellherd sends the context along every time so the model knows it. `Clear history` or a new analysis starts over.
+- **Size and cost:**
+  - at most 16,000 characters, about 4,000 tokens per request;
+  - every follow-up question costs at least as much as the first;
+  - for models with a small context window (below 8,000 tokens) an analysis is too large.
+- **Limits:**
+  - The AI only sees this excerpt: no metrics, no services, ingresses or network policies, no other namespaces, no logs before the last 100 lines and no content of ConfigMaps and Secrets.
+  - Its answer is a guess from this data. Check it with the suggested read-only commands.
+  - Logs can contain personal data. For production clusters the preview points this out separately.
 
 ## File view: keyboard and transfers
 

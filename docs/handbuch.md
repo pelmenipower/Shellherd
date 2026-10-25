@@ -214,7 +214,7 @@ Erkannt werden:
 
 Unter deiner Frage steht dann „Vertrauliche Werte maskiert: 2“. Die Antwort zeigt die Platzhalter unverändert. Shellherd setzt nie echte Werte in Antworten oder Befehle ein, sonst könnte eingeschleuster Terminaltext das Modell dazu bringen, dein Passwort in einen Befehl zu schreiben. Steht in einem vorgeschlagenen Befehl ein Platzhalter, steht darunter „Enthält maskierte Werte. Setze sie vor Enter selbst ein.“
 
-Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, denn ein lokaler Endpunkt kann Anfragen protokollieren oder weiterleiten. Abschalten lässt sie sich je Anbieter unter `Anbieter verwalten` → `Bearbeiten` → `Geheimnisse vor dem Senden maskieren`. Der Assistent zeigt dann „Maskierung ist für diesen Anbieter aus“. Lässt sich ein Text nicht prüfen, sendet Shellherd nichts.
+Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, denn ein lokaler Endpunkt kann Anfragen protokollieren oder weiterleiten. Abschalten lässt sie sich je Anbieter unter `Anbieter verwalten` → `Bearbeiten` → `Geheimnisse vor dem Senden maskieren`. Der Assistent zeigt dann „Maskierung ist für diesen Anbieter aus“. Für `Mit KI analysieren` im Cluster-Tab bleibt sie immer an. Lässt sich ein Text nicht prüfen, sendet Shellherd nichts.
 
 **Grenzen.** Die Maskierung erkennt Muster und bekannte Werte, sie versteht keinen Inhalt. Nicht erkannt werden zum Beispiel:
 - Passwörter ohne erkennbaren Namen, etwa direkt hinter einer Kurzoption (`mysql -pGeheim`, `sshpass -p Geheim`, `curl -u admin:Geheim`) oder im Fließtext, solange sie nicht im Vault stehen,
@@ -539,7 +539,7 @@ statt auf dem Server laufen würden.
 
 Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
 Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, `Logs aller Pods`, YAML,
-Events, Describe und `Port weiterleiten…` bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
+Events, Describe, `Port weiterleiten…` und `Mit KI analysieren` bleiben erlaubt. Jede verändernde Aktion fragt nach. Bei
 Produktion muss man den Ressourcennamen eintippen, bevor der Knopf aktiv wird.
 
 Der Cluster-Tab zeigt Nodes, Workloads, Pods und Events live. Eine Statusleiste unter dem
@@ -613,6 +613,33 @@ Shellherd fragt je Namespace einmal ab, was das Kubernetes-Konto darf (`SelfSubj
 - Kann der Cluster die Frage nicht vollständig beantworten (etwa mit einem externen Autorisierer wie bei GKE oder Azure-RBAC), ist sie verboten, meldet sie einen Auswertungsfehler (etwa eine Bindung an eine gelöschte Rolle) oder dauert sie länger als 10 Sekunden, sperrt Shellherd nichts; ein fehlendes Recht zeigt sich dann wie bisher erst beim Ausführen.
 - Regeln, die nur für bestimmte Objektnamen gelten, zählen als Erlaubnis. Gesperrt wird nur, was sicher nicht geht.
 - Nodes prüft Shellherd mit den Regeln des Standard-Namespace des Clusters.
+
+### Mit KI analysieren
+
+Rechtsklick auf einen Pod, ein Deployment, StatefulSet, DaemonSet, einen Job oder ein Event → `Mit KI analysieren`. Bei Pod-Problemen in der roten Leiste reicht `Analysieren` daneben. Der KI-Assistent öffnet sich mit einer passenden Frage, etwa „Warum startet dieser Pod immer wieder neu?“, die du ändern kannst, und einer Vorschau dessen, was Shellherd mitschicken will. Gesendet wird erst mit `Analyse senden`. `Verwerfen` bricht ab, ohne dass etwas hinausgeht.
+
+- **Was mitgeht:** Status, Conditions und Spezifikation des Objekts (Images, Befehl, Ressourcen, Probes, Env, Volumes), die letzten 15 Events und die letzten 100 Logzeilen der auffälligen Container. Nach einem Neustart kommen die Logzeilen des vorherigen Containers dazu, außerdem Owner-Workload und Node. Bei einem Workload kommen seine Pods dazu, mit Events und Logs des auffälligsten Pods. Bei einem Event gehen das Event selbst und das betroffene Objekt mit. `Gesendeten Text anzeigen` zeigt alles wörtlich, die Vorschau nennt die Größe.
+- **Was nie mitgeht:**
+  - Secrets: Shellherd liest keine Secrets und keine ConfigMaps.
+  - Env-Werte aus `secretKeyRef`: Sie stehen nur als Verweis da (`<Secret checkout-db/password>`).
+  - Werte von Variablen mit Namen wie `PASSWORD`, `TOKEN` oder `KEY`: Sie erscheinen als `<hidden>`.
+  - Annotations.
+
+  Was danach noch nach Geheimnis aussieht, etwa ein Passwort in einer Logzeile, ersetzt die Maskierung durch Platzhalter. Für Analysen ist sie immer an.
+- **Nur lesen:**
+  - Shellherd liest dafür nur (`get`, `list` und `get` auf `pods/log`) und führt nie aus, was die KI vorschlägt. Befehle in der Antwort haben keinen Knopf.
+  - Ändert ein Befehl den Cluster (etwa `delete`, `scale`, `rollout restart`, `apply`), steht darunter „Ändert den Cluster. Nur zur Information, Shellherd führt das nicht aus.“
+  - „Nur lesen“ erlaubt die Analyse.
+- **Rechte:** Darf das Konto Logs, Events, Owner oder Node nicht lesen, fehlt nur dieser Teil. Die Vorschau sagt, welcher und warum.
+- **Rückfragen:** Nach dem Senden kannst du weiterfragen. Shellherd schickt den Kontext jedes Mal wieder mit, damit das Modell ihn kennt. `Verlauf leeren` oder eine neue Analyse beginnt von vorn.
+- **Größe und Kosten:**
+  - höchstens 16.000 Zeichen, etwa 4.000 Tokens je Anfrage;
+  - jede Rückfrage kostet mindestens so viel wie die erste;
+  - für Modelle mit kleinem Kontextfenster (unter 8.000 Tokens) ist eine Analyse zu groß.
+- **Grenzen:**
+  - Die KI sieht nur diesen Ausschnitt: keine Metriken, keine Services, Ingress oder Netzwerk-Policies, keine anderen Namespaces, keine Logs vor den letzten 100 Zeilen und keinen Inhalt von ConfigMaps und Secrets.
+  - Ihre Antwort ist eine Vermutung aus diesen Daten. Prüfe sie mit den vorgeschlagenen lesenden Befehlen.
+  - Logs können personenbezogene Daten enthalten. Bei Produktions-Clustern weist die Vorschau eigens darauf hin.
 
 ## Dateiansicht: Tastatur und Übertragungen
 

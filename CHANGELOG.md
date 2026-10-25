@@ -4,6 +4,11 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.29.0] – 2026-10-25
+
+- Neu: KI-Analyse im Cluster-Tab. Rechtsklick auf einen Pod, Workload, Job oder ein Event → `Mit KI analysieren`; bei Pod-Problemen auch `Analysieren` in der roten Leiste. Shellherd sammelt Status, Events, die letzten Logzeilen (auch des vorherigen Containers) und die Spezifikation und zeigt vor dem Senden, was hinausgeht. Der KI-Assistent erklärt dann die wahrscheinliche Ursache.
+- Sicherheit: Die Analyse liest nur und führt nichts aus. Vorgeschlagene Befehle haben keinen Knopf, ändernde sind als solche markiert. Secrets liest Shellherd nie, Verweise darauf bleiben Verweise, und die Maskierung ist für Analysen immer an.
+
 ## [0.28.0] – 2026-10-25
 
 - Neu: Logs aller Pods. Rechtsklick auf ein Deployment, StatefulSet, DaemonSet, einen Job oder Service → `Logs aller Pods` zeigt die Logs aller zugehörigen Container zusammen im unteren Bereich, nach Zeit sortiert und mit farbigem `pod/container`-Präfix. Mit `Filtern`, Container-Chips zum Ausblenden und `Folgen`; neue Pods eines Rollouts kommen von selbst dazu.
