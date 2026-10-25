@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|kube-ai|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { AI_REQUEST_LOG, DEMO_KEPT, DEMO_SECRETS } from './ai-fake.mjs';
+import { KUBE_REQUEST_LOG } from './kube-fake.mjs';
+import { KUBE_SECRETS } from './kube-fixtures.mjs';
 
 const PORT = Number(process.env.DRIVER_PORT ?? 9333);
 const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
@@ -410,6 +412,55 @@ const blocks = {
       await pause(300);
       await waitFor('nichts gesperrt', enabled('Rollout neu starten'));
       await key('Escape');
+    } finally {
+      await closeTabs();
+    }
+  },
+  // "Mit KI analysieren" on the crash-looping checkout pod: preview before sending, the request through the masking, an answer whose commands have no buttons.
+  async 'kube-ai'() {
+    if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) { console.log('KI-Analyse übersprungen: prod-k8s fehlt im Baum.'); return; }
+    const log = path.join(RUN_DIR, AI_REQUEST_LOG);
+    const kubeLog = path.join(RUN_DIR, 'kube', KUBE_REQUEST_LOG);
+    const sent = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '');
+    const kubeAsked = () => (fs.existsSync(kubeLog) ? fs.readFileSync(kubeLog, 'utf8') : '').split('\n').filter(Boolean);
+    fs.rmSync(log, { force: true });
+    fs.rmSync(kubeLog, { force: true });
+    try {
+      await click('text=prod-k8s >> nth=0');
+      await key('Enter');
+      await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
+      // 1. Entry in the row menu of the crash-looping pod; the panel opens with the preview and the prefilled question.
+      await rclick('.kube-table tbody tr:has-text("checkout-7f9c6b8d4-m2n5z")');
+      await menuItem('Mit KI analysieren');
+      await waitFor('Vorschau', `(document.querySelector('.assistant-diagnose')?.innerText ?? '').includes('Logs checkout-7f9c6b8d4-m2n5z/main (vorheriger Container)')
+        && document.querySelector('.assistant-input textarea')?.value === 'Warum startet dieser Pod immer wieder neu?'`);
+      if (sent().trim()) throw new Error('Vor dem Senden ging schon etwas an die KI');
+      await pause(300);
+      await shot('kube-ai-preview');
+      // 2. Send; the answer has a reading and a changing command, neither with a button, the changing one marked.
+      await click('.assistant-input button[type=submit]');
+      await waitFor('KI-Antwort', `!document.querySelector('.assistant-typing') && [...document.querySelectorAll('.assistant-message.is-assistant .assistant-command code')].some(c => c.textContent.includes('rollout restart'))`);
+      if (await evaluate(count('.assistant-message.is-assistant .assistant-command button')) !== 0) throw new Error('Ein Befehl im Cluster-Tab hat einen Knopf');
+      if (await evaluate(`[...document.querySelectorAll('.assistant-panel button')].some(b => ['Eintippen', 'Kopieren', 'Als Workflow'].includes(b.textContent.trim()))`)) throw new Error('Eintippen, Kopieren oder Als Workflow im Cluster-Tab');
+      if (!await evaluate(`[...document.querySelectorAll('.assistant-command.is-mutating code')].some(c => c.textContent.includes('rollout restart'))`)) throw new Error('Ändernder Befehl nicht markiert');
+      if (await evaluate(`[...document.querySelectorAll('.assistant-command.is-mutating code')].some(c => c.textContent.includes('get endpoints'))`)) throw new Error('Lesender Befehl als ändernd markiert');
+      await waitFor('Maskiert-Hinweis', `[...document.querySelectorAll('.assistant-note')].some(n => n.textContent.startsWith('Vertrauliche Werte maskiert:'))`);
+      await pause(300);
+      await shot('kube-ai-answer');
+      // 3. What went out: status, events and both logs; never a synthetic secret, not even base64-encoded.
+      const body = sent();
+      const user = body.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+        .flatMap(request => request.messages.filter(m => m.role === 'user').map(m => m.content)).join('\n');
+      for (const needle of ['CrashLoopBackOff', 'BackOff', 'previous container', 'connection refused', '<Secret checkout-db/password>', 'DB_PASSWORD: <hidden>']) {
+        if (!user.includes(needle)) throw new Error(`Kontext ohne ${needle}`);
+      }
+      const leaks = Object.entries(KUBE_SECRETS).filter(([, value]) => body.includes(value) || body.includes(Buffer.from(value).toString('base64'))).map(([name]) => name);
+      if (leaks.length) throw new Error(`Geheimnis erreicht den KI-Fake: ${leaks.join(', ')}`);
+      // 4. Shellherd asked the cluster only by GET (the rules review aside) and never for secrets or config maps.
+      const asked = kubeAsked();
+      if (asked.some(line => /\/secrets|\/configmaps/.test(line))) throw new Error('Shellherd hat Secrets oder ConfigMaps gelesen');
+      if (asked.some(line => !line.startsWith('GET ') && !line.startsWith('POST /apis/authorization.k8s.io/v1/selfsubjectrulesreviews'))) throw new Error('Schreibende Anfrage an den Cluster');
+      if (!asked.some(line => line.includes('/log?') && line.includes('previous=true'))) throw new Error('Vorheriger Container nicht gelesen');
     } finally {
       await closeTabs();
     }
