@@ -309,3 +309,21 @@ describe('invalid objects', () => {
     expect(toRow('pods', { metadata: { name: 'x' } })).toBeNull();
   });
 });
+
+describe('ports', () => {
+  it('lists the TCP container ports of a pod once, with their names', () => {
+    const row = toRow('pods', pod({ phase: 'Running' }, { containers: [
+      { name: 'api', ports: [{ name: 'http', containerPort: 8080 }, { containerPort: 9090, protocol: 'UDP' }] },
+      { name: 'sidecar', ports: [{ containerPort: 8080 }] },
+    ] }));
+    expect(row?.ports).toEqual([{ port: 8080, name: 'http' }]);
+    expect(toRow('pods', pod({ phase: 'Running' }))).not.toHaveProperty('ports');
+  });
+
+  it('lists the TCP ports of a service and keeps the ports cell', () => {
+    const row = toRow('services', { metadata: { name: 'web', namespace: 'shop', uid: 'sv1' },
+      spec: { selector: { app: 'web' }, ports: [{ name: 'http', port: 80, targetPort: 'http' }, { port: 53, protocol: 'UDP' }] } });
+    expect(row?.ports).toEqual([{ port: 80, name: 'http' }]);
+    expect(row?.cells.ports).toBe('80/TCP,53/UDP');
+  });
+});
