@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
-import { KIND_INFO, KUBE_KINDS, LOGS_ALL_KINDS, refKey, type KubeAction, type KubeForwardStatus, type KubeRef, type KubeRow, type KubeViewSnapshot, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
+import { KIND_INFO, KUBE_KINDS, LOGS_ALL_KINDS, refKey, type KubeAction, type KubeArgoState, type KubeForwardStatus, type KubeLink, type KubeRef, type KubeRow, type KubeViewSnapshot, type KubeTerminalMode, type KubeTerminalTarget } from '../../../../shared/kubernetes';
 import type { SshStatus } from '../../../../shared/ssh';
 import { kubeTabName, type TerminalConnection } from '../../terminal-tabs';
 import { useClusterSession } from '../../hooks/useClusterSession';
@@ -161,10 +161,12 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   const confirm = (ref: KubeRef, kind: KubeAction, currentReplicas?: number, replicas?: number) => {
     const reason = actionReason(kind, { ref, readOnly, connected: status?.state === 'ready', access: state.access, status });
     if (reason) { say(reason); return; }
+    const argoApp = state.rows.find(row => refKey(row.ref) === refKey(ref))?.argoApp;
     setPending({
       ref, action: kind,
       ...(currentReplicas !== undefined ? { currentReplicas } : {}),
       ...(replicas !== undefined ? { replicas } : {}),
+      ...(argoApp ? { argoApp } : {}),
     });
   };
 
@@ -174,6 +176,14 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     requestDiagnosis({ tabId, cluster: clusterName, production, target,
       context: window.desktopApi.kubeDiagnose({ viewId, ref: target.ref, ...(target.event ? { event: target.event } : {}) }) });
   };
+
+  /** "In Argo CD öffnen" / "In Harbor öffnen": main takes the host from the vault entry; errors go to the status line. */
+  const openLink = (link: KubeLink) => {
+    if (!viewId) { say(t('kubernetes:viewNotOpen')); return; }
+    window.desktopApi.kubeOpenLink({ viewId, link }).catch((caught: unknown) => say(errorText(caught)));
+  };
+  const readArgo = (app: string): Promise<KubeArgoState | null> =>
+    (viewId ? window.desktopApi.kubeArgoApp({ viewId, app }) : Promise.resolve(null));
 
   const startAction = (kind: KubeAction, replicas?: number) => {
     const target = state.containersOf ?? selectedRow;
@@ -258,6 +268,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
       dispatch({ type: 'dock', mode: 'logs' });
     },
     analyze,
+    openLink,
     popout: openTab,
     ssh: id => onOpenSsh?.(id),
     reloadDock: () => setDockReloads(value => value + 1),
@@ -414,7 +425,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
       {help && <HelpOverlay state={state} readOnly={readOnly} onClose={() => setHelp(false)} />}
       {pending && (
         <ConfirmAction pending={pending} cluster={{ name: clusterName, production }}
-          run={action} onClose={() => setPending(null)} />
+          run={action} readArgo={readArgo} onClose={() => setPending(null)} />
       )}
     {forwardRow && (
       <KubeForwardDialog row={forwardRow} production={production} start={startForward}

@@ -136,6 +136,8 @@
 @media (max-width: 640px) { .kube-help-columns { grid-template-columns: 1fr; } }
 
 .kube-confirm { width: min(420px, calc(100vw - 32px)); }
+.kube-confirm-argo { margin: var(--space-8) 0 0; padding-left: var(--space-8); border-left: 3px solid var(--color-border); font-size: var(--fs-sm); color: var(--color-text-muted); }
+.kube-confirm-argo.is-warn { border-left-color: var(--color-warn-border); color: var(--color-warn); }
 .kube-field { display: grid; gap: var(--space-4); margin: var(--space-8) 0; font-size: var(--fs-sm); color: var(--color-text-muted); }
 .kube-field input, .kube-field select { color: var(--color-text); }
 
