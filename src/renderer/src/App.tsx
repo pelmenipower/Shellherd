@@ -68,6 +68,7 @@ import { findNode } from './vault-selection';
 import { errorText } from './error-text';
 import { useT } from './i18n';
 import { SettingsDialog } from './components/SettingsDialog';
+import { KnownHostsDialog } from './components/KnownHostsDialog';
 import { AuthPromptDialog } from './components/AuthPromptDialog';
 import { settingsShortcutAction } from './shortcut-match';
 import { terminalPrefs } from './terminal-prefs';
@@ -82,8 +83,9 @@ import { RecentVaults } from './components/RecentVaults';
 type Screen = 'home' | 'create' | 'open' | 'vault';
 type LockState = { minutes?: number; vaultId: string };
 type AppDialog =
-  | { kind: 'settings'; instant: boolean; focus: 'close' | 'manageAi' }
+  | { kind: 'settings'; instant: boolean; focus: 'close' | 'manageAi' | 'manageHostKeys' }
   | { kind: 'ai'; backToSettings: boolean }
+  | { kind: 'hostKeys' }
   | { kind: 'import'; source: ImportSource };
 
 function createEmptyVault(name: string): Vault {
@@ -274,8 +276,11 @@ export default function App() {
       event.preventDefault();
       const file = [...event.dataTransfer!.files].find(item => isVaultFileName(item.name));
       const path = file ? window.desktopApi.pathForFile(file) : '';
-      if (path) openVaultFileRef.current(path);
-      else notify.info(t('app:notices.notVaultFileTitle'), { body: t('app:errors.onlyVaultFiles') });
+      if (!path) { notify.info(t('app:notices.notVaultFileTitle'), { body: t('app:errors.onlyVaultFiles') }); return; }
+      // Main grants dropped files on local drives only; network paths go through the file dialog.
+      void window.desktopApi.dropVaultFile(path).then(
+        granted => openVaultFileRef.current(granted),
+        error => notify.info(t('app:notices.vaultPathRefusedTitle'), { body: errorText(error) }));
     };
     window.addEventListener('dragover', over);
     window.addEventListener('dragleave', leave);
@@ -831,6 +836,7 @@ export default function App() {
   const settingsDialog = appDialog?.kind === 'settings' && <SettingsDialog vault={settingsVault} busy={busy}
     instant={appDialog.instant} initialFocus={appDialog.focus} onClose={closeDialogs}
     onManageAi={() => { if (settingsVault) setAppDialog({ kind: 'ai', backToSettings: true }); }}
+    onManageHostKeys={() => { if (settingsVault) setAppDialog({ kind: 'hostKeys' }); }}
     onSaveSettings={settings => settingsVault ? persistVault({ ...settingsVault, settings }) : Promise.resolve(false)} />;
 
   if (screen === 'vault' && vault) {
@@ -958,6 +964,8 @@ export default function App() {
       {appDialog?.kind === 'ai' && <AiSettingsDialog settings={vault.ai} busy={busy}
         onClose={() => appDialog.backToSettings ? setAppDialog({ kind: 'settings', instant: true, focus: 'manageAi' }) : closeDialogs()}
         onSave={settings => persistVault({ ...vault, ai: settings })} />}
+      {appDialog?.kind === 'hostKeys' && <KnownHostsDialog busy={busy}
+        onClose={() => setAppDialog({ kind: 'settings', instant: true, focus: 'manageHostKeys' })} />}
       {appDialog?.kind === 'import' && <ImportDialog source={appDialog.source} nodes={vault.nodes} busy={busy} onClose={closeDialogs}
         onImport={(list, parentId) => {
           let next = vault.nodes;

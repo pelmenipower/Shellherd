@@ -204,7 +204,7 @@
     "hostkey-changed": {
       "title": "Server key has changed",
       "body": "The fingerprint does not match the confirmed one. Shellherd aborted the connection.",
-      "next": "Clarify the key change with the administrator before you continue."
+      "next": "Clarify the key change with the administrator. If it is intended, remove the old key under Settings → Connections → Manage server keys and connect again."
     },
     "hostkey-rejected": {
       "title": "Server key not confirmed",
