@@ -40,7 +40,7 @@ const nodeIp = (node: KubeObject): string | undefined => {
 
 const OWNER_KINDS: Record<string, KubeKind> = { StatefulSet: 'statefulsets', DaemonSet: 'daemonsets', Job: 'jobs' };
 
-function ownerOf(kind: KubeKind, meta: Dict, namespace: string | undefined): KubeRef | undefined {
+export function ownerOf(kind: KubeKind, meta: Dict, namespace: string | undefined): KubeRef | undefined {
   if (kind !== 'pods' && kind !== 'jobs') return undefined;
   const controller = list(meta.ownerReferences).map(rec).find(o => o.controller === true);
   const ownerKind = text(controller?.kind);
