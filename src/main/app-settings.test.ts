@@ -20,6 +20,7 @@ describe('app settings', () => {
 
   it('returns defaults for a missing file', () => {
     expect(readAppSettings(file)).toEqual(DEFAULT_APP_SETTINGS);
+    expect(DEFAULT_APP_SETTINGS).toEqual({ language: 'system', update: { enabled: true } });
   });
 
   it('returns defaults for a broken or non-object file', () => {
@@ -43,16 +44,31 @@ describe('app settings', () => {
 
   it('reads a valid main window state', () => {
     writeFileSync(file, JSON.stringify({ language: 'en-US', mainWindow }));
-    expect(readAppSettings(file)).toEqual({ language: 'en-US', mainWindow });
+    expect(readAppSettings(file)).toEqual({ language: 'en-US', mainWindow, update: { enabled: true } });
   });
 
   it('ignores a broken main window state and keeps the language', () => {
     writeFileSync(file, JSON.stringify({ language: 'de-DE', mainWindow: { ...mainWindow, bounds: { ...mainWindow.bounds, width: 100 } } }));
-    expect(readAppSettings(file)).toEqual({ language: 'de-DE' });
+    expect(readAppSettings(file)).toEqual({ language: 'de-DE', update: { enabled: true } });
     writeFileSync(file, JSON.stringify({ language: 'de-DE', mainWindow: { bounds: mainWindow.bounds } }));
-    expect(readAppSettings(file)).toEqual({ language: 'de-DE' });
+    expect(readAppSettings(file)).toEqual({ language: 'de-DE', update: { enabled: true } });
     writeFileSync(file, JSON.stringify({ language: 'de-DE', mainWindow: { ...mainWindow, bounds: { ...mainWindow.bounds, x: 1.5 } } }));
     expect(readAppSettings(file).mainWindow).toBeUndefined();
+  });
+
+  it('reads the update settings', () => {
+    writeFileSync(file, JSON.stringify({ update: { enabled: false, checkedAt: 1_700_000_000_000, latest: '0.22.0', skipped: '0.21.1' } }));
+    expect(readAppSettings(file).update).toEqual({ enabled: false, checkedAt: 1_700_000_000_000, latest: '0.22.0', skipped: '0.21.1' });
+  });
+
+  it('keeps an opt-out when another update field is broken', () => {
+    writeFileSync(file, JSON.stringify({ update: { enabled: false, checkedAt: -1, latest: 'v0.22.0', skipped: '1.2' } }));
+    expect(readAppSettings(file).update).toEqual({ enabled: false });
+  });
+
+  it('treats a non-boolean enabled as on', () => {
+    writeFileSync(file, JSON.stringify({ update: { enabled: 'no' } }));
+    expect(readAppSettings(file).update).toEqual({ enabled: true });
   });
 
   it('writes, keeps unknown keys and leaves no tmp file', () => {
@@ -65,9 +81,15 @@ describe('app settings', () => {
   it('writes the main window state and keeps the language', () => {
     writeFileSync(file, JSON.stringify({ language: 'de-DE' }));
     writeAppSettings(file, { mainWindow });
-    expect(readAppSettings(file)).toEqual({ language: 'de-DE', mainWindow });
+    expect(readAppSettings(file)).toEqual({ language: 'de-DE', mainWindow, update: { enabled: true } });
     writeAppSettings(file, { language: 'en-US' });
-    expect(readAppSettings(file)).toEqual({ language: 'en-US', mainWindow });
+    expect(readAppSettings(file)).toEqual({ language: 'en-US', mainWindow, update: { enabled: true } });
+  });
+
+  it('writes the update block and keeps language and main window', () => {
+    writeFileSync(file, JSON.stringify({ language: 'de-DE', mainWindow }));
+    writeAppSettings(file, { update: { enabled: false, skipped: '0.22.0' } });
+    expect(readAppSettings(file)).toEqual({ language: 'de-DE', mainWindow, update: { enabled: false, skipped: '0.22.0' } });
   });
 
   it('writes into a missing file and never throws', () => {

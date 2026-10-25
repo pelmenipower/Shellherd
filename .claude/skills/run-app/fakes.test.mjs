@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -21,6 +21,7 @@ import { startSshd } from './sshd.mjs';
 import { DEMO_TOTP, seedSftp } from './fixtures.mjs';
 import { findOpenssl, startKubeFake } from './kube-fake.mjs';
 import { startAiFake } from './ai-fake.mjs';
+import { writeImportFixtures } from './import-fixtures.mjs';
 
 // Windows only: ssh2 server tests are flaky on Linux CI (see sftp-loopback.test.ts).
 describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real app code', { timeout: 20_000 }, () => {
@@ -255,4 +256,72 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
       .connect({ host: '127.0.0.1', port, username: 'demo', password: 'synthetic-demo' }));
     return client;
   }
+});
+
+describe('import sources and the release route', { timeout: 20_000 }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'shellherd-import-fakes-'));
+  const cleanup = [];
+  afterAll(async () => {
+    for (const fn of cleanup.reverse()) await fn().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // reg export: UTF-16LE with BOM; returns the decoded text
+  const decodeReg = file => {
+    const raw = readFileSync(file);
+    expect(raw.subarray(0, 2)).toEqual(Buffer.from([0xff, 0xfe]));
+    expect(raw.includes(Buffer.from('Windows Registry', 'utf8'))).toBe(false);
+    return raw.subarray(2).toString('utf16le');
+  };
+
+  it('writes the import sources with the expected encodings and content', () => {
+    const files = writeImportFixtures(join(dir, 'import'));
+
+    const ssh = readFileSync(files.sshConfig, 'utf8');
+    expect(ssh).toContain('ProxyJump build-01');
+    expect(ssh).toContain('LocalForward 15433 db-internal:5432');
+    expect(ssh).toContain('ProxyJump a,b');
+    expect(ssh).toContain('Match host x');
+    expect(ssh).toContain('Include config.d/*');
+
+    const putty = decodeReg(files.puttyReg);
+    expect(putty.startsWith('Windows Registry Editor Version 5.00')).toBe(true);
+    for (const name of ['Default%20Settings]', 'router]', 'jenkins]', 'monitoring]', 'web%2001]']) expect(putty).toContain(name);
+    expect(putty).toContain('"Protocol"="telnet"');
+    expect(putty).toContain('"PublicKeyFile"="C:\\\\Users\\\\demo\\\\.ssh\\\\jenkins.ppk"');
+    expect(putty).toContain('"PortForwardings"="L3000=localhost:3000"');
+
+    const winscp = decodeReg(files.winscpReg);
+    expect(winscp.startsWith('Windows Registry Editor Version 5.00')).toBe(true);
+    for (const name of ['Default%20Settings]', 'Prod%2Ffiles-02]', 'legacy-scp]', 'ftp-site]', 'behind-tunnel]']) expect(winscp).toContain(name);
+    expect(winscp).toContain('"FSProtocol"=dword:00000000');
+    expect(winscp).toContain('"FSProtocol"=dword:00000005');
+    expect(winscp).toContain('"Tunnel"=dword:00000001');
+
+    const conf = readFileSync(files.confCons, 'utf8');
+    expect(conf).toContain('FullFileEncryption="false"');
+    expect(conf).toContain('Type="Container"');
+    expect(conf).toContain('Protocol="SSH2"');
+    expect(conf).toContain('Protocol="RDP"');
+    expect(conf).toContain('Domain="KUNDE"');
+    expect(conf).toContain('Protocol="VNC"');
+    expect(conf).toContain('Password="not-imported"');
+  });
+
+  it('offers the current version without the flag and the next minor version with it', async () => {
+    const version = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')).version;
+    const [major, minor] = version.split('.').map(Number);
+    const runDir = mkdtempSync(join(dir, 'run-'));
+    const ai = await startAiFake({ port: 0, runDir });
+    cleanup.push(() => ai.close());
+    const get = async () => {
+      const response = await fetch(`http://127.0.0.1:${ai.port}/releases/latest`);
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+
+    expect(await get()).toEqual({ tag_name: `v${version}`, draft: false, prerelease: false });
+    writeFileSync(join(runDir, 'update-available'), '');
+    expect(await get()).toEqual({ tag_name: `v${major}.${minor + 1}.0`, draft: false, prerelease: false });
+  });
 });

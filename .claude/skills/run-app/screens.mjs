@@ -1,5 +1,5 @@
-// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast …] [--readme]   (no argument = all)
+// Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -41,10 +41,11 @@ async function waitFor(step, expression, { timeout = 20000, every = 250 } = {}) 
 }
 const count = selector => `document.querySelectorAll(${JSON.stringify(selector)}).length`;
 // The path comes from the driver; README images never show the real local container tree.
-const shot = async name => {
+// keepStatus: the update badge lives in the status bar, so those shots keep it (the vault path is a temp path).
+const shot = async (name, keepStatus = false) => {
   if (readme && README_SHOTS.has(name) && await evaluate(`!!document.querySelector('.local-containers')`))
     throw new Error('„Dieser Computer“ (lokale Container) in der Seitenleiste – kein README-Bild');
-  shots.push(await call('ss', undefined, `?name=${name}&crop=status`));
+  shots.push(await call('ss', undefined, `?name=${name}${keepStatus ? '' : '&crop=status'}`));
 };
 
 // Hovers the first occurrence of `link` in the visible terminal. xterm caches the link answer per row, so the mouse first
@@ -93,6 +94,44 @@ function localTarget() {
   fs.writeFileSync(path.join(dir, 'deploy.sh'), '#!/bin/sh\necho deploy\n');
   fs.writeFileSync(path.join(dir, 'notes.md'), '# Notes\n\n- synthetic\n- demo\n');
   return { target: dir, segment: path.basename(dir) };
+}
+
+// Import and update scenes: sources from import-fixtures.mjs (the driver writes them to RUN_DIR/import).
+const IMPORT_DIR = path.join(RUN_DIR, 'import');
+const VAULT_FILE = path.join(RUN_DIR, 'profile', 'demo.term');
+const SETTINGS_FILE = path.join(RUN_DIR, 'profile', 'Shellherd', 'settings.json');
+const UPDATE_FLAG = path.join(RUN_DIR, 'update-available');
+// Replaces the native open dialog in the main process; the driver's stub answers with the demo vault.
+const setOpenDialog = file => call('main', `electron.dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [${JSON.stringify(file)}] });`);
+// Opens the import menu entry by its leading text and waits until the dialog shows its preview or error.
+async function openImport(menuLabel, step) {
+  await click('button:text-is("Neu")');
+  await menuItem(menuLabel);
+  await waitFor(`Import-Dialog ${step}`, `document.querySelector('dialog.import-dialog[open] .import-list, dialog.import-dialog[open] .field-error')`);
+  await pause(300);
+}
+// Cancel button of the import dialog (form actions, not the close button of the error state, which has the same class).
+const cancelImport = async () => {
+  await click('dialog.import-dialog[open] .form-actions .secondary-button');
+  await waitFor('Import-Dialog geschlossen', `!document.querySelector('dialog.import-dialog[open]')`);
+};
+// Earlier runs leave their import folder behind; its candidates would then all be duplicates and nothing is left to import.
+// Best effort: the import is already done, so a failed cleanup only warns and the block stays green.
+async function removeImportFolder(name) {
+  const present = `[...document.querySelectorAll('.vault-tree-row')].some(r => r.textContent.includes(${JSON.stringify(name)}))`;
+  if (!await evaluate(present)) return;
+  try {
+    // A plain click only selects the row; the folder editor opens through the context menu entry "Bearbeiten".
+    await rclick(`.vault-tree-row >> text=${name} >> nth=0`);
+    await menuItem('Bearbeiten');
+    await waitFor(`Ordner-Editor ${name}`, `document.querySelector('section.node-editor .editor-management > summary')`);
+    await click('section.node-editor .editor-management > summary');
+    await click('section.node-editor .editor-management .danger-button');
+    await click('dialog.compact-confirm[open] .primary-button, dialog.compact-confirm[open] .danger-button');
+    await waitFor(`Ordner ${name} entfernt`, `!${present}`);
+  } catch (error) {
+    console.warn(`Warnung: Aufräumen von ${name} fehlgeschlagen (${error.message}). Der Importordner bleibt im Baum.`);
+  }
 }
 
 const shots = [];
@@ -503,6 +542,67 @@ const blocks = {
     await shot('broadcast');
     await click('.broadcast-chip >> nth=0');
     await waitFor('Eingabe an alle beendet', `document.querySelectorAll('.broadcast-chip').length === 0`);
+  },
+  // Import menu for all four sources. Only OpenSSH is imported; the other dialogs are cancelled, so no registry or file beyond the fixtures is read.
+  async import() {
+    // Test hooks first: without them the PuTTY and WinSCP entries would read the real registry.
+    await call('main', `const missing = ['SHELLHERD_PUTTY_REG_FILE', 'SHELLHERD_WINSCP_REG_FILE'].filter(name => !process.env[name]);
+      if (missing.length) throw new Error('Import-Block abgebrochen, fehlt: ' + missing.join(', ') + ' (sonst läse der Block die echte Registry).');`);
+    try {
+      await removeImportFolder('OpenSSH-Import');
+      await setOpenDialog(path.join(IMPORT_DIR, 'ssh_config'));
+      await openImport('Aus OpenSSH', 'OpenSSH');
+      await shot('import-openssh');
+      await click('dialog.import-dialog[open] .form-actions .primary-button');
+      await waitFor('Import abgeschlossen', `!document.querySelector('dialog.import-dialog[open]')`);
+      await waitFor('Ergebnis-Meldung', `[...document.querySelectorAll('.toast-title')].some(t => t.textContent.includes('importiert'))`);
+      await waitFor('Importordner im Baum', `[...document.querySelectorAll('.vault-tree-row')].some(r => r.textContent.includes('OpenSSH-Import'))`);
+      await shot('import-result');
+      await openImport('Aus PuTTY', 'PuTTY');
+      await shot('import-putty');
+      await cancelImport();
+      await openImport('Aus WinSCP', 'WinSCP');
+      await shot('import-winscp');
+      await cancelImport();
+      await setOpenDialog(path.join(IMPORT_DIR, 'confCons.xml'));
+      await openImport('Aus mRemoteNG', 'mRemoteNG');
+      await shot('import-mremoteng');
+      await cancelImport();
+    } finally {
+      if (await evaluate(`!!document.querySelector('dialog.import-dialog[open]')`)) { await key('Escape'); await pause(300); }
+      await setOpenDialog(VAULT_FILE);
+      await removeImportFolder('OpenSSH-Import');
+    }
+  },
+  // Update hint: the fake release route offers the next minor version while RUN_DIR/update-available exists. The check runs at most once a day,
+  // so the settings lose checkedAt, latest and the skip from the last run first. A reload does not load the new bundle, so the vault is locked and unlocked
+  // instead: unlocking asks for the update again.
+  async update() {
+    fs.writeFileSync(UPDATE_FLAG, '');
+    try {
+      if (fs.existsSync(SETTINGS_FILE)) {
+        const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+        if (settings.update) { delete settings.update.checkedAt; delete settings.update.skipped; delete settings.update.latest; }
+        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+      }
+      await click('.lock-button');
+      await waitFor('Sperrbildschirm', `document.querySelector('dialog.lock-screen[open]')`);
+      await fill('.lock-screen input[type=password]', 'synthetic-vault-demo');
+      await click('.lock-screen .primary-button');
+      await waitFor('Entsperren', `!document.querySelector('dialog.lock-screen[open]') && document.querySelector('.vault-shell').inert === false`, { timeout: 30000 });
+      await waitFor('Update-Knopf', `!!document.querySelector('.update-button')`, { timeout: 30000 });
+      await pause(300);
+      await shot('update-hint', true);
+      await click('.update-button');
+      await waitFor('Update-Menü', `!!document.querySelector('.context-menu[role=menu]')`);
+      await pause(300);
+      await shot('update-menu', true);
+      fs.rmSync(UPDATE_FLAG, { force: true });
+      await menuItem('Diese Version überspringen');
+      await waitFor('Update-Knopf verschwunden', `!document.querySelector('.update-button')`);
+    } finally {
+      fs.rmSync(UPDATE_FLAG, { force: true });
+    }
   },
 };
 

@@ -53,6 +53,7 @@ Shellherd keeps all your servers, desktops and clusters in one window. Connectio
 - **Settings in one place** – gear in the header or `Ctrl+,`: language, `.term` file association, confirmation before disconnecting, auto-lock, connection timeouts and the AI providers.
 - **Terminal comfort** – search in the terminal with `Ctrl+Shift+F`, links opened with Ctrl+click (http and https only), tab shortcuts, a mark on background tabs with new output, input to all panes, and font, scrollback and cursor settings.
 - **Local shells** – PowerShell and CMD tabs next to your remote sessions.
+- **Import** – connections from OpenSSH (`~/.ssh/config`), PuTTY, WinSCP and mRemoteNG, shown as a preview with checkboxes before anything is saved. Passwords are never imported; key files stay where they are and only their path is stored.
 - **AI assistant** (optional) – reads the terminal, explains output and suggests the next command. Nothing reaches the terminal until you click **Type in**, and nothing runs until you press Enter. Works with OpenAI-compatible endpoints (including Ollama and LM Studio), Azure AI Foundry, Anthropic and Google Gemini.
 
 ## Screenshots
@@ -103,6 +104,13 @@ The builds are not code-signed yet, so Windows SmartScreen may warn on first sta
 - Terminal output is never written to disk. Kubeconfigs stay in memory, the API tunnel only listens on `127.0.0.1`, and secrets are masked in YAML and inspect views.
 
 Found a vulnerability? Please open a [private security advisory](https://github.com/pelmenipower/Shellherd/security/advisories/new) instead of a public issue.
+
+## Privacy
+
+Shellherd makes no requests of its own besides these two. Connections you open (SSH, SFTP, containers, Kubernetes, RDP) go only to the hosts you configured.
+
+- **AI providers** (optional): once you set one up, the assistant sends your questions and the terminal output it reads to the endpoint you chose.
+- **Update check** (on by default): at most once a day, after unlocking, Shellherd asks GitHub for the latest release. The request contains only your IP address and `User-Agent: Shellherd/<version>`, nothing from the vault. Turn it off under Settings → General.
 
 ## Development
 

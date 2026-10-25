@@ -60,6 +60,10 @@
     "vaultWriteFolderUnreachable": "Der Ordner der Vault-Datei ist nicht erreichbar.",
     "vaultWriteDiskFull": "Auf dem Laufwerk ist kein Platz mehr.",
     "settingsWriteFailed": "Die Einstellungen konnten nicht gespeichert werden.",
-    "linkNotAllowed": "Dieser Link wird nicht geöffnet. Shellherd öffnet nur http- und https-Adressen."
+    "linkNotAllowed": "Dieser Link wird nicht geöffnet. Shellherd öffnet nur http- und https-Adressen.",
+    "importTooLarge": "Die Importquelle ist zu groß (höchstens 4 MiB).",
+    "importTooComplex": "Die Importquelle ist zu umfangreich oder beschädigt. Shellherd hat das Lesen nach 5 Sekunden abgebrochen.",
+    "importUnreadable": "Die Importquelle konnte nicht gelesen werden.",
+    "importEncrypted": "Die Datei ist verschlüsselt. Exportiere sie in mRemoteNG ohne vollständige Dateiverschlüsselung."
   }
 }

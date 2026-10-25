@@ -11,6 +11,7 @@ import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditR
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
+import type { ImportReadResult, ImportSource } from './import';
 import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
 
 /** Sent to every window when the vault locks; without minutes = manual lock. */
@@ -117,6 +118,10 @@ export const IPC_CHANNELS = {
   appSetLanguage: 'app:set-language',
   appLocaleChanged: 'app:locale-changed',
   openExternal: 'app:open-external',
+  importRead: 'import:read',
+  updateStatus: 'app:update-status',
+  updateSetEnabled: 'app:update-set-enabled',
+  updateSkip: 'app:update-skip',
   kubeOpen: 'k8s:open',
   kubeSubscribe: 'k8s:subscribe',
   kubeDetail: 'k8s:detail',
@@ -169,11 +174,20 @@ export type SaveVaultResult =
       filePath: string;
     };
 
+/** Version check state for the main window; see docs/superpowers/specs/2026-10-24-import-update-design.md. */
+export interface UpdateStatus { enabled: boolean; current: string; available: { version: string; url: string } | null }
+
 export interface DesktopApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   /** Opens an http(s) link in the default browser; main validates it again. */
   openExternal: (url: string) => Promise<void>;
+  /** Opens the source after a click: file dialog (OpenSSH) or registry export (PuTTY). Main window, unlocked vault. */
+  importRead: (source: ImportSource) => Promise<ImportReadResult>;
+  /** Runs the check when enabled and due (at most every 24 h), else returns the stored state. */
+  updateStatus: () => Promise<UpdateStatus>;
+  updateSetEnabled: (enabled: boolean) => Promise<UpdateStatus>;
+  updateSkip: (version: string) => Promise<UpdateStatus>;
   sshPrepare: (request: SshPrepareRequest) => Promise<{ sessionId: string }>;
   sshConnect: (request: SshSessionRequest) => Promise<void>;
   sshInput: (request: SshInputRequest) => Promise<void>;

@@ -1,9 +1,14 @@
 // OpenAI-compatible chat fake for the run-app screenshots. Loopback only, synthetic key only.
+import { existsSync, readFileSync } from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const AI_KEY = 'sk-synthetic-demo';
+
+const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
+const PACKAGE_JSON = path.resolve(import.meta.dirname, '../../../package.json');
 
 // The app detects commands by <command> tags, not by markdown fences.
 const ANSWER =
@@ -43,8 +48,18 @@ function stream(req, res, text) {
   res.on('close', () => clearInterval(timer));
 }
 
-export async function startAiFake({ port = 9335 } = {}) {
+// Stands in for GitHub's releases/latest. With RUN_DIR/update-available it offers the next minor version.
+function latestRelease(res, runDir) {
+  const { version } = JSON.parse(readFileSync(PACKAGE_JSON, 'utf8'));
+  const [major, minor] = version.split('.').map(Number);
+  const offered = existsSync(path.join(runDir, 'update-available')) ? `${major}.${minor + 1}.0` : version;
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ tag_name: `v${offered}`, draft: false, prerelease: false }));
+}
+
+export async function startAiFake({ port = 9335, runDir = RUN_DIR } = {}) {
   const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/releases/latest') return latestRelease(res, runDir);
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') return json(res, 404, 'not found');
     if (req.headers.authorization !== `Bearer ${AI_KEY}`) return json(res, 401, 'Incorrect API key provided');
     let raw = '';
