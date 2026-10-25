@@ -37,7 +37,7 @@
     "closeLabel": "Close assistant",
     "selectTab": "Select a terminal tab.",
     "contextFor": "Based on",
-    "unsupportedTab": "The assistant works with SSH, PowerShell and CMD tabs.",
+    "unsupportedTab": "The assistant works with SSH, PowerShell, CMD and cluster tabs.",
     "noProvider": "No AI provider has been set up yet.",
     "setupProvider": "Set up provider",
     "setupInMain": "Set up a provider in the main window.",
@@ -94,7 +94,22 @@
       "failed": "could not be read"
     },
     "partSize": "{{label}} · {{chars}} characters",
-    "partMissing": "{{label}}: {{reason}}"
+    "partMissing": "{{label}}: {{reason}}",
+    "hint": "Right-click a pod, a workload or an event → “Analyze with AI”. Shellherd collects status, events and logs, shows you what goes out before sending and runs no commands.",
+    "draftTitle": "Analysis: {{kind}} {{name}}",
+    "production": "Production cluster: logs and spec from production go to the provider.",
+    "collecting": "Collecting status, events and logs…",
+    "size": "{{chars}} characters in total, about {{tokens}} tokens, to {{provider}}.",
+    "showText": "Show the text to be sent",
+    "privacy": "Shellherd never reads Secrets. It replaces recognized passwords, keys and tokens with placeholders before sending.",
+    "discard": "Discard",
+    "send": "Send analysis",
+    "inputPlaceholder": "Question about the analysis… (Enter sends, Shift+Enter new line)",
+    "inputIdle": "Start an analysis from the context menu in the cluster tab",
+    "sentContext": "With context from the cluster: {{chars}} characters",
+    "maskingForced": "Shellherd always masks Kubernetes analyses.",
+    "suggestion": "Suggestion to check. Shellherd runs no commands.",
+    "mutating": "Changes the cluster. For information only, Shellherd does not run it."
   },
   "settings": {
     "title": "AI providers",

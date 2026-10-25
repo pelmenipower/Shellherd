@@ -1,13 +1,15 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AiCatalog } from '../../../shared/ai';
+import type { AiAskContext, AiCatalog, AiKubeContext } from '../../../shared/ai';
 import { SECRET_PLACEHOLDER } from '../../../shared/ai';
 import { formatNumber } from '../../../shared/format';
+import { KIND_INFO, type KubeDiagnosis } from '../../../shared/kubernetes';
 import type { TerminalTab } from '../terminal-tabs';
 import { shellOf, tabLabel } from '../terminal-tabs';
 import { typeIntoTerminal } from '../terminal-input';
 import { liveSessions } from '../session-registry';
 import type { TerminalMark } from '../terminal-access';
 import { compactMessage, historyForRequest, insertableCommand, outputMessage, parseAnswer, questionMessage, SCREEN_LINES } from '../assistant-chat';
+import { diagnoseMessage, diagnosePartLabel, diagnoseQuestion, estimatedTokens, isClusterTab, kubeHistory, mutatingCommand, onDiagnosis, takeDiagnosis, type DiagnoseRequest } from '../kube-diagnose';
 import { errorText } from '../error-text';
 import { Trans, useT } from '../i18n';
 import '../assistant-ui.css';
@@ -40,6 +42,8 @@ interface ChatEntry {
   note?: string;
   /** Distinct secrets main masked in this turn before sending. */
   masked?: number;
+  /** Characters of cluster context sent with this turn (start of a Kubernetes analysis). */
+  contextChars?: number;
 }
 
 interface Conversation {
@@ -47,7 +51,12 @@ interface Conversation {
   /** A typed command waits for Enter; output after `line` belongs to it. */
   awaiting?: { mark: TerminalMark; command: string };
   output?: { command: string; text: string };
+  /** Cluster of a Kubernetes analysis; follow-up questions go out with the same kind of context. */
+  kube?: AiKubeContext['kube'];
 }
+
+/** A Kubernetes analysis waiting for "Analyse senden": the request, then its context or why collecting failed. */
+interface DiagnoseDraft { request: DiagnoseRequest; context?: KubeDiagnosis; error?: string }
 
 /** Drops the wait for a typed command and frees its terminal mark. */
 const clearAwaiting = (current: Conversation): Conversation => { current.awaiting?.mark.dispose(); return { ...current, awaiting: undefined }; };
@@ -61,6 +70,8 @@ const write = (key: string, value: string): void => { try { localStorage.setItem
  * Terminal assistant: reads the focused terminal and suggests commands; only the user's click on
  * "Type in" writes one into the input line, never with Enter. After the user runs a command it reads
  * the output and, step by step, suggests the next command until the goal is reached. It explains only when asked.
+ * In a cluster tab it analyses one object instead ("Mit KI analysieren"): the user sees the context before
+ * sending, and suggested commands are text only, without any button (user ruling: read-only analysis).
  */
 export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, onSaveWorkflow }: AssistantPanelProps) {
   const { t } = useT();
@@ -68,9 +79,10 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
   const [providerId, setProviderId] = useState<string>(() => read(PROVIDER_KEY) ?? '');
   const [autoEvaluate, setAutoEvaluate] = useState(() => read(AUTO_KEY) !== 'off');
   const [conversations, setConversations] = useState<Record<string, Conversation>>({});
+  const [diagnoses, setDiagnoses] = useState<Record<string, DiagnoseDraft>>({});
   const [draft, setDraft] = useState('');
   const requests = useRef(new Map<string, { tabId: string; entryId: string; userEntryId: string; text: string }>());
-  /** One conversation id per tab; main keeps [SECRET_n] stable within it. "Clear history" starts a new one. */
+  /** One conversation id per tab; main keeps [SECRET_n] stable within it. "Clear history" and a new analysis start a new one. */
   const conversationIds = useRef(new Map<string, string>());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -81,8 +93,12 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
 
   const tab = tabs.find(item => item.id === activeTabId);
   const shell = shellOf(tab);
+  const kubeMode = isClusterTab(tab);
+  const diagnosis = tab ? diagnoses[tab.id] : undefined;
   const conversation = (tab && conversations[tab.id]) || { entries: [] };
   const busy = conversation.entries.some(entry => entry.pending);
+  // A Kubernetes conversation shows commands as text only, whichever tab it is in (user ruling: read-only analysis).
+  const textOnly = kubeMode || conversation.kube !== undefined;
   const provider = catalog?.providers.find(item => item.id === providerId)
     ?? catalog?.providers.find(item => item.id === catalog.defaultProviderId) ?? catalog?.providers[0];
 
@@ -90,7 +106,21 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
     void window.desktopApi.aiCatalog().then(setCatalog).catch(() => setCatalog({ providers: [] }));
     return window.desktopApi.onAiCatalog(setCatalog);
   }, []);
-  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); }, [conversation.entries]);
+  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); }, [conversation.entries, diagnosis]);
+
+  // "Mit KI analysieren" in a cluster tab of this window: shows the request, then its context, until the user sends or discards it.
+  useEffect(() => {
+    const accept = (request: DiagnoseRequest): void => {
+      setDiagnoses(current => ({ ...current, [request.tabId]: { request } }));
+      setDraft(diagnoseQuestion(request.target));
+      request.context.then(
+        context => setDiagnoses(current => (current[request.tabId]?.request === request ? { ...current, [request.tabId]: { request, context } } : current)),
+        (error: unknown) => setDiagnoses(current => (current[request.tabId]?.request === request ? { ...current, [request.tabId]: { request, error: errorText(error) } } : current)));
+    };
+    const waiting = takeDiagnosis();
+    if (waiting) accept(waiting);
+    return onDiagnosis(() => { const next = takeDiagnosis(); if (next) accept(next); });
+  }, []);
 
   const update = useCallback((tabId: string, change: (current: Conversation) => Conversation): void => {
     setConversations(current => ({ ...current, [tabId]: change(current[tabId] ?? { entries: [] }) }));
@@ -99,9 +129,12 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
     update(tabId, current => ({ ...current, entries: current.entries.map(entry => entry.id === entryId ? { ...entry, ...change } : entry) }));
   }, [update]);
 
-  /** Types a command into the terminal; never adds Enter. */
+  /** Types a command into the terminal; never adds Enter, never into a cluster tab. */
   const typeCommand = useCallback((tabId: string, entryId: string, command: string): void => {
-    void typeIntoTerminal(tabsRef.current.find(item => item.id === tabId), command).then(result => {
+    const target = tabsRef.current.find(item => item.id === tabId);
+    // A Kubernetes analysis only shows commands (user ruling); this guards the path even if a button slipped in.
+    if (!target || isClusterTab(target) || conversationsRef.current[tabId]?.kube) return;
+    void typeIntoTerminal(target, command).then(result => {
       if (!('typed' in result)) { updateEntry(tabId, entryId, { note: result.reason }); return; }
       updateEntry(tabId, entryId, { inserted: result.typed, note: undefined });
       const access = liveSessions.get(tabId)?.terminal;
@@ -111,23 +144,30 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
     });
   }, [update, updateEntry]);
 
-  const send = useCallback((tabId: string, shown: string, content: string, compact: string, automatic = false): void => {
+  /** Sends one turn. `kube` marks a Kubernetes conversation; `contextChars` starts a new analysis, so earlier turns of the tab do not go along. */
+  const send = useCallback((tabId: string, shown: string, content: string, compact: string, automatic = false, kube?: AiKubeContext['kube'], contextChars?: number): void => {
     const target = tabsRef.current.find(item => item.id === tabId);
     const targetShell = shellOf(target);
-    if (!target || !targetShell) return;
+    if (!target) return;
+    let context: AiAskContext;
+    if (kube) context = { kube };
+    else if (targetShell) context = { shell: targetShell, target: `${target.connection.name}, ${target.connection.address}` };
+    else return;
+    const fresh = contextChars !== undefined;
     const requestId = crypto.randomUUID();
-    const user: ChatEntry = { id: crypto.randomUUID(), role: 'user', content, compact, shown, ...(automatic ? { automatic } : {}) };
+    const user: ChatEntry = { id: crypto.randomUUID(), role: 'user', content, compact, shown, ...(automatic ? { automatic } : {}), ...(fresh ? { contextChars } : {}) };
     const answer: ChatEntry = { id: crypto.randomUUID(), role: 'assistant', content: '', compact: '', shown: '', pending: true };
-    const previous = conversationsRef.current[tabId] ?? { entries: [] };
-    // Earlier turns go out in their short form; only this turn carries the full terminal text.
-    const history = historyForRequest([...previous.entries.filter(entry => !entry.pending && !entry.error)
-      .map(entry => ({ role: entry.role, content: entry.role === 'user' ? entry.compact : entry.content })), { role: 'user' as const, content }]);
-    update(tabId, current => ({ ...clearAwaiting(current), output: undefined, entries: [...current.entries, user, answer] }));
+    const previous: Conversation = fresh ? { entries: [] } : conversationsRef.current[tabId] ?? { entries: [] };
+    // Earlier turns go out in their short form; only this turn carries the full terminal text. An analysis keeps its context message.
+    const turns = [...previous.entries.filter(entry => !entry.pending && !entry.error)
+      .map(entry => ({ role: entry.role, content: entry.role === 'user' ? entry.compact : entry.content })), { role: 'user' as const, content }];
+    const history = kube ? kubeHistory(turns) : historyForRequest(turns);
+    update(tabId, current => ({ ...clearAwaiting(current), output: undefined, ...(kube ? { kube } : {}), entries: [...(fresh ? [] : current.entries), user, answer] }));
+    if (fresh) conversationIds.current.set(tabId, crypto.randomUUID());
     let conversationId = conversationIds.current.get(tabId);
     if (!conversationId) { conversationId = crypto.randomUUID(); conversationIds.current.set(tabId, conversationId); }
     requests.current.set(requestId, { tabId, entryId: answer.id, userEntryId: user.id, text: '' });
-    void window.desktopApi.aiAsk({ requestId, conversationId, ...(provider ? { providerId: provider.id } : {}), messages: history,
-      context: { shell: targetShell, target: `${target.connection.name}, ${target.connection.address}` } })
+    void window.desktopApi.aiAsk({ requestId, conversationId, ...(provider ? { providerId: provider.id } : {}), messages: history, context })
       .catch((error: unknown) => {
         requests.current.delete(requestId);
         updateEntry(tabId, answer.id, { pending: false, error: errorText(error) });
@@ -173,9 +213,29 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
     return () => clearInterval(timer);
   }, [conversations, update, t]);
 
+  const dropDiagnosis = (tabId: string): void => setDiagnoses(current => { const next = { ...current }; delete next[tabId]; return next; });
+
   const submit = (): void => {
     const question = draft.trim();
-    if (!question || !tab || !shell || busy) return;
+    if (!question || !tab || busy) return;
+    if (kubeMode) {
+      if (diagnosis) {
+        const context = diagnosis.context;
+        if (!context) return;
+        const content = diagnoseMessage(question, context.text);
+        const { cluster, production } = diagnosis.request;
+        setDraft('');
+        dropDiagnosis(tab.id);
+        // The context message keeps its full text in later turns: follow-up questions need it.
+        send(tab.id, question, content, content, false, { cluster, production }, context.text.length);
+        return;
+      }
+      if (!conversation.kube) return;
+      setDraft('');
+      send(tab.id, question, question, question, false, conversation.kube);
+      return;
+    }
+    if (!shell) return;
     const screen = liveSessions.get(tab.id)?.terminal?.screen(SCREEN_LINES) ?? '';
     const pending = conversation.output;
     setDraft('');
@@ -184,6 +244,11 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
       : questionMessage(question, screen);
     send(tab.id, question, content, question);
   };
+  const discard = (): void => {
+    if (!tab) return;
+    dropDiagnosis(tab.id);
+    setDraft('');
+  };
   const stop = (): void => {
     for (const [requestId, request] of requests.current) if (request.tabId === tab?.id) void window.desktopApi.aiCancel({ requestId }).catch(() => {});
   };
@@ -191,6 +256,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
   const label = tab ? tabLabel(tab, tabs) : null;
   const providers = catalog?.providers ?? [];
   const entries = useMemo(() => conversation.entries, [conversation.entries]);
+  const canType = kubeMode ? Boolean(diagnosis || conversation.kube) : Boolean(shell);
 
   return (
     <aside className="assistant-panel" aria-label={t('assistant:panel.title')}>
@@ -202,41 +268,63 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
         {onManageProviders && <button type="button" className="assistant-icon" title={t('assistant:panel.manageProviders')} aria-label={t('assistant:panel.manageProviders')} onClick={onManageProviders}>⚙</button>}
         <button type="button" className="assistant-icon" title={t('assistant:panel.closeTitle', { shortcut: t('common:shortcuts.assistant') })} aria-label={t('assistant:panel.closeLabel')} onClick={onClose}>×</button>
       </header>
-      <p className="assistant-context">{!tab ? t('assistant:panel.selectTab') : shell ? <>{t('assistant:panel.contextFor')} <strong>{label}</strong></>
+      <p className="assistant-context">{!tab ? t('assistant:panel.selectTab') : shell || kubeMode ? <>{t('assistant:panel.contextFor')} <strong>{label}</strong></>
         : t('assistant:panel.unsupportedTab')}</p>
-      {provider?.masking === false && <p className="assistant-context">{t('assistant:panel.maskingOff')}</p>}
+      {provider?.masking === false && <p className="assistant-context">{kubeMode ? t('assistant:kube.maskingForced') : t('assistant:panel.maskingOff')}</p>}
       {catalog && !providers.length ? <div className="assistant-empty">
         <p>{t('assistant:panel.noProvider')}</p>
         {onManageProviders ? <button type="button" className="primary-button" onClick={onManageProviders}>{t('assistant:panel.setupProvider')}</button>
           : <p>{t('assistant:panel.setupInMain')}</p>}
       </div> : <>
         <div className="assistant-messages" ref={listRef} aria-live="polite">
-          {!entries.length && <div className="assistant-hint">
-            <p>{t('assistant:panel.hint1')}</p>
-            <p><Trans t={t} i18nKey="assistant:panel.hint2" components={{ provider: <strong>{provider?.name}</strong> }} /></p>
-          </div>}
+          {!entries.length && !diagnosis && (kubeMode
+            ? <div className="assistant-hint"><p>{t('assistant:kube.hint')}</p></div>
+            : <div className="assistant-hint">
+              <p>{t('assistant:panel.hint1')}</p>
+              <p><Trans t={t} i18nKey="assistant:panel.hint2" components={{ provider: <strong>{provider?.name}</strong> }} /></p>
+            </div>)}
           {entries.map(entry => entry.role === 'user'
             ? entry.automatic ? <p key={entry.id} className="assistant-note">{entry.shown}{entry.masked ? ` · ${t('assistant:panel.masked', { amount: formatNumber(entry.masked) })}` : ''}</p>
               : <Fragment key={entry.id}>
                 <div className="assistant-message is-user">{entry.shown}</div>
+                {entry.contextChars ? <p className="assistant-note">{t('assistant:kube.sentContext', { chars: formatNumber(entry.contextChars) })}</p> : null}
                 {entry.masked ? <p className="assistant-note">{t('assistant:panel.masked', { amount: formatNumber(entry.masked) })}</p> : null}
               </Fragment>
             : <div key={entry.id} className="assistant-message is-assistant">
               {parseAnswer(entry.shown).map((segment, index) => segment.type === 'text'
                 ? <p key={index}>{segment.text.trim()}</p>
-                : <div key={index} className={`assistant-command${entry.inserted === insertableCommand(segment.command) ? ' is-inserted' : ''}`}>
+                : <div key={index} className={`assistant-command${entry.inserted === insertableCommand(segment.command) ? ' is-inserted' : ''}${textOnly && mutatingCommand(segment.command) ? ' is-mutating' : ''}`}>
                   <code>{segment.command}</code>
-                  {segment.complete && tab && <div className="assistant-command-actions">
-                    <span>{entry.inserted === insertableCommand(segment.command) ? t('assistant:panel.inserted')
-                      : entry.note ?? (SECRET_PLACEHOLDER.test(segment.command) ? t('assistant:panel.maskedCommand') : t('assistant:panel.suggestion'))}</span>
-                    <button type="button" disabled={!insertableCommand(segment.command)} onClick={() => typeCommand(tab.id, entry.id, segment.command)}>{t('assistant:panel.type')}</button>
-                    <button type="button" onClick={() => void window.desktopApi.writeClipboardText(segment.command).catch(() => {})}>{t('assistant:panel.copy')}</button>
-                    {onSaveWorkflow && <button type="button" title={t('assistant:panel.saveWorkflowTitle')} onClick={() => onSaveWorkflow(segment.command)}>{t('assistant:panel.saveWorkflow')}</button>}
-                  </div>}
+                  {segment.complete && tab && (textOnly
+                    // Kubernetes analysis: text only. No button types, runs, copies or saves a suggested command (user ruling).
+                    ? <div className="assistant-command-actions">
+                      <span className={mutatingCommand(segment.command) ? 'is-mutating' : undefined}>
+                        {mutatingCommand(segment.command) ? t('assistant:kube.mutating') : t('assistant:kube.suggestion')}</span>
+                    </div>
+                    : <div className="assistant-command-actions">
+                      <span>{entry.inserted === insertableCommand(segment.command) ? t('assistant:panel.inserted')
+                        : entry.note ?? (SECRET_PLACEHOLDER.test(segment.command) ? t('assistant:panel.maskedCommand') : t('assistant:panel.suggestion'))}</span>
+                      <button type="button" disabled={!insertableCommand(segment.command)} onClick={() => typeCommand(tab.id, entry.id, segment.command)}>{t('assistant:panel.type')}</button>
+                      <button type="button" onClick={() => void window.desktopApi.writeClipboardText(segment.command).catch(() => {})}>{t('assistant:panel.copy')}</button>
+                      {onSaveWorkflow && <button type="button" title={t('assistant:panel.saveWorkflowTitle')} onClick={() => onSaveWorkflow(segment.command)}>{t('assistant:panel.saveWorkflow')}</button>}
+                    </div>)}
                 </div>)}
               {entry.pending && <span className="assistant-typing" aria-label={t('assistant:panel.typing')}>…</span>}
               {entry.error && <p className="assistant-error" role="alert">{entry.error}</p>}
             </div>)}
+          {diagnosis && tab && <div className="assistant-diagnose">
+            <strong>{t('assistant:kube.draftTitle', { kind: KIND_INFO[diagnosis.request.target.ref.kind].kind, name: diagnosis.request.target.ref.name })}</strong>
+            {diagnosis.request.production && <p className="assistant-diagnose-production">{t('assistant:kube.production')}</p>}
+            {diagnosis.error ? <p className="assistant-error" role="alert">{diagnosis.error}</p>
+              : !diagnosis.context ? <p>{t('assistant:kube.collecting')}</p>
+                : <>
+                  <ul>{diagnosis.context.parts.map((part, index) => <li key={index}>{diagnosePartLabel(part)}</li>)}</ul>
+                  <p>{t('assistant:kube.size', { chars: formatNumber(diagnosis.context.text.length), tokens: formatNumber(estimatedTokens(diagnosis.context.text.length)), provider: provider?.name ?? '' })}</p>
+                  <details><summary>{t('assistant:kube.showText')}</summary><pre>{diagnosis.context.text}</pre></details>
+                  <p>{t('assistant:kube.privacy')}</p>
+                </>}
+            <div className="assistant-diagnose-actions"><button type="button" className="secondary-button" onClick={discard}>{t('assistant:kube.discard')}</button></div>
+          </div>}
           {conversation.awaiting && <p className="assistant-status">{t('assistant:panel.awaiting')}{autoEvaluate ? t('assistant:panel.awaitingAuto') : ''}</p>}
           {conversation.output && tab && <div className="assistant-status">
             <span>{t('assistant:panel.outputReady', { command: conversation.output.command })}</span>
@@ -248,15 +336,17 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
           </div>}
         </div>
         <form className="assistant-input" onSubmit={event => { event.preventDefault(); submit(); }}>
-          <textarea value={draft} rows={3} disabled={!shell || !provider} placeholder={shell ? t('assistant:panel.inputPlaceholder') : t('assistant:panel.noTerminal')}
+          <textarea value={draft} rows={3} disabled={!canType || !provider}
+            placeholder={kubeMode ? (canType ? t('assistant:kube.inputPlaceholder') : t('assistant:kube.inputIdle')) : shell ? t('assistant:panel.inputPlaceholder') : t('assistant:panel.noTerminal')}
             aria-label={t('assistant:panel.inputLabel')} onChange={event => setDraft(event.target.value)}
             onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} />
           <div className="assistant-input-actions">
-            <label><input type="checkbox" checked={autoEvaluate} onChange={event => { setAutoEvaluate(event.target.checked); write(AUTO_KEY, event.target.checked ? 'on' : 'off'); }} />
-              {t('assistant:panel.autoEvaluate')}</label>
+            {!kubeMode && <label><input type="checkbox" checked={autoEvaluate} onChange={event => { setAutoEvaluate(event.target.checked); write(AUTO_KEY, event.target.checked ? 'on' : 'off'); }} />
+              {t('assistant:panel.autoEvaluate')}</label>}
             {tab && entries.length > 0 && !busy && <button type="button" className="secondary-button" onClick={() => { conversationIds.current.delete(tab.id); setConversations(current => { const next = { ...current }; next[tab.id]?.awaiting?.mark.dispose(); delete next[tab.id]; return next; }); }}>{t('assistant:panel.clear')}</button>}
             {busy ? <button type="button" className="secondary-button" onClick={stop}>{t('assistant:panel.stop')}</button>
-              : <button type="submit" className="primary-button" disabled={!draft.trim() || !shell || !provider}>{t('assistant:panel.ask')}</button>}
+              : <button type="submit" className="primary-button" disabled={!draft.trim() || !canType || !provider || (diagnosis !== undefined && !diagnosis.context)}>
+                {diagnosis ? t('assistant:kube.send') : t('assistant:panel.ask')}</button>}
           </div>
         </form>
       </>}

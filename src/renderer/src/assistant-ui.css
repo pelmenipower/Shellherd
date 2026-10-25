@@ -20,6 +20,18 @@
 .assistant-command { display: grid; gap: var(--space-6); padding: var(--space-8) var(--space-10); border: 1px solid var(--color-border); border-left: 3px solid var(--color-text-muted); border-radius: var(--radius-md); background: var(--color-bg-stage); }
 .assistant-command.is-inserted { border-left-color: var(--color-accent); }
 .assistant-command code { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--color-text-code); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Kubernetes analysis: a changing command is a state (warning), never an action; no buttons exist for it. */
+.assistant-command.is-mutating { border-left-color: var(--color-warn-border); }
+.assistant-command-actions .is-mutating { color: var(--color-warn); }
+/* Kubernetes analysis: the context card before sending. No motion. */
+.assistant-diagnose { display: grid; gap: var(--space-8); padding: var(--space-10); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-raised); font-size: var(--fs-sm); line-height: 1.5; }
+.assistant-diagnose p, .assistant-diagnose ul { margin: 0; }
+.assistant-diagnose ul { display: grid; gap: var(--space-4); padding-left: var(--space-16); color: var(--color-text-muted); }
+.assistant-diagnose-production { color: var(--color-warn); }
+.assistant-diagnose summary { cursor: pointer; color: var(--color-text-muted); }
+.assistant-diagnose pre { max-height: 240px; margin: var(--space-6) 0 0; padding: var(--space-8); overflow: auto; border-radius: var(--radius-sm); background: var(--color-bg-stage); color: var(--color-text-code); font-family: var(--font-mono); font-size: var(--fs-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-diagnose-actions { display: flex; justify-content: flex-end; }
+.assistant-diagnose-actions button { min-height: var(--control-sm); height: var(--control-sm); padding: 0 var(--space-10); font-size: var(--fs-sm); }
 .assistant-command-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); font-size: var(--fs-xs); color: var(--color-text-muted); }
 .assistant-command-actions span { flex: 1 1 140px; }
 .assistant-command-actions button { min-height: var(--control-xs); height: var(--control-xs); padding: 0 var(--space-8); font-size: var(--fs-sm); }
