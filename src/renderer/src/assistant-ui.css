@@ -51,6 +51,10 @@
 .ai-field small { color: var(--color-text-muted); font-size: var(--fs-sm); }
 .ai-field-input { display: flex; gap: var(--space-6); }
 .ai-field-input input { flex: 1; min-width: 0; }
+/* Masking switch in the provider form. No motion. */
+.ai-check { display: grid; gap: var(--space-4); font-size: var(--fs-md); }
+.ai-check label { display: flex; align-items: center; gap: var(--space-6); }
+.ai-check small { color: var(--color-text-muted); font-size: var(--fs-sm); }
 .ai-ok { margin: var(--space-12) 0 0; color: var(--color-ok); font-size: var(--fs-md); overflow-wrap: anywhere; }
 .ai-settings-dialog .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-8); margin-top: var(--space-8); }
 .secondary-body { display: flex; flex: 1; min-width: 0; min-height: 0; }
