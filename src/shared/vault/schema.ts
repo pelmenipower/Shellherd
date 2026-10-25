@@ -47,7 +47,7 @@ const connectionBase = {
 };
 
 /** Drive path (`C:\…`) or UNC share (`\\server\share…`); device paths (`\\?\`, `\\.\`) are refused. */
-export const AUTO_UPLOAD_LOCAL_PATH = /^(?:[A-Za-z]:\\|\\\\(?![?.]\\))/;
+export const AUTO_UPLOAD_LOCAL_PATH = /^(?:[A-Za-z]:\\|\\\\(?![?.](?:[\\/]|$)))/;
 const noLineBreak = (value: string) => !/[\0\r\n]/.test(value);
 
 export const AutoUploadBindingSchema = z.object({

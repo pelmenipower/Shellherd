@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { FileEntry } from '../../shared/sftp';
 import { errorText } from './error-text';
 import { i18n, t } from './i18n';
-import { formatRate, formatSize, modeText, parseMode, joinPath, nameError, nextSelection, parentPath, formatDate, pathSegments, sortEntries } from './file-browser';
+import { formatRate, formatSize, modeText, parseMode, joinPath, nameError, nameTaken, nextSelection, parentPath, formatDate, pathSegments, sortEntries, visibleEntries, resolveGoTo } from './file-browser';
 
 const file = (name: string, size = 0, modified = 0): FileEntry => ({ name, type: 'file', size, modified });
 const folder = (name: string): FileEntry => ({ name, type: 'directory', size: 0, modified: 0 });
@@ -68,6 +68,90 @@ describe('file browser', () => {
   });
 });
 
+
+describe('visible entries', () => {
+  const entries = [file('.bashrc'), file('notes.md'), folder('backups'), file('NOTES-old.txt'), file('a.b')];
+
+  it('hides only dot names when hidden files are off', () => {
+    expect(visibleEntries(entries, false, '').map(entry => entry.name)).toEqual(['notes.md', 'backups', 'NOTES-old.txt', 'a.b']);
+    expect(visibleEntries(entries, true, '').map(entry => entry.name)).toContain('.bashrc');
+  });
+
+  it('filters by name without regard to case', () => {
+    expect(visibleEntries(entries, true, 'NOT').map(entry => entry.name)).toEqual(['notes.md', 'NOTES-old.txt']);
+  });
+
+  it('does not filter on a blank filter', () => {
+    expect(visibleEntries(entries, true, '  ')).toEqual(entries);
+  });
+
+  it('keeps hidden names out when filtering with hidden files off', () => {
+    expect(visibleEntries(entries, false, 'bash')).toEqual([]);
+  });
+
+  it('keeps the order of the entries', () => {
+    expect(visibleEntries([folder('z'), file('b'), file('a')], true, '').map(entry => entry.name)).toEqual(['z', 'b', 'a']);
+  });
+});
+
+describe('resolve go-to input', () => {
+  const remote = (input: string, current = '/home/demo', home: string | null = '/home/demo') => resolveGoTo('remote', input, current, home);
+  const local = (input: string) => resolveGoTo('local', input, 'C:\\Users\\me', 'C:\\Users\\me');
+
+  it('resolves remote input', () => {
+    expect(remote('  ')).toBeNull();
+    expect(remote('~')).toEqual({ path: '/home/demo' });
+    expect(remote('~/www')).toEqual({ path: '/home/demo/www' });
+    expect(remote('/etc')).toEqual({ path: '/etc' });
+    expect(remote('www')).toEqual({ path: '/home/demo/www' });
+    expect(remote('../x', '/a/b')).toEqual({ path: '/a/b/../x' });
+    expect(remote('~', '/a/b', null)).toEqual({ path: '/a/b' });
+  });
+
+  it('resolves local input', () => {
+    expect(local('D:')).toEqual({ path: 'D:\\' });
+    expect(local('d:/Projekte/x')).toEqual({ path: 'd:\\Projekte\\x' });
+    expect(local('D:x')).toEqual({ path: 'D:\\x' });
+    expect(local('Docs')).toEqual({ path: 'C:\\Users\\me\\Docs' });
+    expect(local('\\Windows')).toEqual({ path: 'C:\\Windows' });
+    expect(local('\\\\server\\share')).toEqual({ path: '\\\\server\\share' });
+    expect(local('//server/share')).toEqual({ path: '\\\\server\\share' });
+    expect(local('~/Downloads')).toEqual({ path: 'C:\\Users\\me\\Downloads' });
+    expect(local('~')).toEqual({ path: 'C:\\Users\\me' });
+  });
+
+  it('takes a leading backslash from the share root on a network share', () => {
+    expect(resolveGoTo('local', '\\x', '\\\\server\\share\\a', null)).toEqual({ path: '\\\\server\\share\\x' });
+    expect(resolveGoTo('local', '\\', '\\\\server\\share\\a', null)).toEqual({ path: '\\\\server\\share\\' });
+    expect(resolveGoTo('local', '\\x', 'C:\\Users\\me', null)).toEqual({ path: 'C:\\x' });
+  });
+
+  it('refuses device paths locally', () => {
+    expect(local('\\\\?\\C:\\x')).toEqual({ unsupported: true });
+    expect(local('\\\\.\\pipe\\x')).toEqual({ unsupported: true });
+    expect(local('\\\\?')).toEqual({ unsupported: true });
+    expect(local('//?/C:/x')).toEqual({ unsupported: true });
+  });
+});
+
+describe('name clashes', () => {
+  it('ignores case locally, not on the server', () => {
+    expect(nameTaken('local', ['.env'], '.ENV')).toBe(true);
+    expect(nameTaken('remote', ['.env'], '.ENV')).toBe(false);
+    expect(nameTaken('remote', ['.env'], '.env')).toBe(true);
+  });
+
+  it('allows a case-only change of the same file', () => {
+    expect(nameTaken('local', ['a.txt'], 'A.txt', 'a.txt')).toBe(false);
+    expect(nameTaken('local', ['a.txt'], 'A.txt')).toBe(true);
+    expect(nameTaken('local', ['a.txt', 'b.txt'], 'B.txt', 'a.txt')).toBe(true);
+  });
+
+  it('allows a free new name', () => {
+    expect(nameTaken('local', ['a.txt'], 'neu.txt')).toBe(false);
+    expect(nameTaken('local', ['a.txt'], 'neu.txt', 'a.txt')).toBe(false);
+  });
+});
 
 describe('file browser in en-US', () => {
   afterEach(async () => { await i18n.changeLanguage('de-DE'); });

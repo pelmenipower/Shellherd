@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.23.0] – 2026-10-25
+
+- Neu: Pfadfeld in der Dateiansicht mit `Strg+L`, auch über ⚙ → `Gehe zu …`; der Doppelklick geht wie bisher. Es versteht `~`, Pfade ab dem aktuellen Ordner und lokal `/` statt `\`. Fehler wie „Die Datei oder der Ordner wurde nicht gefunden.“ oder „Das ist kein Ordner.“ stehen am Feld, der bisherige Ordner bleibt.
+- Neu: Filter nach Name mit `Strg+F` in der Dateiliste, je Seite. Er prüft „enthält“, ohne Groß- und Kleinschreibung, und endet beim Ordnerwechsel. Kopieren, Verschieben, Löschen und `Strg+A` wirken nur auf sichtbare Einträge.
+- Neu: ⚙ → `Versteckte Dateien ausblenden/anzeigen`, je Seite, für Namen mit Punkt am Anfang. Standard bleibt: alles anzeigen. Die Fußzeile zählt die ausgeblendeten Einträge.
+- Sicherheit: Die lokale Dateiansicht öffnet keine Gerätepfade (`\\?\`, `\\.\`) mehr.
+
 ## [0.22.0] – 2026-10-25
 
 - Neu: `Vault öffnen` zeigt die bis zu acht zuletzt benutzten Vault-Dateien mit Datum und Ordner. Ein Klick wählt eine Datei aus; fehlende Dateien sind markiert und lassen sich mit `×` aus der Liste nehmen. Gespeichert werden nur Pfade und Zeitpunkte in `settings.json`, nie Inhalte.

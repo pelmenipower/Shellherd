@@ -47,6 +47,7 @@ export function fileError(error: unknown): CodedError {
   if (code === 'ENOENT' || code === 2) return { code: 'files.notFound' };
   if (code === 'EACCES' || code === 'EPERM' || code === 3) return { code: 'files.accessDenied' };
   if (code === 'EEXIST') return { code: 'files.exists' };
+  if (code === 'ENOTDIR') return { code: 'files.notADirectory' };
   if (code === 'ENOTEMPTY') return { code: 'files.notEmpty' };
   if (code === 'ENOSPC') return { code: 'files.noSpace' };
   if (code === 'EBUSY') return { code: 'files.busy' };

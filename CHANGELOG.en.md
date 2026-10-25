@@ -4,6 +4,13 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.23.0] – 2026-10-25
+
+- New: Path field in the file view with `Ctrl+L`, also via ⚙ → `Go to…`; the double-click works as before. It understands `~`, paths from the current folder and locally `/` instead of `\`. Errors such as “The file or folder was not found.” or “This is not a folder.” appear at the field; the previous folder stays.
+- New: Filter by name with `Ctrl+F` in the file list, separately per side. It checks “contains”, ignoring upper and lower case, and ends when the folder changes. Copy, move, delete and `Ctrl+A` act only on visible entries.
+- New: ⚙ → `Hide hidden files/Show hidden files`, per side, for names starting with a dot. The default stays: show everything. The footer counts the hidden entries.
+- Security: The local file view no longer opens device paths (`\\?\`, `\\.\`).
+
 ## [0.22.0] – 2026-10-25
 
 - New: `Open vault` shows the up to eight most recently used vault files with date and folder. One click selects a file; missing files are marked and can be removed from the list with `×`. Only paths and times are stored in `settings.json`, never contents.

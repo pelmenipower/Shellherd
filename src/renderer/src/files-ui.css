@@ -24,6 +24,11 @@
 .file-path nav button:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-text); }
 .file-path nav button:disabled { color: var(--color-text); opacity: 1; cursor: text; }
 .file-path input:not([type='checkbox']):not([type='range']):not([type='color']) { width: 100%; height: var(--control-xs); min-height: var(--control-xs); padding: 0 var(--space-6); font-size: var(--fs-sm); font-family: var(--font-mono); }
+.file-path .field-error { margin: var(--space-2) 0 0; }
+.file-filter { display: flex; align-items: center; gap: var(--space-4); }
+.file-filter input:not([type='checkbox']):not([type='range']):not([type='color']) { flex: 1; font-family: var(--font-ui); }
+.file-filter button { min-height: var(--control-xs); height: var(--control-xs); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); font-size: var(--fs-sm); }
+.file-filter button:hover { background: var(--color-bg-hover); color: var(--color-text); }
 
 .file-prompt { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-6); padding: var(--space-8); border-bottom: 1px solid var(--color-border); background: var(--color-bg-raised); }
 .file-prompt label { display: grid; gap: var(--space-4); flex: 1 1 200px; font-size: var(--fs-sm); }

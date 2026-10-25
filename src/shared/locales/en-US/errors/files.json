@@ -22,6 +22,7 @@
     "connectionNotFound": "The connection was not found.",
     "invalidRequest": "Invalid file request.",
     "notFound": "The file or folder was not found.",
+    "notADirectory": "This is not a folder.",
     "accessDenied": "Access denied.",
     "notEmpty": "The folder is not empty.",
     "noSpace": "There is not enough free space on the target.",
