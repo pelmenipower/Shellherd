@@ -45,6 +45,8 @@ const app = await electron.launch({
     SHELLHERD_WINSCP_REG_FILE: imports.winscpReg,
     // served by ai-fake.mjs (npm run drive:sshd)
     SHELLHERD_UPDATE_URL: `http://127.0.0.1:${AI_PORT}/releases/latest`,
+    // Windows Hello stand-in (src/main/vault/hello-helper.ts); an unpacked Shellherd only, never a packaged build.
+    SHELLHERD_HELLO_FAKE: 'ok',
   },
   timeout: 60_000,
 });
