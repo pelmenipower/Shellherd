@@ -2,6 +2,7 @@
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
+const HTTP_PORTS = [{ name: 'http', containerPort: 8080, protocol: 'TCP' }];
 
 export function buildCluster(now = Date.now()) {
   const ago = ms => new Date(now - ms).toISOString();
@@ -31,32 +32,32 @@ export function buildCluster(now = Date.now()) {
 
   const pods = [];
   const podMetrics = [];
-  const addPod = ({ name, namespace = 'shop', node, labels = {}, owner, image, phase = 'Running', ready = true, restarts = 0, state, age, running = true }) => {
+  const addPod = ({ name, namespace = 'shop', node, labels = {}, owner, image, phase = 'Running', ready = true, restarts = 0, state, age, running = true, ports }) => {
     const containerState = state ?? (phase === 'Succeeded' ? { terminated: { reason: 'Completed', exitCode: 0 } } : { running: { startedAt: ago(age) } });
     pods.push({
       metadata: meta('pod', name, namespace, age, { labels, ...(owner ? { ownerReferences: [{ apiVersion: owner.apiVersion, kind: owner.kind, name: owner.name, uid: `uid-${owner.kind.toLowerCase()}-${owner.name}`, controller: true }] } : {}) }),
-      spec: { nodeName: node, containers: [{ name: 'main', image }] },
+      spec: { nodeName: node, containers: [{ name: 'main', image, ...(ports ? { ports } : {}) }] },
       status: {
-        phase, podIP: phase === 'Pending' ? undefined : `10.244.${pods.length % 200}.${10 + pods.length}`,
+        phase, conditions: [{ type: 'Ready', status: phase === 'Running' && ready ? 'True' : 'False' }], podIP: phase === 'Pending' ? undefined : `10.244.${pods.length % 200}.${10 + pods.length}`,
         containerStatuses: phase === 'Pending' ? [] : [{ name: 'main', image, ready, restartCount: restarts, state: containerState }],
       },
     });
     if (running) podMetrics.push({ metadata: { name, namespace }, containers: [{ name: 'main', usage: { cpu: `${20 + (pods.length * 17) % 90}m`, memory: `${90 + (pods.length * 23) % 200}Mi` } }] });
   };
   const rs = (deploy, hash) => ({ apiVersion: 'apps/v1', kind: 'ReplicaSet', name: `${deploy}-${hash}` });
-  const deployPods = (deploy, hash, image, count, nodesToUse) => {
+  const deployPods = (deploy, hash, image, count, nodesToUse, ports) => {
     for (let i = 0; i < count; i++) {
       addPod({
         name: `${deploy}-${hash}-${['x7k2p', 'q9m4d', 'h5t8w'][i]}`, node: nodesToUse[i % nodesToUse.length],
-        labels: { app: deploy, 'pod-template-hash': hash }, owner: rs(deploy, hash), image, age: 3 * DAY + i * HOUR,
+        labels: { app: deploy, 'pod-template-hash': hash }, owner: rs(deploy, hash), image, age: 3 * DAY + i * HOUR, ports,
       });
     }
   };
-  deployPods('api', '6d8f9b7c5', 'registry.local/shop/api:2.4.1', 3, ['k8s-w1', 'k8s-w1', 'k8s-w2']);
+  deployPods('api', '6d8f9b7c5', 'registry.local/shop/api:2.4.1', 3, ['k8s-w1', 'k8s-w1', 'k8s-w2'], HTTP_PORTS);
   deployPods('worker', '5c7b4d9f8', 'registry.local/shop/worker:2.4.1', 2, ['k8s-w1', 'k8s-w2']);
   addPod({
     name: 'checkout-7f9c6b8d4-m2n5z', node: 'k8s-w1', labels: { app: 'checkout', 'pod-template-hash': '7f9c6b8d4' }, owner: rs('checkout', '7f9c6b8d4'),
-    image: 'registry.local/shop/checkout:1.9.0', ready: false, restarts: 14, age: 2 * DAY,
+    image: 'registry.local/shop/checkout:1.9.0', ready: false, restarts: 14, age: 2 * DAY, ports: HTTP_PORTS,
     state: { waiting: { reason: 'CrashLoopBackOff', message: 'back-off 5m0s restarting failed container=main' } },
   });
   addPod({ name: 'report-0', node: undefined, labels: { app: 'report' }, image: 'registry.local/shop/report:0.3.2', phase: 'Pending', ready: false, age: 20 * MIN, running: false });
@@ -102,8 +103,8 @@ export function buildCluster(now = Date.now()) {
     status: { lastScheduleTime: ago(9 * HOUR) },
   }];
   const services = [
-    { metadata: meta('service', 'api', 'shop', 30 * DAY), spec: { type: 'ClusterIP', clusterIP: '10.96.12.40', ports: [{ port: 80, protocol: 'TCP' }], selector: { app: 'api' } } },
-    { metadata: meta('service', 'checkout', 'shop', 30 * DAY), spec: { type: 'ClusterIP', clusterIP: '10.96.33.7', ports: [{ port: 8080, protocol: 'TCP' }], selector: { app: 'checkout' } } },
+    { metadata: meta('service', 'api', 'shop', 30 * DAY), spec: { type: 'ClusterIP', clusterIP: '10.96.12.40', ports: [{ name: 'http', port: 80, targetPort: 'http', protocol: 'TCP' }], selector: { app: 'api' } } },
+    { metadata: meta('service', 'checkout', 'shop', 30 * DAY), spec: { type: 'ClusterIP', clusterIP: '10.96.33.7', ports: [{ port: 8080, targetPort: 8080, protocol: 'TCP' }], selector: { app: 'checkout' } } },
   ];
   const ingresses = [{
     metadata: meta('ingress', 'shop', 'shop', 30 * DAY),
