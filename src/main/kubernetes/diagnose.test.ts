@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DIAGNOSE_MAX_CHARS, type KubeKind, type KubeRef, type KubeSelector } from '../../shared/kubernetes';
 import { KubeApiError, type KubeApi, type KubeObject, type ListResult, type LogReadOptions, type LogReadTarget } from './api';
-import { DIAGNOSE_BUDGET, buildDiagnosis, headOf, logText, problemContainers, tailOf } from './diagnose';
+import { DIAGNOSE_BUDGET, DIAGNOSE_LOG_BYTES, DIAGNOSE_LOG_LINES, buildDiagnosis, eventLines, headOf, logText, problemContainers, tailOf, wordCut } from './diagnose';
 
 const forbidden = (): never => { throw new Error('forbidden in diagnose'); };
 
@@ -34,7 +34,9 @@ class RecordingApi implements KubeApi {
   async readLog(target: LogReadTarget, options: LogReadOptions): Promise<string> {
     const key = `log ${target.pod}/${target.container}/${options.previous ? 'previous' : 'current'}`;
     this.calls.push(key);
-    expect(options).toMatchObject({ tailLines: 100, limitBytes: 64 * 1024 });
+    // The tails of the log fallback (I-1); every read keeps the byte limit.
+    expect([100, 20, 5, 1]).toContain(options.tailLines);
+    expect(options.limitBytes).toBe(DIAGNOSE_LOG_BYTES);
     const failure = this.failures.get(key);
     if (failure) throw failure;
     return this.logs(target, options);
@@ -220,7 +222,8 @@ describe('buildDiagnosis: budget', () => {
     spec.containers[0].env = Array.from({ length: 50 }, (_, i) => ({ name: `VAR_${i}`, value: `value-${i}-${'x'.repeat(80)}` }));
     const api = setup(pod);
     api.events = Array.from({ length: 200 }, (_, i) => ({ type: 'Warning', reason: `R${i}`, message: `m${i} ${'y'.repeat(1000)}`, lastTimestamp: new Date(Date.UTC(2026, 9, 25, 0, i)).toISOString() }));
-    api.logs = () => Array.from({ length: 10_000 }, (_, i) => `line ${i} ${'z'.repeat(60)}`).join('\n') + '\n';
+    const lines = Array.from({ length: 10_000 }, (_, i) => `line ${i} ${'z'.repeat(60)}`);
+    api.logs = (_target, options) => `${lines.slice(-options.tailLines).join('\n')}\n`;
     const result = await buildDiagnosis(api, POD, EVENT);
     expect(result.text.length).toBeLessThanOrEqual(DIAGNOSE_MAX_CHARS);
     for (const part of result.parts) expect(part.chars).toBeLessThanOrEqual(DIAGNOSE_BUDGET[part.id]);
@@ -237,7 +240,58 @@ describe('buildDiagnosis: budget', () => {
   });
 });
 
+describe('buildDiagnosis: log tails (I-1)', () => {
+  // Like the API: the last `tailLines` lines, cut to limitBytes from the first of them.
+  const apiLike = (lines: string[]) => (_target: LogReadTarget, options: LogReadOptions): string => {
+    const text = `${lines.slice(-options.tailLines).join('\n')}\n`;
+    return Buffer.from(text).subarray(0, options.limitBytes).toString();
+  };
+
+  it('reads a shorter tail when the last 100 lines exceed the byte limit, so the newest line is kept', async () => {
+    const api = setup(crashPod(POD.name, 0, true));
+    api.logs = (_target, options) => options.tailLines === DIAGNOSE_LOG_LINES
+      ? `${'old line '.repeat(8000)}`.slice(0, DIAGNOSE_LOG_BYTES)
+      : 'FATAL newest crash line\n';
+    const result = await buildDiagnosis(api, POD);
+    expect(result.text).toContain('FATAL newest crash line');
+    expect(result.text).toContain('last 20 lines');
+    expect(result.text).not.toContain('old line');
+  });
+
+  it('keeps the newest line when 100 lines are over the limit and the API returns the oldest of them', async () => {
+    const api = setup(crashPod(POD.name, 0, true));
+    const lines = Array.from({ length: 100 }, (_, i) => `line ${i} ${'j'.repeat(1000)}`);
+    lines[99] = 'FATAL newest crash line';
+    api.logs = apiLike(lines);
+    const result = await buildDiagnosis(api, POD);
+    expect(result.text).toContain('FATAL newest crash line');
+    expect(result.text).not.toContain('line 0 ');
+  });
+
+  it('names the logs as not readable when even the newest line exceeds the limit, and shows no part of it', async () => {
+    const api = setup(crashPod(POD.name, 0, true));
+    api.logs = () => `${'x'.repeat(DIAGNOSE_LOG_BYTES + 10)}`;
+    const result = await buildDiagnosis(api, POD);
+    expect(result.parts.find(part => part.id === 'logs')).toEqual({ id: 'logs', name: 'checkout-7f9c6b8d4-m2n5z/main', chars: 0, missing: 'failed' });
+    expect(result.text).toContain('(could not be read)');
+    expect(result.text).not.toContain('xxxxxxxx');
+  });
+});
+
 describe('helpers', () => {
+  it('cuts a long event message and a long log line at a space, never inside a token (M-3)', () => {
+    expect(wordCut(`a Bearer ${'t'.repeat(400)}`, 300)).toBe('a Bearer…');
+    expect(wordCut('x'.repeat(400), 300)).toBe('…');
+    expect(wordCut('short', 300)).toBe('short');
+    // A token straddling the 300th character must not leak its first half.
+    const message = `${'w '.repeat(140)}SECRETTOKENXXXXXXXXXX`;
+    expect(eventLines([{ type: 'Warning', reason: 'R', message, lastTimestamp: '2026-10-25T08:00:00Z' }])).not.toContain('SECRET');
+    // Same for a log line cut at 4 000 characters.
+    const line = `${'w '.repeat(1997)}SECRETTOKENXXXXXXXXXX`;
+    expect(logText(line)).not.toContain('SECRET');
+    expect(logText(line)).toContain('…');
+  });
+
   it('cuts at line ends and stays within max', () => {
     const text = ['aaaa', 'bbbb', 'cccc', 'dddd'].join('\n');
     expect(headOf(text, 12)).toBe('aaaa\nbbbb\n…');

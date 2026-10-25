@@ -5,11 +5,11 @@
  */
 import { AppError } from '../../shared/errors';
 import { DIAGNOSE_KINDS, DIAGNOSE_MAX_CHARS, KIND_INFO, type KubeDiagnosePart, type KubeDiagnosePartId, type KubeDiagnosis, type KubeRef } from '../../shared/kubernetes';
-import { KubeApiError, type KubeApi, type KubeObject } from './api';
+import { KubeApiError, type KubeApi, type KubeObject, type LogReadTarget } from './api';
 import { envValue } from './describe';
 import { formatLogLine } from './log-format';
 import { ownerOf } from './rows';
-import { cleanLogText } from './workload-logs';
+import { MAX_LINE_CHARS, cleanLogText } from './workload-logs';
 
 /** Characters per section. A pod and a workload stay below DIAGNOSE_MAX_CHARS together (diagnose.test.ts). */
 export const DIAGNOSE_BUDGET: Record<KubeDiagnosePartId, number> = {
@@ -18,6 +18,8 @@ export const DIAGNOSE_BUDGET: Record<KubeDiagnosePartId, number> = {
 export const DIAGNOSE_EVENTS = 15;
 export const DIAGNOSE_LOG_LINES = 100;
 export const DIAGNOSE_LOG_BYTES = 64 * 1024;
+/** Tails tried in turn: the API applies limitBytes from the first tailed line, so a tail over the limit loses the newest lines. */
+const LOG_TAILS = [DIAGNOSE_LOG_LINES, 20, 5, 1] as const;
 /** Containers whose logs a pod analysis reads; a workload analysis reads one container of its worst pod. */
 export const DIAGNOSE_POD_CONTAINERS = 2;
 export const DIAGNOSE_WORKLOAD_CONTAINERS = 1;
@@ -59,6 +61,13 @@ export function tailOf(text: string, max: number): string {
   // A token cut in half could slip past the masker: keep only whole words.
   const space = text.slice(from).search(/\s/);
   return space >= 0 && from + space + 1 < text.length ? `…\n${text.slice(from + space + 1)}` : '…';
+}
+
+/** Cuts one line at a space before `max` and marks the cut; never inside a token (M-3). */
+export function wordCut(line: string, max: number): string {
+  if (line.length <= max) return line;
+  const space = line.slice(0, max).search(/\s\S*$/);
+  return `${space > 0 ? line.slice(0, space) : ''}…`;
 }
 
 /** Why a section is empty: 403 forbidden, 404 gone, 400 nothing to read (no previous or no started container). */
@@ -254,7 +263,7 @@ const eventTime = (event: KubeObject): number => {
 export function eventLines(events: KubeObject[]): string {
   return [...events].sort((a, b) => eventTime(b) - eventTime(a)).slice(0, DIAGNOSE_EVENTS).map(event => {
     const message = str(event.message).replace(/\s+/g, ' ');
-    const short = message.length > EVENT_MESSAGE_CHARS ? `${message.slice(0, EVENT_MESSAGE_CHARS)}…` : message;
+    const short = wordCut(message, EVENT_MESSAGE_CHARS);
     return `${str(event.lastTimestamp ?? event.eventTime)} ${str(event.type)} ${str(event.reason)} (x${str(event.count ?? 1)}): ${short}`;
   }).join('\n') || '<none>';
 }
@@ -263,7 +272,8 @@ export function eventLines(events: KubeObject[]): string {
 export function logText(raw: string): string {
   const lines = raw.split('\n');
   if (lines.at(-1) === '') lines.pop();
-  return lines.map(line => cleanLogText(formatLogLine(line.replace(/\r$/, '')))).join('\n') || '(empty)';
+  // cleanLogText cuts at MAX_LINE_CHARS mid-token; wordCut cuts again at a space.
+  return lines.map(line => wordCut(cleanLogText(formatLogLine(line.replace(/\r$/, ''))), MAX_LINE_CHARS)).join('\n') || '(empty)';
 }
 
 /** Containers worth reading: init containers that did not finish with 0, then containers not ready or restarted; else the first one. */
@@ -302,15 +312,26 @@ function podLine(pod: KubeObject): string {
   return `${str(pod.metadata?.name)}  ${str(status.phase)}  ready ${statuses.filter(s => s.ready).length}/${total}  restarts ${restarts(pod)}  node ${str(rec(pod.spec)?.nodeName) || '-'}${reason ? `  ${reason}` : ''}`;
 }
 
+/** The newest lines that fit into DIAGNOSE_LOG_BYTES; a read that hits the limit is shorter than the limit, so a shorter tail is tried. */
+async function readTail(api: KubeApi, target: LogReadTarget, previous: boolean): Promise<{ raw: string; lines: number }> {
+  for (const lines of LOG_TAILS) {
+    const raw = await api.readLog(target, { previous, tailLines: lines, limitBytes: DIAGNOSE_LOG_BYTES });
+    // A cut multi-byte character decodes to U+FFFD (3 bytes), so a cut body is never shorter than the limit.
+    if (Buffer.byteLength(raw) < DIAGNOSE_LOG_BYTES) return { raw, lines };
+  }
+  // Even the newest line alone is over the limit. Its start would be an incomplete line, so it is dropped.
+  throw new Error('newest log line over the byte limit');
+}
+
 async function readLogSection(api: KubeApi, namespace: string, pod: string, container: string, previous: boolean): Promise<Section> {
   const id: KubeDiagnosePartId = previous ? 'previousLogs' : 'logs';
   const name = `${pod}/${container}`;
-  const title = `Logs ${name} (${previous ? 'previous container' : 'current container'}, last ${DIAGNOSE_LOG_LINES} lines)`;
+  const title = (lines: number): string => `Logs ${name} (${previous ? 'previous container' : 'current container'}, last ${lines} lines)`;
   try {
-    const raw = await api.readLog({ namespace, pod, container }, { previous, tailLines: DIAGNOSE_LOG_LINES, limitBytes: DIAGNOSE_LOG_BYTES });
-    return section(id, title, logText(raw), name, 'tail');
+    const { raw, lines } = await readTail(api, { namespace, pod, container }, previous);
+    return section(id, title(lines), logText(raw), name, 'tail');
   } catch (error) {
-    return missing(id, title, error, name);
+    return missing(id, title(DIAGNOSE_LOG_LINES), error, name);
   }
 }
 
