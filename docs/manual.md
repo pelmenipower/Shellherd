@@ -66,11 +66,14 @@ unlocking; this starts new SSH sessions.
 
 `Open vault` lists up to eight vault files under `Recently used` that you opened, created or saved last, newest first, with date and folder. A click selects the file; only the password is left. At start the newest file that still exists is preselected. If a file is gone (moved, deleted or network drive disconnected), it shows `File not found` and cannot be selected; it stays until you remove it. The `×` next to an entry only takes it off the list, the file stays untouched. The list holds paths and times only, never passwords or contents, and lives in `settings.json` in the user data folder. Paths show the folder and therefore often your Windows user name; keep that in mind before you share a screenshot of the start screen.
 
+Shellherd opens a vault file only if it comes from `Select vault file`, a double-click in Explorer, `Recently used`, or by dragging it from a local drive. A vault file on a network share (`\\server\…`) you open once via `Select vault file`; after that it is listed under `Recently used`. Shellherd refuses to open a file dragged from a network share. This way, injected code cannot make Shellherd trigger a network sign-in to a foreign server.
+
 ### Locking and the welcome tab
 
 The lock button in the header locks without a confirmation. An opaque lock screen covers the window; the keyboard reaches nothing behind it. Detached windows are locked too and show their own lock screen (without a password field); you unlock in the main window.
 
 - **Credentials in memory:** The credentials of open sessions stay in Shellherd's memory while locked. A changed, unsaved connection editor keeps its content, including the connection's stored password; an unchanged editor closes on lock. The lock does not protect against reading the process memory.
+- **Screen captures:** While locked, Shellherd excludes all its windows from screen captures and screen sharing (Teams, Zoom, Snipping Tool); there the background appears instead. After unlocking this is lifted. Photos of the screen and the preview of a minimized window in the taskbar are not reliably covered by this.
 - **Idle disconnect:** It keeps running while locked. A long lock can disconnect sessions; the disconnected bar waits after unlocking.
 - **Assistant:** Automatic assistant requests (reading output) fail while locked with “No vault is unlocked.”
 - **Host key:** An open host key prompt can appear above the lock screen. It shows only the host and fingerprint.
@@ -599,16 +602,11 @@ Shellherd shows problems where they occur.
 
 ## Server keys
 
-On first contact, compare the displayed SHA-256 fingerprint with a
-trusted source. Only explicitly confirmed keys
-are saved in `known-hosts.json` in the Electron user data directory.
-This file contains hosts, ports and public fingerprints, no credentials.
-It is located at `%APPDATA%\Shellherd\known-hosts.json`; on first start Shellherd takes it over
-once from `%APPDATA%\Terminus`. It is a separate
-Shellherd trust file; OpenSSH's `known_hosts` is not yet
-imported. Mismatching keys and corrupted trust files abort
-the connection. A key change must be clarified with the server administrator;
-a user interface for managing trusted hosts will follow later.
+On first contact, compare the displayed SHA-256 fingerprint with a trusted source. Only explicitly confirmed keys are saved in `known-hosts.json` in the Electron user data directory. This file contains hosts, ports and public fingerprints, no credentials. It is located at `%APPDATA%\Shellherd\known-hosts.json`; on first start Shellherd takes it over once from `%APPDATA%\Terminus`. Mismatching keys and corrupted trust files abort the connection.
+
+Settings → Connections → `Manage server keys` shows all confirmed and imported keys with host, port, type and SHA-256 fingerprint. The search field filters by host, type or fingerprint. `Remove` deletes an entry immediately; on the next connection Shellherd asks again. To accept an intended key change: remove the old entry, connect again, check the new fingerprint and confirm it.
+
+`Import from known_hosts…` reads an OpenSSH file that you choose in the dialog (suggested: `%USERPROFILE%\.ssh\known_hosts`, at most 4 MiB). Taken over are host names, `[host]:port` and hashed names (`|1|…`) with Ed25519, ECDSA and RSA keys, also several per server. The list shows hashed entries as “Hashed host name”. `@revoked` lines apply to all hosts: a key marked this way is never accepted by Shellherd, not even after a prompt. Skipped are `@cert-authority`, patterns such as `*.example.com` or `!host`, certificates and security keys (`sk-…`). The import does not change any key you have confirmed in Shellherd: for such servers Shellherd's entry continues to apply, and if the file deviates from it, the result names the server. Shellherd reads `known_hosts` only after this click and never writes it.
 
 ## Process boundaries and lifecycle
 

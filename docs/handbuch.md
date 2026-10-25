@@ -65,11 +65,14 @@ dem Entsperren gezielt öffnen; dabei starten neue SSH-Sessions.
 
 `Vault öffnen` zeigt unter `Zuletzt benutzt` bis zu acht Vault-Dateien, die du zuletzt geöffnet, angelegt oder gespeichert hast, die neueste oben, mit Datum und Ordner. Ein Klick wählt die Datei aus, danach fehlt nur das Passwort. Beim Start ist die neueste vorhandene Datei vorausgewählt. Ist eine Datei nicht mehr da (verschoben, gelöscht oder Netzlaufwerk getrennt), steht `Datei nicht gefunden` darunter, und der Eintrag lässt sich nicht wählen; er bleibt, bis du ihn entfernst. Das `×` neben einem Eintrag nimmt ihn nur aus der Liste, die Datei bleibt unberührt. Die Liste enthält nur Pfade und Zeitpunkte, nie Passwörter oder Inhalte, und liegt in `settings.json` im Benutzerdatenordner. Die Pfade zeigen den Ordner und damit oft deinen Windows-Benutzernamen; denk daran, bevor du einen Screenshot des Startbildschirms teilst.
 
+Shellherd öffnet eine Vault-Datei nur, wenn sie über `Vault-Datei auswählen`, per Doppelklick im Explorer, aus `Zuletzt benutzt` oder per Ziehen von einem lokalen Laufwerk kommt. Eine Vault-Datei auf einer Netzwerkfreigabe (`\\server\…`) öffnest du einmal über `Vault-Datei auswählen`; danach steht sie in `Zuletzt benutzt`. Ziehen von einer Netzwerkfreigabe lehnt Shellherd ab. So kann eingeschleuster Code Shellherd keine Netzwerkanmeldung an einem fremden Server auslösen lassen.
+
 ### Sperren und Willkommens-Tab
 
 Der Sperrknopf in der Kopfzeile sperrt ohne Rückfrage. Ein undurchsichtiger Sperrbildschirm deckt das Fenster ab; die Tastatur erreicht nichts dahinter. Nebenfenster werden mitgesperrt und zeigen ihren eigenen Sperrbildschirm (ohne Passwortfeld); entsperrt wird im Hauptfenster.
 
 - **Zugangsdaten im Speicher:** Die Zugangsdaten offener Sitzungen bleiben während der Sperre im Speicher von Shellherd. Ein geänderter, ungespeicherter Verbindungseditor behält seinen Inhalt, auch das gespeicherte Passwort der Verbindung; ein unveränderter Editor schließt beim Sperren. Gegen das Auslesen des Arbeitsspeichers schützt die Sperre nicht.
+- **Bildschirmaufnahmen:** Während der Sperre nimmt Shellherd alle seine Fenster aus Bildschirmaufnahmen und -freigaben heraus (Teams, Zoom, Snipping Tool); dort erscheint stattdessen der Hintergrund. Nach dem Entsperren ist das wieder aufgehoben. Fotos des Bildschirms und die Vorschau eines minimierten Fensters in der Taskleiste deckt das nicht sicher ab.
 - **Leerlauf-Trennung:** Sie läuft während der Sperre weiter. Eine lange Sperre kann Sitzungen trennen; die Getrennt-Leiste wartet dann nach dem Entsperren.
 - **Assistent:** Automatische Rückfragen des Assistenten (gelesene Ausgabe) scheitern während der Sperre mit „Es ist kein Vault entsperrt.“
 - **Host-Schlüssel:** Eine offene Host-Schlüssel-Rückfrage kann über dem Sperrbildschirm erscheinen. Sie zeigt nur Host und Fingerabdruck.
@@ -610,16 +613,11 @@ Shellherd zeigt Probleme dort, wo sie entstehen.
 
 ## Server-Schlüssel
 
-Beim ersten Kontakt den angezeigten SHA-256-Fingerprint mit einer
-vertrauenswürdigen Quelle vergleichen. Nur ausdrücklich bestätigte Schlüssel
-werden in `known-hosts.json` im Electron-Benutzerdatenverzeichnis gespeichert.
-Diese Datei enthält Hosts, Ports und öffentliche Fingerprints, keine Zugangsdaten.
-Sie liegt unter `%APPDATA%\Shellherd\known-hosts.json`; beim ersten Start übernimmt
-Shellherd sie einmalig aus `%APPDATA%\Terminus`. Sie ist eine eigene
-Shellherd-Vertrauensdatei; OpenSSHs `known_hosts` wird noch
-nicht importiert. Abweichende Schlüssel und beschädigte Vertrauensdateien brechen
-die Verbindung ab. Ein Schlüsselwechsel muss mit dem Server-Administrator geklärt
-werden; eine Oberfläche zur gezielten Verwaltung vertrauter Hosts folgt später.
+Beim ersten Kontakt den angezeigten SHA-256-Fingerprint mit einer vertrauenswürdigen Quelle vergleichen. Nur ausdrücklich bestätigte Schlüssel werden in `known-hosts.json` im Electron-Benutzerdatenverzeichnis gespeichert. Diese Datei enthält Hosts, Ports und öffentliche Fingerprints, keine Zugangsdaten. Sie liegt unter `%APPDATA%\Shellherd\known-hosts.json`; beim ersten Start übernimmt Shellherd sie einmalig aus `%APPDATA%\Terminus`. Abweichende Schlüssel und beschädigte Vertrauensdateien brechen die Verbindung ab.
+
+Einstellungen → Verbindungen → `Server-Schlüssel verwalten` zeigt alle bestätigten und importierten Schlüssel mit Host, Port, Typ und SHA-256-Fingerprint. Das Suchfeld filtert nach Host, Typ oder Fingerprint. `Entfernen` löscht einen Eintrag sofort; beim nächsten Verbinden fragt Shellherd wieder nach. So nimmst du einen gewollten Schlüsselwechsel an: alten Eintrag entfernen, neu verbinden, den neuen Fingerprint prüfen und bestätigen.
+
+`Aus known_hosts importieren …` liest eine OpenSSH-Datei, die du im Dialog wählst (vorgeschlagen: `%USERPROFILE%\.ssh\known_hosts`, höchstens 4 MiB). Übernommen werden Hostnamen, `[host]:port` und gehashte Namen (`|1|…`) mit Ed25519-, ECDSA- und RSA-Schlüsseln, auch mehrere je Server. Gehashte Einträge zeigt die Liste als „Gehashter Hostname“. `@revoked`-Zeilen gelten für alle Hosts: Einen so markierten Schlüssel nimmt Shellherd nie an, auch nicht nach Rückfrage. Übersprungen werden `@cert-authority`, Muster wie `*.example.com` oder `!host`, Zertifikate und Sicherheitsschlüssel (`sk-…`). Der Import ändert keinen Schlüssel, den du in Shellherd bestätigt hast: Für solche Server gilt weiter Shellherds Eintrag, und weicht die Datei davon ab, nennt das Ergebnis den Server. Shellherd liest `known_hosts` nur nach diesem Klick und schreibt sie nie.
 
 ## Prozessgrenzen und Lebenszyklus
 

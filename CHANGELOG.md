@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.24.0] – 2026-10-25
+
+- Neu: Einstellungen → Verbindungen → `Server-Schlüssel verwalten` listet alle bestätigten und importierten Server-Schlüssel mit SHA-256-Fingerprint, mit Suche und `Entfernen`. Ein gewollter Schlüsselwechsel lässt sich so annehmen.
+- Neu: Import aus OpenSSH `known_hosts`, auch mit gehashten Namen, `[host]:port` und mehreren Schlüsseltypen. `@revoked` wird beachtet, `@cert-authority` und Muster werden übersprungen. In Shellherd bestätigte Schlüssel ändert der Import nie.
+- Sicherheit: Während der Sperre sind alle Shellherd-Fenster aus Bildschirmaufnahmen und -freigaben herausgenommen.
+- Sicherheit: Shellherd öffnet Vault-Dateien nur aus dem Dateidialog, dem Explorer, `Zuletzt benutzt` oder per Ziehen von einem lokalen Laufwerk. Netzwerkpfade aus anderen Quellen werden abgelehnt.
+
 ## [0.23.0] – 2026-10-25
 
 - Neu: Pfadfeld in der Dateiansicht mit `Strg+L`, auch über ⚙ → `Gehe zu …`; der Doppelklick geht wie bisher. Es versteht `~`, Pfade ab dem aktuellen Ordner und lokal `/` statt `\`. Fehler wie „Die Datei oder der Ordner wurde nicht gefunden.“ oder „Das ist kein Ordner.“ stehen am Feld, der bisherige Ordner bleibt.
