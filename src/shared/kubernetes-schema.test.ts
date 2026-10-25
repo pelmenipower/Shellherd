@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GROUP_BY_IDS, KUBE_NAME, manualJobName, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH } from './kubernetes';
-import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
+import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeDiagnoseRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
 
 describe('kubernetes schemas', () => {
   it('accepts a namespaced ref and rejects bad names', () => {
@@ -160,5 +160,28 @@ describe('logs and access requests', () => {
     expect(KubeLogsStopRequestSchema.safeParse({ viewId, id: 'run-1' }).success).toBe(false);
     expect(KubeAccessRequestSchema.safeParse({ viewId, namespace: 'shop' }).success).toBe(true);
     expect(KubeAccessRequestSchema.safeParse({ viewId, namespace: 'shop', verb: 'patch' }).success).toBe(false);
+  });
+});
+
+describe('KubeDiagnoseRequestSchema', () => {
+  const viewId = '00000000-0000-4000-8000-000000000001';
+  const event = { kind: 'events', namespace: 'shop', name: 'checkout-1.1802a' };
+
+  it('accepts pods, deployments, statefulsets, daemonsets and jobs with a namespace, optionally with the event it started from', () => {
+    for (const kind of ['pods', 'deployments', 'statefulsets', 'daemonsets', 'jobs']) {
+      expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind, namespace: 'shop', name: 'x' } }).success).toBe(true);
+    }
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', namespace: 'shop', name: 'checkout-1' }, event }).success).toBe(true);
+  });
+
+  it('rejects other kinds, a target without namespace, an event of another kind and extra fields', () => {
+    for (const kind of ['services', 'nodes', 'cronjobs', 'events', 'secrets', 'configmaps', 'replicasets']) {
+      expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind, namespace: 'shop', name: 'x' } }).success).toBe(false);
+    }
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', name: 'x' } }).success).toBe(false);
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', namespace: 'shop', name: 'x' }, event: { kind: 'pods', namespace: 'shop', name: 'y' } }).success).toBe(false);
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', namespace: 'shop', name: 'x' }, event: { kind: 'events', name: 'y' } }).success).toBe(false);
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', namespace: 'shop', name: 'x' }, logs: false }).success).toBe(false);
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId: 'v', ref: { kind: 'pods', namespace: 'shop', name: 'x' } }).success).toBe(false);
   });
 });

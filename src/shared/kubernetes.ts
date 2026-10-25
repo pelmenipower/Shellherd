@@ -234,3 +234,15 @@ export interface KubeFilterSnapshot {
 /** Saved state of a cluster tab in a workspace. */
 export interface KubeViewSnapshot { query: KubeQuery; crumbs: string[]; selected?: string; dock: DockMode;
   filters?: Partial<Record<KubeKind, KubeFilterSnapshot>>; logFormat?: 'compact' | 'raw' }
+
+/** Kinds "Mit KI analysieren" reads directly; an event is analysed through the object it concerns. */
+export const DIAGNOSE_KINDS: readonly KubeKind[] = ['pods', 'deployments', 'statefulsets', 'daemonsets', 'jobs'];
+/** Upper bound of the analysis context, about 4 000 tokens. */
+export const DIAGNOSE_MAX_CHARS = 16_000;
+export type KubeDiagnosePartId = 'trigger' | 'object' | 'events' | 'pods' | 'podEvents' | 'logs' | 'previousLogs' | 'owner' | 'node';
+/** One section of the context. name: `pod/container` for logs, `Kind name` for the owner, the node or pod name. missing: why the section is empty. */
+export interface KubeDiagnosePart { id: KubeDiagnosePartId; name?: string; chars: number; missing?: 'forbidden' | 'notFound' | 'none' | 'failed' }
+/** The context as it goes into the first message, and its parts for the preview. */
+export interface KubeDiagnosis { text: string; parts: KubeDiagnosePart[] }
+/** `event`: the event (kind 'events') the analysis started from. */
+export interface KubeDiagnoseRequest { viewId: string; ref: KubeRef; event?: KubeRef }

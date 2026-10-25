@@ -107,6 +107,7 @@ const desktopApi: DesktopApi = {
   kubeLogsStart: request => ipcRenderer.invoke('k8s:logs-start', request),
   kubeLogsStop: request => ipcRenderer.invoke('k8s:logs-stop', request),
   kubeAccess: request => ipcRenderer.invoke('k8s:access', request),
+  kubeDiagnose: request => ipcRenderer.invoke('k8s:diagnose', request),
   onKubeEvent: listener => subscribe('k8s:event', listener),
   sftpOpen: request => ipcRenderer.invoke('sftp:open', request),
   sftpHome: request => ipcRenderer.invoke('sftp:home', request),

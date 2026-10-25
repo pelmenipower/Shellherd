@@ -12,7 +12,7 @@ import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlace
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
 import type { ImportReadResult, ImportSource } from './import';
-import type { KubeActionRequest, KubeAccessRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeForwardStartRequest, KubeForwardStatus, KubeForwardStopRequest, KubeLogsStartRequest, KubeLogsStopRequest, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
+import type { KubeActionRequest, KubeAccessRequest, KubeDiagnoseRequest, KubeDiagnosis, KubeDetail, KubeDetailRequest, KubeEvent, KubeForwardStartRequest, KubeForwardStatus, KubeForwardStopRequest, KubeLogsStartRequest, KubeLogsStopRequest, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
 import type { KubeDenied } from './kube-access';
 import type { ThemeSetting } from './theme';
 import type { KnownHostsImportReply, KnownHostView } from './known-hosts';
@@ -148,6 +148,7 @@ export const IPC_CHANNELS = {
   kubeLogsStart: 'k8s:logs-start',
   kubeLogsStop: 'k8s:logs-stop',
   kubeAccess: 'k8s:access',
+  kubeDiagnose: 'k8s:diagnose',
   kubeEvent: 'k8s:event',
 } as const;
 
@@ -253,6 +254,8 @@ export interface DesktopApi {
   kubeLogsStop: (request: KubeLogsStopRequest) => Promise<void>;
   /** RBAC pre-check of one namespace; null = unknown, grey out nothing. */
   kubeAccess: (request: KubeAccessRequest) => Promise<KubeDenied[] | null>;
+  /** "Mit KI analysieren": status, events, logs and spec of one object as text. Reads only (get, list, get pods/log), never Secrets. */
+  kubeDiagnose: (request: KubeDiagnoseRequest) => Promise<KubeDiagnosis>;
   onKubeEvent: (listener: (event: KubeEvent) => void) => () => void;
   sftpOpen: (request: SftpOpenRequest) => Promise<{ sessionId: string }>;
   sftpHome: (request: SftpSessionRequest) => Promise<string>;

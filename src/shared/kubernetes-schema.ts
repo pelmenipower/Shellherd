@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GROUP_BY_IDS, KUBE_KINDS, KUBE_NAME, LABEL_KEY, LABEL_VALUE, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH, MAX_REPLICAS } from './kubernetes';
+import { DIAGNOSE_KINDS, GROUP_BY_IDS, KUBE_KINDS, KUBE_NAME, LABEL_KEY, LABEL_VALUE, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH, MAX_REPLICAS } from './kubernetes';
 import type { DockMode, KubeForwardTarget, KubeQuery, KubeRef, KubeTerminalTarget, KubeViewSnapshot } from './kubernetes';
 
 export const KubeNameSchema = z.string().max(253).regex(KUBE_NAME);
@@ -48,3 +48,6 @@ export const KubeLogsStartRequestSchema = z.object({
 }).strict();
 export const KubeLogsStopRequestSchema = z.object({ viewId, id: z.string().uuid() }).strict();
 export const KubeAccessRequestSchema = z.object({ viewId, namespace: KubeNameSchema }).strict();
+const DiagnoseRefSchema = KubeRefSchema.refine(ref => DIAGNOSE_KINDS.includes(ref.kind) && ref.namespace !== undefined, { message: 'diagnoseKind' });
+const DiagnoseEventSchema = KubeRefSchema.refine(ref => ref.kind === 'events' && ref.namespace !== undefined, { message: 'diagnoseEvent' });
+export const KubeDiagnoseRequestSchema = z.object({ viewId, ref: DiagnoseRefSchema, event: DiagnoseEventSchema.optional() }).strict();
