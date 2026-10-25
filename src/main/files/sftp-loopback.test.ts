@@ -11,6 +11,7 @@ import type { SftpEvent, TransferJob } from '../../shared/sftp';
 import { fileError, localFileSystem } from './file-system';
 import { windowBytes } from './transfer';
 import { SftpSessionManager } from './sftp-session';
+import { testHostKey } from '../ssh/test-host-key';
 
 const { STATUS_CODE, flagsToString } = utils.sftp;
 /** Knobs and counters of the test server (reset per resume test). */
@@ -19,7 +20,7 @@ const attrs = (info: Stats) => ({ mode: info.mode, uid: 0, gid: 0, size: info.si
 
 /** Minimal SFTP server on a temporary folder: enough for listing, transfers, renames and deletes. */
 function startServer(root: string): Promise<{ server: Server; port: number }> {
-  const hostKey = utils.generateKeyPairSync('ed25519').private;
+  const hostKey = testHostKey();
   const local = (path: string) => join(root, posix.normalize(`/${path}`));
   const server = new Server({ hostKeys: [hostKey] }, client => {
     client.on('authentication', context => context.method === 'password' && context.password === 'synthetic-secret' ? context.accept() : context.reject(['password']));
