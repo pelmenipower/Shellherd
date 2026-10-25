@@ -227,3 +227,45 @@ describe('autoUpload bindings', () => {
         expect(parsed.success && parsed.data.protocol === 'ssh' ? parsed.data.autoUpload?.[0] : undefined).toEqual(binding);
     });
 });
+
+describe('jump host and port forwards', () => {
+    const uuid = (index: number) => `3f2b1c4e-5a6d-4e7f-8a9b-${String(index).padStart(12, '0')}`;
+    const host = { id: 'c', type: 'connection', name: 'S', tags: [], host: 'h', port: 22, authentication: { method: 'agent' } };
+    const ssh = (extra: object) => ConnectionNodeSchema.safeParse({ ...host, protocol: 'ssh', ...extra });
+    const sftp = (extra: object) => ConnectionNodeSchema.safeParse({ ...host, protocol: 'sftp', ...extra });
+    const local = { id: uuid(1), kind: 'local', localPort: 15432, targetHost: 'db-internal', targetPort: 5432, auto: true };
+    const remote = { id: uuid(2), kind: 'remote', remotePort: 8080, targetHost: 'localhost', targetPort: 80, auto: false };
+    const dynamic = { id: uuid(3), kind: 'dynamic', localPort: 1080, auto: false };
+
+    it('accepts a jump host on SSH and SFTP and rejects an empty one', () => {
+        expect(ssh({ jumpHost: 'web-01' }).success).toBe(true);
+        expect(sftp({ jumpHost: 'web-01' }).success).toBe(true);
+        expect(ssh({ jumpHost: '' }).success).toBe(false);
+    });
+
+    it('accepts all three forward kinds on SSH', () => {
+        expect(ssh({ forwards: [local, remote, dynamic] }).success).toBe(true);
+        expect(ssh({ forwards: [{ ...local, targetHost: 'a b' }] }).success).toBe(false);
+    });
+
+    it('rejects a duplicate forward id', () => {
+        expect(ssh({ forwards: [local, { ...remote, id: local.id }] }).success).toBe(false);
+    });
+
+    it('allows at most 16 forwards', () => {
+        const many = Array.from({ length: 17 }, (_, index) => ({ ...dynamic, id: uuid(100 + index) }));
+        expect(ssh({ forwards: many.slice(0, 16) }).success).toBe(true);
+        expect(ssh({ forwards: many }).success).toBe(false);
+    });
+
+    it('rejects port 0', () => {
+        expect(ssh({ forwards: [{ ...local, localPort: 0 }] }).success).toBe(false);
+        expect(ssh({ forwards: [{ ...remote, remotePort: 0 }] }).success).toBe(false);
+    });
+
+    it('drops forwards on SFTP instead of rejecting the connection', () => {
+        const parsed = sftp({ forwards: [local] });
+        expect(parsed.success).toBe(true);
+        expect(JSON.stringify(parsed.data)).not.toContain('forwards');
+    });
+});

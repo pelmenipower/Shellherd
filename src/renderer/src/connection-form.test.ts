@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folderOptions, keepAutoUpload, parentFolderId } from './connection-form';
+import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folderOptions, jumpHostOptions, jumpHostReferences, keepAutoUpload, parentFolderId, validateJumpHost } from './connection-form';
+import type { ForwardDraft } from './forward-form';
 import { redactSecrets } from '../../shared/vault/connections';
 import type { ConnectionFields } from './connection-form';
 import type { VaultNode } from '../../shared/vault/types';
@@ -11,6 +12,7 @@ const fields: ConnectionFields = {
   tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off', loginSudo: 'off', loginCommands: '', disabled: 'off',
   accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
   idleMinutes: '', keepaliveSeconds: '', keepaliveCount: '', connectSeconds: '',
+  jumpHost: '', forwards: [],
 };
 
 /** SSH result narrowed for property assertions. */
@@ -237,5 +239,68 @@ describe('keepAutoUpload', () => {
     expect(keepAutoUpload(updated, existing('sftp'))).toBe(updated);
     const rdp = connectionFromFields('id', fields, 'rdp');
     expect(keepAutoUpload(rdp, existing('ssh'))).toBe(rdp);
+  });
+});
+
+const UUID = '6f1c2e3a-1b2c-4d5e-8f90-123456789abc';
+
+function sshNode(id: string, extra: Record<string, unknown> = {}): VaultNode {
+  return { id, type: 'connection', name: id, tags: [], icon: 'terminal', protocol: 'ssh', host: `${id}.example.test`, port: 22, authentication: { method: 'agent' }, ...extra } as VaultNode;
+}
+
+function fieldErrorOf(action: () => unknown): ConnectionFieldError {
+  try { action(); } catch (error) { if (error instanceof ConnectionFieldError) return error; throw error; }
+  throw new Error('Expected a ConnectionFieldError');
+}
+
+describe('jump host and port forwards in the form', () => {
+  const draft: ForwardDraft = { id: UUID, kind: 'local', listenPort: '8080', targetHost: 'db.example.test', targetPort: '5432', auto: true };
+  // a; b jumps via a; folder with c and the disabled d; s is SFTP.
+  const nodes: VaultNode[] = [
+    sshNode('a'),
+    sshNode('b', { jumpHost: 'a' }),
+    { id: 'folder', type: 'folder', name: 'F', children: [sshNode('c'), sshNode('d', { disabled: true })] } as VaultNode,
+    sshNode('s', { protocol: 'sftp' }),
+  ];
+
+  it('offers SSH connections without a jump host of their own, but not the connection itself', () => {
+    expect(jumpHostOptions(nodes, 'c', '')).toEqual([{ id: 'a', label: 'a' }, { id: 'd', label: 'd (deaktiviert)' }]);
+  });
+  it('keeps a missing current jump host as a labelled entry', () => {
+    expect(jumpHostOptions(nodes, 'c', 'gone')).toContainEqual({ id: 'gone', label: 'gone (nicht mehr vorhanden)' });
+  });
+  it('validates a jump host choice and names the jumpHost field', () => {
+    expect(() => validateJumpHost('', 'c', nodes)).not.toThrow();
+    expect(() => validateJumpHost('a', 'c', nodes)).not.toThrow();
+    expect(fieldErrorOf(() => validateJumpHost('c', 'c', nodes))).toMatchObject({ field: 'jumpHost', message: 'Eine Verbindung kann nicht ihr eigener Sprunghost sein.' });
+    expect(fieldErrorOf(() => validateJumpHost('gone', 'c', nodes)).message).toContain('gone');
+    expect(fieldErrorOf(() => validateJumpHost('s', 'c', nodes)).message).toContain('nicht mehr');
+    expect(fieldErrorOf(() => validateJumpHost('d', 'c', nodes)).message).toContain('deaktiviert');
+    expect(fieldErrorOf(() => validateJumpHost('b', 'c', nodes)).message).toContain('Das geht noch nicht');
+  });
+  it('rejects a connection that is already the jump host of another one', () => {
+    const chained = [...nodes, sshNode('g', { jumpHost: 'c' })];
+    expect(fieldErrorOf(() => validateJumpHost('a', 'c', chained)).message).toContain('Ketten gehen noch nicht');
+  });
+  it('counts the connections that use a jump host, also inside folders', () => {
+    expect(jumpHostReferences(nodes, 'a')).toBe(1);
+    expect(jumpHostReferences(nodes, 'c')).toBe(0);
+  });
+  it('carries the jump host of SSH and SFTP connections and leaves it out when empty', () => {
+    expect(ssh({ ...fields, jumpHost: 'a' })).toMatchObject({ jumpHost: 'a' });
+    expect(fieldsFromConnection('ssh', ssh({ ...fields, jumpHost: 'a' })).jumpHost).toBe('a');
+    expect(connectionFromFields('id', { ...fields, method: 'password', password: 'synthetic-only', jumpHost: 'a' }, 'sftp')).toMatchObject({ jumpHost: 'a' });
+    expect(ssh(fields)).not.toHaveProperty('jumpHost');
+    expect(fieldsFromConnection('ssh').jumpHost).toBe('');
+  });
+  it('stores port forwards of SSH connections only', () => {
+    const node = ssh({ ...fields, forwards: [draft] });
+    expect(node.forwards).toEqual([{ id: UUID, kind: 'local', localPort: 8080, targetHost: 'db.example.test', targetPort: 5432, auto: true }]);
+    expect(fieldsFromConnection('ssh', node).forwards).toMatchObject([{ kind: 'local', listenPort: '8080', targetHost: 'db.example.test' }]);
+    expect(ssh(fields)).not.toHaveProperty('forwards');
+    expect(connectionFromFields('id', { ...fields, forwards: [draft] }, 'sftp')).not.toHaveProperty('forwards');
+  });
+  it('names the forwards field when a forward is invalid', () => {
+    expect(fieldErrorOf(() => ssh({ ...fields, forwards: [{ ...draft, listenPort: 'x' }] })).field).toBe('forwards');
   });
 });

@@ -169,8 +169,21 @@ The terminals support password, private key with optional
 passphrase, and SSH agent. On Windows, without `SSH_AUTH_SOCK` the
 OpenSSH agent at `\\.\pipe\openssh-ssh-agent` is used; the service must be running
 and contain the matching key. On Unix, `SSH_AUTH_SOCK` must be set.
-Agent forwarding is disabled. Interactive MFA / keyboard-interactive login
-will follow in a later step.
+
+Agent forwarding is disabled.
+
+If the server asks for more information during sign-in (one-time code, PIN, second
+password), the dialog "Sign in to …" opens in the tab's window (terminal and file view); for containers, clusters and
+the connection test it opens in the most recently used Shellherd window. Your answers go
+only to this server; they are not stored and not logged. If the server asks
+exactly once for a password and the connection has a stored password, Shellherd
+enters it once automatically; every other question goes to the dialog. At most 6
+prompts per connection, after which it fails with a message. Cancel in the dialog
+ends the attempt. The connection timeout (Settings → Connections) keeps running
+during the prompt; with 2FA, set the connection timeout to at least 60 s. The
+dialog never appears over the lock screen; locking cancels an open prompt. Several
+tabs with prompts ask one after another.
+
 
 ### After login
 
@@ -212,6 +225,72 @@ Right-click a tab (Shift+F10 or the menu key work too) to `Rename` it. The
 name applies to this tab only, not to the saved connection, and it travels
 with the tab to other windows. An empty name restores the connection name. A
 workspace does not save it.
+
+## Jump host
+
+An SSH or SFTP connection can run through another SSH connection (jump host,
+bastion). In the form, choose the connection under `Jump host` in `More options`.
+Shellherd connects to the jump host first and continues from there to the host
+and port in the form; those are seen from the jump host.
+
+- Exactly one hop. The jump host may not have a jump host of its own and may not be
+  the connection itself. Chains are not supported yet. The form rejects both;
+  Shellherd checks again when connecting.
+- Deactivated SSH connections are marked; a connection cannot be saved while it
+  uses a deactivated jump host.
+- The jump host uses its own credentials, timeouts and host key check. If it asks
+  for 2FA, the dialog names it.
+- The jump host applies to the terminal, the file view, containers, clusters and the
+  connection test. The connection test shows the step "Jump host … connected".
+- Deleting: the selection in other connections stays, and the delete dialog states
+  how many use it. Those connections fail with a message until you choose another
+  jump host or `None`. Shellherd does not silently switch to a direct connection,
+  because that would bypass the bastion.
+- A changed key of the jump host appears as the cause in the error card, without
+  fingerprints. `Test connection` on the jump host shows it.
+
+Risks:
+
+- **known_hosts:** The same internal address (e.g. `10.0.0.5:22`) behind two
+  different jump hosts shares one key entry in Shellherd. The second connection then
+  reports "key changed". Shellherd has no alias like OpenSSH `HostKeyAlias`. Avoid
+  connections with the same target address behind different jump hosts.
+- **Several 2FA hosts:** If you open a workspace with many connections through 2FA
+  jump hosts, the prompts come one after another. Later sessions can run into the
+  connection timeout; then use `Reconnect`.
+- **No sharing:** Each tab builds its own jump host hop and is asked the 2FA again.
+- **Older versions** (0.18 and older) remove the setting when saving.
+
+## Port forwards
+
+Under `More options` of an SSH connection you define port forwards (at most 16).
+They belong to a terminal session of this connection.
+
+| Kind | What happens |
+|---|---|
+| Local (-L) | Listens on 127.0.0.1 of this computer only. The target (host and port) is seen from the server. |
+| Remote (-R) | Listens on the server at `localhost`. Other machines reach the port only with `GatewayPorts` in `sshd_config`. The target is seen from this computer. |
+| Dynamic (-D) | SOCKS5 proxy without authentication on 127.0.0.1. Enter it as SOCKS proxy in your browser or program. TCP only, no UDP. |
+
+- The "Port forwards" bar below the terminal shows each forward with its state and a
+  button to start or stop it. It appears as soon as the connection is up.
+- With "Start on connect", Shellherd starts the forward after sign-in if it is not
+  running in another tab. This happens only for a connection you open yourself.
+- A forward runs at most once across the app. If it runs in another tab, the bar
+  shows only "running in another tab". As soon as the other tab stops or closes it,
+  a "Start" button appears here.
+- Changes to the list apply from the next connection; `Reconnect` picks them up.
+- Ending the session (closing the tab, disconnecting, idle timeout) stops its
+  forwards. Open connections through a forward keep the session from idling out.
+- While locked, running forwards keep running; starting is not possible.
+- If the port is already used on this computer, the bar says so. If the server refuses,
+  the cause is usually `AllowTcpForwarding` or a port in use on the server.
+- Pods and services in the cluster are not included; the cluster view still offers
+  the `kubectl port-forward` command to copy.
+- **Risk remote:** With `GatewayPorts yes` on the server, the port is reachable from
+  the network. Shellherd does not prevent this; without that setting it stays on
+  `localhost` of the server.
+- **Older versions** (0.18 and older) remove the forwards when saving.
 
 ## Containers and VMs
 

@@ -11,6 +11,13 @@ describe('connect-timeline', () => {
     expect((['reach', 'hostkey', 'auth', 'shell'] as const).map(stepLabel)).toEqual(['Server erreichen', 'Server-Schlüssel prüfen', 'Anmelden', 'Shell öffnen']);
   });
 
+  it('puts the jump host first when the chain has one', () => {
+    expect(stepLabel('jump')).toBe('Sprunghost verbinden');
+    const views = stepViews(['jump', ...SSH], [{ step: 'jump', at: 1000 }], 1000, 1500);
+    expect(views.map(view => view.step)).toEqual(['jump', 'reach', 'hostkey', 'auth', 'shell']);
+    expect(views[0]).toEqual({ step: 'jump', label: 'Sprunghost verbinden', state: 'active', ms: 500 });
+  });
+
   it('activates the first step since startedAt before the first mark', () => {
     const views = stepViews(SSH, [], 1000, 1700);
     expect(views.map(view => view.state)).toEqual(['active', 'open', 'open', 'open']);

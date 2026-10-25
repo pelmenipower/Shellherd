@@ -21,7 +21,7 @@ npx electron-vite build          # out/ muss aktuell sein; nach jedem Build den 
 npm run drive:sshd               # Hintergrund: SSH/SFTP-Server, Kubernetes- und KI-Fake (drei "ready"-Zeilen)
 npm run drive                    # Hintergrund: App + Treiber, meldet "driver ready on 9333"
 node .claude/skills/run-app/demo-setup.mjs   # Demo-Vault anlegen oder entsperren
-node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome …] [--readme]   # ohne Argument alle; sftp erzeugt zusätzlich sftp-typeahead.png, sftp-transfer-canceled.png, sftp-transfer.png, sftp-transfer-verified.png, sftp-auto-upload-dialog.png und sftp-auto-upload.png, settings erzeugt settings.png und ai-settings.png
+node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|settings|assistant|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards …] [--readme]   # ohne Argument alle; sftp erzeugt zusätzlich sftp-typeahead.png, sftp-transfer-canceled.png, sftp-transfer.png, sftp-transfer-verified.png, sftp-auto-upload-dialog.png und sftp-auto-upload.png, settings erzeugt settings.png und ai-settings.png
 T="x-driver-token: $(cat "$TEMP/shellherd-run/token")"   # nach dem Start des Treibers
 curl -s -H "$T" "http://127.0.0.1:9333/ss?name=start&crop=status"
 curl -s -H "$T" http://127.0.0.1:9333/quit          # am Ende; Testserver-Prozess ebenfalls beenden
@@ -31,7 +31,7 @@ Bereitschaft abwarten: `for i in $(seq 1 60); do curl -sf -m 2 -H "x-driver-toke
 
 **Treiber-Token:** Der Treiber schreibt bei jedem Start ein neues Token nach `%TEMP%\shellherd-run\token`. Jede Anfrage braucht den Header `x-driver-token` (ohne Header oder mit `Origin`: 403), sonst könnte jede Website per `POST` an `127.0.0.1:9333` Code in der App ausführen. Alle `curl`-Beispiele unten verwenden `-H "$T"`.
 
-`screens.mjs` schreibt `sftp.png`, `sftp-typeahead.png`, `sftp-transfer-canceled.png`, `sftp-transfer.png`, `sftp-transfer-verified.png`, `sftp-auto-upload-dialog.png`, `sftp-auto-upload.png`, `containers.png`, `kubernetes.png`, `settings.png`, `ai-settings.png`, `assistant.png`, `lock-screen.png`, `lock-secondary.png`, `login-commands.png`, `tab-renamed.png` und `welcome.png`. Mit `--readme` landen `sftp`, `containers`, `kubernetes`, `settings` und `assistant` zusätzlich als `docs/images/screenshot-<name>.png` im Repo. Die drei älteren README-Bilder (Terminals, Fehlerkarte, Hinweis) entstanden von Hand per `/ss`. Endet der `lock`- oder `lock-secondary`-Block mit einem Fehler, bleibt die App gesperrt: dann `demo-setup.mjs` neu starten (die App neu starten, falls es das Passwortfeld nicht findet).
+`screens.mjs` schreibt `sftp.png`, `sftp-typeahead.png`, `sftp-transfer-canceled.png`, `sftp-transfer.png`, `sftp-transfer-verified.png`, `sftp-auto-upload-dialog.png`, `sftp-auto-upload.png`, `containers.png`, `kubernetes.png`, `settings.png`, `ai-settings.png`, `assistant.png`, `lock-screen.png`, `lock-secondary.png`, `login-commands.png`, `tab-renamed.png`, `welcome.png`, `auth-prompt.png`, `jump-form.png` und `forwards.png`. Mit `--readme` landen `sftp`, `containers`, `kubernetes`, `settings` und `assistant` zusätzlich als `docs/images/screenshot-<name>.png` im Repo. Die drei älteren README-Bilder (Terminals, Fehlerkarte, Hinweis) entstanden von Hand per `/ss`. Endet der `lock`- oder `lock-secondary`-Block mit einem Fehler, bleibt die App gesperrt: dann `demo-setup.mjs` neu starten (die App neu starten, falls es das Passwortfeld nicht findet).
 
 Screenshots landen in `%TEMP%\shellherd-run\shots` (Override: `SCREENSHOT_DIR`). **Screenshot immer ansehen** (Read auf die PNG) – ein leeres Fenster ist ein Startfehler.
 
@@ -48,6 +48,8 @@ Alle lauschen nur auf `127.0.0.1`.
 
 Ports per `SSHD_PORT`, `KUBE_FAKE_PORT`, `AI_FAKE_PORT` änderbar.
 
+Der Testserver hat außerdem das Konto `mfa` (nur `keyboard-interactive`: erst das Passwort `synthetic-demo`, dann der Einmalcode `246810` aus `fixtures.mjs`) und die Ziele für Sprunghost und Weiterleitungen: `internal-01:22` (derselbe sshd), `db-internal:5432` (TCP-Echo) und `intranet.demo:80` (HTTP-Seite für SOCKS).
+
 **Nachher-Messung (Übertragungstempo):** `SSHD_LATENCY_MS=10 npm run drive:sshd` verzögert jede READ-, WRITE- und CLOSE-Antwort des Testservers um 10 ms. Der sftp-Block gibt dann `Rate: …` im Protokoll aus (vor und nach dem Fortsetzen). Er bricht eine 512-MiB-Zufallsdatei ab, setzt sie fort, vergleicht SHA-256 lokal gegen `RUN_DIR/sftp/home/demo/big.bin` und klickt „Prüfen“. Wird das Abbruchfenster zu knapp, die Datei in `screens.mjs` auf 1 GiB setzen.
 
 ## Demo-Vault (`demo-setup.mjs`)
@@ -58,6 +60,8 @@ Ports per `SSHD_PORT`, `KUBE_FAKE_PORT`, `AI_FAKE_PORT` änderbar.
 | `ops-01` | `127.0.0.1:2222`, richtiges Passwort, „root werden“ und Startbefehle `cd /var/www`, `uptime` | Root-Shell `root@web-01:~# ` und Ausgabe der Startbefehle (`login-commands.png`); Tab-Menü „Umbenennen“ nennt den Tab `Deploy`, die Sitzung läuft weiter (`tab-renamed.png`). Falsches Passwort am sudo-Prompt: der Fake fragt ein zweites Mal, die App bricht ab. `demo-setup.mjs` trägt ihn auch in einem bestehenden Demo-Vault nach |
 | `files-01` | `127.0.0.1:2222`, SFTP | Dateiansicht `/home/demo` |
 | `prod-k8s` | Cluster über `web-01`, Produktion an | Kubernetes-Ansicht mit rotem Produktionsrahmen |
+| `mfa-01` | `127.0.0.1:2222`, Benutzer `mfa`, Passwort gespeichert | Anmeldedialog bei Verbindungsaufbau: das Passwort geht automatisch raus, nur der Code wird gefragt (`auth-prompt.png`) |
+| `app-intern` | Host `internal-01`, Port 22, Sprunghost `web-01`, lokal 15432 → `db-internal:5432` (automatisch), SOCKS 1080 (per Klick) | Formular mit offenen „Weitere Angaben“ (`jump-form.png`), Leiste „Weiterleitungen“ im Terminal (`forwards.png`) |
 | `Demo-KI` | KI-Anbieter, OpenAI-kompatibel, `http://127.0.0.1:9335/v1` | Einstellungen und Assistent |
 | `db-main` | `127.0.0.1:2222`, falsches Passwort | Fehlerkarte „Anmeldung abgelehnt“ |
 | `legacy-app` | `127.0.0.1:1` | Fehlerkarte „Verbindung abgelehnt“ |
@@ -98,7 +102,7 @@ Häufige Wege:
 - **Nach einem Build** lädt `location.reload()` nicht zuverlässig das neue Bundle. Treiber mit `/quit` beenden und neu starten.
 - **Einzelinstanz-Sperre:** Ein zweiter Treiber auf demselben Profil beendet sich sofort. Eine normal laufende Shellherd-Instanz (anderes Profil) stört nicht.
 - **README-Screenshots** immer mit `crop=status` – die Statusleiste zeigt den Vault-Pfad mit dem Windows-Benutzernamen. `--readme` tut das automatisch.
-- **Neue Demo-Einträge** erscheinen nur in einem neuen Vault: `profile\demo.term` **und** `profile\Shellherd\known-hosts.json` löschen, den Treiber neu starten und `demo-setup.mjs` neu laufen lassen.
+- **Neue Demo-Einträge** (`mfa-01`, `app-intern`) fehlen in einem bestehenden Demo-Vault; ein vorhandener Vault bekommt sie nicht nachträglich, auch nicht durch `demo-setup.mjs`. Neue Demo-Einträge erscheinen nur in einem neuen Vault: `profile\demo.term` **und** `profile\Shellherd\known-hosts.json` löschen, den Treiber neu starten und `demo-setup.mjs` neu laufen lassen.
 - **Host-Schlüssel** liegt in `shellherd-run\sshd-host-key`. Nach einem neuen Schlüssel `profile\Shellherd\known-hosts.json` löschen (und `demo.term`, s. o.), sonst lehnt die App den Server als „Schlüssel geändert“ ab.
 - **openssl fehlt:** Der Kubernetes-Fake wird übersprungen (kein `prod-k8s`). Gesucht wird `$OPENSSL`, `openssl` im PATH, dann `C:\Program Files\Git\mingw64\bin` und `C:\Program Files\Git\usr\bin`.
 - **„Dieser Computer“** erscheint in der Seitenleiste, wenn Docker oder Podman lokal installiert ist, und zeigt dann echte lokale Container. Mit `--readme` bricht der Block in diesem Fall ab. README-Bilder nur auf einem Rechner ohne lokale Container-CLI aufnehmen.

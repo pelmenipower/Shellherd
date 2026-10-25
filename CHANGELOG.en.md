@@ -4,6 +4,13 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.19.0] – 2026-10-24
+
+- New: Servers that ask questions during sign-in (one-time code, PIN, second password, 2FA) open a "Sign in to …" dialog. If the server asks only for the password, Shellherd enters the stored password once automatically. Answers are never stored.
+- New: Jump host for SSH and SFTP connections (exactly one hop). Shellherd connects to the jump host first and continues from there, in the terminal, the file view, containers, clusters and the connection test. Choose it under "More options".
+- New: Port forwards on SSH connections: local (-L), remote (-R) and SOCKS proxy (-D). Local and SOCKS listen on 127.0.0.1 only. The "Port forwards" bar below the terminal starts and stops them; a port forward runs in only one tab at a time across the app. Changes apply from the next connection.
+- Older Shellherd versions remove jump hosts and port forwards when saving.
+
 ## [0.18.1] – 2026-10-22
 
 - The installer is about 14 MB smaller. The package ships only the German and English Chromium locale packs and no longer carries sourcemaps, TypeScript sources or duplicated UI libraries.

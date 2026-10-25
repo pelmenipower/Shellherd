@@ -1,17 +1,21 @@
 // Local SSH test server with synthetic credentials: user `demo`, password `synthetic-demo`, 127.0.0.1:2222.
+// User `mfa`: keyboard-interactive only, two rounds: "Password: " (`synthetic-demo`), then "Verification code: " (`DEMO_TOTP`, fixtures.mjs).
 // Shell: a few canned commands; `exit` ends the session, `sudo reboot` simulates a server-side close.
 // Root shell: the exec of `sudo -n -i` with a pty asks for the password (`synthetic-demo`, else a second prompt), prints READY and serves `root@web-01:~# `.
-// Also serves SFTP (tree under sftpRoot), a fixed set of exec commands (never executed, only matched) and one tcpip target.
+// Also serves SFTP (tree under sftpRoot), a fixed set of exec commands (never executed, only matched) and tcpip targets:
+// k8s-cp1:6443 (Kubernetes fake), internal-01:22 (this server, behind a jump host), db-internal:5432 (TCP echo), intranet.demo:80 (one HTTP page).
+// tcpip-forward is accepted for localhost and 127.0.0.1 only, cancel-tcpip-forward is accepted, everything else is refused.
 // SSHD_LATENCY_MS (default 0) delays every READ, WRITE and CLOSE reply, in order, to simulate the ping to a real server.
 // The sha256sum exec only hashes a file that `local()` maps into the SFTP root; the path is never executed.
 import { createHash } from 'node:crypto';
 import { chmodSync, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ssh2 from 'ssh2';
-import { CONTAINERS, IMAGES, NETWORKS, VOLUMES, inspect, seedSftp } from './fixtures.mjs';
+import { CONTAINERS, DEMO_TOTP, IMAGES, NETWORKS, VOLUMES, inspect, seedSftp } from './fixtures.mjs';
 
 const { Server, utils } = ssh2;
 const { STATUS_CODE, flagsToString } = utils.sftp;
@@ -182,17 +186,41 @@ export async function startSshd({ port = 2222, dir = RUN_DIR, sftpRoot = path.jo
   seedSftp(sftpRoot);
   const clients = new Set();
   const sockets = new Set();
+  const track = socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); return socket; };
+  // Helper targets for tcpip: a TCP echo and a one-page HTTP server, both on loopback with a free port.
+  const echo = net.createServer(socket => { track(socket).on('error', () => {}).pipe(socket); });
+  const intranet = http.createServer((request, response) => response.end('<!doctype html><title>Intranet</title><h1>Synthetic intranet page</h1>\n'));
+  intranet.on('connection', track);
+  await Promise.all([echo, intranet].map(helper => new Promise((resolve, reject) => { helper.once('error', reject); helper.listen(0, '127.0.0.1', resolve); })));
+  // Looked up per connection: internal-01:22 is this server itself, so its port is only known after listen.
+  const targets = () => ({
+    'k8s-cp1:6443': kubePort,
+    'internal-01:22': server.address().port,
+    'db-internal:5432': echo.address().port,
+    'intranet.demo:80': intranet.address().port,
+  });
   const server = new Server({ hostKeys: [hostKey] }, client => {
     clients.add(client);
     client.on('close', () => clients.delete(client));
     client.on('authentication', context => {
+      if (context.username === 'mfa') {
+        // Only keyboard-interactive: round 1 the password, round 2 the one-time code. Other methods are refused.
+        if (context.method !== 'keyboard-interactive') return context.reject(['keyboard-interactive']);
+        return context.prompt([{ prompt: 'Password: ', echo: false }], answers => {
+          if (!Array.isArray(answers) || answers[0] !== 'synthetic-demo') return context.reject();
+          context.prompt([{ prompt: 'Verification code: ', echo: false }], code => {
+            if (Array.isArray(code) && code[0] === DEMO_TOTP) context.accept(); else context.reject();
+          });
+        });
+      }
       if (context.method === 'password' && context.username === 'demo' && context.password === 'synthetic-demo') context.accept();
       else context.reject(['password']);
     });
-    // Only k8s-cp1:6443, relayed to the Kubernetes fake. No `request` listener, so tcpip-forward is refused.
+    // Only the targets above, relayed to their servers; anything else is refused.
     client.on('tcpip', (accept, reject, info) => {
-      if (!kubePort || info.destIP !== 'k8s-cp1' || info.destPort !== 6443) return reject();
-      const socket = net.connect(kubePort, '127.0.0.1');
+      const target = targets()[`${info.destIP}:${info.destPort}`];
+      if (!target) return reject();
+      const socket = net.connect(target, '127.0.0.1');
       sockets.add(socket);
       socket.on('close', () => sockets.delete(socket));
       socket.once('error', () => reject());
@@ -205,6 +233,12 @@ export async function startSshd({ port = 2222, dir = RUN_DIR, sftpRoot = path.jo
         channel.on('close', () => socket.destroy());
         socket.on('close', () => channel.destroy());
       });
+    });
+    // Remote forwards only on loopback; the fake opens no real listener.
+    client.on('request', (accept, reject, name, info) => {
+      if (name === 'cancel-tcpip-forward') return accept();
+      if (name === 'tcpip-forward' && ['localhost', '127.0.0.1'].includes(info.bindAddr)) return accept();
+      reject();
     });
     client.on('ready', () => client.on('session', accept => {
       const session = accept();
@@ -228,7 +262,7 @@ export async function startSshd({ port = 2222, dir = RUN_DIR, sftpRoot = path.jo
     close: () => new Promise(resolve => {
       for (const client of clients) client.end();
       for (const socket of sockets) socket.destroy();
-      server.close(() => resolve());
+      Promise.all([server, echo, intranet].map(s => new Promise(done => s.close(() => done())))).then(() => resolve());
     }),
   };
 }
@@ -244,7 +278,7 @@ if (isMain) {
   const { startAiFake } = await import('./ai-fake.mjs');
   const ai = await startAiFake({ port: Number(process.env.AI_FAKE_PORT ?? 9335) });
   const sshd = await startSshd({ port: Number(process.env.SSHD_PORT ?? 2222), dir: RUN_DIR, kubeconfig: kube?.kubeconfig, kubePort: kube?.port });
-  console.log(`sshd ready on ${sshd.port} (demo / synthetic-demo)`);
+  console.log(`sshd ready on ${sshd.port} (demo / synthetic-demo; mfa: Passwort und Code)`);
   if (kube) console.log(`kube-fake ready on ${kube.port}`);
   console.log(`ai-fake ready on ${ai.port}`);
 }

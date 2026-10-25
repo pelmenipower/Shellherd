@@ -3,8 +3,10 @@ import { CONNECTION_ICONS } from '../../shared/vault/appearance';
 import { PROTOCOLS } from '../../shared/vault/connections';
 import { TIMEOUT_LIMITS, parseBounded } from '../../shared/vault/timeouts';
 import { KUBE_NAME } from '../../shared/kubernetes';
-import type { Authentication, ConnectionNode, ConnectionProtocol, VaultNode } from '../../shared/vault/types';
-import { kubeconfigPathError, noAccessMessage } from './cluster-form';
+import type { Authentication, ConnectionNode, ConnectionProtocol, PortForward, VaultNode } from '../../shared/vault/types';
+import { flattenConnections, kubeconfigPathError, noAccessMessage } from './cluster-form';
+import { draftsFromForwards, forwardsFromDrafts } from './forward-form';
+import type { ForwardDraft } from './forward-form';
 import { t } from './i18n';
 
 /** All form values as strings; only the fields of the chosen protocol are used. */
@@ -43,6 +45,10 @@ export interface ConnectionFields {
   namespace: string;
   production: 'on' | 'off';
   readOnly: 'on' | 'off';
+  /** SSH/SFTP only: id of the SSH connection to hop through; empty = connect directly. */
+  jumpHost: string;
+  /** SSH only: port forwards, see forward-form.ts. */
+  forwards: ForwardDraft[];
   /** SSH/SFTP only: per-connection overrides; empty = inherit from the vault settings. */
   idleMinutes: string;
   keepaliveSeconds: string;
@@ -74,6 +80,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     disabled: connection?.disabled ? 'on' : 'off',
     accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off',
     idleMinutes: '', keepaliveSeconds: '', keepaliveCount: '', connectSeconds: '',
+    jumpHost: '', forwards: [],
   };
   if (connection?.protocol === 'ssh' || connection?.protocol === 'sftp' || connection?.protocol === 'rdp') {
     Object.assign(fields, { host: connection.host, port: String(connection.port), username: connection.username ?? '' });
@@ -81,6 +88,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
   if (connection?.protocol === 'ssh' || connection?.protocol === 'sftp') {
     const auth = connection.authentication;
     Object.assign(fields, {
+      jumpHost: connection.jumpHost ?? '',
       method: auth.method,
       password: auth.method === 'password' ? auth.password : '',
       keyPath: auth.method === 'privateKey' ? auth.keyPath : '',
@@ -89,6 +97,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     });
   }
   if (connection?.protocol === 'ssh') {
+    fields.forwards = draftsFromForwards(connection.forwards);
     fields.containerSudo = connection.containers?.sudo ? 'on' : 'off';
     fields.loginSudo = connection.login?.sudo ? 'on' : 'off';
     fields.loginCommands = (connection.login?.commands ?? []).join('\n');
@@ -136,6 +145,12 @@ export function keepAutoUpload(updated: ConnectionNode, existing: VaultNode | un
   return { ...updated, autoUpload: existing.autoUpload };
 }
 
+/** Drafts become the stored list; a bad draft is reported on the forwards field. */
+function forwardsOf(drafts: ForwardDraft[]): PortForward[] | undefined {
+  try { return forwardsFromDrafts(drafts); }
+  catch (error) { throw new ConnectionFieldError('forwards', error instanceof Error ? error.message : t('connection:validation.checkData')); }
+}
+
 export function connectionFromFields(id: string, fields: ConnectionFields, protocol: ConnectionProtocol = 'ssh'): ConnectionNode {
   if (!fields.name.trim()) throw new ConnectionFieldError('name', t('connection:validation.nameMissing'));
   const base = {
@@ -161,8 +176,9 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
       timeouts[key] = value;
     }
     const commands = protocol === 'ssh' ? loginCommandLines(fields.loginCommands) : [];
+    const forwards = protocol === 'ssh' ? forwardsOf(fields.forwards) : undefined;
     const sudo = protocol === 'ssh' && fields.loginSudo === 'on';
-    node = { ...base, protocol, ...target, authentication, ...(Object.keys(timeouts).length ? { timeouts } : {}), ...(protocol === 'ssh' && fields.containerSudo === 'on' ? { containers: { sudo: true } } : {}),
+    node = { ...base, protocol, ...target, authentication, ...(fields.jumpHost ? { jumpHost: fields.jumpHost } : {}), ...(forwards ? { forwards } : {}), ...(Object.keys(timeouts).length ? { timeouts } : {}), ...(protocol === 'ssh' && fields.containerSudo === 'on' ? { containers: { sudo: true } } : {}),
       ...(sudo || commands.length ? { login: { ...(sudo ? { sudo: true } : {}), ...(commands.length ? { commands } : {}) } } : {}) };
   } else if (protocol === 'rdp') {
     const target = remoteTarget(fields);
@@ -220,4 +236,42 @@ export function parentFolderId(nodes: VaultNode[], nodeId: string, parent = ''):
     }
   }
   return undefined;
+}
+
+export interface JumpHostOption { id: string; label: string }
+
+function jumpLabel(node: ConnectionNode): string {
+  return node.disabled ? t('connection:form.jump.disabled', { name: node.name }) : node.name;
+}
+
+/** SSH connections that may be the jump host of selfId, plus the current value if it is no longer listed. */
+export function jumpHostOptions(nodes: VaultNode[], selfId: string | undefined, current: string): JumpHostOption[] {
+  const connections = flattenConnections(nodes);
+  const options = connections
+    .filter(node => node.protocol === 'ssh' && node.id !== selfId && !node.jumpHost)
+    .map(node => ({ id: node.id, label: jumpLabel(node) }));
+  if (current && !options.some(option => option.id === current)) {
+    const node = connections.find(candidate => candidate.id === current);
+    options.push({ id: current, label: node ? jumpLabel(node) : t('connection:form.jump.missing', { id: current }) });
+  }
+  return options;
+}
+
+/** Rules for a jump host choice (spec 4.5, K10); the main process checks again when connecting. */
+export function validateJumpHost(jumpHost: string, selfId: string | undefined, nodes: VaultNode[]): void {
+  if (!jumpHost) return;
+  const connections = flattenConnections(nodes);
+  const target = connections.find(node => node.id === jumpHost);
+  if (jumpHost === selfId) throw new ConnectionFieldError('jumpHost', t('connection:validation.jumpSelf'));
+  if (!target || target.protocol !== 'ssh') throw new ConnectionFieldError('jumpHost', t('connection:validation.jumpGone', { id: jumpHost }));
+  if (target.disabled) throw new ConnectionFieldError('jumpHost', t('connection:validation.jumpDisabled', { name: target.name }));
+  if (target.jumpHost) throw new ConnectionFieldError('jumpHost', t('connection:validation.jumpChained', { name: target.name }));
+  if (selfId && connections.some(node => (node.protocol === 'ssh' || node.protocol === 'sftp') && node.jumpHost === selfId)) {
+    throw new ConnectionFieldError('jumpHost', t('connection:validation.jumpIsJumpHost'));
+  }
+}
+
+/** Number of connections whose jump host is id. */
+export function jumpHostReferences(nodes: VaultNode[], id: string): number {
+  return flattenConnections(nodes).filter(node => (node.protocol === 'ssh' || node.protocol === 'sftp') && node.jumpHost === id).length;
 }

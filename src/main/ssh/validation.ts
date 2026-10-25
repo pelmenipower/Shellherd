@@ -10,6 +10,8 @@ export const SessionSchema = z.object(session).strict();
 export const InputSchema = z.object({ ...session, data: z.string().max(16_384) }).strict();
 export const ResizeSchema = z.object({ ...session, ...size }).strict();
 export const AckSchema = z.object({ ...session, sequence: z.number().int().positive() }).strict();
+export const AuthPromptAnswerSchema = z.object({ promptId: z.string().uuid(), answers: z.array(z.string().max(1024)).max(8).nullable() }).strict();
+export const ForwardSchema = z.object({ ...session, forwardId: z.string().uuid(), run: z.boolean() }).strict();
 
 export function parseRequest<T>(schema: z.ZodType<T>, request: unknown, code: ErrorCode = 'ssh.invalidRequest'): T {
   const result = schema.safeParse(request);

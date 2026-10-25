@@ -114,6 +114,7 @@
   },
   "timeline": {
     "steps": {
+      "jump": "Sprunghost verbinden",
       "reach": "Server erreichen",
       "hostkey": "Server-Schlüssel prüfen",
       "auth": "Anmelden",
@@ -128,6 +129,25 @@
     "slowGeneric": "Dauert länger als üblich …",
     "agoSeconds": "vor {{seconds}} s",
     "agoMinutes": "vor {{minutes}} min"
+  },
+  "forwards": {
+    "label": "Weiterleitungen",
+    "local": "localhost:{{port}} → {{target}}",
+    "remote": "Server:{{port}} → {{target}}",
+    "dynamic": "SOCKS-Proxy localhost:{{port}}",
+    "state": {
+      "active": "aktiv",
+      "stopped": "aus",
+      "starting": "startet …",
+      "elsewhere": "läuft in anderem Tab"
+    },
+    "start": "Starten",
+    "stop": "Stoppen",
+    "startLabel": "{{forward}} starten",
+    "stopLabel": "{{forward}} stoppen",
+    "open_one": "{{count}} Verbindung offen",
+    "open_other": "{{count}} Verbindungen offen",
+    "failedTitle": "Weiterleitung nicht geändert"
   },
   "statusWord": {
     "short": {
