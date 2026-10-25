@@ -50,6 +50,7 @@
     "popoutLogs": "Open logs as tab",
     "popoutShell": "Open shell as tab",
     "forward": "Forward port…",
+    "logsAll": "Logs of all pods",
     "filterBy": "Filter: {{key}}={{value}}",
     "showContainers": "Show containers",
     "showPods": "Show pods",
