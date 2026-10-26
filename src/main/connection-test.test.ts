@@ -1,17 +1,24 @@
 import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { PassThrough } from 'node:stream';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Client, Server, utils } from 'ssh2';
+import { AppError } from '../shared/errors';
 import type { ConnectionNode } from '../shared/vault/types';
 import { testConnection } from './connection-test';
+import type { Jump } from './ssh/jump';
+import { testHostKey } from './ssh/test-host-key';
 
 const trust = { verifyHost: async () => true, resolve: async () => '127.0.0.1' };
+/** Replaces the socket handshake: `run` plays the events a server would send. */
+const fakeConnect = (run: () => void = () => {}) => vi.spyOn(Client.prototype, 'connect')
+  .mockImplementation(function (this: Client) { run(); return this; });
 
 describe('connection test (dry run)', () => {
   let server: Server;
   let port: number;
   beforeAll(async () => {
-    server = new Server({ hostKeys: [utils.generateKeyPairSync('ed25519').private] }, client => {
+    server = new Server({ hostKeys: [testHostKey()] }, client => {
       client.on('authentication', context => context.method === 'password' && context.password === 'synthetic-secret' ? context.accept() : context.reject(['password']));
       client.on('ready', () => client.on('session', accept => accept().on('sftp', acceptSftp => { acceptSftp(); })));
       client.on('error', () => {});
@@ -97,3 +104,84 @@ describe('connection test explanations', () => {
     expect(tool.note?.params).toEqual({ install: expect.any(String) });
   });
 });
+
+describe('connection test through a jump host', () => {
+  const jumped = (): ConnectionNode => ({ id: 'j', type: 'connection', protocol: 'ssh', name: 'J', host: 'target.internal', port: 22,
+    username: 'synthetic-user', authentication: { method: 'password', password: 'synthetic-secret' }, jumpHost: 'bastion-id', tags: [] } as ConnectionNode);
+  // The far side resolves the target, so a local lookup must never run.
+  const noLookup = { ...trust, resolve: async (): Promise<string> => { throw new Error('local lookup'); } };
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  it('opens the jump host first and skips the local name lookup', async () => {
+    const bastion: Jump = { name: 'Bastion', sock: new PassThrough(), close: vi.fn() };
+    let client: Client | undefined;
+    const connect = fakeConnect(() => { client?.emit('connect'); client?.emit('ready'); });
+    const openJump = vi.fn(async () => bastion);
+    const result = await testConnection(jumped(), { ...noLookup, openJump, createClient: () => (client = new Client()) });
+    expect(openJump).toHaveBeenCalledOnce();
+    expect(result.steps.map(step => [step.step, step.ok])).toEqual([['jumpHost', true], ['portReachable', true], ['login', true]]);
+    expect(result.steps[0]).toMatchObject({ params: { name: 'Bastion' } });
+    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ sock: bastion.sock }));
+    expect(bastion.close).toHaveBeenCalledOnce();
+  });
+
+  it('stops after a failed jump host without connecting to the target', async () => {
+    const connect = fakeConnect();
+    const openJump = async (): Promise<Jump | undefined> => { throw new AppError('ssh.jumpHostFailed', { name: 'Bastion' }); };
+    const result = await testConnection(jumped(), { ...noLookup, openJump });
+    expect(result.ok).toBe(false);
+    expect(result.steps).toEqual([{ step: 'jumpHost', ok: false, params: { name: 'Bastion' }, note: { code: 'ssh.jumpHostFailed', params: { name: 'Bastion' } } }]);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('names the jump host by its id when the error carries no name', async () => {
+    const openJump = async (): Promise<Jump | undefined> => { throw new AppError('ssh.jumpHostFailed'); };
+    const result = await testConnection(jumped(), { ...noLookup, openJump });
+    expect(result.steps).toEqual([{ step: 'jumpHost', ok: false, params: { name: 'bastion-id' }, note: { code: 'ssh.jumpHostFailed' } }]);
+  });
+
+  it('refuses a jump host it cannot open instead of connecting directly', async () => {
+    const connect = fakeConnect();
+    const result = await testConnection(jumped(), noLookup);
+    expect(result.steps).toEqual([{ step: 'jumpHost', ok: false, params: { name: 'bastion-id' }, note: { code: 'ssh.jumpHostUnusable', params: { name: 'bastion-id' } } }]);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('refuses the jump host when the opener yields none', async () => {
+    const connect = fakeConnect();
+    const result = await testConnection(jumped(), { ...noLookup, openJump: async () => undefined });
+    expect(result.steps).toEqual([{ step: 'jumpHost', ok: false, params: { name: 'bastion-id' }, note: { code: 'ssh.jumpHostUnusable', params: { name: 'bastion-id' } } }]);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('does not count a sign-in question against the timeout', async () => {
+    vi.useFakeTimers();
+    const bastion: Jump = { name: 'Bastion', sock: new PassThrough(), close: vi.fn() };
+    let client!: Client;
+    fakeConnect(() => { client.emit('connect'); });
+    let answer!: (values: string[] | null) => void;
+    const ask = vi.fn(() => new Promise<string[] | null>(resolve => { answer = resolve; }));
+    const run = testConnection(jumped(), { ...noLookup, timeout: 1_000, ask, openJump: async () => bastion,
+      createClient: () => (client = new Client()) });
+    await vi.advanceTimersByTimeAsync(10);
+    client.emit('keyboard-interactive', '', '', '', [{ prompt: 'Code: ', echo: true }], vi.fn());
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(ask).toHaveBeenCalledOnce();
+    answer(['123456']);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await run;
+    expect(result.steps.at(-1)).toMatchObject({ step: 'hostKey', ok: false });
+    expect(bastion.close).toHaveBeenCalledOnce();
+  });
+
+  it('passes the keyboard prompts only when the test can answer them', async () => {
+    const connect = fakeConnect();
+    await testConnection(node('ssh', 'x'), { ...trust, timeout: 50 });
+    expect(connect.mock.calls[0][0]).toMatchObject({ tryKeyboard: false });
+    await testConnection(node('ssh', 'x'), { ...trust, timeout: 50, ask: async () => null });
+    expect(connect.mock.calls[1][0]).toMatchObject({ tryKeyboard: true });
+  });
+});
+
+const node = (protocol: 'ssh' | 'sftp', password: string): ConnectionNode => ({ id: 'x', type: 'connection', protocol, name: 'Test', host: '127.0.0.1', port: 22,
+  username: 'synthetic-user', authentication: { method: 'password', password }, tags: [] });

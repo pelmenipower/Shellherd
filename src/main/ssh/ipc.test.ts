@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IpcMainInvokeEvent } from 'electron';
+import { randomUUID } from 'node:crypto';
+import { AppError } from '../../shared/errors';
 import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ipc';
+import { AuthPrompts } from './auth-prompts';
 import type { SshSessionManager } from './session';
 import { hostFingerprint } from './known-hosts';
 
@@ -18,6 +21,9 @@ vi.mock('electron', () => ({
   webContents: { fromId: () => undefined },
 }));
 vi.mock('../vault/ipc', () => ({ vaultSessionManager: { getSnapshot: mocks.getSnapshot } }));
+const hopMocks = vi.hoisted(() => ({ openJump: vi.fn(), openRemoteHost: vi.fn() }));
+vi.mock('./jump', () => ({ openJump: hopMocks.openJump }));
+vi.mock('../containers/runner', () => ({ openRemoteHost: hopMocks.openRemoteHost }));
 
 function sender(id = 1, subframe = false): IpcMainInvokeEvent {
   const frame = {};
@@ -28,7 +34,7 @@ beforeEach(() => {
   mocks.handlers.clear(); mocks.trustedWindow = true;
   mocks.getSnapshot.mockReturnValue({ vault: { nodes: [{ id: 'saved-id', type: 'connection', protocol: 'ssh', name: 'Synthetic',
     host: 'example.test', port: 22, username: 'synthetic-user', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [] }] } });
-  manager = registerSshIpcHandlers(createKnownHosts());
+  manager = registerSshIpcHandlers(createKnownHosts(), new AuthPrompts({ resolveTarget: () => undefined, isUnlocked: () => true }));
 });
 afterEach(() => manager.closeAll());
 
@@ -56,6 +62,38 @@ describe('SSH IPC authorization', () => {
     expect(() => prepare(sender(), { connectionId: 'unknown', cols: 80, rows: 24 })).toThrow(expect.objectContaining({ code: 'ssh.connectionNotFound' }));
     mocks.getSnapshot.mockImplementationOnce(() => { throw new Error('Vault gesperrt'); });
     expect(() => prepare(sender(), { connectionId: 'saved-id', cols: 80, rows: 24 })).toThrow('Vault gesperrt');
+  });
+});
+
+describe('auth prompt answers and port forwards', () => {
+  it('registers both channels and checks the sender and the request shape', async () => {
+    const answer = mocks.handlers.get('ssh:auth-prompt-answer')!;
+    expect(() => answer(sender(1, true), { promptId: randomUUID(), answers: null })).toThrow(expect.objectContaining({ code: 'ssh.senderNotAllowed' }));
+    expect(() => answer(sender(), { promptId: 'wrong', answers: null })).toThrow(expect.objectContaining({ code: 'ssh.invalidRequest' }));
+    const forward = mocks.handlers.get('ssh:forward')!;
+    await expect(forward(sender(), { sessionId: randomUUID(), forwardId: randomUUID(), run: true })).rejects.toMatchObject({ code: 'ssh.notAvailable' });
+    expect(() => forward(sender(), { sessionId: randomUUID(), forwardId: 'local-1', run: true })).toThrow(expect.objectContaining({ code: 'ssh.invalidRequest' }));
+  });
+});
+
+describe('jump host wiring', () => {
+  it('gives the hop the owner and the session activity, and the remote host the same', async () => {
+    const credentials = { method: 'password' as const, password: 'synthetic-secret' };
+    const hop = { id: 'jump-id', type: 'connection', protocol: 'ssh', name: 'Sprung', host: 'jump.test', port: 22, username: 'synthetic-user', authentication: credentials, tags: [] };
+    const target = { ...hop, id: 'target-id', name: 'Ziel', host: 'target.test', jumpHost: 'jump-id' };
+    mocks.getSnapshot.mockReturnValue({ vault: { settings: {}, nodes: [target, hop] } });
+    let activeInHop: boolean | undefined;
+    hopMocks.openJump.mockImplementation(async (_connection: unknown, deps: { openRemote: (node: unknown, owner: number, active: () => boolean) => Promise<unknown> }, owner: number, active: () => boolean) => {
+      activeInHop = active();
+      await deps.openRemote(hop, owner, active);
+      throw new AppError('ssh.jumpHostFailed', { name: 'Sprung' });
+    });
+    const id = (mocks.handlers.get('ssh:prepare')!(sender(), { connectionId: 'target-id', cols: 80, rows: 24 }) as { sessionId: string }).sessionId;
+    await mocks.handlers.get('ssh:connect')!(sender(), { sessionId: id });
+    expect(activeInHop).toBe(true);
+    expect(hopMocks.openJump).toHaveBeenCalledWith(expect.objectContaining({ id: 'target-id' }), expect.any(Object), 1, expect.any(Function));
+    expect(hopMocks.openRemoteHost).toHaveBeenCalledWith(expect.objectContaining({ id: 'jump-id' }), expect.any(Function), undefined, expect.any(Object),
+      expect.objectContaining({ ownerId: 1, isActive: expect.any(Function) }));
   });
 });
 

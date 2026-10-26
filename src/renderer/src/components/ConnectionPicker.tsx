@@ -6,6 +6,7 @@ import { useNativeSurfaceBlock } from '../native-surface';
 import { connectionAddress } from '../connection-labels';
 import { useT } from '../i18n';
 import { sessionLimitText } from '../vault-notices';
+import { shouldOpen } from '../open-request';
 
 interface Props {
   nodes: VaultNode[];
@@ -15,14 +16,18 @@ interface Props {
   onConnect: (id: string) => void;
   /** Opens the welcome tab; absent (secondary windows) = no entry. */
   onWelcome?: () => void;
+  /** Changes open the picker; 0 or undefined never opens. */
+  openRequest?: number;
 }
 
-export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, onConnect, onWelcome }: Props) {
+export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, onConnect, onWelcome, openRequest }: Props) {
   const { t } = useT();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  // Last handled request; the initial value means a mount never opens the picker.
+  const handled = useRef(openRequest ?? 0);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   useNativeSurfaceBlock(open);
@@ -56,6 +61,11 @@ export function ConnectionPicker({ nodes, disabled, limitReached, paneNumber, on
     setQuery('');
     popover.current.showPopover();
   };
+  useEffect(() => {
+    if (!shouldOpen(handled.current, openRequest)) return;
+    handled.current = openRequest ?? 0;
+    if (!disabled && !popover.current?.matches(':popover-open')) toggle();
+  }, [openRequest]);
 
   return <>
     <button ref={trigger} className="terminal-tab-add" type="button" disabled={disabled}

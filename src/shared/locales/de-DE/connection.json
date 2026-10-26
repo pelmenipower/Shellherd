@@ -14,7 +14,8 @@
       "userGiven": "Benutzer angegeben",
       "hostKey": "Server-Schlüssel geprüft",
       "credentials": "Anmeldedaten gelesen",
-      "sftp": "SFTP verfügbar"
+      "sftp": "SFTP verfügbar",
+      "jumpHost": "Sprunghost {{name}} verbunden"
     }
   },
   "form": {
@@ -126,7 +127,36 @@
     "manage": "Verbindung verwalten",
     "delete": "Verbindung löschen",
     "deleteTitle": "Verbindung „{{name}}“ löschen?",
-    "deleteDescription": "Die Verbindung wird unwiderruflich entfernt, auch aus gespeicherten Workspaces. Ihre aktiven Sitzungen werden beendet."
+    "deleteDescription": "Die Verbindung wird unwiderruflich entfernt, auch aus gespeicherten Workspaces. Ihre aktiven Sitzungen werden beendet.",
+    "jump": {
+      "label": "Sprunghost",
+      "none": "Keiner (direkt verbinden)",
+      "hint": "Verbindet zuerst mit dieser SSH-Verbindung und von dort weiter. Host und Port oben gelten vom Sprunghost aus.",
+      "missing": "{{id}} (nicht mehr vorhanden)",
+      "disabled": "{{name}} (deaktiviert)"
+    },
+    "deleteJumpHint_one": "Sie ist Sprunghost für {{count}} Verbindung. Diese verbindet erst wieder, wenn du dort einen anderen Sprunghost wählst.",
+    "deleteJumpHint_other": "Sie ist Sprunghost für {{count}} Verbindungen. Diese verbinden erst wieder, wenn du dort einen anderen Sprunghost wählst.",
+    "forwards": {
+      "legend": "Port-Weiterleitungen",
+      "kind": "Art",
+      "kinds": {
+        "local": "Lokal (-L)",
+        "remote": "Entfernt (-R)",
+        "dynamic": "Dynamisch, SOCKS (-D)"
+      },
+      "localPort": "Lokaler Port",
+      "remotePort": "Port auf dem Server",
+      "targetHost": "Ziel-Host",
+      "targetPort": "Ziel-Port",
+      "auto": "Beim Verbinden starten",
+      "add": "Weiterleitung hinzufügen",
+      "remove": "Weiterleitung {{index}} entfernen",
+      "hintLocal": "Lauscht nur auf 127.0.0.1 dieses Computers. Das Ziel gilt vom Server aus.",
+      "hintRemote": "Lauscht auf dem Server an localhost. Andere Rechner erreichen den Port nur mit GatewayPorts in der sshd_config. Das Ziel gilt von diesem Computer aus.",
+      "hintDynamic": "SOCKS5-Proxy ohne Anmeldung auf 127.0.0.1. Im Browser oder Programm als SOCKS-Proxy eintragen.",
+      "hintTabs": "Eine Weiterleitung läuft immer nur in einem Tab dieser Verbindung."
+    }
   },
   "validation": {
     "nameMissing": "Gib einen Verbindungsnamen ein.",
@@ -144,7 +174,15 @@
     "namespaceInvalid": "Gib einen gültigen Namespace ein, z. B. default.",
     "colorInvalid": "Gib die Farbe als #RRGGBB an.",
     "iconInvalid": "Wähle ein verfügbares Symbol.",
-    "checkData": "Prüfe die Verbindungsdaten."
+    "checkData": "Prüfe die Verbindungsdaten.",
+    "jumpSelf": "Eine Verbindung kann nicht ihr eigener Sprunghost sein.",
+    "jumpGone": "Den Sprunghost „{{id}}“ gibt es nicht mehr. Wähle einen anderen.",
+    "jumpChained": "„{{name}}“ hat selbst einen Sprunghost. Das geht noch nicht.",
+    "jumpDisabled": "Der Sprunghost „{{name}}“ ist deaktiviert.",
+    "jumpIsJumpHost": "Diese Verbindung ist selbst Sprunghost für andere Verbindungen. Ketten gehen noch nicht.",
+    "forwardTargetMissing": "Gib einen Ziel-Host ein.",
+    "forwardPortTwice": "Port {{port}} ist schon für eine andere Weiterleitung eingetragen.",
+    "forwardTooMany": "Höchstens {{max}} Weiterleitungen."
   },
   "cluster": {
     "access": {
@@ -178,6 +216,12 @@
     "productionHint": "Aktionen verlangen das Eintippen des Namens.",
     "readOnly": "Nur lesen",
     "readOnlyHint": "Keine Aktionen und keine Shell, Logs bleiben erlaubt.",
+    "links": {
+      "legend": "Weboberflächen (optional)",
+      "hint": "Für „In Argo CD öffnen“ und „In Harbor öffnen“. Shellherd öffnet damit nur Links im Browser und ruft dort selbst nichts ab. Nur https-Adressen.",
+      "argo": "Argo-CD-Adresse",
+      "harbor": "Harbor-Adresse"
+    },
     "validation": {
       "noAccess": "Wähle mindestens eine SSH-Verbindung als Zugang.",
       "kubeconfigEmpty": "Gib den Pfad zur Kubeconfig an.",
@@ -185,7 +229,8 @@
       "accessGone": "Die Zugangs-Verbindung „{{id}}“ gibt es nicht mehr.",
       "accessNotSsh": "Die Zugangs-Verbindung „{{name}}“ ist keine SSH-Verbindung.",
       "accessDisabled": "Die Zugangs-Verbindung „{{name}}“ ist deaktiviert.",
-      "nameMissing": "Gib einen Namen an."
+      "nameMissing": "Gib einen Namen an.",
+      "linkUrl": "Gib eine https-Adresse ohne Benutzername, Abfrage oder Anker an."
     }
   }
 }

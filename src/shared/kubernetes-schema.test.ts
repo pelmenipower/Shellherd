@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GROUP_BY_IDS, KUBE_NAME, manualJobName, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH } from './kubernetes';
-import { KubeActionRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
+import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeArgoRequestSchema, KubeOpenLinkRequestSchema, KubeDiagnoseRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
 
 describe('kubernetes schemas', () => {
   it('accepts a namespaced ref and rejects bad names', () => {
@@ -104,5 +104,108 @@ describe('manualJobName', () => {
   it('gives different names for different times', () => {
     const cron = 'a'.repeat(52);
     expect(manualJobName(cron, 1760000000)).not.toBe(manualJobName(cron, 1760000001));
+  });
+});
+
+describe('port-forward requests', () => {
+  const viewId = '6f1c2b0e-8a4d-4c1e-9f3a-2b7d5e8c9a10';
+  const target = { kind: 'pods', namespace: 'shop', name: 'api-1', port: 8080 };
+  const start = (patch: Record<string, unknown> = {}, targetPatch: Record<string, unknown> = {}) =>
+    KubeForwardStartRequestSchema.safeParse({ viewId, target: { ...target, ...targetPatch }, localPort: 0, ...patch }).success;
+
+  it('accepts a pod or service target and any local port from 0', () => {
+    expect(start()).toBe(true);
+    expect(start({ localPort: 65_535 }, { kind: 'services', port: 1 })).toBe(true);
+  });
+
+  it('rejects other kinds, bad ports, bad names and extra fields such as a bind address', () => {
+    expect(start({}, { kind: 'deployments' })).toBe(false);
+    expect(start({}, { port: 0 })).toBe(false);
+    expect(start({}, { port: 65_536 })).toBe(false);
+    expect(start({ localPort: -1 })).toBe(false);
+    expect(start({ localPort: 1.5 })).toBe(false);
+    expect(start({}, { namespace: 'A_B' })).toBe(false);
+    expect(start({ bind: '0.0.0.0' })).toBe(false);
+    expect(start({}, { host: '0.0.0.0' })).toBe(false);
+    expect(start({ viewId: 'v1' })).toBe(false);
+  });
+
+  it('stops only by uuid', () => {
+    expect(KubeForwardStopRequestSchema.safeParse({ viewId, forwardId: viewId }).success).toBe(true);
+    expect(KubeForwardStopRequestSchema.safeParse({ viewId, forwardId: 'f1' }).success).toBe(false);
+  });
+});
+
+describe('logs and access requests', () => {
+  const viewId = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
+  const id = '1b4e28ba-2fa1-41d2-883f-0016d3cca427';
+  const valid = { viewId, id, namespace: 'shop', selector: { app: 'api', 'app.kubernetes.io/instance': 'shop-api' }, format: 'compact' };
+  it('accepts a valid start and rejects empty, oversized and malformed selectors', () => {
+    expect(KubeLogsStartRequestSchema.safeParse(valid).success).toBe(true);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: {} }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`k${i}`, 'v'])) }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: Object.fromEntries(Array.from({ length: 32 }, (_, i) => [`k${i}`, 'v'])) }).success).toBe(true);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: { 'a,b': 'c' } }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: { app: 'a,b' } }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, selector: { app: 'x!=y' } }).success).toBe(false);
+  });
+  it('rejects a bad id, namespace or format and unknown fields', () => {
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, id: 'run-1' }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, namespace: 'Shop' }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, format: 'ansi' }).success).toBe(false);
+    expect(KubeLogsStartRequestSchema.safeParse({ ...valid, container: 'app' }).success).toBe(false);
+  });
+  it('checks the stop request and the access request', () => {
+    expect(KubeLogsStopRequestSchema.safeParse({ viewId, id }).success).toBe(true);
+    expect(KubeLogsStopRequestSchema.safeParse({ viewId, id: 'run-1' }).success).toBe(false);
+    expect(KubeAccessRequestSchema.safeParse({ viewId, namespace: 'shop' }).success).toBe(true);
+    expect(KubeAccessRequestSchema.safeParse({ viewId, namespace: 'shop', verb: 'patch' }).success).toBe(false);
+  });
+});
+
+describe('KubeDiagnoseRequestSchema', () => {
+  const viewId = '00000000-0000-4000-8000-000000000001';
+  const event = { kind: 'events', namespace: 'shop', name: 'checkout-1.1802a' };
+
+  it('accepts pods, deployments, statefulsets, daemonsets and jobs with a namespace, optionally with the event it started from', () => {
+    for (const kind of ['pods', 'deployments', 'statefulsets', 'daemonsets', 'jobs']) {
+      expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind, namespace: 'shop', name: 'x' } }).success).toBe(true);
+    }
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', namespace: 'shop', name: 'checkout-1' }, event }).success).toBe(true);
+  });
+
+  it('rejects other kinds, a target without namespace, an event of another kind and extra fields', () => {
+    for (const kind of ['services', 'nodes', 'cronjobs', 'events', 'secrets', 'configmaps', 'replicasets']) {
+      expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind, namespace: 'shop', name: 'x' } }).success).toBe(false);
+    }
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', name: 'x' } }).success).toBe(false);
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', namespace: 'shop', name: 'x' }, event: { kind: 'pods', namespace: 'shop', name: 'y' } }).success).toBe(false);
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', namespace: 'shop', name: 'x' }, event: { kind: 'events', name: 'y' } }).success).toBe(false);
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId, ref: { kind: 'pods', namespace: 'shop', name: 'x' }, logs: false }).success).toBe(false);
+    expect(KubeDiagnoseRequestSchema.safeParse({ viewId: 'v', ref: { kind: 'pods', namespace: 'shop', name: 'x' } }).success).toBe(false);
+  });
+});
+
+describe('KubeOpenLinkRequestSchema and KubeArgoRequestSchema', () => {
+  const viewId = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
+  const digest = `sha256:${'a'.repeat(64)}`;
+
+  it('accepts an Argo app and a Harbor image with and without digest', () => {
+    expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link: { type: 'argo', app: 'shop' } }).success).toBe(true);
+    expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link: { type: 'harbor', image: 'harbor.example.test/shop/api:1' } }).success).toBe(true);
+    expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link: { type: 'harbor', image: 'harbor.example.test/shop/api:1', digest } }).success).toBe(true);
+    expect(KubeArgoRequestSchema.safeParse({ viewId, app: 'team-a_shop' }).success).toBe(true);
+  });
+
+  it('never takes a url or host from the renderer and rejects bad digests, lengths and view ids', () => {
+    for (const link of [
+      { type: 'url', app: 'shop' }, { type: 'argo', app: 'shop', url: 'https://evil.example.test' }, { type: 'argo', app: 'shop', host: 'evil.example.test' },
+      { type: 'harbor', image: 'harbor.example.test/shop/api:1', digest: 'sha256:bad' }, { type: 'argo', app: 'x'.repeat(254) }, { type: 'argo', app: '' },
+      { type: 'harbor', image: 'x'.repeat(513) }, { type: 'harbor', image: '' },
+    ]) expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link }).success).toBe(false);
+    expect(KubeOpenLinkRequestSchema.safeParse({ link: { type: 'argo', app: 'shop' } }).success).toBe(false);
+    expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link: { type: 'argo', app: 'shop' }, url: 'https://evil.example.test' }).success).toBe(false);
+    expect(KubeArgoRequestSchema.safeParse({ viewId, app: 'shop', namespace: 'argocd' }).success).toBe(false);
+    expect(KubeArgoRequestSchema.safeParse({ viewId: 'v', app: 'shop' }).success).toBe(false);
   });
 });

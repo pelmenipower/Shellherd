@@ -1,4 +1,4 @@
-import { KIND_INFO, type KubeAction, type KubeRef } from '../../shared/kubernetes';
+import { KIND_INFO, type KubeAction, type KubeArgoState, type KubeKind, type KubeRef } from '../../shared/kubernetes';
 import { t } from './i18n';
 
 export interface ActionRequest { ref: KubeRef; action: KubeAction; replicas?: number; currentReplicas?: number }
@@ -45,4 +45,30 @@ export function confirmationFor(request: ActionRequest, cluster: { name: string;
     case 'trigger': body = t('kubeActions:confirm.body.trigger', { where }); break;
   }
   return { title, body, requireTyping, confirmLabel: t(LABEL_KEYS[action]) };
+}
+
+export type ArgoNote = 'revert' | 'restart';
+
+/**
+ * Argo CD hint of an action on a tracked object. Scale, suspend, resume and delete change what Git describes;
+ * a restart only stamps the pod template, which Argo CD's diff ignores. Pods and nodes are never Argo CD's.
+ */
+export function argoNoteFor(action: KubeAction, kind: KubeKind): ArgoNote | null {
+  if (kind === 'pods' || kind === 'nodes') return null;
+  if (action === 'restart') return 'restart';
+  return action === 'scale' || action === 'suspend' || action === 'resume' || action === 'delete' ? 'revert' : null;
+}
+
+const ARGO_REVERT_KEYS = {
+  selfHeal: 'kubeActions:confirm.argo.selfHeal', autoSync: 'kubeActions:confirm.argo.autoSync', manual: 'kubeActions:confirm.argo.manual',
+} as const;
+
+/** The dialog line. state: undefined while reading, null when unreadable; both say "möglicherweise" (fail-open). */
+export function argoNoteText(note: ArgoNote, app: string, state: KubeArgoState | null | undefined): { text: string; warn: boolean } {
+  const status = state && (state.sync || state.health)
+    ? ` ${t('kubeActions:confirm.argo.status', { sync: state.sync ?? '–', health: state.health ?? '–' })}` : '';
+  if (note === 'restart') return { text: `${t('kubeActions:confirm.argo.restart', { app })}${status}`, warn: false };
+  if (!state) return { text: t('kubeActions:confirm.argo.maybe', { app }), warn: true };
+  const key = state.selfHeal ? ARGO_REVERT_KEYS.selfHeal : state.automated ? ARGO_REVERT_KEYS.autoSync : ARGO_REVERT_KEYS.manual;
+  return { text: `${t(key, { app })}${status}`, warn: true };
 }

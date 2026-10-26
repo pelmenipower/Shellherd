@@ -9,6 +9,7 @@ directories:
 files:
   - out/**/*
   - '!out/rdp-host/**'
+  - '!out/hello/**'
   - package.json
   # Build leftovers nobody loads at runtime: sourcemaps, TypeScript sources, node-pty's C++ tree.
   - '!**/node_modules/**/*.{map,ts,mts,cts}'
@@ -19,7 +20,7 @@ electronLanguages:
   - de
   - en-US
 
-# Read at runtime via process.resourcesPath (see src/main/brand.ts and src/main/rdp/ipc.ts).
+# Read at runtime via process.resourcesPath (see src/main/brand.ts, src/main/rdp/ipc.ts and src/main/vault/ipc.ts).
 extraResources:
   - from: resources/icon.ico
     to: icon.ico
@@ -27,6 +28,8 @@ extraResources:
     to: icon.png
   - from: out/rdp-host
     to: rdp-host
+  - from: out/hello
+    to: hello
 
 # node-pty ships N-API prebuilds that load in Electron as-is; a rebuild would need a C++ toolchain.
 npmRebuild: false

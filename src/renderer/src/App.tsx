@@ -4,6 +4,7 @@ import {
   useState,
   useRef,
 } from 'react';
+import { onDiagnosis } from './kube-diagnose';
 
 import type {
   FormEvent,
@@ -68,14 +69,26 @@ import { findNode } from './vault-selection';
 import { errorText } from './error-text';
 import { useT } from './i18n';
 import { SettingsDialog } from './components/SettingsDialog';
+import { KnownHostsDialog } from './components/KnownHostsDialog';
+import { AuthPromptDialog } from './components/AuthPromptDialog';
 import { settingsShortcutAction } from './shortcut-match';
+import { terminalPrefs } from './terminal-prefs';
+import { effectiveTerminalSettings } from '../../shared/vault/terminal-settings';
 import mark from '../../../resources/mark-64.png';
+import './import-ui.css';
+import type { ImportSource } from '../../shared/import';
+import { ImportDialog } from './components/ImportDialog';
+import { UpdateBadge } from './components/UpdateBadge';
+import { RecentVaults } from './components/RecentVaults';
+import { helloReady, isHelloCancel, useHelloStatus } from './hello';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
 type LockState = { minutes?: number; vaultId: string };
 type AppDialog =
-  | { kind: 'settings'; instant: boolean; focus: 'close' | 'manageAi' }
-  | { kind: 'ai'; backToSettings: boolean };
+  | { kind: 'settings'; instant: boolean; focus: 'close' | 'manageAi' | 'manageHostKeys' }
+  | { kind: 'ai'; backToSettings: boolean }
+  | { kind: 'hostKeys' }
+  | { kind: 'import'; source: ImportSource };
 
 function createEmptyVault(name: string): Vault {
   const now = new Date().toISOString();
@@ -122,6 +135,8 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const assistant = useAssistantToggle();
+  // "Mit KI analysieren" in a cluster tab opens the panel; the panel takes the request itself.
+  useEffect(() => onDiagnosis(() => assistant.setOpen(true)), [assistant.setOpen]);
   const [appDialog, setAppDialog] = useState<AppDialog | null>(null);
   const settingsReturnFocus = useRef<HTMLElement | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -142,6 +157,7 @@ export default function App() {
   const [formError, setFormError] = useState<string | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const folderInput = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -171,6 +187,7 @@ export default function App() {
   const viewControls = useViewControls(terminalLayout, terminals.select, transfer.transferView);
   // Announce readiness after the transfer listeners above are registered.
   useEffect(() => { void window.desktopApi.windowReady(); }, []);
+  useEffect(() => terminalPrefs.set(effectiveTerminalSettings(vault?.settings)), [vault?.settings]);
   const containerDiscovery = useContainerDiscovery();
   // Bumped on every lock; a save that settles under another epoch must not bring the vault back.
   const lockEpoch = useRef(0);
@@ -180,6 +197,19 @@ export default function App() {
   const lockedRef = useRef<LockState | null>(null);
   const setLocked = (value: LockState | null): void => { lockedRef.current = value; setLockedState(value); };
   const lockReturnFocus = useRef<HTMLElement | null>(null);
+  // Windows Hello: for the locked vault and for the file selected on the open screen.
+  const [lockHello, refreshLockHello] = useHelloStatus(locked ? vaultPath : null);
+  const [openHello, refreshOpenHello] = useHelloStatus(screen === 'open' ? selectedVaultPath : null);
+  const [helloWaiting, setHelloWaiting] = useState(false);
+  const helloOpenRef = useRef<HTMLButtonElement>(null);
+  const helloOpenShown = useRef(false);
+  const openHelloReady = helloReady(openHello);
+  useEffect(() => {
+    if (openHelloReady && !passwordInputRef.current?.value) helloOpenRef.current?.focus();
+    // A stale key hides the focused button: the password is the way on.
+    if (!openHelloReady && helloOpenShown.current && document.activeElement === document.body) passwordInputRef.current?.focus();
+    helloOpenShown.current = openHelloReady;
+  }, [openHelloReady]);
   // While locked, the redacted vault must never reach the disk.
   const persistVault = usePersistVault(locked ? null : vault, { setVault, setVaultPath, setBusy, setSaved, epoch: getLockEpoch });
   const vaultId = vault?.id;
@@ -263,8 +293,11 @@ export default function App() {
       event.preventDefault();
       const file = [...event.dataTransfer!.files].find(item => isVaultFileName(item.name));
       const path = file ? window.desktopApi.pathForFile(file) : '';
-      if (path) openVaultFileRef.current(path);
-      else notify.info(t('app:notices.notVaultFileTitle'), { body: t('app:errors.onlyVaultFiles') });
+      if (!path) { notify.info(t('app:notices.notVaultFileTitle'), { body: t('app:errors.onlyVaultFiles') }); return; }
+      // Main grants dropped files on local drives only; network paths go through the file dialog.
+      void window.desktopApi.dropVaultFile(path).then(
+        granted => openVaultFileRef.current(granted),
+        error => notify.info(t('app:notices.vaultPathRefusedTitle'), { body: errorText(error) }));
     };
     window.addEventListener('dragover', over);
     window.addEventListener('dragleave', leave);
@@ -403,6 +436,18 @@ export default function App() {
     } finally {
       setPassword('');
       setBusy(false);
+    }
+  }
+
+  async function handleHelloOpen(): Promise<void> {
+    if (!selectedVaultPath || busy) return;
+    setFormError(null); setBusy(true); setHelloWaiting(true);
+    try {
+      openFresh(await window.desktopApi.helloUnlock({ filePath: selectedVaultPath }));
+    } catch (caughtError) {
+      if (!isHelloCancel(caughtError)) { setFormError(errorText(caughtError, t('app:errors.vaultFailed'))); refreshOpenHello(); }
+    } finally {
+      setBusy(false); setHelloWaiting(false);
     }
   }
 
@@ -619,10 +664,10 @@ export default function App() {
   afterLockRef.current = afterLock;
   useEffect(() => window.desktopApi.onVaultLocked(info => afterLockRef.current(info.minutes)), []);
 
-  async function unlockFromLock(password: string): Promise<void> {
+  async function unlockFromLock(unlock: (filePath: string) => Promise<UnlockVaultResult>): Promise<void> {
     const current = lockedRef.current;
     if (!current || !vaultPath) throw new AppError('core.vaultFileMissing');
-    const result = await window.desktopApi.unlockVault({ filePath: vaultPath, password });
+    const result = await unlock(vaultPath);
     if (result.vault.id !== current.vaultId) { openFresh(result); return; }   // main already ended the old sessions
     setVault(result.vault); setVaultPath(result.filePath); setSaved(false);
     // Tabs of connections deleted elsewhere close, the same filter as deleteSelectedNode.
@@ -809,10 +854,18 @@ export default function App() {
     return persistVault({ ...vault, nodes: updateNode(vault.nodes, id, node => ({ ...node, name: name.trim() })) });
   }
 
+  // Full literals, so unused keys can be found by search.
+  const importLabels: Record<ImportSource, string> = {
+    openssh: t('vault:import.openssh'),
+    putty: t('vault:import.putty'),
+    winscp: t('vault:import.winscp'),
+    mremoteng: t('vault:import.mremoteng'),
+  };
   const settingsVault = screen === 'vault' ? vault : null;
-  const settingsDialog = appDialog?.kind === 'settings' && <SettingsDialog vault={settingsVault} busy={busy}
+  const settingsDialog = appDialog?.kind === 'settings' && <SettingsDialog vault={settingsVault} vaultPath={settingsVault ? vaultPath : null} busy={busy}
     instant={appDialog.instant} initialFocus={appDialog.focus} onClose={closeDialogs}
     onManageAi={() => { if (settingsVault) setAppDialog({ kind: 'ai', backToSettings: true }); }}
+    onManageHostKeys={() => { if (settingsVault) setAppDialog({ kind: 'hostKeys' }); }}
     onSaveSettings={settings => settingsVault ? persistVault({ ...settingsVault, settings }) : Promise.resolve(false)} />;
 
   if (screen === 'vault' && vault) {
@@ -876,6 +929,11 @@ export default function App() {
                 : { kind: 'item', label: protocolLabel(item.protocol), onSelect: () => newConnection(item.protocol as ConnectionProtocol) }),
               { kind: 'separator' },
               { kind: 'item', label: t('app:sidebar.newFolder'), disabled: !canCreateFolder, onSelect: () => setShowFolderForm(true) },
+              { kind: 'separator' },
+              { kind: 'heading', label: t('vault:import.heading') },
+              ...(['openssh', 'putty', 'winscp', 'mremoteng'] as const).map((source): ContextMenuEntry => ({
+                kind: 'item', label: importLabels[source], onSelect: () => setAppDialog({ kind: 'import', source }),
+              })),
             ]} />}
           </div>
           <button className="root-row" type="button" disabled={busy} aria-pressed={selectedNodeId === null}
@@ -904,7 +962,7 @@ export default function App() {
               viewControls={viewControls} onPopout={openPopout} onSnapshot={saveKubeView} onSaveAutoUpload={saveAutoUpload} onWelcome={openWelcome}
               welcomePanel={<WelcomePage vaultName={vault.name} version={version} onShowReleaseNotes={() => setShowReleaseNotes(true)} connectionCount={connectionCount}
                 workspaces={vault.workspaces} busy={busy} onNewConnection={protocol => newConnection(protocol)}
-                onOpenWorkspace={id => navigateEditor(() => openWorkspace(id))} />} />
+                onImport={source => setAppDialog({ kind: 'import', source })} onOpenWorkspace={id => navigateEditor(() => openWorkspace(id))} />} />
           </div>
           {editorOpen && <aside className="properties-panel" aria-label={t('app:properties.aria')}>
             <div className="properties-heading"><span>{editorDirty ? t('app:dialogs.unsaved.title') : t('app:properties.title')}</span>
@@ -935,14 +993,29 @@ export default function App() {
       {appDialog?.kind === 'ai' && <AiSettingsDialog settings={vault.ai} busy={busy}
         onClose={() => appDialog.backToSettings ? setAppDialog({ kind: 'settings', instant: true, focus: 'manageAi' }) : closeDialogs()}
         onSave={settings => persistVault({ ...vault, ai: settings })} />}
+      {appDialog?.kind === 'hostKeys' && <KnownHostsDialog busy={busy}
+        onClose={() => setAppDialog({ kind: 'settings', instant: true, focus: 'manageHostKeys' })} />}
+      {appDialog?.kind === 'import' && <ImportDialog source={appDialog.source} nodes={vault.nodes} busy={busy} onClose={closeDialogs}
+        onImport={(list, parentId) => {
+          let next = vault.nodes;
+          for (const node of list) next = addNode(next, node, parentId);
+          return persistVault({ ...vault, nodes: next });
+        }} />}
       {settingsDialog}
       <ToastStack />
       <footer className="app-status"><span role="status">{busy ? t('common:status.saving') : saved ? t('app:status.saved') : t('app:status.open')}</span>
         <span>{t('app:status.activeSessions', { count: runningCount })}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>
+        <UpdateBadge />
         <button type="button" className="version-button" title={t('app:status.whatsNew')} onClick={() => setShowReleaseNotes(true)}>v{version}</button></footer>
       {showReleaseNotes && <ReleaseNotesDialog version={version} onClose={() => setShowReleaseNotes(false)} />}
     </main>
-    {locked && <LockScreen vaultName={vault.name} minutes={locked.minutes} running={runningCount} onUnlock={unlockFromLock} onSwitch={() => switchVault()} />}
+    <AuthPromptDialog locked={locked !== null} />
+    {locked && <LockScreen vaultName={vault.name} minutes={locked.minutes} running={runningCount}
+      onUnlock={password => unlockFromLock(filePath => window.desktopApi.unlockVault({ filePath, password }))}
+      onHelloUnlock={helloReady(lockHello)
+        ? () => unlockFromLock(filePath => window.desktopApi.helloUnlock({ filePath })).catch((error: unknown) => { refreshLockHello(); throw error; })
+        : undefined}
+      onSwitch={() => switchVault()} />}
     </>;
   }
 
@@ -951,6 +1024,7 @@ export default function App() {
       {fileDropHint}
       <ToastStack />
       {settingsDialog}
+      <AuthPromptDialog locked={locked !== null} />
       <section className="welcome-card">
         <div className="brand large-brand">
           <img className="brand-mark" src={mark} alt="" />
@@ -1066,6 +1140,10 @@ export default function App() {
 
             <p className="form-description">{t('app:open.description')}</p>
 
+            <RecentVaults selectedPath={selectedVaultPath} disabled={busy}
+              onSelect={filePath => { setFormError(null); setSelectedVaultPath(filePath); requestAnimationFrame(() => passwordInputRef.current?.focus()); }}
+              onRemoved={filePath => { if (filePath === selectedVaultPath) setSelectedVaultPath(''); }} />
+
             <button
               className="secondary-button"
               type="button"
@@ -1088,11 +1166,19 @@ export default function App() {
               </label>
             )}
 
+            {openHelloReady && (
+              <button ref={helloOpenRef} className="secondary-button" type="button" aria-disabled={busy || undefined}
+                onClick={() => void handleHelloOpen()}>
+                {helloWaiting ? t('app:hello.waiting') : t('app:hello.open')}
+              </button>
+            )}
+
             <label>
               {t('app:open.password')}
               <input
                 // With a preselected vault only the password is left to type.
                 key={selectedVaultPath ? 'with-file' : 'without-file'}
+                ref={passwordInputRef}
                 autoFocus={Boolean(selectedVaultPath)}
                 type={showPassword ? 'text' : 'password'}
                 value={password}

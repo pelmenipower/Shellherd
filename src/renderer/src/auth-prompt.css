@@ -1,0 +1,13 @@
+/* Server sign-in prompt (keyboard-interactive). Dialog classes come from ConfirmDialog; only the extras live here. No motion: the dialog opens at once. */
+.auth-prompt { width: min(440px, calc(100vw - 32px)); }
+.auth-prompt-title { margin: 0; color: var(--color-text); font-weight: 600; }
+.auth-prompt-host { margin: 0; font-size: var(--fs-sm); }
+.auth-prompt-text { margin: 0; color: var(--color-text); white-space: pre-line; overflow-wrap: anywhere; }
+.auth-prompt form { display: grid; gap: var(--space-12); }
+.auth-prompt-field { display: grid; gap: var(--space-4); min-width: 0; }
+.auth-prompt-field > label { color: var(--color-text-muted); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.auth-prompt-input { display: flex; align-items: center; gap: var(--space-6); min-width: 0; }
+.auth-prompt-input input { flex: 1; min-width: 0; }
+.auth-prompt-input button { flex-shrink: 0; min-height: var(--control-md); }
+.auth-prompt-hint { margin: 0; font-size: var(--fs-sm); }
+.auth-prompt .form-actions { margin-top: 0; }

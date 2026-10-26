@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import type { Client } from 'ssh2';
 import type { ConnectionNode } from '../../shared/vault/types';
@@ -6,6 +7,8 @@ import type { SftpEvent } from '../../shared/sftp';
 import { AppError, type CodedError } from '../../shared/errors';
 import { FileError, localFileSystem } from './file-system';
 import { SftpSessionManager } from './sftp-session';
+import type { SftpDependencies } from './sftp-session';
+import type { Jump } from '../ssh/jump';
 import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
 import { permissionText, remoteEntry } from './sftp-file-system';
 
@@ -213,5 +216,84 @@ describe('SFTP idle disconnect', () => {
       vi.advanceTimersByTime(60_000);
       expect(lastStatus(events)).toMatchObject({ status: 'closed', code: 'idle' });
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('SFTP jump host and keyboard prompts', () => {
+  const behind = { ...nodes.files, id: 'behind', jumpHost: 'hop' } as ConnectionNode;
+  const hop = (close = vi.fn()): Jump => ({ name: 'hop', sock: new PassThrough(), close });
+
+  function setup(deps: Partial<SftpDependencies>) {
+    const events: SftpEvent[] = [];
+    const client = Object.assign(new EventEmitter(), { connect: vi.fn(), destroy: vi.fn() });
+    const manager = new SftpSessionManager({
+      getConnection: id => (id === 'behind' ? behind : nodes[id]),
+      verifyHost: async () => true,
+      emit: (_owner, event) => events.push(event),
+      local: localFileSystem,
+      openFile: async () => {},
+      createClient: () => client as unknown as Client,
+      ...deps,
+    });
+    return { manager, events, client };
+  }
+
+  it('connects through the jump socket and closes the hop with the session', async () => {
+    const jump = hop();
+    const openJump = vi.fn(async () => jump);
+    const { manager, client } = setup({ openJump });
+    manager.open(1, 'behind');
+    await vi.waitFor(() => expect(client.connect).toHaveBeenCalledWith(expect.objectContaining({ sock: jump.sock })));
+    expect(openJump).toHaveBeenCalledWith(behind, 1, expect.any(Function));
+    expect(jump.close).not.toHaveBeenCalled();
+    manager.closeAll();
+    expect(jump.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes a hop that arrives after the session was closed', async () => {
+    const jump = hop();
+    let resolve!: (value: Jump | undefined) => void;
+    const { manager, client } = setup({ openJump: () => new Promise<Jump | undefined>(done => { resolve = done; }) });
+    const { sessionId } = manager.open(1, 'behind');
+    manager.close(1, sessionId);
+    resolve(jump);
+    await vi.waitFor(() => expect(jump.close).toHaveBeenCalledTimes(1));
+    expect(client.connect).not.toHaveBeenCalled();
+  });
+
+  it('ends the session with the hop error when the hop fails', async () => {
+    const { manager, events, client } = setup({ openJump: async () => { throw new AppError('ssh.jumpHostFailed', { name: 'hop' }); } });
+    manager.open(1, 'behind');
+    await vi.waitFor(() => expect(events.at(-1)).toMatchObject({ type: 'status', status: 'error', error: { code: 'ssh.jumpHostFailed' } }));
+    expect(client.connect).not.toHaveBeenCalled();
+  });
+
+  it('stops asking for the hop once the session has ended', async () => {
+    let isActive!: () => boolean;
+    const { manager } = setup({ openJump: async (_connection, _owner, active) => { isActive = active; return new Promise<Jump | undefined>(() => {}); } });
+    const { sessionId } = manager.open(1, 'behind');
+    await vi.waitFor(() => expect(isActive).toBeDefined());
+    expect(isActive()).toBe(true);
+    manager.close(1, sessionId);
+    expect(isActive()).toBe(false);
+  });
+
+  it('refuses to connect directly when the jump host cannot be opened', async () => {
+    const { manager, events, client } = setup({});
+    manager.open(1, 'behind');
+    await vi.waitFor(() => expect(events.at(-1)).toMatchObject({ type: 'status', status: 'error', error: { code: 'ssh.jumpHostUnusable' } }));
+    expect(client.connect).not.toHaveBeenCalled();
+  });
+
+  it('answers keyboard prompts only when a prompt function is given', async () => {
+    const withAsk = setup({ ask: async () => null });
+    withAsk.manager.open(1, 'files');
+    await vi.waitFor(() => expect(withAsk.client.connect).toHaveBeenCalledWith(expect.objectContaining({ tryKeyboard: true })));
+    withAsk.manager.closeAll();
+    const without = setup({});
+    without.manager.open(1, 'files');
+    await vi.waitFor(() => expect(without.client.connect).toHaveBeenCalled());
+    expect(without.client.connect).toHaveBeenCalledWith(expect.objectContaining({ tryKeyboard: false }));
+    without.manager.closeAll();
   });
 });

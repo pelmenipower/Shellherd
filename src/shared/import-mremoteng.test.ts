@@ -1,0 +1,210 @@
+import { describe, expect, it } from 'vitest';
+import { AppError } from './errors';
+import { parseMRemoteNg } from './import-mremoteng';
+
+const XML = `<?xml version="1.0" encoding="utf-8"?>
+<Connections Name="Connections" Export="false" EncryptionEngine="AES" FullFileEncryption="false" ConfVersion="2.8">
+  <Node Name="Kunden" Type="Container" Id="c1">
+    <Node Name="kunde-ssh" Type="Connection" Id="n1" Hostname="ssh.kunde.test" Protocol="SSH2" Port="2222" Username="root" Password="GEHEIM-PW-123" />
+    <Node Name="Intern" Type="Container" Id="c2">
+      <Node Name="rdp &amp; co" Type="Connection" Id="n2" Hostname="rdp.intern.test" Protocol="RDP" Port="3389" Domain="CORP" Password="GEHEIM-PW-456"></Node>
+    </Node>
+  </Node>
+  <Node Name="vnc" Type="Connection" Id="n3" Hostname="vnc.test" Protocol="VNC" Port="5900" />
+  <Node Name="telnet" Type="Connection" Hostname="telnet.test" Protocol="Telnet" Port="23" />
+  <Node Name="kaputt" Type="Connection" Hostname="bad host" Protocol="SSH2" Port="22" />
+  <Node Name="port" Type="Connection" Hostname="p.test" Protocol="SSH2" Port="70000" />
+  <Node Name="SSH1 &#65;" Type="Connection" Hostname="ssh1.test" Protocol="SSH1" />
+  <Node Name="Ordner &lt;x&gt;" Type="Container" Id="c3"><Node Name="hex &#x42; &quot;&apos;" Type="Connection" Hostname="hex.test" Protocol="SSH2" /></Node>
+</Connections>`;
+
+describe('parseMRemoteNg', () => {
+  it('reads SSH, RDP, unsupported and invalid connections in document order', () => {
+    const result = parseMRemoteNg(XML);
+    expect(result.candidates).toEqual([
+      { key: 'n1', name: 'kunde-ssh', protocol: 'ssh', folder: ['Kunden'], host: 'ssh.kunde.test', port: 2222, username: 'root', forwards: [], notes: [] },
+      { key: 'n2', name: 'rdp & co', protocol: 'rdp', folder: ['Kunden', 'Intern'], host: 'rdp.intern.test', port: 3389, domain: 'CORP', forwards: [], notes: [] },
+      { key: 'SSH1 A', name: 'SSH1 A', protocol: 'ssh', folder: [], host: 'ssh1.test', port: 22, forwards: [], notes: [] },
+      { key: 'Ordner <x>/hex B "\'', name: 'hex B "\'', protocol: 'ssh', folder: ['Ordner <x>'], host: 'hex.test', port: 22, forwards: [], notes: [] },
+    ]);
+    expect(result.skipped).toEqual([
+      { code: 'unsupported', count: 2 },
+      { code: 'invalid', count: 2 },
+    ]);
+  });
+
+  it('never leaks passwords into the result', () => {
+    expect(JSON.stringify(parseMRemoteNg(XML))).not.toContain('GEHEIM');
+  });
+
+  it('keeps folders from nested containers and ignores empty container names', () => {
+    const result = parseMRemoteNg(`<Connections>
+  <Node Name="A" Type="Container"><Node Name="" Type="Container"><Node Name="B" Type="Container"/>
+    <Node Name="x" Type="Connection" Hostname="h" Protocol="SSH2"/></Node></Node>
+  <Node Name="y" Type="Connection" Hostname="h2" Protocol="SSH2"/>
+</Connections>`);
+    expect(result.candidates.map((c) => [c.name, c.folder])).toEqual([['x', ['A']], ['y', []]]);
+  });
+
+  it('uses the default port and the RDP default 3389 when none is given', () => {
+    const result = parseMRemoteNg(`<Connections>
+  <Node Name="s" Type="Connection" Hostname="a.test" Protocol="SSH2"/>
+  <Node Name="r" Type="Connection" Hostname="b.test" Protocol="RDP"/>
+</Connections>`);
+    expect(result.candidates.map((c) => [c.protocol, c.port])).toEqual([['ssh', 22], ['rdp', 3389]]);
+    expect(result.candidates[1]).not.toHaveProperty('domain');
+  });
+
+  it('marks a connection with a bad port as invalid and an empty name falls back to the host', () => {
+    const result = parseMRemoteNg(`<Connections>
+  <Node Type="Connection" Hostname="a.test" Protocol="SSH2" Port="0"/>
+  <Node Type="Connection" Hostname="b.test" Protocol="SSH2" Port="abc"/>
+  <Node Type="Connection" Hostname="c.test" Protocol="SSH2"/>
+</Connections>`);
+    expect(result.candidates.map((c) => [c.name, c.host])).toEqual([['c.test', 'c.test']]);
+    expect(result.skipped).toEqual([{ code: 'invalid', count: 2 }]);
+  });
+
+  it('handles open and self-closing node tags alike and closes the stack correctly', () => {
+    const result = parseMRemoteNg(`<Connections>
+  <Node Name="F" Type="Container">
+    <Node Name="a" Type="Connection" Hostname="a.test" Protocol="SSH2"></Node>
+  </Node>
+  <Node Name="b" Type="Connection" Hostname="b.test" Protocol="SSH2"/>
+</Connections>`);
+    expect(result.candidates.map((c) => c.folder)).toEqual([['F'], []]);
+  });
+
+  it('decodes entities in names and hosts, leaves unknown entities as they are', () => {
+    const result = parseMRemoteNg(`<Connections>
+  <Node Name="a &amp;&#x41;&#66;&bogus;" Type="Connection" Hostname="h&#46;test" Protocol="SSH2"/>
+</Connections>`);
+    expect(result.candidates[0]).toMatchObject({ name: 'a &AB&bogus;', host: 'h.test' });
+  });
+
+  it('makes keys unique when names repeat in one folder without Id', () => {
+    const result = parseMRemoteNg(`<Connections>
+  <Node Name="dup" Type="Connection" Hostname="a.test" Protocol="SSH2"/>
+  <Node Name="dup" Type="Connection" Hostname="b.test" Protocol="SSH2"/>
+</Connections>`);
+    expect(result.candidates.map((c) => c.key)).toEqual(['dup', 'dup#2']);
+  });
+
+  it('limits candidates to 500 and counts the rest as tooMany', () => {
+    const nodes = Array.from({ length: 501 }, (_, i) => `<Node Name="n${i}" Type="Connection" Hostname="h${i}.test" Protocol="SSH2"/>`).join('\n');
+    const result = parseMRemoteNg(`<Connections>\n${nodes}\n</Connections>`);
+    expect(result.candidates).toHaveLength(500);
+    expect(result.skipped).toEqual([{ code: 'tooMany', count: 1 }]);
+  });
+
+  it('throws the encrypted error for FullFileEncryption="true" on the root', () => {
+    const encrypted = '<?xml version="1.0"?>\n<Connections Name="Connections" FullFileEncryption="true" Protected="abc">\nQkFTRTY0Li4u\n</Connections>';
+    let caught: unknown;
+    try {
+      parseMRemoteNg(encrypted);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(AppError);
+    expect((caught as AppError).code).toBe('core.importEncrypted');
+  });
+
+  it('returns an empty preview for an empty file', () => {
+    expect(parseMRemoteNg('')).toEqual({ candidates: [], skipped: [] });
+  });
+});
+
+describe('parseMRemoteNg on hostile input', () => {
+  /** Parses and reports the duration; a rejected input is an acceptable outcome, a hang is not. */
+  function timed(text: string): { ms: number; candidates: number } {
+    const start = performance.now();
+    let candidates = 0;
+    try {
+      candidates = parseMRemoteNg(text).candidates.length;
+    } catch {
+      // Rejecting the input is fine; only the running time matters here.
+    }
+    return { ms: performance.now() - start, candidates };
+  }
+
+  it('parses 700k unclosed <Node tags in linear time', () => {
+    const { ms, candidates } = timed('<Node '.repeat(700_000));
+    expect(candidates).toBe(0);
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it('parses 300k unclosed <Connections tags in linear time', () => {
+    const { ms, candidates } = timed('<Connections '.repeat(300_000));
+    expect(candidates).toBe(0);
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it('reads a 4 MiB attribute value in linear time', () => {
+    const { ms, candidates } = timed(`<Node Type="Connection" Hostname="a.test" Protocol="SSH2" Name="${'a'.repeat(4_000_000)}"/>`);
+    expect(candidates).toBe(1);
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it('scans a 4 MiB run of word characters without a closing quote in linear time', () => {
+    expect(timed(`<Node Name="${'a'.repeat(4_000_000)}`).ms).toBeLessThan(1000);
+    expect(timed(`<Node ${'a'.repeat(4_000_000)}`).ms).toBeLessThan(1000);
+    expect(timed(`<Node Name=${'a'.repeat(4_000_000)}`).ms).toBeLessThan(1000);
+  });
+
+  it('handles many unsupported connections below deeply nested containers in linear time', () => {
+    const text = '<Node Type="Container">'.repeat(50_000) + '<Node Type="Connection" Protocol="VNC"/>'.repeat(50_000);
+    const { ms, candidates } = timed(text);
+    expect(candidates).toBe(0);
+    expect(ms).toBeLessThan(1000);
+  });
+});
+
+describe('parseMRemoteNg bounded keys and folders', () => {
+  it('makes 500 identical connections with a 7000 character name unique in under 1 s', () => {
+    const name = 'n'.repeat(7000);
+    const nodes = Array.from({ length: 500 }, () => `<Node Name="${name}" Type="Connection" Hostname="h.test" Protocol="SSH2"/>`).join('\n');
+    const start = performance.now();
+    const result = parseMRemoteNg(`<Connections>\n${nodes}\n</Connections>`);
+    const ms = performance.now() - start;
+    expect(result.candidates).toHaveLength(500);
+    expect(new Set(result.candidates.map((c) => c.key)).size).toBe(500);
+    expect(result.candidates[0].name.length).toBeLessThanOrEqual(255);
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it('parses 60k nested containers with 30k identical connections below in under 1 s and keeps the 500 limit', () => {
+    const text = '<Node Name="x" Type="Container">'.repeat(60_000)
+      + '<Node Name="s" Type="Connection" Hostname="h.test" Protocol="SSH2"/>'.repeat(30_000);
+    const start = performance.now();
+    const result = parseMRemoteNg(text);
+    const ms = performance.now() - start;
+    expect(result.candidates).toHaveLength(500);
+    expect(result.skipped).toEqual([{ code: 'tooMany', count: 29_500 }]);
+    expect(new Set(result.candidates.map((c) => c.key)).size).toBe(500);
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it('keeps folders at most 32 deep and each segment at most 255 characters', () => {
+    const segment = 's'.repeat(300);
+    const nested = Array.from({ length: 40 }, () => `<Node Name="${segment}" Type="Container">`).join('');
+    const result = parseMRemoteNg(`<Connections>${nested}<Node Name="deep" Type="Connection" Hostname="h.test" Protocol="SSH2"/></Connections>`);
+    expect(result.candidates).toHaveLength(1);
+    const folder = result.candidates[0].folder;
+    expect(folder).toHaveLength(32);
+    expect(folder.every((s) => s.length === 255)).toBe(true);
+  });
+
+  it('truncates a long Id to 1024 characters', () => {
+    const result = parseMRemoteNg(`<Connections><Node Id="${'i'.repeat(5000)}" Name="a" Type="Connection" Hostname="h.test" Protocol="SSH2"/></Connections>`);
+    expect(result.candidates[0].key).toHaveLength(1024);
+  });
+
+  it('skips a suffix that is already taken by a real key', () => {
+    const result = parseMRemoteNg(`<Connections>
+  <Node Id="x" Name="a" Type="Connection" Hostname="a.test" Protocol="SSH2"/>
+  <Node Id="x" Name="b" Type="Connection" Hostname="b.test" Protocol="SSH2"/>
+  <Node Id="x#2" Name="c" Type="Connection" Hostname="c.test" Protocol="SSH2"/>
+</Connections>`);
+    expect(result.candidates.map((c) => c.key)).toEqual(['x', 'x#2', 'x#2#2']);
+  });
+});

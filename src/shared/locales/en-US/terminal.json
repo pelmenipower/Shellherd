@@ -27,7 +27,8 @@
     "closeTitle": "Close {{label}}",
     "files": "{{name}} · Files",
     "logs": "Logs: {{label}}",
-    "previousLogs": "Previous logs: {{label}}"
+    "previousLogs": "Previous logs: {{label}}",
+    "activity": "New output"
   },
   "panel": {
     "copyFailedTitle": "Not copied",
@@ -82,7 +83,8 @@
     "moveTab": "Move active tab",
     "paneOption": "Pane {{number}}",
     "toOwnView": "Open as its own view",
-    "resizeHint": "Drag the dividers, or focus them and move them with the arrow keys. Drag tabs onto a view above to move them there."
+    "resizeHint": "Drag the dividers, or focus them and move them with the arrow keys. Drag tabs onto a view above to move them there.",
+    "shortcutsHint": "Ctrl+Shift+F searches the terminal. Ctrl+Tab and Ctrl+Shift+Tab switch tabs, Ctrl+Shift+T opens a connection, Ctrl+Shift+W closes the tab."
   },
   "tabMenu": {
     "label": "Actions for {{name}}"
@@ -114,6 +116,7 @@
   },
   "timeline": {
     "steps": {
+      "jump": "Connect jump host",
       "reach": "Reaching server",
       "hostkey": "Checking server key",
       "auth": "Signing in",
@@ -128,6 +131,25 @@
     "slowGeneric": "Taking longer than usual…",
     "agoSeconds": "{{seconds}} s ago",
     "agoMinutes": "{{minutes}} min ago"
+  },
+  "forwards": {
+    "label": "Port forwards",
+    "local": "localhost:{{port}} → {{target}}",
+    "remote": "Server:{{port}} → {{target}}",
+    "dynamic": "SOCKS proxy localhost:{{port}}",
+    "state": {
+      "active": "active",
+      "stopped": "off",
+      "starting": "starting…",
+      "elsewhere": "running in another tab"
+    },
+    "start": "Start",
+    "stop": "Stop",
+    "startLabel": "Start {{forward}}",
+    "stopLabel": "Stop {{forward}}",
+    "open_one": "{{count}} connection open",
+    "open_other": "{{count}} connections open",
+    "failedTitle": "Port forward not changed"
   },
   "statusWord": {
     "short": {
@@ -182,7 +204,7 @@
     "hostkey-changed": {
       "title": "Server key has changed",
       "body": "The fingerprint does not match the confirmed one. Shellherd aborted the connection.",
-      "next": "Clarify the key change with the administrator before you continue."
+      "next": "Clarify the key change with the administrator. If it is intended, remove the old key under Settings → Connections → Manage server keys and connect again."
     },
     "hostkey-rejected": {
       "title": "Server key not confirmed",
@@ -235,5 +257,28 @@
       "body": "The connection failed.",
       "next": "Check host, user and sign-in."
     }
+  },
+  "search": {
+    "label": "Search in terminal",
+    "input": "Search term",
+    "placeholder": "Search",
+    "previous": "Previous match (Shift+Enter)",
+    "next": "Next match (Enter)",
+    "close": "Close search (Esc)",
+    "none": "No matches"
+  },
+  "links": {
+    "hintTarget": "Ctrl+click opens {{host}} in your browser",
+    "failedTitle": "Link not opened",
+    "failed": "The link could not be passed to the browser."
+  },
+  "broadcast": {
+    "start": "Send input to all panes",
+    "stop": "Stop sending input to all panes",
+    "needsTwo": "Needs at least two connected SSH or local terminals in this view. Container, pod and remote desktop tabs do not count.",
+    "chip": "To all",
+    "chipTitle": "Input goes to {{number}} terminals in this view. Click to stop.",
+    "startedTitle": "Input to all panes",
+    "startedBody": "Everything you type goes to {{number}} terminals in this view until you click “To all” in a pane header."
   }
 }

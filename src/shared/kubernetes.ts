@@ -36,6 +36,8 @@ export const queryKey = (query: KubeQuery): string => JSON.stringify([query.kind
   Object.entries(query.selector?.labels ?? {}).sort(), query.selector?.node ?? null]);
 
 export type RowTone = 'ok' | 'warn' | 'bad' | 'muted';
+/** A TCP port of a pod container or a service, with its name when the manifest names it. */
+export interface KubePort { port: number; name?: string }
 export interface KubeRow {
   uid: string;
   ref: KubeRef;
@@ -63,6 +65,12 @@ export interface KubeRow {
   pressure?: string[];
   /** Events: the object concerned; `ref` only when its kind maps to a KubeKind. */
   involved?: { kind: string; name: string; ref?: KubeRef };
+  /** Pods: TCP ports of all containers; services: TCP service ports. Absent when there are none. */
+  ports?: KubePort[];
+  /** Argo CD application tracking the object (tracking-id annotation or instance label), validated in main; see kube-links.ts. */
+  argoApp?: string;
+  /** Pods: container name → sha256 digest of the running image, when status.imageID names the same repository. */
+  digests?: Record<string, string>;
 }
 
 /** Labels come from `columnLabel(key)` in renderer/kube-labels.ts. */
@@ -128,6 +136,9 @@ export interface ClusterStatus {
   attempt?: number;
   /** Name of the SSH connection the current attempt goes through; absent between attempts. */
   trying?: string;
+  /** Argo CD and Harbor addresses of the vault entry (normalized https); menus only, main builds every link itself. */
+  argoUrl?: string;
+  harborUrl?: string;
 }
 
 export interface KubeOverview { nodes: NodeTile[]; problems: KubeProblem[]; namespaces: string[] }
@@ -140,7 +151,11 @@ export type KubeEvent =
   | { type: 'overview'; viewId: string; nodes: NodeTile[]; problems: KubeProblem[]; namespaces: string[] }
   | { type: 'usage'; viewId: string; pods: UsageHistory }
   /** Why a table cannot load or stay live; `error` absent = trouble is over. */
-  | { type: 'trouble'; viewId: string; query: KubeQuery; error?: CodedError };
+  | { type: 'trouble'; viewId: string; query: KubeQuery; error?: CodedError }
+  /** The port forwards of the view, complete; sent on every change. */
+  | { type: 'forwards'; viewId: string; forwards: KubeForwardStatus[] }
+  /** A batch of the logs of all pods of run `id`: sources complete, lines new since the last batch, dropped = lines skipped so far. */
+  | { type: 'logs'; viewId: string; id: string; lines: KubeLogLine[]; sources: KubeLogSource[]; waiting: number; full: number; dropped: number; error?: CodedError };
 
 export type KubeDetailMode = 'yaml' | 'describe' | 'events';
 export type KubeDetail = { mode: 'yaml' | 'describe'; text: string } | { mode: 'events'; rows: KubeRow[] };
@@ -163,6 +178,40 @@ export interface KubeDetailRequest { viewId: string; ref: KubeRef; mode: KubeDet
 export interface KubeActionRequest { viewId: string; ref: KubeRef; action: KubeAction; replicas?: number }
 export interface KubeProbeRequest { connectionId: string }
 export interface KubeProbeResult { source: string; contexts: string[]; currentContext?: string; clusterName?: string }
+/** Port-forward target: a pod port, or a service port that main resolves to a ready pod. */
+export interface KubeForwardTarget { kind: 'pods' | 'services'; namespace: string; name: string; port: number }
+/** localPort 0 = any free port; the listener is always 127.0.0.1. */
+export interface KubeForwardStartRequest { viewId: string; target: KubeForwardTarget; localPort: number }
+export interface KubeForwardStopRequest { viewId: string; forwardId: string }
+/** One running port forward of a cluster view, as main reports it. */
+export interface KubeForwardStatus {
+  id: string;
+  target: KubeForwardTarget;
+  /** The port on 127.0.0.1. */
+  localPort: number;
+  /** Pod and port the last opened connection reached; for services where they resolved to. */
+  pod?: string;
+  podPort?: number;
+  /** Connections open right now, including those still opening. */
+  open: number;
+  /** Why the last connection failed; cleared by the next one that opens. */
+  error?: CodedError;
+}
+
+/** Kinds whose pods "Logs aller Pods" shows, found by the row's selector. */
+export const LOGS_ALL_KINDS: readonly KubeKind[] = ['deployments', 'statefulsets', 'daemonsets', 'jobs', 'services'];
+/** Log streams open at once per view, container sources kept per run, lines read back per container at the start. */
+export const MAX_LOG_STREAMS = 20;
+export const MAX_LOG_SOURCES = 100;
+export const LOG_TAIL_LINES = 200;
+/** One line of the logs of all pods. `source` indexes the sources of the run; `time` is the server timestamp with nine fraction digits, '' when unknown. */
+export interface KubeLogLine { source: number; time: string; text: string }
+/** One container of the logs of all pods. live: its stream is open; error: why its stream ended early. */
+export interface KubeLogSource { pod: string; container: string; live: boolean; error?: CodedError }
+/** `id` is chosen by the renderer (UUID), so events of an old run can be told apart. */
+export interface KubeLogsStartRequest { viewId: string; id: string; namespace: string; selector: Record<string, string>; format: 'compact' | 'raw' }
+export interface KubeLogsStopRequest { viewId: string; id: string }
+export interface KubeAccessRequest { viewId: string; namespace: string }
 
 export type KubeTerminalMode = 'logs' | 'previous' | 'shell';
 export interface KubeTerminalTarget { namespace: string; pod: string; container: string; mode: KubeTerminalMode;
@@ -192,3 +241,24 @@ export interface KubeFilterSnapshot {
 /** Saved state of a cluster tab in a workspace. */
 export interface KubeViewSnapshot { query: KubeQuery; crumbs: string[]; selected?: string; dock: DockMode;
   filters?: Partial<Record<KubeKind, KubeFilterSnapshot>>; logFormat?: 'compact' | 'raw' }
+
+/** Kinds "Mit KI analysieren" reads directly; an event is analysed through the object it concerns. */
+export const DIAGNOSE_KINDS: readonly KubeKind[] = ['pods', 'deployments', 'statefulsets', 'daemonsets', 'jobs'];
+/** Upper bound of the analysis context, about 4 000 tokens. */
+export const DIAGNOSE_MAX_CHARS = 16_000;
+export type KubeDiagnosePartId = 'trigger' | 'object' | 'events' | 'pods' | 'podEvents' | 'logs' | 'previousLogs' | 'owner' | 'node';
+/** One section of the context. name: `pod/container` for logs, `Kind name` for the owner, the node or pod name. missing: why the section is empty. */
+export interface KubeDiagnosePart { id: KubeDiagnosePartId; name?: string; chars: number; missing?: 'forbidden' | 'notFound' | 'none' | 'failed' }
+/** The context as it goes into the first message, and its parts for the preview. */
+export interface KubeDiagnosis { text: string; parts: KubeDiagnosePart[] }
+/** `event`: the event (kind 'events') the analysis started from. */
+export interface KubeDiagnoseRequest { viewId: string; ref: KubeRef; event?: KubeRef }
+
+/** "In Argo CD öffnen" / "In Harbor öffnen": what the renderer may ask for; main takes the host from the vault. */
+export type KubeLink = { type: 'argo'; app: string } | { type: 'harbor'; image: string; digest?: string };
+export interface KubeOpenLinkRequest { viewId: string; link: KubeLink }
+export interface KubeArgoRequest { viewId: string; app: string }
+export const ARGO_SYNC = ['Synced', 'OutOfSync', 'Unknown'] as const;
+export const ARGO_HEALTH = ['Healthy', 'Progressing', 'Degraded', 'Suspended', 'Missing', 'Unknown'] as const;
+/** What the confirmation says about an Argo CD application; read by `get` on applications.argoproj.io. */
+export interface KubeArgoState { automated: boolean; selfHeal: boolean; sync?: (typeof ARGO_SYNC)[number]; health?: (typeof ARGO_HEALTH)[number] }

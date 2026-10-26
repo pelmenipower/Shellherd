@@ -8,6 +8,8 @@
     "hostKeyChangedMeanwhile": "The stored server key was changed in the meantime.",
     "hostKeySaveFailed": "The server key could not be saved. Connection aborted.",
     "hostKeyRejected": "The server key was not confirmed.",
+    "hostKeyRevoked": "The server key is marked as revoked (@revoked from an imported known_hosts). Connection aborted.",
+    "hostKeysSaveFailed": "The server keys could not be saved.",
     "sessionLimit": "At most {{max}} sessions at a time. Close a tab first.",
     "notTerminal": "This connection is not a terminal connection.",
     "clusterInTab": "Clusters open in the cluster tab.",
@@ -47,6 +49,17 @@
     "containerNotFound": "Container “{{name}}” was not found.",
     "noShellInContainer": "No shell found in the container.",
     "serialConsoleUnavailable": "The serial console is not available. Add a serial port in the VM hardware.",
-    "loginSudoRejected": "sudo refused the stored password. Shellherd tries again only after the login data changes. To connect without the root shell: right-click the tab, then “Connect without start commands”."
+    "loginSudoRejected": "sudo refused the stored password. Shellherd tries again only after the login data changes. To connect without the root shell: right-click the tab, then “Connect without start commands”.",
+    "promptCancelled": "Sign-in cancelled.",
+    "promptInvalid": "The server sent too many or invalid sign-in prompts.",
+    "jumpHostMissing": "The jump host “{{id}}” no longer exists.",
+    "jumpHostUnusable": "“{{name}}” cannot be used as a jump host. It must be an active SSH connection without a jump host of its own.",
+    "jumpHostFailed": "Jump host “{{name}}” is not reachable.",
+    "jumpTargetUnreachable": "The jump host cannot reach {{host}}:{{port}}.",
+    "forwardPortInUse": "Port {{port}} is already in use on this computer.",
+    "forwardPortDenied": "Port {{port}} may not be opened on this computer.",
+    "forwardRemoteRefused": "The server refuses to forward port {{port}} (AllowTcpForwarding or port in use).",
+    "forwardElsewhere": "This port forward is already running in another tab.",
+    "forwardFailed": "The port forward could not be started."
   }
 }

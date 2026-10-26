@@ -14,6 +14,7 @@
     "sessionLimitText": "Maximal {{max}} Sessions gleichzeitig. Schließe zuerst einen Tab.",
     "tabNotMoved": "Tab nicht verschoben",
     "notVaultFileTitle": "Keine Vault-Datei",
+    "vaultPathRefusedTitle": "Vault-Datei nicht geöffnet",
     "vaultNotSaved": "Vault nicht gespeichert",
     "notRetried": "Nicht erneut gespeichert",
     "retryBusy": "Gerade läuft eine andere Speicherung. Wiederhole die Änderung danach.",
@@ -197,7 +198,8 @@
       "views": "Ansichten oben bündeln mehrere Bereiche; ein Workspace speichert alle Ansichten und Fenster.",
       "files": "Im Dateibrowser: F4 bearbeitet, F5 kopiert, Umschalt+F4 legt eine Datei an.",
       "settings": "Sprache, Dateiverknüpfung und KI-Anbieter stehen unter Einstellungen (Zahnrad oben rechts, {{shortcut}})."
-    }
+    },
+    "import": "Importieren"
   },
   "fileType": {
     "registered": "Shellherd ist mit .term-Dateien verknüpft.",
@@ -214,6 +216,7 @@
       "general": "Allgemein",
       "vault": "Vault",
       "connections": "Verbindungen",
+      "terminal": "Terminal",
       "assistant": "KI-Assistent"
     },
     "locked": "Vault-Einstellungen und KI-Anbieter erscheinen nach dem Entsperren.",
@@ -246,11 +249,38 @@
       "hint": "Gilt für neue SSH- und SFTP-Verbindungen dieses Vaults, auch für Container- und Cluster-Zugriffe über SSH. Der Verbindungs-Timeout läuft auch, solange die Rückfrage zum Host-Schlüssel offen ist. Einzelne Verbindungen können unter „Weitere Angaben“ abweichen."
     },
     "rangeError": "Gib eine ganze Zahl von {{min}} bis {{max}} ein.",
+    "terminal": {
+      "font": {
+        "label": "Schriftart",
+        "placeholder": "Consolas",
+        "error": "Nur Buchstaben, Ziffern, Leerzeichen, Punkt, Binde- und Unterstrich, höchstens 64 Zeichen."
+      },
+      "fontSize": {
+        "label": "Schriftgröße",
+        "unit": "Pixel"
+      },
+      "scrollback": {
+        "label": "Verlauf",
+        "unit": "Zeilen je Terminal"
+      },
+      "cursor": {
+        "label": "Cursor",
+        "block": "Block",
+        "bar": "Strich",
+        "underline": "Unterstrich"
+      },
+      "blink": "Cursor blinkt",
+      "hint": "Gilt sofort für alle offenen Terminals dieses Vaults. Leer oder auf diesem Computer nicht installiert: Consolas. Jede Verlaufszeile belegt Speicher, 10.000 Zeilen etwa 15 MB je Terminal, bei 16 offenen Terminals bis zu 240 MB. Ein kleinerer Wert kürzt den Verlauf offener Terminals."
+    },
     "assistant": {
       "none": "Noch kein Anbieter eingerichtet.",
       "summary_one": "{{count}} Anbieter, Standard: {{name}}",
       "summary_other": "{{count}} Anbieter, Standard: {{name}}",
       "manage": "Anbieter verwalten"
+    },
+    "hostKeys": {
+      "manage": "Server-Schlüssel verwalten",
+      "hint": "Bestätigte und importierte Server-Schlüssel ansehen, durchsuchen und entfernen; OpenSSH-known_hosts übernehmen."
     }
   },
   "icons": {
@@ -261,5 +291,69 @@
     "cloud": "Cloud",
     "network": "Netzwerk",
     "files": "Dateien"
+  },
+  "authPrompt": {
+    "title": "Anmeldung bei {{name}}",
+    "server": "{{host}} fragt nach weiteren Angaben.",
+    "field": "Antwort {{index}}",
+    "hint": "Die Antworten gehen nur an diesen Server und werden nicht gespeichert.",
+    "submit": "Anmelden",
+    "ariaLabel": "Anmeldeabfrage des Servers"
+  },
+  "update": {
+    "available": "Version {{version}} verfügbar",
+    "title": "Shellherd {{version}} ist verfügbar",
+    "notes": "Release-Notes ansehen",
+    "skip": "Diese Version überspringen",
+    "setting": {
+      "label": "Nach neuen Versionen suchen",
+      "hint": "Höchstens einmal am Tag fragt Shellherd nach dem Entsperren bei GitHub nach der neuesten Version und zeigt sie in der Statusleiste. Gesendet wird nur die Anfrage selbst, nichts aus dem Vault. Installieren musst du selbst."
+    }
+  },
+  "recent": {
+    "title": "Zuletzt benutzt",
+    "missing": "Datei nicht gefunden",
+    "removeAria": "„{{name}}“ aus der Liste entfernen"
+  },
+  "theme": {
+    "label": "Darstellung",
+    "aria": "Farbschema der Oberfläche",
+    "system": "System",
+    "dark": "Dunkel",
+    "light": "Hell"
+  },
+  "hostKeys": {
+    "title": "Server-Schlüssel",
+    "intro": "Shellherd vertraut diesen Schlüsseln beim Verbinden. Entfernst du einen, fragt Shellherd beim nächsten Verbinden wieder nach.",
+    "search": "Server-Schlüssel durchsuchen",
+    "searchPlaceholder": "Host, Typ oder Fingerprint …",
+    "import": "Aus known_hosts importieren …",
+    "importDone": "Import: {{added}} neu, {{known}} schon bekannt, {{revoked}} widerrufen, {{skipped}} übersprungen.",
+    "conflicts": "Shellherd kennt für diese Server einen anderen Schlüssel und behält ihn: {{hosts}}",
+    "hashed": "Gehashter Hostname",
+    "anyHost": "Alle Hosts",
+    "origin": {
+      "confirmed": "Bestätigt",
+      "imported": "Importiert",
+      "revoked": "Widerrufen"
+    },
+    "remove": "Entfernen",
+    "removeLabel": "{{host}} entfernen",
+    "empty": "Noch keine Server-Schlüssel gespeichert.",
+    "noMatch": "Keine Treffer.",
+    "shown": "{{shown}} von {{total}}",
+    "loadFailed": "Die Server-Schlüssel konnten nicht geladen werden.",
+    "importFailed": "Der Import ist fehlgeschlagen.",
+    "removeFailed": "Der Schlüssel konnte nicht entfernt werden."
+  },
+  "hello": {
+    "unlock": "Mit Windows Hello entsperren",
+    "open": "Mit Windows Hello öffnen",
+    "waiting": "Warte auf Windows Hello …",
+    "setting": "Mit Windows Hello entsperren (PIN, Gesicht oder Fingerabdruck)",
+    "hint": "Gilt nur für diesen Vault, auf diesem Gerät und in diesem Windows-Konto. Das Passwort funktioniert weiter.",
+    "unavailable": "Windows Hello ist auf diesem Gerät nicht eingerichtet. Einrichten unter Windows-Einstellungen → Konten → Anmeldeoptionen.",
+    "enabledMessage": "Windows Hello ist für diesen Vault eingeschaltet.",
+    "disabledMessage": "Windows Hello ist ausgeschaltet, der gespeicherte Schlüssel ist gelöscht."
   }
 }

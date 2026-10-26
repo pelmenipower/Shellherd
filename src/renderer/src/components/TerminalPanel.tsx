@@ -3,15 +3,24 @@ import type { CSSProperties } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SerializeAddon } from '@xterm/addon-serialize';
+import { SearchAddon } from '@xterm/addon-search';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
+import '../terminal-comfort-ui.css';
 import type { AdoptedSession, TerminalConnection } from '../terminal-tabs';
 import { liveSessions } from '../session-registry';
 import { terminalAccess } from '../terminal-access';
-import { xtermTheme } from '../terminal-theme';
+import { LIGHT_SCHEME_QUERY, xtermContrast, xtermTheme } from '../terminal-theme';
+import { terminalPrefs, xtermOptions } from '../terminal-prefs';
+import { linkHintHost, openTerminalLink } from '../terminal-links';
+import { tabActivity } from '../terminal-activity';
+import { broadcastable, broadcastGroup } from '../terminal-broadcast';
+import { matchesShortcut } from '../shortcut-match';
+import { TerminalSearchBar } from './TerminalSearchBar';
 import { useT } from '../i18n';
 import { codedFrom } from '../../../shared/errors';
 import type { CodedError } from '../../../shared/errors';
-import type { SshStatus, SshStep } from '../../../shared/ssh';
+import type { ForwardStatus, SshStatus, SshStep } from '../../../shared/ssh';
 import type { ConnectionErrorCode } from '../../../shared/connection-errors';
 import { LOCAL_CONTAINER_HOST } from '../../../shared/containers';
 import { WAIT_MS } from '../connect-timeline';
@@ -21,6 +30,7 @@ import { statusWord } from '../status-words';
 import { ConnectingCard } from './ConnectingCard';
 import { ConnectionErrorCard } from './ConnectionErrorCard';
 import { DisconnectedBar, type DisconnectReason } from './DisconnectedBar';
+import { ForwardBar } from './ForwardBar';
 
 interface TerminalPanelProps {
   connection: TerminalConnection;
@@ -53,6 +63,13 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
+  const searchAddon = useRef<SearchAddon | null>(null);
+  // Last search term; empty while the bar is closed. Copy-on-select skips matches of it (search must not overwrite the clipboard).
+  const searchQuery = useRef('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFocus, setSearchFocus] = useState(0);
+  // Host of the hovered link, shown as Ctrl+click target; null when no link is hovered.
+  const [linkTarget, setLinkTarget] = useState<string | null>(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
   const focusedRef = useRef(focused);
@@ -62,6 +79,8 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
   const [failure, setFailure] = useState<Failure | null>(null);
   const [closed, setClosed] = useState<Closed | null>(null);
   const [marks, setMarks] = useState<StepMark[]>([]);
+  // Last forwards event of this session; the bar shows it only while connected.
+  const [forwardList, setForwardList] = useState<{ sessionId: string; forwards: ForwardStatus[] } | null>(null);
   const [startedAt, setStartedAt] = useState(() => Date.now());
   const [attempt, setAttempt] = useState(0);
   const [showCard, setShowCard] = useState(false);
@@ -78,25 +97,39 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     cancelledRef.current = false;
     sessionRef.current = undefined;
     if (attempt > 0) {
-      setFailure(null); setClosed(null); setMarks([]); setStartedAt(Date.now());
+      setFailure(null); setClosed(null); setMarks([]); setForwardList(null); setStartedAt(Date.now());
       setStatus('connecting');
       onStatusChange(tabId, 'connecting');
     }
     const styles = getComputedStyle(document.documentElement);
-    const term = new Terminal({ cursorBlink: true, screenReaderMode: true, scrollback: 5000, fontSize: 14,
-      fontFamily: 'Consolas, "Cascadia Mono", monospace', allowProposedApi: false,
-      theme: xtermTheme(name => styles.getPropertyValue(name)) });
+    const term = new Terminal({ ...xtermOptions(terminalPrefs.get()), screenReaderMode: true, allowProposedApi: false,
+      linkHandler: { activate: (event, uri) => openTerminalLink(event, uri), hover: (_event, uri) => setLinkTarget(linkHintHost(uri)), leave: () => setLinkTarget(null), allowNonHttpProtocols: false },
+      theme: xtermTheme(name => styles.getPropertyValue(name)), minimumContrastRatio: xtermContrast(window.matchMedia(LIGHT_SCHEME_QUERY).matches) });
     const fit = new FitAddon();
     const serialize = new SerializeAddon();
+    const search = new SearchAddon();
     terminal.current = term;
     fitAddon.current = fit;
+    searchAddon.current = search;
     term.loadAddon(fit);
     term.loadAddon(serialize);
+    term.loadAddon(search);
+    term.loadAddon(new WebLinksAddon((event, uri) => openTerminalLink(event, uri), { hover: (_event, uri) => setLinkTarget(linkHintHost(uri)), leave: () => setLinkTarget(null) }));
+    // Ctrl+Shift+F only in the main window; dock panels pass it on to xterm.
+    term.attachCustomKeyEventHandler(event => {
+      if (!embedded && event.type === 'keydown' && matchesShortcut(event, { ctrl: true, shift: true, code: 'KeyF' })) {
+        event.preventDefault();
+        setSearchOpen(true);
+        setSearchFocus(n => n + 1);
+        return false;
+      }
+      return true;
+    });
     const access = terminalAccess(term);
     const register = (id: string): void => {
       sessionId = id;
       sessionRef.current = id;
-      liveSessions.set(tabId, { kind: 'terminal', sessionId: id, snapshot: () => serialize.serialize({ scrollback: 5000 }), terminal: access });
+      liveSessions.set(tabId, { kind: 'terminal', sessionId: id, snapshot: () => serialize.serialize({ scrollback: 5000 }), terminal: access, input: enqueue });
     };
     term.open(container.current!);
     fit.fit();
@@ -114,6 +147,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     const selection = term.onSelectionChange(() => {
       const text = term.getSelection();
       if (!text || !visibleRef.current) return;
+      if (searchQuery.current && text.toLowerCase() === searchQuery.current.toLowerCase()) return;
       pendingSelection = text;
       clearTimeout(copyTimer);
       copyTimer = setTimeout(() => { void flushCopy(); }, 80);
@@ -135,15 +169,19 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     const unsubscribe = window.desktopApi.onSshEvent(event => {
       if (disposed || event.sessionId !== sessionId) return;
       if (event.type === 'data') {
+        if (!embedded && !visibleRef.current) tabActivity.mark(tabId);
         term.write(new Uint8Array(event.data), () => {
           if (!disposed && sessionId) void window.desktopApi.sshAck({ sessionId, sequence: event.sequence }).catch(() => {});
         });
       } else if (event.type === 'step') {
         setMarks(previous => [...previous, { step: event.step, at: Date.now() }]);
+      } else if (event.type === 'forwards') {
+        setForwardList({ sessionId: event.sessionId, forwards: event.forwards });
       } else if (event.type === 'status') {
         // After cancelling, only the end of the session counts; a late 'connected' must not hide the bar.
         if (cancelledRef.current && event.status !== 'closed' && event.status !== 'error') return;
         connected = event.status === 'connected';
+        if (!connected) setForwardList(null);
         setStatus(event.status);
         onStatusChange(tabId, event.status);
         if (event.status === 'error') setFailure({ code: event.code ?? 'unknown', ...(event.error ? { error: event.error } : {}) });
@@ -156,7 +194,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     });
     let inputQueue = Promise.resolve();
     let pendingInputBytes = 0;
-    const input = term.onData(data => {
+    const enqueue = (data: string): void => {
       if (!sessionId || !connected) return;
       const bytes = new TextEncoder().encode(data).length;
       if (pendingInputBytes + bytes > 256 * 1024) {
@@ -173,6 +211,11 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
         }
       }).catch(() => report(() => notify.error(tRef.current('terminal:panel.inputFailedTitle'), { body: tRef.current('terminal:panel.inputFailed') })))
         .finally(() => { pendingInputBytes -= bytes; });
+    };
+    const input = term.onData(data => {
+      enqueue(data);
+      // "To all" group: the same keystrokes go to the other members, through their own queues. Terminal replies stay local.
+      if (broadcastable(data)) for (const other of broadcastGroup.others(tabId)) liveSessions.get(other)?.input?.(data);
     });
     const resize = term.onResize(size => {
       if (sessionId) void window.desktopApi.sshResize({ sessionId, cols: Math.min(500, size.cols), rows: Math.min(300, size.rows) }).catch(() => {});
@@ -230,7 +273,9 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       term.dispose();
       terminal.current = null;
       fitAddon.current = null;
+      searchAddon.current = null;
       liveSessions.delete(tabId);
+      tabActivity.clear(tabId);
       if (sessionId && !liveSessions.takeTransferred(sessionId)) void window.desktopApi.sshClose({ sessionId }).catch(() => {});
     };
   }, [connection.id, kubeKey, tabId, onStatusChange, attempt]);
@@ -242,6 +287,48 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     });
     return () => cancelAnimationFrame(frame);
   }, [visible]);
+
+  // Settings changes apply to open terminals at once.
+  useEffect(() => terminalPrefs.subscribe(() => {
+    const term = terminal.current;
+    if (!term) return;
+    Object.assign(term.options, xtermOptions(terminalPrefs.get()));
+    if (container.current?.clientWidth) fitAddon.current?.fit();
+  }), []);
+
+  // The colour scheme can change at runtime (setting or Windows); xterm keeps its own copy of the colours.
+  useEffect(() => {
+    const query = window.matchMedia(LIGHT_SCHEME_QUERY);
+    const apply = (): void => {
+      const term = terminal.current;
+      if (!term) return;
+      const styles = getComputedStyle(document.documentElement);
+      term.options.theme = xtermTheme(name => styles.getPropertyValue(name));
+      term.options.minimumContrastRatio = xtermContrast(query.matches);
+    };
+    query.addEventListener('change', apply);
+    return () => query.removeEventListener('change', apply);
+  }, []);
+
+  // Becoming visible means the output has been seen.
+  useEffect(() => {
+    if (visible) tabActivity.clear(tabId);
+  }, [visible, tabId]);
+
+  const onFind = (query: string, direction: 'next' | 'previous', incremental: boolean): boolean => {
+    searchQuery.current = query;
+    const term = terminal.current;
+    const addon = searchAddon.current;
+    if (!term || !addon) return false;
+    if (!query) { term.clearSelection(); return true; }
+    return direction === 'next' ? addon.findNext(query, { incremental }) : addon.findPrevious(query);
+  };
+  const closeSearch = (): void => {
+    searchQuery.current = '';
+    setSearchOpen(false);
+    terminal.current?.clearSelection();
+    terminal.current?.focus();
+  };
 
   // The connecting card is a waiting indicator: it shows only when connecting takes longer than WAIT_MS.
   useEffect(() => {
@@ -266,13 +353,19 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     if (id) void window.desktopApi.sshClose({ sessionId: id }).catch(() => {});
   };
   const cardActive = focused && visible && !embedded;
-  const steps = connection.protocol === 'ssh' && !connection.kube && connection.id !== LOCAL_CONTAINER_HOST ? SSH2_STEPS : SHELL_STEPS;
+  const steps: readonly SshStep[] = connection.protocol === 'ssh' && !connection.kube && connection.id !== LOCAL_CONTAINER_HOST
+    ? (marks.some(mark => mark.step === 'jump') ? ['jump', ...SSH2_STEPS] : SSH2_STEPS) : SHELL_STEPS;
   const remote = (connection.protocol === 'ssh' || connection.protocol === 'sftp' || connection.protocol === 'rdp') && connection.id !== LOCAL_CONTAINER_HOST;
 
   return (
     <section className={`terminal-panel${focused ? ' focused-pane' : ''}`} style={style} onPointerDown={onFocus} onFocusCapture={onFocus} id={`terminal-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} hidden={!visible}>
       <span className="terminal-live-status" role="status">{statusWord(status, 'long', { name: connection.name })}</span>
+      {searchOpen && !embedded && <TerminalSearchBar onFind={onFind} onClose={closeSearch} focusRequest={searchFocus} />}
       <div ref={container} className="terminal-container" />
+      {linkTarget && <div className="terminal-link-hint" aria-hidden="true">{t('terminal:links.hintTarget', { host: linkTarget })}</div>}
+      {status === 'connected' && forwardList && forwardList.forwards.length > 0 && (
+        <ForwardBar sessionId={forwardList.sessionId} forwards={forwardList.forwards} />
+      )}
       {status === 'connecting' && showCard && (
         <ConnectingCard name={connection.name} address={connection.address} steps={steps} marks={marks} startedAt={startedAt}
           active={cardActive} ticking={visible} onCancel={cancel} />

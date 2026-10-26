@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { AckSchema, InputSchema, parseRequest, PrepareSchema, ResizeSchema } from './validation';
+import { AckSchema, AuthPromptAnswerSchema, ForwardSchema, InputSchema, parseRequest, PrepareSchema, ResizeSchema } from './validation';
 
 describe('SSH IPC input validation', () => {
   const sessionId = randomUUID();
@@ -25,5 +25,25 @@ describe('SSH IPC input validation', () => {
     expect(PrepareSchema.safeParse({ ...base, target: { item: { kind: 'lxc', vmid: 101, name: 'ct' }, mode: 'shell' } }).success).toBe(true);
     expect(PrepareSchema.safeParse({ ...base, target: { item: { kind: 'lxc', vmid: 101, name: 'ct' }, mode: 'exec' } }).success).toBe(false);
     expect(PrepareSchema.safeParse({ ...base, target: { item: { kind: 'container', runtime: 'docker', ref: 'a b', name: 'a' }, mode: 'shell' } }).success).toBe(false);
+  });
+});
+
+describe('SSH auth prompt and port forward validation', () => {
+  const promptId = randomUUID();
+  const sessionId = randomUUID();
+  it('accepts an answer with a UUID, at most eight texts of 1024 characters, or a cancel', () => {
+    expect(parseRequest(AuthPromptAnswerSchema, { promptId, answers: ['synthetic-code'] })).toEqual({ promptId, answers: ['synthetic-code'] });
+    expect(parseRequest(AuthPromptAnswerSchema, { promptId, answers: null })).toEqual({ promptId, answers: null });
+    expect(() => parseRequest(AuthPromptAnswerSchema, { promptId: 'wrong', answers: null })).toThrow(expect.objectContaining({ code: 'ssh.invalidRequest' }));
+    expect(() => parseRequest(AuthPromptAnswerSchema, { promptId, answers: Array(9).fill('x') })).toThrow();
+    expect(() => parseRequest(AuthPromptAnswerSchema, { promptId, answers: ['x'.repeat(1025)] })).toThrow();
+    expect(() => parseRequest(AuthPromptAnswerSchema, { promptId, answers: null, extra: 1 })).toThrow();
+  });
+  it('accepts a forward request with UUIDs and a boolean run only', () => {
+    const forwardId = randomUUID();
+    expect(parseRequest(ForwardSchema, { sessionId, forwardId, run: true })).toEqual({ sessionId, forwardId, run: true });
+    expect(() => parseRequest(ForwardSchema, { sessionId, forwardId: 'local-1', run: true })).toThrow();
+    expect(() => parseRequest(ForwardSchema, { sessionId, forwardId, run: 'yes' })).toThrow();
+    expect(() => parseRequest(ForwardSchema, { sessionId, forwardId, run: true, host: 'injected' })).toThrow();
   });
 });

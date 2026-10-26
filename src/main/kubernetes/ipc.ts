@@ -1,21 +1,21 @@
-import { ipcMain, webContents } from 'electron';
+import { ipcMain, shell, webContents } from 'electron';
 import { AppError } from '../../shared/errors';
 import type { IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc';
-import { KubeActionRequestSchema, KubeDetailRequestSchema, KubeOpenRequestSchema, KubeProbeRequestSchema, KubeSubscribeRequestSchema, KubeViewRequestSchema } from '../../shared/kubernetes-schema';
+import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeArgoRequestSchema, KubeDetailRequestSchema, KubeDiagnoseRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeOpenLinkRequestSchema, KubeOpenRequestSchema, KubeProbeRequestSchema, KubeSubscribeRequestSchema, KubeViewRequestSchema } from '../../shared/kubernetes-schema';
 import type { KubeProbeResult } from '../../shared/kubernetes';
 import type { ConnectionNode, SshConnectionNode } from '../../shared/vault/types';
-import { openRemoteHost } from '../containers/runner';
+import { openRemoteWithJump } from '../containers/ipc';
 import type { SudoRejections } from '../containers/sudo-rejections';
-import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { vaultSessionManager } from '../vault/ipc';
+import type { AuthPrompts } from '../ssh/auth-prompts';
 import type { KnownHosts } from '../ssh/known-hosts';
 import { requireSshSender } from '../ssh/ipc';
 import { findConnection, publicError } from '../ssh/session';
 import { parseRequest } from '../ssh/validation';
 import { openAccess, readKubeconfig } from './access';
 import { createKubeApi } from './client-api';
-import { KubeSessions, userError } from './session';
+import { KubeSessions, openableHref, userError } from './session';
 import { openTunnel } from './tunnel';
 import { listContexts } from './kubeconfig';
 
@@ -32,11 +32,9 @@ function handle(channel: string, handler: Handler): void {
   });
 }
 
-export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, sudoRejections: SudoRejections): KubeSessions {
+export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, prompts: AuthPrompts, sudoRejections: SudoRejections): KubeSessions {
   const getConnection = (id: string): ConnectionNode | undefined => findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
-  const openRemote = (connection: SshConnectionNode) =>
-    openRemoteHost(connection, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive), undefined,
-      effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, connection));
+  const openRemote = (connection: SshConnectionNode) => openRemoteWithJump(connection, knownHosts, prompts);
 
   const sessions = new KubeSessions({
     getCluster: id => {
@@ -73,6 +71,51 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, sudoReject
     const ownerId = requireSshSender(event);
     sessions.close(ownerId, parseRequest(KubeViewRequestSchema, request).viewId);
   });
+  handle(IPC_CHANNELS.kubeForwardStart, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeForwardStartRequestSchema, request);
+    return sessions.startForward(ownerId, parsed.viewId, parsed.target, parsed.localPort);
+  });
+  handle(IPC_CHANNELS.kubeForwardStop, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeForwardStopRequestSchema, request);
+    sessions.stopForward(ownerId, parsed.viewId, parsed.forwardId);
+  });
+  handle(IPC_CHANNELS.kubeLogsStart, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeLogsStartRequestSchema, request);
+    return sessions.startLogs(ownerId, parsed.viewId, { id: parsed.id, namespace: parsed.namespace, selector: parsed.selector, format: parsed.format });
+  });
+  handle(IPC_CHANNELS.kubeLogsStop, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeLogsStopRequestSchema, request);
+    sessions.stopLogs(ownerId, parsed.viewId, parsed.id);
+  });
+  handle(IPC_CHANNELS.kubeAccess, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeAccessRequestSchema, request);
+    return sessions.access(ownerId, parsed.viewId, parsed.namespace);
+  });
+  handle(IPC_CHANNELS.kubeDiagnose, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeDiagnoseRequestSchema, request);
+    return sessions.diagnose(ownerId, parsed.viewId, parsed.ref, parsed.event);
+  });
+  // The address comes from the vault entry only; the renderer names the app or image, never the host.
+  handle(IPC_CHANNELS.kubeOpenLink, async (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeOpenLinkRequestSchema, request);
+    const { href, base } = sessions.linkTarget(ownerId, parsed.viewId, parsed.link);
+    // Checked again right before the browser opens: https only, on the host of the vault address.
+    const safe = openableHref(href, base);
+    if (!safe) throw new AppError('kubernetes.linkRefused');
+    await shell.openExternal(safe);
+  });
+  handle(IPC_CHANNELS.kubeArgoApp, (event, request) => {
+    const ownerId = requireSshSender(event);
+    const parsed = parseRequest(KubeArgoRequestSchema, request);
+    return sessions.argoApp(ownerId, parsed.viewId, parsed.app);
+  });
   // Reads the contexts of a kubeconfig on an SSH host; the config text itself never leaves the main process.
   handle(IPC_CHANNELS.kubeProbe, async (event, request): Promise<KubeProbeResult> => {
     requireSshSender(event);
@@ -89,4 +132,3 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, sudoReject
   });
   return sessions;
 }
-

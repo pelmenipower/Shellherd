@@ -16,12 +16,12 @@ function useCaptureShortcut(code: string, shift: boolean, allowRepeat: boolean, 
   }, [code, shift, allowRepeat]);
 }
 
-/** Ctrl+Shift+<code>, capture phase, so terminals with focus do not swallow it; also fires on repeat. */
-export function useCtrlShiftShortcut(code: string, action: () => void): void {
-  useCaptureShortcut(code, true, true, action);
+/** Ctrl+Shift+<code>, capture phase, so terminals with focus do not swallow it; fires on repeat unless allowRepeat is false. */
+export function useCtrlShiftShortcut(code: string, action: () => void, allowRepeat = true): void {
+  useCaptureShortcut(code, true, allowRepeat, action);
 }
 
-/** Ctrl+<code> without Shift/Alt, capture phase. Always swallows a match; the action runs only if !event.repeat. */
-export function useCtrlShortcut(code: string, action: () => void): void {
-  useCaptureShortcut(code, false, false, action);
+/** Ctrl+<code> without Shift/Alt, capture phase. Always swallows a match; the action runs on repeat only if allowRepeat. */
+export function useCtrlShortcut(code: string, action: () => void, allowRepeat = false): void {
+  useCaptureShortcut(code, false, allowRepeat, action);
 }

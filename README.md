@@ -39,18 +39,21 @@ Shellherd keeps all your servers, desktops and clusters in one window. Connectio
 
 ## Features
 
-- **SSH terminals** – up to 16 sessions as tabs, password, private key (with passphrase) or SSH agent, verified host keys.
+- **SSH terminals** – up to 16 sessions as tabs, password, private key (with passphrase) or SSH agent, verified host keys. Two-factor sign-in prompts and one jump host per connection are supported.
+- **Port forwards** – local, remote and SOCKS forwards per SSH connection, started and stopped from the terminal tab.
 - **Root shell and start commands** – per SSH connection, become root with `sudo -i` after login and type start commands, one line each.
 - **Split views and workspaces** – drag tabs into up to four panes, rename tabs and views, and save the layout as a named workspace.
 - **Remote Desktop (RDP)** – embedded in a tab, no extra install, including shortcuts like Ctrl+Alt+Del.
-- **SFTP file browser** – two-pane, WinSCP style, with a transfer queue, edit-and-upload for remote files and Auto-Upload that mirrors a local folder to the server while the view is open. Transfers keep many requests in flight, resume where they stopped and can be verified by SHA-256 checksum. Text, configuration and source files open in their default program, everything else in Notepad, so a remote script never runs by accident.
+- **SFTP file browser** – two-pane, WinSCP style (go to path, filter, hide dotfiles), with a transfer queue, edit-and-upload for remote files and Auto-Upload that mirrors a local folder to the server while the view is open. Transfers keep many requests in flight, resume where they stopped and can be verified by SHA-256 checksum. Text, configuration and source files open in their default program, everything else in Notepad, so a remote script never runs by accident.
 - **Docker and Podman** – a container view per SSH host or for the local machine: containers, images, volumes and networks with filters, logs, shell and inspect.
 - **Proxmox** – LXC containers and VMs under their host, with shell, serial console and power actions.
-- **Kubernetes** – set up a cluster from an existing SSH connection; live nodes, workloads, pods and events with drill-down, logs, shell, YAML and describe. Production clusters ask you to type the resource name before any change.
+- **Kubernetes** – set up a cluster from an existing SSH connection; live nodes, workloads, pods and events with drill-down, logs, shell, YAML and describe, and port forwards to pods and services on 127.0.0.1, logs of all pods of a workload merged by time, and menu entries greyed out up front when RBAC forbids them, and an AI analysis of a failing pod or workload that only reads and never sends Secrets, links to Argo CD and Harbor, and a self-heal hint before changing what Argo CD manages. Production clusters ask you to type the resource name before any change.
 - **German and English UI** – follows the Windows language by default; switch any time without a restart. Dates, numbers and sorting follow the language too.
 - **Lock screen** – lock by hand or automatically after a set time without input; sessions keep running behind it and are back after unlocking. Idle disconnect, keepalive and connection timeout are set per vault and can be overridden per connection.
-- **Settings in one place** – gear in the header or `Ctrl+,`: language, `.term` file association, confirmation before disconnecting, auto-lock, connection timeouts and the AI providers.
+- **Settings in one place** – gear in the header or `Ctrl+,`: language, light or dark appearance, `.term` file association, confirmation before disconnecting, auto-lock, connection timeouts and the AI providers.
+- **Terminal comfort** – search in the terminal with `Ctrl+Shift+F`, links opened with Ctrl+click (http and https only), tab shortcuts, a mark on background tabs with new output, input to all panes, and font, scrollback and cursor settings.
 - **Local shells** – PowerShell and CMD tabs next to your remote sessions.
+- **Import** – connections from OpenSSH (`~/.ssh/config`), PuTTY, WinSCP and mRemoteNG, shown as a preview with checkboxes before anything is saved. Passwords are never imported; key files stay where they are and only their path is stored.
 - **AI assistant** (optional) – reads the terminal, explains output and suggests the next command. Nothing reaches the terminal until you click **Type in**, and nothing runs until you press Enter. Works with OpenAI-compatible endpoints (including Ollama and LM Studio), Azure AI Foundry, Anthropic and Google Gemini.
 
 ## Screenshots
@@ -102,6 +105,13 @@ The builds are not code-signed yet, so Windows SmartScreen may warn on first sta
 
 Found a vulnerability? Please open a [private security advisory](https://github.com/pelmenipower/Shellherd/security/advisories/new) instead of a public issue.
 
+## Privacy
+
+Shellherd makes no requests of its own besides these two. Connections you open (SSH, SFTP, containers, Kubernetes, RDP) go only to the hosts you configured. Argo CD and Harbor links open in your browser only after your click; Shellherd itself never contacts either.
+
+- **AI providers** (optional): once you set one up, the assistant sends your questions and the terminal output it reads to the endpoint you chose.
+- **Update check** (on by default): at most once a day, after unlocking, Shellherd asks GitHub for the latest release. The request contains only your IP address and `User-Agent: Shellherd/<version>`, nothing from the vault. Turn it off under Settings → General.
+
 ## Development
 
 Requires [Node.js](https://nodejs.org/) 24 and Windows (the RDP helper is compiled with the C# compiler that ships with .NET Framework 4.8).
@@ -124,7 +134,7 @@ npm run dev
 
 ### Driving the app (screenshots, UI checks)
 
-[`.claude/skills/run-app/`](.claude/skills/run-app/SKILL.md) runs the built app under Playwright with an isolated profile, a synthetic demo vault and a local SSH test server, plus local fakes for SFTP, Docker, Kubernetes and the AI assistant. Native dialogs are stubbed, and real vaults and `%APPDATA%\Shellherd` are never touched. A small HTTP driver on `127.0.0.1:9333` accepts clicks, typing and screenshots. It writes a new token to `%TEMP%\shellherd-run\token` on every start and rejects requests without it, or from a browser, with 403:
+[`.claude/skills/run-app/`](.claude/skills/run-app/SKILL.md) runs the built app under Playwright with an isolated profile, a synthetic demo vault and a local SSH test server, plus local fakes for SFTP, Docker, Kubernetes and the AI assistant. Native dialogs are stubbed, links never open a browser, and real vaults and `%APPDATA%\Shellherd` are never touched. A small HTTP driver on `127.0.0.1:9333` accepts clicks, typing and screenshots. It writes a new token to `%TEMP%\shellherd-run\token` on every start and rejects requests without it, or from a browser, with 403:
 
 ```powershell
 npx electron-vite build

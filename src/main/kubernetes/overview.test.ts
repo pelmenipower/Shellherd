@@ -62,6 +62,11 @@ class FakeApi implements KubeApi {
   remove(): never { throw new Error('unused'); }
   createJobFrom(): never { throw new Error('unused'); }
   openTerminal(): never { throw new Error('unused'); }
+  portForward(): never { throw new Error('unused'); }
+  followLog(): never { throw new Error('unused'); }
+  readLog(): never { throw new Error('unused'); }
+  rulesReview(): never { throw new Error('unused'); }
+  readArgoApp(): never { throw new Error('unused'); }
 }
 
 function pod(name: string, namespace: string, extra: Record<string, unknown> = {}): KubeObject {

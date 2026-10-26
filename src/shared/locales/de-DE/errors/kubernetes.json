@@ -45,11 +45,24 @@
     "noPreviousContainer": "Kein vorheriger Container vorhanden.",
     "noShell": "Im Container gibt es weder bash noch sh.",
     "containerConnectionFailed": "Die Verbindung zum Container ist fehlgeschlagen.",
+    "portForwardForbidden": "Keine Berechtigung für Port-Weiterleitungen in {{namespace}} (pods/portforward, create).",
+    "portForwardPodGone": "Den Pod {{name}} gibt es nicht (mehr).",
+    "portForwardNotRunning": "Der Pod {{name}} läuft nicht.",
+    "portForwardRefused": "Im Pod nimmt niemand Verbindungen auf Port {{port}} an.",
+    "portForwardNoSelector": "Der Service {{name}} hat keinen Selector, z. B. ExternalName.",
+    "portForwardNoPort": "Port {{port}} gibt es an diesem Service oder Pod nicht.",
+    "portForwardNoReadyPod": "Der Service {{name}} hat keinen bereiten Pod.",
+    "portForwardTooMany": "Höchstens {{max}} Port-Weiterleitungen gleichzeitig.",
+    "portForwardBusy": "Mehr als {{max}} gleichzeitige Verbindungen, weitere werden abgewiesen.",
+    "portForwardFailed": "Die Port-Weiterleitung ist fehlgeschlagen.",
     "problemCrashloop": "{{name}} crasht (CrashLoopBackOff, {{restarts}} Neustarts)",
     "problemImage": "{{name}}: Image kann nicht geladen werden ({{reason}})",
     "problemOom": "{{name}} wurde wegen Speichermangel beendet (OOMKilled)",
     "problemPending": "{{name}} wartet seit {{minutes}} min (Pending)",
     "problemNodeNotReady": "{{name}} ist nicht bereit",
-    "problemNodePressure": "{{name}}: {{pressure}}"
+    "problemNodePressure": "{{name}}: {{pressure}}",
+    "noArgoUrl": "Im Cluster-Eintrag ist keine Argo-CD-Adresse hinterlegt.",
+    "noHarborUrl": "Im Cluster-Eintrag ist keine Harbor-Adresse hinterlegt.",
+    "linkRefused": "Dieser Link wird nicht geöffnet: Er passt nicht zur Adresse im Cluster-Eintrag."
   }
 }

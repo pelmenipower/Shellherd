@@ -1,12 +1,16 @@
 import { createServer } from 'node:http';
+import type { IncomingMessage } from 'node:http';
+import { createRequire } from 'node:module';
+import { connect, createServer as createNetServer } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 import { PassThrough } from 'node:stream';
-import type { AddressInfo } from 'node:net';
-import { KubeConfig, KubernetesObjectApi, Watch } from '@kubernetes/client-node';
+import type { Duplex } from 'node:stream';
+import { AuthorizationV1Api, CustomObjectsApi, KubeConfig, KubernetesObjectApi, Watch } from '@kubernetes/client-node';
 import { describe, expect, it, vi } from 'vitest';
 import type { KubeTerminalTarget } from '../../shared/kubernetes';
 import type { CodedError } from '../../shared/errors';
 import { KubeApiError } from './api';
-import { createKubeApi, isAltnameError, manualJobBody, openLogs, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
+import { createKubeApi, followLogUrl, isAltnameError, manualJobBody, openLogs, portForwardError, readLog, readLogUrl, resourcePath, selectorQuery, toApiError, watchEnd } from './client-api';
 import type { LogRequest } from './client-api';
 
 function testConfig(server = 'https://k8s.example:6443'): KubeConfig {
@@ -390,5 +394,324 @@ describe('createKubeApi remove and createJobFrom', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('portForwardError', () => {
+  it('maps handshake statuses and wrapped network errors, never the server text', () => {
+    expect(portForwardError({ message: 'Unexpected server response: 403' }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.portForwardForbidden', params: { namespace: 'shop' } });
+    expect(portForwardError({ error: { message: 'Unexpected server response: 404' } }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.portForwardPodGone', params: { name: 'p' } });
+    expect(portForwardError({ message: 'Unexpected server response: 400' }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.portForwardNotRunning', params: { name: 'p' } });
+    expect(portForwardError({ message: 'Unexpected server response: 401' }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.unauthorized' });
+    expect(portForwardError({ message: 'boom' }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.apiError' });
+    expect(portForwardError({ message: 'read ECONNRESET', error: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) }, 'shop', 'p').coded)
+      .toEqual({ code: 'kubernetes.connectionReset' });
+    expect(portForwardError({ cause: { code: 'ERR_TLS_CERT_ALTNAME_INVALID' } }, 'shop', 'p').coded).toEqual({ code: 'kubernetes.tlsAltname' });
+  });
+});
+
+/** The parts of ws's server side the fake kubelet below uses; ws ships without types. */
+interface FakeKubeletSocket { send(data: Buffer): void; close(): void; pause(): void; resume(): void; on(event: 'message', listener: (data: Buffer) => void): void }
+interface FakeKubeletServer {
+  clients: Set<unknown>;
+  handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer, done: (ws: FakeKubeletSocket) => void): void;
+  close(): void;
+}
+const { WebSocketServer } = createRequire(import.meta.url)('ws') as {
+  WebSocketServer: new (options: { noServer: true; handleProtocols: (protocols: Set<string>) => string | false }) => FakeKubeletServer;
+};
+
+describe('createKubeApi.portForward', () => {
+  const SIZE = 8 * 1024 * 1024;
+  // Large against loopback kernel buffers (several MiB on Linux), so only back-pressure keeps the read count low.
+  const UPLOAD = 32 * 1024 * 1024;
+  const portPrefix = (channel: number) => Buffer.from([channel, 8080 & 0xff, 8080 >> 8]);
+  const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  /** A kubelet stand-in behind a plain HTTP API server, and a local listener that hands each connection to portForward like KubeForwards. */
+  async function kubelet(pod: string, run: (ws: FakeKubeletSocket) => void) {
+    const wss = new WebSocketServer({ noServer: true, handleProtocols: protocols => (protocols.has('v4.channel.k8s.io') ? 'v4.channel.k8s.io' : false) });
+    const server = createServer();
+    server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+      if (request.url?.includes('/pods/forbidden/')) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'); return; }
+      wss.handleUpgrade(request, socket, head, ws => { ws.send(portPrefix(0)); ws.send(portPrefix(1)); run(ws); });
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const api = createKubeApi(testConfig(`http://127.0.0.1:${(server.address() as AddressInfo).port}`));
+    const accepted: Socket[] = [];
+    const results: Promise<unknown>[] = [];
+    const local = createNetServer(socket => {
+      socket.pause();
+      socket.on('error', () => {});
+      accepted.push(socket);
+      results.push(api.portForward('shop', pod, 8080, socket).then(() => undefined, (error: unknown) => { socket.destroy(); return error; }));
+    });
+    await new Promise<void>(resolve => local.listen(0, '127.0.0.1', resolve));
+    const close = () => { local.close(); wss.close(); server.closeAllConnections(); server.close(); };
+    return { port: (local.address() as AddressInfo).port, accepted, results, clients: wss.clients, close };
+  }
+
+  it('hands a slow reader everything the pod sent, without buffering it all in main, then ends cleanly', async () => {
+    const fake = await kubelet('p', ws => {
+      const chunk = Buffer.alloc(64 * 1024, 7);
+      for (let sent = 0; sent < SIZE; sent += chunk.length) ws.send(Buffer.concat([Buffer.from([0]), chunk]));
+      ws.close();
+    });
+    try {
+      const client = connect(fake.port, '127.0.0.1');
+      client.pause();
+      let received = 0;
+      client.on('data', (data: Buffer) => { received += data.length; });
+      const closed = new Promise(resolve => client.on('close', resolve));
+      await wait(300);
+      expect(fake.accepted[0].writableLength).toBeLessThan(2 * 1024 * 1024);
+      client.resume();
+      await closed;
+      expect(received).toBe(SIZE);
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('stops reading from a fast local sender while the pod side is slow, then delivers everything', async () => {
+    let received = 0;
+    let resumePod = (): void => {};
+    const fake = await kubelet('p', ws => {
+      ws.pause();
+      resumePod = () => ws.resume();
+      ws.on('message', data => { received += data.length - 1; });
+    });
+    try {
+      const client = connect(fake.port, '127.0.0.1', () => {
+        const chunk = Buffer.alloc(64 * 1024, 3);
+        let sent = 0;
+        const pump = (): void => {
+          while (sent < UPLOAD) {
+            sent += chunk.length;
+            if (!client.write(chunk)) { client.once('drain', pump); return; }
+          }
+        };
+        pump();
+      });
+      client.on('error', () => {});
+      await wait(300);
+      expect(fake.accepted[0].bytesRead).toBeLessThan(UPLOAD / 2);
+      resumePod();
+      for (const end = Date.now() + 10_000; received < UPLOAD && Date.now() < end;) await wait(20);
+      expect(received).toBe(UPLOAD);
+      client.destroy();
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('destroys the local socket with portForwardRefused, without the kubelet text', async () => {
+    const fake = await kubelet('p', ws => {
+      ws.send(Buffer.concat([Buffer.from([1]), Buffer.from('error forwarding port 8080 to pod 10.244.1.7: connect: connection refused')]));
+      ws.close();
+    });
+    try {
+      const client = connect(fake.port, '127.0.0.1');
+      client.on('error', () => {});
+      await new Promise(resolve => client.on('close', resolve));
+      for (const end = Date.now() + 2000; !fake.accepted[0]?.destroyed && Date.now() < end;) await wait(10);
+      const error = fake.accepted[0].errored;
+      expect(error).toMatchObject({ coded: { code: 'kubernetes.portForwardRefused', params: { port: 8080 } } });
+      expect((error as Error).message).not.toContain('10.244');
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('closes the WebSocket promptly when the local side ends while the stream is paused', async () => {
+    const fake = await kubelet('p', ws => {
+      const chunk = Buffer.alloc(64 * 1024, 5);
+      for (let sent = 0; sent < 16 * 1024 * 1024; sent += chunk.length) ws.send(Buffer.concat([Buffer.from([0]), chunk]));
+    });
+    try {
+      const client = connect(fake.port, '127.0.0.1');
+      client.pause();
+      client.on('error', () => {});
+      await wait(300);
+      fake.accepted[0].destroy();
+      // Without the writable guard the paused WebSocket is never read again and only ws's 30 s timer closes it.
+      await vi.waitFor(() => expect(fake.clients.size).toBe(0), { timeout: 2_000 });
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('reports portForwardFailed when channel 1 carries text after data was delivered', async () => {
+    const fake = await kubelet('p', ws => {
+      ws.send(Buffer.concat([Buffer.from([0]), Buffer.from('HTTP/1.1 200 OK')]));
+      ws.send(Buffer.concat([Buffer.from([1]), Buffer.from('error copying: connection reset by peer 10.244.1.7')]));
+      ws.close();
+    });
+    try {
+      const client = connect(fake.port, '127.0.0.1');
+      client.on('error', () => {});
+      // Drain what the pod sent before the error, so the client socket can reach 'close'.
+      client.resume();
+      await new Promise(resolve => client.on('close', resolve));
+      for (const end = Date.now() + 2000; !fake.accepted[0]?.destroyed && Date.now() < end;) await wait(10);
+      const error = fake.accepted[0].errored;
+      expect(error).toMatchObject({ coded: { code: 'kubernetes.portForwardFailed' } });
+      expect((error as Error).message).not.toContain('10.244');
+    } finally {
+      fake.close();
+    }
+  });
+
+  it('rejects a forbidden handshake with portForwardForbidden', async () => {
+    const fake = await kubelet('forbidden', () => {});
+    try {
+      const client = connect(fake.port, '127.0.0.1');
+      client.on('error', () => {});
+      await new Promise(resolve => client.on('close', resolve));
+      expect(await fake.results[0]).toMatchObject({ coded: { code: 'kubernetes.portForwardForbidden', params: { namespace: 'shop' } } });
+    } finally {
+      fake.close();
+    }
+  });
+});
+
+describe('followed workload logs', () => {
+  it('builds the URL with timestamps and either tailLines or sinceTime, names encoded', () => {
+    expect(followLogUrl('https://k8s.example:6443', logsTarget, { tailLines: 200 }))
+      .toBe('https://k8s.example:6443/api/v1/namespaces/shop/pods/api-1/log?container=app&follow=true&timestamps=true&tailLines=200');
+    expect(followLogUrl('https://k8s.example:6443', logsTarget, { sinceTime: '2026-10-25T08:10:00Z' }))
+      .toBe('https://k8s.example:6443/api/v1/namespaces/shop/pods/api-1/log?container=app&follow=true&timestamps=true&sinceTime=2026-10-25T08%3A10%3A00Z');
+    expect(followLogUrl('https://k8s.example:6443', { ...logsTarget, pod: 'a b', container: 'c&d' }, {}))
+      .toBe('https://k8s.example:6443/api/v1/namespaces/shop/pods/a%20b/log?container=c%26d&follow=true&timestamps=true&tailLines=200');
+  });
+
+  it('passes the raw bytes on, JSON unchanged and a partial last line without holding it back', async () => {
+    const fake = fakeLogRequest();
+    const io = fakeIo();
+    openLogs(testConfig(), logsTarget, io, fake.sendRequest, { tailLines: 200 });
+    await flush();
+    expect(fake.calls[0].url).toContain('timestamps=true');
+    fake.push('2026-10-25T08:10:00.1Z {"level":"info","msg":"one"}\n2026-10-25T08:10:01Z par');
+    await flush();
+    expect(Buffer.concat(io.data.mock.calls.map(call => call[0])).toString()).toBe('2026-10-25T08:10:00.1Z {"level":"info","msg":"one"}\n2026-10-25T08:10:01Z par');
+    fake.end();
+    await flush();
+    expect(io.end).toHaveBeenCalledWith(0, undefined);
+  });
+
+  it('ends a failed followed log with the mapped error and nothing held back', async () => {
+    const io = fakeIo();
+    openLogs(testConfig(), logsTarget, io, fakeLogRequest(403).sendRequest, { tailLines: 200 });
+    await flush();
+    await flush();
+    expect(io.data).not.toHaveBeenCalled();
+    expect(io.end.mock.calls[0][1]).toMatchObject({ code: 'kubernetes.forbidden' });
+  });
+});
+
+describe('createKubeApi.rulesReview', () => {
+  const withReview = async (answer: () => Promise<unknown>) => {
+    const create = vi.fn(answer);
+    const spy = vi.spyOn(KubeConfig.prototype, 'makeApiClient').mockReturnValue({ createSelfSubjectRulesReview: create } as never);
+    try {
+      const result = await createKubeApi(testConfig()).rulesReview('shop');
+      return { result, create, clients: spy.mock.calls.map(call => call[0]) };
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  it('sends one SelfSubjectRulesReview for the namespace through AuthorizationV1Api and takes the rules over', async () => {
+    const { result, create, clients } = await withReview(async () => ({ status: { incomplete: false, nonResourceRules: [], resourceRules: [
+      { verbs: ['get'], apiGroups: [''], resources: ['pods/log'], resourceNames: [] },
+      { verbs: ['patch'], apiGroups: ['apps'], resources: ['deployments'], resourceNames: ['api'] },
+    ] } }));
+    expect(clients).toEqual([AuthorizationV1Api]);
+    expect(create).toHaveBeenCalledWith({ body: { apiVersion: 'authorization.k8s.io/v1', kind: 'SelfSubjectRulesReview', spec: { namespace: 'shop' } } });
+    expect(result).toEqual({ incomplete: false, rules: [
+      { verbs: ['get'], apiGroups: [''], resources: ['pods/log'] },
+      { verbs: ['patch'], apiGroups: ['apps'], resources: ['deployments'], resourceNames: ['api'] },
+    ] });
+  });
+
+  it('counts a missing status, incomplete and an evaluation error as incomplete', async () => {
+    expect((await withReview(async () => ({}))).result.incomplete).toBe(true);
+    expect((await withReview(async () => ({ status: { incomplete: true, resourceRules: [], nonResourceRules: [] } }))).result.incomplete).toBe(true);
+    expect((await withReview(async () => ({ status: { incomplete: false, evaluationError: 'role.rbac.authorization.k8s.io "gone" not found', resourceRules: [], nonResourceRules: [] } }))).result.incomplete).toBe(true);
+  });
+
+  it('maps a forbidden review to a KubeApiError with code 403', async () => {
+    await expect(withReview(async () => { throw Object.assign(new Error('Unknown API Status Code!'), { code: 403, body: '{}' }); }))
+      .rejects.toMatchObject({ code: 403 });
+  });
+});
+
+describe('createKubeApi.readArgoApp', () => {
+  const withApp = async (answer: () => Promise<unknown>) => {
+    const get = vi.fn(answer);
+    const spy = vi.spyOn(KubeConfig.prototype, 'makeApiClient').mockReturnValue({ getNamespacedCustomObject: get } as never);
+    try {
+      const result = await createKubeApi(testConfig()).readArgoApp('argocd', 'shop');
+      return { result, get, clients: spy.mock.calls.map(call => call[0]) };
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  it('gets exactly one Application through CustomObjectsApi', async () => {
+    const application = { metadata: { name: 'shop', namespace: 'argocd' }, spec: { syncPolicy: { automated: { selfHeal: true } } } };
+    const { result, get, clients } = await withApp(async () => application);
+    expect(clients).toEqual([CustomObjectsApi]);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith({ group: 'argoproj.io', version: 'v1alpha1', namespace: 'argocd', plural: 'applications', name: 'shop' });
+    expect(result).toEqual(application);
+  });
+
+  it('maps forbidden and missing (also a missing CRD) to a KubeApiError with the status code', async () => {
+    for (const code of [403, 404]) {
+      const error = await withApp(async () => { throw Object.assign(new Error('Unknown API Status Code!'), { code, body: '{}' }); }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(KubeApiError);
+      expect(error).toMatchObject({ code });
+    }
+  });
+});
+
+describe('readLog', () => {
+  const target = { namespace: 'shop', pod: 'api-1', container: 'app' };
+
+  it('builds a one-time read URL: no follow, no timestamps, tail and byte limit', () => {
+    expect(readLogUrl('https://k8s.example:6443', target, { previous: true, tailLines: 100, limitBytes: 65_536 }))
+      .toBe('https://k8s.example:6443/api/v1/namespaces/shop/pods/api-1/log?container=app&follow=false&previous=true&tailLines=100&limitBytes=65536&timestamps=false');
+    expect(readLogUrl('https://k8s.example:6443', { ...target, pod: 'a b', container: 'c&d' }, { previous: false, tailLines: 5, limitBytes: 10 }))
+      .toBe('https://k8s.example:6443/api/v1/namespaces/shop/pods/a%20b/log?container=c%26d&follow=false&previous=false&tailLines=5&limitBytes=10&timestamps=false');
+  });
+
+  it('returns the body as text with the kubeconfig credentials on the request', async () => {
+    const fake = fakeLogRequest();
+    const read = readLog(testConfig(), target, { previous: false, tailLines: 100, limitBytes: 1000 }, fake.sendRequest);
+    await flush();
+    fake.push('line 1\n');
+    fake.push('line 2\n');
+    fake.end();
+    await expect(read).resolves.toBe('line 1\nline 2\n');
+    expect(fake.calls[0].headers.Authorization).toBe('Bearer tok');
+    expect(fake.calls[0].signal?.aborted).toBe(true);
+  });
+
+  it('cuts the body at limitBytes even if the server sends more', async () => {
+    const fake = fakeLogRequest();
+    const read = readLog(testConfig(), target, { previous: false, tailLines: 100, limitBytes: 10 }, fake.sendRequest);
+    await flush();
+    fake.push('0123456');
+    fake.push('789abcdef');
+    await expect(read).resolves.toBe('0123456789');
+  });
+
+  it.each([[400], [403], [404]])('rejects status %i with a KubeApiError of that code', async status => {
+    // An error body is drained by requestLogs; this fake has none, so the abort in readLog's finally has nothing to destroy.
+    const sendRequest: LogRequest = async () => ({ status, body: new PassThrough({ emitClose: false }).end() });
+    const error = await readLog(testConfig(), target, { previous: true, tailLines: 100, limitBytes: 10 }, sendRequest).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(KubeApiError);
+    expect((error as KubeApiError).code).toBe(status);
   });
 });

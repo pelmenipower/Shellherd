@@ -1,15 +1,19 @@
+import { connect } from 'node:net';
+import type { Duplex } from 'node:stream';
 import { describe as suite, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import type { KubeConfig } from '@kubernetes/client-node';
+import { AppError } from '../../shared/errors';
 import type { KubernetesConnectionNode } from '../../shared/vault/types';
 import type { KubeEvent, KubeKind, KubeQuery, KubeRef, KubeTerminalTarget } from '../../shared/kubernetes';
 import { HostAccessError } from '../containers/runner';
 import { KubeApiError } from './api';
-import type { KubeApi, KubeObject, KubeStream, ListResult, MetricsSample, TerminalIo, WatchHandle, WatchType } from './api';
+import type { KubeApi, KubeObject, KubeRulesReview, KubeStream, ListResult, LogFollowOptions, MetricsSample, TerminalIo, WatchHandle, WatchType } from './api';
 import type { ClusterAccess } from './access';
 import { describe as describeText, toYaml } from './describe';
 import { toRow } from './rows';
-import { KubeSessions, HEALTH_MS, userError } from './session';
+import { KubeSessions, HEALTH_MS, openableHref, userError } from './session';
+import { ARGO_TIMEOUT_MS } from './argo';
 import type { KubeSessionDependencies } from './session';
 
 const POD_QUERY: KubeQuery = { kind: 'pods', namespace: 'shop' };
@@ -77,6 +81,8 @@ class FakeApi implements KubeApi {
   created: { cron: KubeRef; jobName: string }[] = [];
   terminals: { target: KubeTerminalTarget; size: { cols: number; rows: number } }[] = [];
   streams: { close: Mock }[] = [];
+  forwards: { namespace: string; pod: string; port: number }[] = [];
+  logReads: string[] = [];
 
   async list(kind: KubeKind, namespace: string | null): Promise<ListResult> {
     this.lists.push({ kind, namespace });
@@ -126,6 +132,35 @@ class FakeApi implements KubeApi {
     const close = vi.fn();
     this.streams.push({ close });
     return { write: vi.fn(), resize: vi.fn(), pause: vi.fn(), resume: vi.fn(), close };
+  }
+
+  async portForward(namespace: string, pod: string, port: number, socket: Duplex): Promise<void> {
+    this.forwards.push({ namespace, pod, port });
+    socket.on('data', chunk => socket.write(chunk));
+    socket.resume();
+  }
+
+  rules: KubeRulesReview | Error = { incomplete: false, rules: [] };
+  logStreams: { target: KubeTerminalTarget; options: LogFollowOptions; io: TerminalIo; close: Mock }[] = [];
+  followLog(target: KubeTerminalTarget, options: LogFollowOptions, io: TerminalIo): KubeStream {
+    const close = vi.fn();
+    this.logStreams.push({ target, options, io, close });
+    return { write() {}, resize() {}, pause() {}, resume() {}, close };
+  }
+  async rulesReview(): Promise<KubeRulesReview> {
+    if (this.rules instanceof Error) throw this.rules;
+    return this.rules;
+  }
+  async readLog(target: { pod: string; container: string }, options: { previous: boolean }): Promise<string> {
+    this.logReads.push(`${target.pod}/${target.container}/${options.previous}`);
+    return 'line 1\nline 2\n';
+  }
+  argo: KubeObject | Error = { metadata: { name: 'shop', namespace: 'argocd' }, spec: { syncPolicy: { automated: { selfHeal: true } } }, status: { sync: { status: 'Synced' }, health: { status: 'Healthy' } } };
+  argoReads: string[] = [];
+  async readArgoApp(namespace: string, name: string): Promise<KubeObject> {
+    this.argoReads.push(`${namespace}/${name}`);
+    if (this.argo instanceof Error) throw this.argo;
+    return this.argo;
   }
 }
 
@@ -221,6 +256,15 @@ suite('KubeSessions', () => {
     expect(statusesOf(world, second.viewId).at(-1)).toMatchObject({ state: 'ready', host: 'k8s-cp1', production: true, readOnly: false, name: 'Prod-Cluster', metrics: false });
     expect(world.events.filter(entry => entry.event.type === 'status' && entry.event.viewId === second.viewId).every(entry => entry.ownerId === 2)).toBe(true);
     expect(JSON.stringify(world.events)).not.toContain('secret-token');
+  });
+
+  it('sends a fresh status to open views when the vault entry changes', async () => {
+    const world = setup();
+    const view = world.sessions.open(1, 'c1');
+    await settle();
+    Object.assign(world.cluster, { argoUrl: 'https://argocd.example.test', production: false });
+    world.sessions.refreshStatus();
+    expect(statusesOf(world, view.viewId).at(-1)).toMatchObject({ argoUrl: 'https://argocd.example.test', production: false });
   });
 
   it('hands a view that opens on a running session the status, the overview and the namespace in the open result', async () => {
@@ -624,5 +668,305 @@ suite('userError', () => {
     const view = world.sessions.open(1, 'c1').viewId;
     await settle();
     expect(statusesOf(world, view).at(-1)).toMatchObject({ state: 'error', error: { code: 'kubernetes.connectFailed' } });
+  });
+});
+
+suite('port forwards of a view', () => {
+  const target = { kind: 'pods' as const, namespace: 'shop', name: 'p1', port: 8080 };
+  const forwardsOf = (world: World, viewId: string) => world.events
+    .filter(entry => entry.ownerId === 1)
+    .map(entry => entry.event)
+    .filter((event): event is Extract<KubeEvent, { type: 'forwards' }> => event.type === 'forwards' && event.viewId === viewId)
+    .map(event => event.forwards);
+  const echo = (port: number, text: string) => new Promise<string>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1', () => socket.write(text));
+    socket.once('data', data => { resolve(data.toString()); socket.end(); });
+    socket.once('error', reject);
+  });
+
+  it('forwards through the session of the view, also on a read-only cluster', async () => {
+    const world = setup();
+    world.cluster.readOnly = true;
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const status = await world.sessions.startForward(1, viewId, target, 0);
+    expect(await echo(status.localPort, 'ping')).toBe('ping');
+    expect(world.api.forwards).toEqual([{ namespace: 'shop', pod: 'p1', port: 8080 }]);
+    expect(forwardsOf(world, viewId).at(-1)?.[0]).toMatchObject({ id: status.id, pod: 'p1', podPort: 8080 });
+    world.sessions.stopForward(1, viewId, status.id);
+    expect(forwardsOf(world, viewId).at(-1)).toEqual([]);
+  });
+
+  it('refuses a session that is not ready, other owners, a locked vault and disabled clusters', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await expect(world.sessions.startForward(1, viewId, target, 0)).rejects.toMatchObject({ code: 'kubernetes.notConnected' });
+    await settle();
+    await expect(world.sessions.startForward(2, viewId, target, 0)).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
+    vi.mocked(world.deps.getCluster).mockImplementationOnce(() => { throw new AppError('core.vaultLocked'); });
+    await expect(world.sessions.startForward(1, viewId, target, 0)).rejects.toMatchObject({ code: 'core.vaultLocked' });
+    world.cluster.disabled = true;
+    await expect(world.sessions.startForward(1, viewId, target, 0)).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+    expect(world.api.forwards).toEqual([]);
+  });
+
+  it('ends the forwards of a view with the view, silently, and all of them with closeAll', async () => {
+    const world = setup();
+    const first = world.sessions.open(1, 'c1').viewId;
+    const second = world.sessions.open(1, 'c1').viewId;
+    await settle();
+    const a = await world.sessions.startForward(1, first, target, 0);
+    const b = await world.sessions.startForward(1, second, target, 0);
+    const before = forwardsOf(world, first).length;
+    world.sessions.close(1, first);
+    expect(forwardsOf(world, first)).toHaveLength(before);
+    expect(await echo(b.localPort, 'still')).toBe('still');
+    // A closed listener frees its port: the next forward can take it.
+    expect((await world.sessions.startForward(1, second, target, a.localPort)).localPort).toBe(a.localPort);
+    world.sessions.closeAll();
+    const third = world.sessions.open(1, 'c1').viewId;
+    await settle();
+    expect((await world.sessions.startForward(1, third, target, b.localPort)).localPort).toBe(b.localPort);
+    world.sessions.closeAll();
+  });
+
+  it('drops a forward whose view closed while it started', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const starting = world.sessions.startForward(1, viewId, target, 0);
+    world.sessions.close(1, viewId);
+    await expect(starting).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
+  });
+});
+
+suite('logs of all pods and the rights pre-check of a view', () => {
+  const request = { id: '1b4e28ba-2fa1-41d2-883f-0016d3cca427', namespace: 'shop', selector: { app: 'api' }, format: 'raw' as const };
+  const logsOf = (world: World, viewId: string) => eventsOf(world, 'logs', viewId);
+
+  it('answers the denied functions, and null when the review is incomplete, fails or hangs', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    expect((await world.sessions.access(1, viewId, 'shop'))?.map(item => item.id)).toContain('patchDeployments');
+    world.api.rules = { incomplete: false, rules: [{ verbs: ['*'], apiGroups: ['*'], resources: ['*'] }] };
+    expect(await world.sessions.access(1, viewId, 'shop')).toEqual([]);
+    world.api.rules = { incomplete: true, rules: [] };
+    expect(await world.sessions.access(1, viewId, 'shop')).toBeNull();
+    world.api.rules = new KubeApiError('Forbidden', 403, { code: 'kubernetes.forbidden' });
+    expect(await world.sessions.access(1, viewId, 'shop')).toBeNull();
+    world.api.rulesReview = () => new Promise(() => {});
+    const hanging = world.sessions.access(1, viewId, 'shop');
+    world.clock.run(10_000);
+    expect(await hanging).toBeNull();
+    await expect(world.sessions.access(2, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
+  });
+
+  it('refuses the pre-check on a disabled cluster or a locked vault without asking the cluster', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const review = vi.spyOn(world.api, 'rulesReview');
+    world.cluster.disabled = true;
+    await expect(world.sessions.access(1, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+    world.cluster.disabled = false;
+    vi.mocked(world.deps.getCluster).mockImplementationOnce(() => { throw new AppError('core.vaultLocked'); });
+    await expect(world.sessions.access(1, viewId, 'shop')).rejects.toMatchObject({ code: 'core.vaultLocked' });
+    expect(review).not.toHaveBeenCalled();
+  });
+
+  it('refuses the pre-check while the cluster is not ready', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await expect(world.sessions.access(1, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.notConnected' });
+  });
+
+  it('starts on a read-only cluster, refuses a disabled one and sends the batches as logs events of the view', async () => {
+    const world = setup();
+    world.cluster.readOnly = true;
+    world.api.pods = [pod('p1')];
+    world.api.pods[0].status = { phase: 'Running', containerStatuses: [{ name: 'app', restartCount: 0, state: { running: { startedAt: '2026-10-25T08:00:00Z' } } }] };
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    await world.sessions.startLogs(1, viewId, request);
+    await settle();
+    expect(world.api.logStreams.map(stream => stream.target)).toEqual([{ namespace: 'shop', pod: 'p1', container: 'app', mode: 'logs' }]);
+    world.api.logStreams[0].io.data(Buffer.from('2026-10-25T08:10:00Z hello\n'));
+    world.clock.run(250);
+    world.clock.run(250);
+    expect(logsOf(world, viewId).at(-1)).toMatchObject({ type: 'logs', viewId, id: request.id, lines: [{ source: 0, text: 'hello' }], sources: [{ pod: 'p1', container: 'app', live: true }] });
+    world.cluster.disabled = true;
+    await expect(world.sessions.startLogs(1, viewId, request)).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+  });
+
+  it('ends the run with stopLogs of its id only, with the view, with closeAll and when the connection drops', async () => {
+    const world = setup();
+    world.api.pods = [pod('p1')];
+    world.api.pods[0].status = { phase: 'Running', containerStatuses: [{ name: 'app', restartCount: 0, state: { running: { startedAt: '2026-10-25T08:00:00Z' } } }] };
+    const first = world.sessions.open(1, 'c1').viewId;
+    await settle();
+    await world.sessions.startLogs(1, first, request);
+    await settle();
+    world.sessions.stopLogs(1, first, '2c5ea4c0-4067-11e9-8bad-9b1deb4d3b7d');
+    expect(world.api.logStreams[0].close).not.toHaveBeenCalled();
+    world.sessions.stopLogs(1, first, request.id);
+    expect(world.api.logStreams[0].close).toHaveBeenCalledTimes(1);
+
+    await world.sessions.startLogs(1, first, request);
+    await settle();
+    world.sessions.close(1, first);
+    expect(world.api.logStreams[1].close).toHaveBeenCalledTimes(1);
+
+    const second = world.sessions.open(1, 'c1').viewId;
+    await world.sessions.startLogs(1, second, request);
+    await settle();
+    world.accesses[0].drop();
+    world.clock.run(HEALTH_MS);
+    // The old API client must not be used after a reconnect: the run ends with the live connection.
+    expect(world.api.logStreams[2].close).toHaveBeenCalledTimes(1);
+
+    const third = world.sessions.open(1, 'c1').viewId;
+    world.clock.run(10);
+    await settle();
+    await world.sessions.startLogs(1, third, request);
+    await settle();
+    world.sessions.closeAll();
+    expect(world.api.logStreams.at(-1)?.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+suite('KubeSessions.diagnose', () => {
+  const deployment = { kind: 'deployments' as const, namespace: 'shop', name: 'api' };
+
+  it('reads the object on a read-only cluster and answers the context as text', async () => {
+    const world = setup();
+    world.cluster.readOnly = true;
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const result = await world.sessions.diagnose(1, viewId, deployment);
+    expect(result.text).toContain('Kind: Deployment');
+    expect(result.parts.map(part => part.id)).toEqual(['object', 'events', 'pods']);
+    expect(world.api.patches).toEqual([]);
+    expect(world.api.removed).toEqual([]);
+  });
+
+  it('refuses a disabled cluster, a locked vault, another window and a cluster that is not ready, without reading', async () => {
+    const world = setup();
+    const notReady = world.sessions.open(1, 'c1').viewId;
+    await expect(world.sessions.diagnose(1, notReady, deployment)).rejects.toMatchObject({ code: 'kubernetes.notConnected' });
+    await settle();
+    const read = vi.spyOn(world.api, 'read');
+    world.cluster.disabled = true;
+    await expect(world.sessions.diagnose(1, notReady, deployment)).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+    world.cluster.disabled = false;
+    vi.mocked(world.deps.getCluster).mockImplementationOnce(() => { throw new AppError('core.vaultLocked'); });
+    await expect(world.sessions.diagnose(1, notReady, deployment)).rejects.toMatchObject({ code: 'core.vaultLocked' });
+    await expect(world.sessions.diagnose(2, notReady, deployment)).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
+    expect(read).not.toHaveBeenCalled();
+  });
+});
+
+suite('KubeSessions Argo CD and Harbor', () => {
+  /** HEALTH_MS has the same delay, so the newest task with ARGO_TIMEOUT_MS is the one of argoApp. */
+  const fireArgoTimeout = (world: World) => {
+    const entry = [...world.clock.tasks.entries()].filter(([, task]) => task.ms === ARGO_TIMEOUT_MS).at(-1);
+    if (!entry) throw new Error('no Argo CD timeout pending');
+    world.clock.tasks.delete(entry[0]);
+    entry[1].fn();
+  };
+
+  it('reads the application once by get and returns its Self-Heal state, null when it cannot be read', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    expect(await world.sessions.argoApp(1, viewId, 'shop')).toEqual({ automated: true, selfHeal: true, sync: 'Synced', health: 'Healthy' });
+    expect(await world.sessions.argoApp(1, viewId, 'team-a_shop')).not.toBeNull();
+    expect(world.api.argoReads).toEqual(['argocd/shop', 'team-a/shop']);
+    world.api.argo = new KubeApiError('Forbidden', 403, { code: 'kubernetes.forbidden' });
+    expect(await world.sessions.argoApp(1, viewId, 'shop')).toBeNull();
+    world.api.argo = new KubeApiError('Not Found', 404, { code: 'kubernetes.notFound' });
+    expect(await world.sessions.argoApp(1, viewId, 'shop')).toBeNull();
+    expect(await world.sessions.argoApp(1, viewId, 'evil.example.test/x')).toBeNull();
+    expect(world.api.argoReads).toHaveLength(4);
+    // Every finished read cancels its timer; only the health check may still wait with the same delay.
+    expect(world.clock.delays().filter(ms => ms === ARGO_TIMEOUT_MS).length).toBeLessThanOrEqual(1);
+  });
+
+  it('gives up after the timeout and without a connection, never blocking the dialog', async () => {
+    const world = setup();
+    const notReady = world.sessions.open(1, 'c1').viewId;
+    expect(await world.sessions.argoApp(1, notReady, 'shop')).toBeNull();
+    expect(world.api.argoReads).toEqual([]);
+    await settle();
+    world.api.readArgoApp = () => new Promise(() => {});
+    const hanging = world.sessions.argoApp(1, notReady, 'shop');
+    fireArgoTimeout(world);
+    expect(await hanging).toBeNull();
+  });
+
+  it('refuses other owners, a disabled cluster and a locked vault', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    await expect(world.sessions.argoApp(2, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.viewUnavailable' });
+    vi.mocked(world.deps.getCluster).mockImplementationOnce(() => { throw new AppError('core.vaultLocked'); });
+    await expect(world.sessions.argoApp(1, viewId, 'shop')).rejects.toMatchObject({ code: 'core.vaultLocked' });
+    world.cluster.disabled = true;
+    await expect(world.sessions.argoApp(1, viewId, 'shop')).rejects.toMatchObject({ code: 'kubernetes.disabled' });
+    expect(() => world.sessions.linkFor(1, viewId, { type: 'argo', app: 'shop' })).toThrow(expect.objectContaining({ code: 'kubernetes.disabled' }));
+    expect(world.api.argoReads).toEqual([]);
+  });
+
+  it('builds links only from the addresses of the vault entry', async () => {
+    const world = setup();
+    const { viewId } = world.sessions.open(1, 'c1');
+    await settle();
+    const digest = `sha256:${'c'.repeat(64)}`;
+    expect(() => world.sessions.linkFor(1, viewId, { type: 'argo', app: 'shop' })).toThrow(expect.objectContaining({ code: 'kubernetes.noArgoUrl' }));
+    expect(() => world.sessions.linkFor(1, viewId, { type: 'harbor', image: 'harbor.example.test/shop/api:1' })).toThrow(expect.objectContaining({ code: 'kubernetes.noHarborUrl' }));
+    world.cluster.argoUrl = 'https://argocd.example.test';
+    world.cluster.harborUrl = 'https://harbor.example.test';
+    expect(world.sessions.linkFor(1, viewId, { type: 'argo', app: 'team-a_shop' })).toBe('https://argocd.example.test/applications/team-a/shop');
+    expect(world.sessions.linkFor(1, viewId, { type: 'harbor', image: 'harbor.example.test/shop/api:1', digest }))
+      .toBe(`https://harbor.example.test/harbor/projects/shop/repositories/api/artifacts-tab/artifacts/${digest}`);
+    expect(() => world.sessions.linkFor(1, viewId, { type: 'harbor', image: 'registry.local/shop/api:1' })).toThrow(expect.objectContaining({ code: 'kubernetes.linkRefused' }));
+    expect(() => world.sessions.linkFor(1, viewId, { type: 'argo', app: 'evil.example.test/x' })).toThrow(expect.objectContaining({ code: 'kubernetes.linkRefused' }));
+    for (const app of ['evil.com', 'a.b.c', 'x-y']) expect(new URL(world.sessions.linkFor(1, viewId, { type: 'argo', app })).host).toBe('argocd.example.test');
+    for (const image of ['harbor.example.test/a/b', 'HARBOR.example.test:443/a/b/c:1']) expect(new URL(world.sessions.linkFor(1, viewId, { type: 'harbor', image })).host).toBe('harbor.example.test');
+    expect(() => world.sessions.linkFor(2, viewId, { type: 'argo', app: 'shop' })).toThrow(expect.objectContaining({ code: 'kubernetes.viewUnavailable' }));
+  });
+
+  it('puts the addresses into the status only when the vault entry has them', async () => {
+    const world = setup();
+    world.cluster.argoUrl = 'https://argocd.example.test';
+    const first = world.sessions.open(1, 'c1');
+    await settle();
+    expect(statusesOf(world, first.viewId).at(-1)).toMatchObject({ argoUrl: 'https://argocd.example.test' });
+    expect(statusesOf(world, first.viewId).at(-1)).not.toHaveProperty('harborUrl');
+    delete world.cluster.argoUrl;
+    world.cluster.harborUrl = 'https://harbor.example.test';
+    const second = world.sessions.open(2, 'c1');
+    expect(second.status).toMatchObject({ harborUrl: 'https://harbor.example.test' });
+    expect(second.status).not.toHaveProperty('argoUrl');
+  });
+});
+
+suite('openableHref', () => {
+  it('opens only https on the host of the vault address, checked again before the browser', () => {
+    const base = 'https://argocd.example.test';
+    expect(openableHref('https://argocd.example.test/applications/shop', base)).toBe('https://argocd.example.test/applications/shop');
+    expect(openableHref('https://ARGOCD.example.test:443/applications/shop', base)).toBe('https://argocd.example.test/applications/shop');
+    for (const href of [
+      'http://argocd.example.test/applications/shop',
+      'https://evil.example.test/applications/shop',
+      'https://argocd.example.test.evil.example/x',
+      'https://argocd.example.test:8443/x',
+      'https://user@argocd.example.test/x',
+      'javascript:alert(1)',
+      'file:///etc/passwd',
+      'not a url',
+      null,
+    ]) expect(openableHref(href, base)).toBeNull();
+    expect(openableHref('https://argocd.example.test/x', 'not a url')).toBeNull();
   });
 });

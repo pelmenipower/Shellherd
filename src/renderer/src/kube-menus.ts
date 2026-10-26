@@ -1,7 +1,7 @@
 /** Context menus of the cluster tab as pure data; see docs/superpowers/specs/2026-10-16-kubernetes-context-menus-design.md. */
 import {
-  KIND_INFO, refKey,
-  type ClusterStatus, type ColumnInfo, type DockMode, type KubeAction, type KubeKind, type KubeProblem, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget, type NodeTile,
+  DIAGNOSE_KINDS, KIND_INFO, refKey,
+  type ClusterStatus, type ColumnInfo, type DockMode, type KubeAction, type KubeKind, type KubeLink, type KubeProblem, type KubeRef, type KubeRow, type KubeTerminalMode, type KubeTerminalTarget, type NodeTile, type ProblemKind,
 } from '../../shared/kubernetes';
 import { KUBE_COMMANDS, actionReason, podNotRunning, type CommandId } from './kube-commands';
 import * as kubectl from './kube-kubectl';
@@ -9,7 +9,11 @@ import { errorText } from './error-text';
 import { t } from './i18n';
 import { chipLabel } from './kube-labels';
 import { primaryChip } from '../../shared/kube-status';
+import { argoAppUrl, harborImageUrl, linkHost } from '../../shared/kube-links';
+import type { KubeAccessId } from '../../shared/kube-access';
+import { refAccessReason } from './kube-access';
 import { defaultSort, filterOf, type KubeViewAction, type KubeViewState } from './kube-view';
+import type { DiagnoseTarget } from './kube-diagnose';
 
 export type MenuTarget =
   | { type: 'row'; row: KubeRow }
@@ -26,10 +30,14 @@ export type MenuAction =
   | { type: 'view'; actions: KubeViewAction[]; previous?: boolean; armShell?: boolean }
   | { type: 'copy'; text: string; label: string }
   | { type: 'kubeAction'; ref: KubeRef; action: KubeAction; currentReplicas?: number }
+  | { type: 'forward'; row: KubeRow }
+  | { type: 'logsAll'; row: KubeRow }
   | { type: 'popout'; target: KubeTerminalTarget }
   | { type: 'ssh'; connectionId: string }
   | { type: 'dockReload' }
-  | { type: 'help' };
+  | { type: 'help' }
+  | { type: 'analyze'; target: DiagnoseTarget }
+  | { type: 'link'; link: KubeLink };
 
 export type MenuEntry =
   | { kind: 'item'; id: string; label: string; hint?: string; disabled?: boolean; run: MenuAction }
@@ -48,7 +56,6 @@ export interface MenuContext {
   now: number;
 }
 
-const ARGO_LABEL = 'argocd.argoproj.io/instance';
 const PREFERRED_LABELS = ['app', 'app.kubernetes.io/name', 'app.kubernetes.io/instance', 'app.kubernetes.io/component'];
 
 interface Env { ctx: MenuContext; connected: boolean; /** status.state === 'reconnecting' */ reconnecting: boolean; readOnly: boolean; /** Hotkey hints only for targets that are the selection. */ hot: boolean }
@@ -81,6 +88,11 @@ const dock = (mode: DockMode): KubeViewAction => ({ type: 'dock', mode });
 const connectedReason = (env: Env): string | undefined => (env.connected ? undefined : env.reconnecting ? t('kubeActions:reasons.reconnecting') : t('errors:kubernetes.notConnected'));
 const readOnlyReason = (): string => t('errors:kubernetes.readOnly');
 const hasSelector = (row: KubeRow): boolean => Object.keys(row.selector ?? {}).length > 0;
+const forbidden = (env: Env, ref: KubeRef, id: KubeAccessId): string | undefined => refAccessReason(env.ctx.state.access, env.ctx.status, ref, id);
+const NO_SELECTOR_KEYS = {
+  deployments: 'kubeActions:reasons.noSelectorWorkload', statefulsets: 'kubeActions:reasons.noSelectorWorkload', daemonsets: 'kubeActions:reasons.noSelectorWorkload',
+  jobs: 'kubeActions:reasons.noSelectorJob', services: 'kubeActions:reasons.noSelectorService',
+} as const;
 const cell = (row: KubeRow, key: string): string => String(row.cells[key] ?? '').trim();
 
 /** Copy group: heading plus the entries that exist; text null = a builder refused the name, undefined = field absent. */
@@ -95,7 +107,7 @@ function copyGroup(env: Env, entries: [id: string, label: string, text: string |
 
 const kubeActionItem = (env: Env, id: string, label: string, ref: KubeRef, action: KubeAction, options: Options & { replicas?: number } = {}): MenuEntry =>
   item(env, id, label, { type: 'kubeAction', ref, action, ...(options.replicas !== undefined ? { currentReplicas: options.replicas } : {}) },
-    { hotkey: options.hotkey, reason: actionReason(action, { ref, readOnly: env.readOnly, connected: env.connected, reconnecting: env.reconnecting }) });
+    { hotkey: options.hotkey, reason: actionReason(action, { ref, readOnly: env.readOnly, connected: env.connected, reconnecting: env.reconnecting, access: env.ctx.state.access, status: env.ctx.status }) });
 
 const namespaceOf = (row: KubeRow): string | undefined => row.ref.namespace;
 
@@ -134,8 +146,9 @@ const SHELL_ARMED = (...actions: KubeViewAction[]): MenuAction => ({ type: 'view
 
 /** Logs, previous logs and shell of one container; `prefix` selects the pod/container first. */
 function terminalItems(env: Env, pod: KubeRow, container: string | undefined, prefix: KubeViewAction[], extra?: string): MenuEntry[] {
-  const logsReason = container ? connectedReason(env) : t('kubeActions:reasons.noContainer');
-  const shellReason = env.readOnly ? readOnlyReason() : connectedReason(env) ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined) ?? (container ? undefined : t('kubeActions:reasons.noContainer'));
+  const logsReason = (container ? connectedReason(env) : t('kubeActions:reasons.noContainer')) ?? forbidden(env, pod.ref, 'logs');
+  const shellReason = (env.readOnly ? readOnlyReason() : connectedReason(env) ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined) ?? (container ? undefined : t('kubeActions:reasons.noContainer')))
+    ?? forbidden(env, pod.ref, 'shell');
   return [
     { ...item(env, 'logs', t('kubeActions:menu.logs'), { type: 'view', actions: [...prefix, dock('logs')], previous: false }, { hotkey: 'logs', extra, reason: logsReason }) },
     item(env, 'previous', t('kubeActions:menu.previousLogs'), { type: 'view', actions: [...prefix, dock('logs')], previous: true }, { hotkey: 'previous', extra, reason: logsReason }),
@@ -148,9 +161,77 @@ function popoutItems(env: Env, pod: KubeRow, container: string | undefined, extr
   const make = (mode: KubeTerminalMode, id: string, label: string, reason: string | undefined): MenuEntry =>
     item(env, id, label, { type: 'popout', target: { namespace, pod: pod.ref.name, container: container ?? '', mode } },
       { hotkey: 'popout', extra, reason: env.ctx.canPopout ? reason : t('kubeActions:reasons.noPopout') });
-  const logsReason = connectedReason(env) ?? (container ? undefined : t('kubeActions:reasons.noContainer'));
-  const shellReason = env.readOnly ? readOnlyReason() : connectedReason(env) ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined) ?? (container ? undefined : t('kubeActions:reasons.noContainer'));
+  const logsReason = (connectedReason(env) ?? (container ? undefined : t('kubeActions:reasons.noContainer'))) ?? forbidden(env, pod.ref, 'logs');
+  const shellReason = (env.readOnly ? readOnlyReason() : connectedReason(env) ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined) ?? (container ? undefined : t('kubeActions:reasons.noContainer')))
+    ?? forbidden(env, pod.ref, 'shell');
   return [make('logs', 'popout-logs', t('kubeActions:menu.popoutLogs'), logsReason), make('shell', 'popout-shell', t('kubeActions:menu.popoutShell'), shellReason)];
+}
+
+/** "Port weiterleiten…": running pods; services with a selector and a TCP port. Read-only clusters allow it (it changes nothing). */
+function forwardItem(env: Env, row: KubeRow): MenuEntry {
+  const reason = (connectedReason(env) ?? (row.ref.kind === 'pods'
+    ? (row.cells.status === 'Running' ? undefined : t('kubeActions:reasons.notRunning'))
+    : !hasSelector(row) ? t('kubeActions:reasons.noSelectorService')
+      : (row.ports?.length ?? 0) === 0 ? t('kubeActions:reasons.noTcpPort') : undefined)) ?? forbidden(env, row.ref, 'forward');
+  return item(env, 'forward', t('kubeActions:menu.forward'), { type: 'forward', row }, { reason });
+}
+
+/** "Logs aller Pods": workloads, jobs and services with a selector. Reading, so read-only clusters allow it. */
+function logsAllItem(env: Env, row: KubeRow): MenuEntry {
+  const kind = row.ref.kind as keyof typeof NO_SELECTOR_KEYS;
+  const reason = connectedReason(env) ?? (hasSelector(row) ? forbidden(env, row.ref, 'logsAll') : t(NO_SELECTOR_KEYS[kind]));
+  return item(env, 'logs-all', t('kubeActions:menu.logsAll'), { type: 'logsAll', row }, { reason });
+}
+
+/** "Mit KI analysieren": pods, workloads and jobs; events through the object they concern. Reading only, so read-only clusters allow it. */
+function analyzeItem(env: Env, ref: KubeRef, extra: { event?: KubeRef; problem?: ProblemKind } = {}): MenuEntry {
+  const reason = connectedReason(env) ?? (DIAGNOSE_KINDS.includes(ref.kind) ? undefined : t('kubeActions:reasons.analyzeUnsupported', { kind: KIND_INFO[ref.kind].kind }));
+  const problem = extra.problem ?? env.ctx.state.problems.find(item => refKey(item.ref) === refKey(ref))?.kind;
+  const target: DiagnoseTarget = { ref, ...(extra.event ? { event: extra.event } : {}), ...(problem ? { problem } : {}) };
+  return item(env, 'analyze', t('kubeActions:menu.analyze'), { type: 'analyze', target }, { reason });
+}
+
+interface ImageRef { image: string; digest?: string }
+
+/** Images of a row in container order; pods carry the digest of the running image. */
+function rowImages(row: KubeRow): ImageRef[] {
+  if (row.ref.kind === 'pods') {
+    return (row.containers ?? []).flatMap(name => {
+      const image = cell(row, `image:${name}`);
+      const digest = row.digests?.[name];
+      return image ? [{ image, ...(digest ? { digest } : {}) }] : [];
+    });
+  }
+  return cell(row, 'image').split(',').map(part => part.trim()).filter(Boolean).map(image => ({ image }));
+}
+
+/** "In Argo CD öffnen": rows Argo CD tracks. Needs no connection; main builds the address from the vault entry again. */
+function argoItem(env: Env, app: string): MenuEntry {
+  const base = env.ctx.status?.argoUrl;
+  const run: MenuAction = { type: 'link', link: { type: 'argo', app } };
+  if (!base) return item(env, 'argo-open', t('kubeActions:menu.openArgo'), run, { reason: t('kubeActions:reasons.noArgoUrl') });
+  return item(env, 'argo-open', t('kubeActions:menu.openArgo'), run,
+    argoAppUrl(base, app) ? { extra: linkHost(base) } : { reason: t('kubeActions:reasons.linkInvalid') });
+}
+
+/** "In Harbor öffnen": only with a Harbor address, for the first image on its host; never a link to another host. */
+function harborItems(env: Env, images: ImageRef[]): MenuEntry[] {
+  const base = env.ctx.status?.harborUrl;
+  if (!base || images.length === 0) return [];
+  const found = images.find(entry => harborImageUrl(base, entry.image, entry.digest) !== null);
+  const target = found ?? images[0];
+  const run: MenuAction = { type: 'link', link: { type: 'harbor', image: target.image, ...(target.digest ? { digest: target.digest } : {}) } };
+  return [item(env, 'harbor-open', t('kubeActions:menu.openHarbor'), run,
+    found ? { extra: linkHost(base) } : { reason: t('kubeActions:reasons.notInHarbor', { host: linkHost(base) }) })];
+}
+
+const HARBOR_KINDS: readonly KubeKind[] = ['pods', 'deployments', 'statefulsets', 'daemonsets'];
+
+function linkItems(env: Env, row: KubeRow): MenuEntry[] {
+  return [
+    ...(row.argoApp ? [argoItem(env, row.argoApp)] : []),
+    ...(HARBOR_KINDS.includes(row.ref.kind) ? harborItems(env, rowImages(row)) : []),
+  ];
 }
 
 function imageLines(row: KubeRow): string | undefined {
@@ -184,7 +265,7 @@ function podRowGroups(env: Env, row: KubeRow): Group[] {
       ...namespaceGroup(env, row),
       ...filterItems(env, row),
     ],
-    [...terminalItems(env, row, first, prefix, extra), ...viewItems(env, [select(row)]), ...popoutItems(env, row, first, extra)],
+    [...terminalItems(env, row, first, prefix, extra), ...viewItems(env, [select(row)]), ...popoutItems(env, row, first, extra), forwardItem(env, row), analyzeItem(env, row.ref)],
     copyGroup(env, [
       ['name', t('kubeActions:copy.name'), name],
       ['namespaced-name', t('kubeActions:copy.namespacedName'), namespacedName(row)],
@@ -200,7 +281,7 @@ function podRowGroups(env: Env, row: KubeRow): Group[] {
   ];
 }
 
-const argoCopy = (row: KubeRow): [string, string, string][] => (row.labels[ARGO_LABEL] ? [['argo', t('kubeActions:copy.argoApp'), row.labels[ARGO_LABEL]]] : []);
+const argoCopy = (row: KubeRow): [string, string, string][] => (row.argoApp ? [['argo', t('kubeActions:copy.argoApp'), row.argoApp]] : []);
 
 function workloadGroups(env: Env, row: KubeRow): Group[] {
   const { kind, name } = row.ref;
@@ -212,7 +293,7 @@ function workloadGroups(env: Env, row: KubeRow): Group[] {
       item(env, 'drill', t('kubeActions:menu.showPods'), view(select(row), { type: 'drill' }), { hotkey: 'drill', reason: hasSelector(row) ? undefined : t('kubeActions:reasons.noSelectorWorkload') }),
       ...namespaceGroup(env, row),
     ],
-    viewItems(env, [select(row)]),
+    [logsAllItem(env, row), ...viewItems(env, [select(row)]), analyzeItem(env, row.ref)],
     copyGroup(env, [
       ['name', t('kubeActions:copy.name'), name],
       ['namespaced-name', t('kubeActions:copy.namespacedName'), namespacedName(row)],
@@ -240,7 +321,7 @@ function jobGroups(env: Env, row: KubeRow): Group[] {
       ...ownerItem(env, row, ['cronjobs']),
       ...namespaceGroup(env, row),
     ],
-    viewItems(env, [select(row)]),
+    [logsAllItem(env, row), ...viewItems(env, [select(row)]), analyzeItem(env, row.ref)],
     copyGroup(env, [
       ['name', t('kubeActions:copy.name'), name],
       ['namespaced-name', t('kubeActions:copy.namespacedName'), namespacedName(row)],
@@ -289,8 +370,8 @@ function serviceGroups(env: Env, row: KubeRow): Group[] {
   const port = firstPort(ports);
   return [
     [item(env, 'drill', t('kubeActions:menu.showPods'), view(select(row), { type: 'drill' }),
-      { hotkey: 'drill', reason: hasSelector(row) ? undefined : t('kubeActions:reasons.noSelectorService') })],
-    viewItems(env, [select(row)]),
+      { hotkey: 'drill', reason: hasSelector(row) ? undefined : t('kubeActions:reasons.noSelectorService') }), forwardItem(env, row)],
+    [logsAllItem(env, row), ...viewItems(env, [select(row)])],
     copyGroup(env, [
       ['name', t('kubeActions:copy.name'), name],
       ['cluster-ip', t('kubeActions:copy.clusterIp'), ip === 'None' || ip === '-' ? undefined : ip],
@@ -364,7 +445,9 @@ function eventGroups(env: Env, row: KubeRow): Group[] {
   const views: Group = involved ? [
     item(env, 'involved-events', t('kubeActions:menu.objectEvents'), jumpTo(dock('events')), { reason: viaConnection }),
     item(env, 'involved-describe', t('kubeActions:menu.objectDescribe'), jumpTo(dock('describe')), { reason: viaConnection }),
-    ...(ref?.kind === 'pods' ? [item(env, 'involved-logs', t('kubeActions:menu.podLogs'), { type: 'view', actions: [select(row), { type: 'jump', ref }, dock('logs')], previous: false }, { reason: viaConnection })] : []),
+    ...(ref?.kind === 'pods' ? [item(env, 'involved-logs', t('kubeActions:menu.podLogs'), { type: 'view', actions: [select(row), { type: 'jump', ref }, dock('logs')], previous: false }, { reason: viaConnection ?? forbidden(env, ref, 'logs') })] : []),
+    involved.ref ? analyzeItem(env, involved.ref, { event: row.ref })
+      : item(env, 'analyze', t('kubeActions:menu.analyze'), { type: 'analyze', target: { ref: row.ref } }, { reason: involvedReason(involved) }),
   ] : [];
   return [nav, views, copyGroup(env, [
     ['message', t('kubeActions:copy.message'), cell(row, 'message')],
@@ -374,8 +457,7 @@ function eventGroups(env: Env, row: KubeRow): Group[] {
 }
 
 function rowMenu(env: Env, row: KubeRow): MenuEntry[] {
-  const argo = row.labels[ARGO_LABEL];
-  const lead: MenuEntry[] = argo ? [{ kind: 'heading', label: t('kubeActions:menu.argoApp', { name: argo }) }] : [];
+  const lead: MenuEntry[] = row.argoApp ? [{ kind: 'heading', label: t('kubeActions:menu.argoApp', { name: row.argoApp }) }] : [];
   const groups = ((): Group[] => {
     switch (row.ref.kind) {
       case 'pods': return podRowGroups(env, row);
@@ -392,6 +474,8 @@ function rowMenu(env: Env, row: KubeRow): MenuEntry[] {
   if (chip && groups.length > 0) {
     groups[0] = [...groups[0], item(env, `only-${chip.id}`, t('kubeActions:menu.onlyChip', { label: chipLabel(chip.id, row.ref.kind) }), view(select(row), { type: 'setChips', ids: [chip.id] }))];
   }
+  const links = linkItems(env, row);
+  if (links.length > 0 && groups.length > 0) groups[0] = [...groups[0], ...links];
   return assemble(lead, groups);
 }
 
@@ -401,7 +485,8 @@ function containerMenu(env: Env, pod: KubeRow, name: string): MenuEntry[] {
   const prefix: KubeViewAction[] = [...podPrefix, { type: 'selectContainer', name }];
   const namespace = namespaceOf(pod) ?? '';
   return assemble([], [
-    [...terminalItems(env, pod, name, prefix), ...popoutItems(env, pod, name), ...viewItems(env, podPrefix, true)],
+    [...terminalItems(env, pod, name, prefix), ...popoutItems(env, pod, name), ...viewItems(env, podPrefix, true),
+      ...harborItems(env, cell(pod, `image:${name}`) ? [{ image: cell(pod, `image:${name}`), ...(pod.digests?.[name] ? { digest: pod.digests[name] } : {}) }] : [])],
     copyGroup(env, [
       ['name', t('kubeActions:copy.containerName'), name],
       ['image', t('kubeActions:copy.image'), cell(pod, `image:${name}`)],
@@ -438,16 +523,18 @@ function problemMenu(env: Env, problem: KubeProblem): MenuEntry[] {
   const podProblem = kind !== 'node';
   const namespace = ref.namespace ?? '';
   const nodeTile = env.ctx.state.nodes.find(tile => tile.name === ref.name);
+  const logsReason = reason ?? forbidden(env, ref, 'logs');
   return assemble([], [
     [
       item(env, 'show', t('kubeActions:menu.show'), view(jump)),
       ...(kind === 'node' ? [podsOnNode(env, ref.name, [], 'node-pods', t('kubeActions:menu.podsOnThisNode'))] : []),
     ],
     [
-      ...(crashes ? [item(env, 'previous', t('kubeActions:menu.previousLogs'), { type: 'view', actions: [jump, dock('logs')], previous: true }, { reason })] : []),
-      ...(podProblem ? [item(env, 'logs', t('kubeActions:menu.logs'), { type: 'view', actions: [jump, dock('logs')], previous: false }, { reason })] : []),
+      ...(crashes ? [item(env, 'previous', t('kubeActions:menu.previousLogs'), { type: 'view', actions: [jump, dock('logs')], previous: true }, { reason: logsReason })] : []),
+      ...(podProblem ? [item(env, 'logs', t('kubeActions:menu.logs'), { type: 'view', actions: [jump, dock('logs')], previous: false }, { reason: logsReason })] : []),
       item(env, 'describe', t('kubeActions:menu.describe'), view(jump, dock('describe')), { reason }),
       item(env, 'events', t('kubeActions:menu.events'), view(jump, dock('events')), { reason }),
+      ...(podProblem ? [analyzeItem(env, ref, { problem: kind })] : []),
       ...(kind === 'node' ? [sshItem(env, { name: ref.name, ip: nodeTile?.ip })] : []),
     ],
     copyGroup(env, [
@@ -469,10 +556,12 @@ function dockMenu(env: Env, target: Extract<MenuTarget, { type: 'dock' }>): Menu
   const popoutMode: KubeTerminalMode = mode === 'shell' ? 'shell' : previous ? 'previous' : 'logs';
   const popoutReason = !env.ctx.canPopout ? t('kubeActions:reasons.noPopout') : !pod || !container ? t('kubeActions:reasons.onlyPods')
     : mode === 'shell' ? (env.readOnly ? readOnlyReason() : reason ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined)) : reason;
-  const shellReason = podOnly ?? (env.readOnly ? readOnlyReason() : reason ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined));
+  const logsReason = podOnly ?? reason ?? (pod ? forbidden(env, pod.ref, 'logs') : undefined);
+  const shellReason = (podOnly ?? (env.readOnly ? readOnlyReason() : reason ?? (podNotRunning(pod) ? t('kubeActions:reasons.notRunning') : undefined)))
+    ?? (pod ? forbidden(env, pod.ref, 'shell') : undefined);
   return assemble([], [
     [
-      item(env, 'mode-logs', t('kubeActions:menu.logs'), { type: 'view', actions: [dock('logs')], previous: false }, { hotkey: 'logs', reason: podOnly ?? reason }),
+      item(env, 'mode-logs', t('kubeActions:menu.logs'), { type: 'view', actions: [dock('logs')], previous: false }, { hotkey: 'logs', reason: logsReason }),
       item(env, 'mode-shell', t('kubeActions:menu.shell'), SHELL_ARMED(dock('shell')), { hotkey: 'shell', reason: shellReason }),
       item(env, 'mode-events', t('kubeActions:menu.events'), view(dock('events')), { hotkey: 'events', reason }),
       item(env, 'mode-yaml', t('kubeActions:menu.yaml'), view(dock('yaml')), { hotkey: 'yaml', reason }),
@@ -480,7 +569,7 @@ function dockMenu(env: Env, target: Extract<MenuTarget, { type: 'dock' }>): Menu
     ],
     [
       ...(mode === 'logs' ? [item(env, 'previous', t(previous ? 'kubeActions:menu.currentLogs' : 'kubeActions:menu.previousLogs'),
-        { type: 'view', actions: [], previous: !previous }, { hotkey: previous ? undefined : 'previous', reason: podOnly ?? reason })] : []),
+        { type: 'view', actions: [], previous: !previous }, { hotkey: previous ? undefined : 'previous', reason: logsReason })] : []),
       ...(pod && containers.length > 1 ? containers.map(name =>
         item(env, `container-${name}`, t('kubeActions:menu.container', { name }), view({ type: 'selectContainer', name }), { extra: name === container ? t('kubeActions:menu.active') : undefined, reason })) : []),
       ...(mode === 'logs' && pod && container ? [item(env, 'reload', t('kubeActions:menu.reloadLogs'), { type: 'dockReload' }, { reason })] : []),

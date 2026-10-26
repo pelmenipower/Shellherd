@@ -309,3 +309,49 @@ describe('invalid objects', () => {
     expect(toRow('pods', { metadata: { name: 'x' } })).toBeNull();
   });
 });
+
+describe('ports', () => {
+  it('lists the TCP container ports of a pod once, with their names', () => {
+    const row = toRow('pods', pod({ phase: 'Running' }, { containers: [
+      { name: 'api', ports: [{ name: 'http', containerPort: 8080 }, { containerPort: 9090, protocol: 'UDP' }] },
+      { name: 'sidecar', ports: [{ containerPort: 8080 }] },
+    ] }));
+    expect(row?.ports).toEqual([{ port: 8080, name: 'http' }]);
+    expect(toRow('pods', pod({ phase: 'Running' }))).not.toHaveProperty('ports');
+  });
+
+  it('lists the TCP ports of a service and keeps the ports cell', () => {
+    const row = toRow('services', { metadata: { name: 'web', namespace: 'shop', uid: 'sv1' },
+      spec: { selector: { app: 'web' }, ports: [{ name: 'http', port: 80, targetPort: 'http' }, { port: 53, protocol: 'UDP' }] } });
+    expect(row?.ports).toEqual([{ port: 80, name: 'http' }]);
+    expect(row?.cells.ports).toBe('80/TCP,53/UDP');
+  });
+});
+
+describe('Argo CD and Harbor data', () => {
+  const DIGEST = `sha256:${'b'.repeat(64)}`;
+  const meta = (extra: object) => ({ name: 'api', namespace: 'shop', uid: 'u', creationTimestamp: '2026-10-16T08:00:00Z', ...extra });
+
+  it('sets argoApp from the tracking annotation or the label, never from a forged or invalid value', () => {
+    expect(toRow('deployments', { metadata: meta({ annotations: { 'argocd.argoproj.io/tracking-id': 'shop:apps/Deployment:shop/api' } }), spec: {}, status: {} })?.argoApp).toBe('shop');
+    expect(toRow('services', { metadata: meta({ labels: { 'argocd.argoproj.io/instance': 'shop' } }), spec: {} })?.argoApp).toBe('shop');
+    expect(toRow('deployments', { metadata: meta({ annotations: { 'argocd.argoproj.io/tracking-id': 'evil.example.test/x:apps/Deployment:shop/api' } }), spec: {}, status: {} })).not.toHaveProperty('argoApp');
+    expect(toRow('services', { metadata: meta({ labels: { 'argocd.argoproj.io/instance': 'Evil Name' } }), spec: {} })).not.toHaveProperty('argoApp');
+    expect(toRow('services', { metadata: meta({}), spec: {} })).not.toHaveProperty('argoApp');
+  });
+
+  it('keeps the digest of the running image per container, only for the same repository', () => {
+    const object = (imageID?: string) => ({
+      metadata: meta({}),
+      spec: { containers: [{ name: 'main', image: 'harbor.example.test/shop/api:2.4.1' }, { name: 'proxy', image: 'registry.local/proxy:1' }] },
+      status: { phase: 'Running', containerStatuses: [
+        { name: 'main', ready: true, restartCount: 0, state: { running: {} }, ...(imageID ? { imageID } : {}) },
+        { name: 'proxy', ready: true, restartCount: 0, state: { running: {} }, imageID: `mirror.example.test/proxy@${DIGEST}` },
+      ] },
+    });
+    expect(toRow('pods', object(`harbor.example.test/shop/api@${DIGEST}`))?.digests).toEqual({ main: DIGEST });
+    expect(toRow('pods', object(`docker-pullable://harbor.example.test/shop/api@${DIGEST}`))?.digests).toEqual({ main: DIGEST });
+    expect(toRow('pods', object())).not.toHaveProperty('digests');
+    expect(toRow('pods', object(`other.example.test/shop/api@${DIGEST}`))).not.toHaveProperty('digests');
+  });
+});

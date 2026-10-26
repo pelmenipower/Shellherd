@@ -1,10 +1,12 @@
 import { errorText } from './error-text';
+import type { KubeAccessEntry } from '../../shared/kube-access';
+import type { KubeAccessMap } from './kube-access';
 import { compareText } from '../../shared/format';
 import { compileSearch, EMPTY_FILTER, MAX_SEARCH_LENGTH, type KubeFilter } from '../../shared/kube-filter';
 import { compileChips, knownChips } from '../../shared/kube-status';
 import { columnFilterKind, columnsFor, compileColumnFilters, groupKey, groupRows, GROUP_OPTIONS, type KubeGrouping, type TableItem } from './kube-columns';
 import { KIND_COLUMNS, KIND_INFO, KUBE_KINDS, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH, queryKey, refKey } from '../../shared/kubernetes';
-import type { ColumnInfo, ClusterStatus, DockMode, GroupBy, KubeEvent, KubeKind, KubeProblem, KubeQuery, KubeRef, KubeRow, KubeTerminalMode, KubeTerminalTarget, KubeViewSnapshot, NodeTile, UsageHistory } from '../../shared/kubernetes';
+import type { ColumnInfo, ClusterStatus, DockMode, GroupBy, KubeEvent, KubeForwardStatus, KubeKind, KubeProblem, KubeQuery, KubeRef, KubeRow, KubeTerminalMode, KubeTerminalTarget, KubeViewSnapshot, NodeTile, UsageHistory } from '../../shared/kubernetes';
 
 type LogFormat = NonNullable<KubeTerminalTarget['format']>;
 
@@ -45,6 +47,10 @@ export interface KubeViewState {
   usage: UsageHistory;
   /** Date.now() of the last rows/overview event; 0 = none. */
   updatedAt: number;
+  /** Port forwards of this view, as main reports them; never saved. */
+  forwards: KubeForwardStatus[];
+  /** RBAC pre-check per namespace; never saved, emptied whenever the cluster is not ready. */
+  access: KubeAccessMap;
 }
 
 export type KubeViewAction =
@@ -71,6 +77,7 @@ export type KubeViewAction =
   | { type: 'toggleDock' }
   | { type: 'setLogFormat'; format: LogFormat }
   | { type: 'selectContainer'; name: string }
+  | { type: 'access'; namespace: string; entry: KubeAccessEntry }
   | { type: 'restore'; snapshot: KubeViewSnapshot };
 
 const SPARK = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -80,7 +87,7 @@ const GI = 1024 ** 3;
 export function initialKubeView(namespace: string | null): KubeViewState {
   return {
     status: null, query: { kind: 'pods', namespace }, crumbs: [], rows: [], loading: true, trouble: null, pendingNamespace: true, filters: {}, groups: {}, now: 0, sort: null, selected: null,
-    containersOf: null, container: null, dock: 'logs', dockOpen: false, logFormat: 'compact', nodes: [], problems: [], namespaces: [], usage: {}, updatedAt: 0,
+    containersOf: null, container: null, dock: 'logs', dockOpen: false, logFormat: 'compact', nodes: [], problems: [], namespaces: [], usage: {}, updatedAt: 0, forwards: [], access: {},
   };
 }
 
@@ -91,6 +98,8 @@ export function kubeViewReducer(state: KubeViewState, action: KubeViewAction): K
 function reduce(state: KubeViewState, action: KubeViewAction): KubeViewState {
   switch (action.type) {
     case 'event': return applyEvent(state, action.event, action.at ?? state.now);
+    // An answer that lands after the connection dropped may describe the old connection: dropped.
+    case 'access': return state.status?.state === 'ready' ? { ...state, access: { ...state.access, [action.namespace]: action.entry } } : state;
     case 'setKind': return { ...withQuery(state, { kind: action.kind, namespace: state.query.namespace }, []), sort: defaultSort(action.kind) };
     case 'setNamespace': {
       const next = withQuery(state, { kind: state.query.kind, namespace: action.namespace }, []);
@@ -300,12 +309,16 @@ function applyEvent(state: KubeViewState, event: KubeEvent, at: number): KubeVie
     case 'usage': return { ...state, usage: event.pods };
     case 'rows': return applyRows(state, event, at);
     case 'trouble': return queryKey(event.query) === queryKey(state.query) ? { ...state, trouble: event.error ? errorText(event.error) : null } : state;
+    case 'forwards': return { ...state, forwards: event.forwards };
+    // The lines are read by WorkloadLogs itself; the reducer keeps no log state.
+    case 'logs': return state;
   }
 }
 
 /** The first status that names a default namespace replaces the initial one, unless the view has moved on. */
 function applyStatus(state: KubeViewState, status: ClusterStatus): KubeViewState {
-  const next = { ...state, status };
+  // Rights are asked again after a reconnect: an answer from before may be out of date.
+  const next = { ...state, status, ...(status.state !== 'ready' && Object.keys(state.access).length > 0 ? { access: {} } : {}) };
   if (!state.pendingNamespace) return next;
   // Ready without a configured namespace: keep the initial one (all namespaces).
   if (!status.namespace) return status.state === 'ready' ? { ...next, pendingNamespace: false } : next;

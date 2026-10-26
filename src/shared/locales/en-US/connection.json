@@ -14,7 +14,8 @@
       "userGiven": "User specified",
       "hostKey": "Server key verified",
       "credentials": "Credentials read",
-      "sftp": "SFTP available"
+      "sftp": "SFTP available",
+      "jumpHost": "Jump host {{name}} connected"
     }
   },
   "form": {
@@ -126,7 +127,36 @@
     "manage": "Manage connection",
     "delete": "Delete connection",
     "deleteTitle": "Delete connection “{{name}}”?",
-    "deleteDescription": "The connection is removed permanently, including from saved workspaces. Its active sessions are ended."
+    "deleteDescription": "The connection is removed permanently, including from saved workspaces. Its active sessions are ended.",
+    "jump": {
+      "label": "Jump host",
+      "none": "None (connect directly)",
+      "hint": "Connects to this SSH connection first and continues from there. Host and port above are seen from the jump host.",
+      "missing": "{{id}} (no longer exists)",
+      "disabled": "{{name}} (disabled)"
+    },
+    "deleteJumpHint_one": "It is the jump host of {{count}} connection, which will not connect until you choose another jump host there.",
+    "deleteJumpHint_other": "It is the jump host of {{count}} connections, which will not connect until you choose another jump host there.",
+    "forwards": {
+      "legend": "Port forwards",
+      "kind": "Type",
+      "kinds": {
+        "local": "Local (-L)",
+        "remote": "Remote (-R)",
+        "dynamic": "Dynamic, SOCKS (-D)"
+      },
+      "localPort": "Local port",
+      "remotePort": "Port on the server",
+      "targetHost": "Target host",
+      "targetPort": "Target port",
+      "auto": "Start on connect",
+      "add": "Add port forward",
+      "remove": "Remove port forward {{index}}",
+      "hintLocal": "Listens on 127.0.0.1 of this computer only. The target is seen from the server.",
+      "hintRemote": "Listens on localhost on the server. Other machines reach the port only with GatewayPorts in sshd_config. The target is seen from this computer.",
+      "hintDynamic": "SOCKS5 proxy without authentication on 127.0.0.1. Enter it as SOCKS proxy in your browser or program.",
+      "hintTabs": "A port forward runs in one tab of this connection at a time."
+    }
   },
   "validation": {
     "nameMissing": "Enter a connection name.",
@@ -144,7 +174,15 @@
     "namespaceInvalid": "Enter a valid namespace, e.g. default.",
     "colorInvalid": "Enter the color as #RRGGBB.",
     "iconInvalid": "Choose an available icon.",
-    "checkData": "Check the connection data."
+    "checkData": "Check the connection data.",
+    "jumpSelf": "A connection cannot be its own jump host.",
+    "jumpGone": "The jump host \"{{id}}\" no longer exists. Choose another one.",
+    "jumpChained": "\"{{name}}\" has a jump host of its own. This is not supported yet.",
+    "jumpDisabled": "The jump host \"{{name}}\" is disabled.",
+    "jumpIsJumpHost": "This connection is itself the jump host of other connections. Chains are not supported yet.",
+    "forwardTargetMissing": "Enter a target host.",
+    "forwardPortTwice": "Port {{port}} is already used by another port forward.",
+    "forwardTooMany": "At most {{max}} port forwards."
   },
   "cluster": {
     "access": {
@@ -178,6 +216,12 @@
     "productionHint": "Actions require typing the name.",
     "readOnly": "Read-only",
     "readOnlyHint": "No actions and no shell; logs stay available.",
+    "links": {
+      "legend": "Web interfaces (optional)",
+      "hint": "For “Open in Argo CD” and “Open in Harbor”. Shellherd only opens links in your browser and requests nothing from these addresses itself. https addresses only.",
+      "argo": "Argo CD address",
+      "harbor": "Harbor address"
+    },
     "validation": {
       "noAccess": "Choose at least one SSH connection as access host.",
       "kubeconfigEmpty": "Enter the path to the kubeconfig.",
@@ -185,7 +229,8 @@
       "accessGone": "The access host “{{id}}” no longer exists.",
       "accessNotSsh": "The access host “{{name}}” is not an SSH connection.",
       "accessDisabled": "The access host “{{name}}” is disabled.",
-      "nameMissing": "Enter a name."
+      "nameMissing": "Enter a name.",
+      "linkUrl": "Enter an https address without user name, query or fragment."
     }
   }
 }

@@ -8,9 +8,10 @@ import { Server, utils } from 'ssh2';
 import type { AddressInfo } from 'node:net';
 import type { ConnectionNode } from '../../shared/vault/types';
 import type { SftpEvent, TransferJob } from '../../shared/sftp';
-import { localFileSystem } from './file-system';
+import { fileError, localFileSystem } from './file-system';
 import { windowBytes } from './transfer';
 import { SftpSessionManager } from './sftp-session';
+import { testHostKey } from '../ssh/test-host-key';
 
 const { STATUS_CODE, flagsToString } = utils.sftp;
 /** Knobs and counters of the test server (reset per resume test). */
@@ -19,7 +20,7 @@ const attrs = (info: Stats) => ({ mode: info.mode, uid: 0, gid: 0, size: info.si
 
 /** Minimal SFTP server on a temporary folder: enough for listing, transfers, renames and deletes. */
 function startServer(root: string): Promise<{ server: Server; port: number }> {
-  const hostKey = utils.generateKeyPairSync('ed25519').private;
+  const hostKey = testHostKey();
   const local = (path: string) => join(root, posix.normalize(`/${path}`));
   const server = new Server({ hostKeys: [hostKey] }, client => {
     client.on('authentication', context => context.method === 'password' && context.password === 'synthetic-secret' ? context.accept() : context.reject(['password']));
@@ -41,7 +42,7 @@ function startServer(root: string): Promise<{ server: Server; port: number }> {
         const entry = lookup(buffer)!;
         if (entry.done) { sftp.status(reqid, STATUS_CODE.EOF); return; }
         entry.done = true;
-        sftp.name(reqid, readdirSync(entry.dir!).map(name => ({ filename: name, longname: name, attrs: attrs(lstatSync(join(entry.dir!, name))) as never })));
+        guard(reqid, () => sftp.name(reqid, readdirSync(entry.dir!).map(name => ({ filename: name, longname: name, attrs: attrs(lstatSync(join(entry.dir!, name))) as never }))));
       });
       sftp.on('OPEN', (reqid, path, flags) => guard(reqid, () => {
         const fd = openSync(local(path), flagsToString(flags)!);
@@ -200,6 +201,12 @@ describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', 
     expect(statSync(join(remoteRoot, 'project', 'readme.txt')).mtimeMs).toBe(1_600_000_000_000);
     const listing = await manager.list(1, sessionId, '/project');
     expect(listing.entries.map(entry => `${entry.type}:${entry.name}`).sort()).toEqual(['directory:docs', 'file:readme.txt']);
+  });
+
+  it('refuses a file as folder with files.notADirectory, and a missing folder with files.notFound', async () => {
+    const failure = (path: string) => manager.list(1, sessionId, path).then(() => null, error => fileError(error));
+    expect(await failure('/project/readme.txt')).toEqual({ code: 'files.notADirectory' });
+    expect(await failure('/project/fehlt')).toEqual({ code: 'files.notFound' });
   });
 
   it('asks before overwriting and follows the answer', async () => {

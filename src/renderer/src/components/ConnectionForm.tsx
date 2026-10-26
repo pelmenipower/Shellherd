@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ConnectionNode, ConnectionProtocol, VaultNode } from '../../../shared/vault/types';
-import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folderOptions } from '../connection-form';
+import { ConnectionFieldError, connectionFromFields, fieldsFromConnection, folderOptions, jumpHostOptions, jumpHostReferences, validateJumpHost } from '../connection-form';
 import type { ConnectionFields, ConnectionTextField } from '../connection-form';
 import { validateCluster } from '../cluster-form';
 import { ClusterForm } from './ClusterForm';
+import { ForwardsEditor } from './ForwardsEditor';
 import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import './editor-ui.css';
@@ -22,7 +23,7 @@ const STEP_LABEL_KEYS = {
   toolFound: 'connection:test.steps.toolFound', programFound: 'connection:test.steps.programFound', hostGiven: 'connection:test.steps.hostGiven',
   nameResolved: 'connection:test.steps.nameResolved', portReachable: 'connection:test.steps.portReachable', login: 'connection:test.steps.login',
   userGiven: 'connection:test.steps.userGiven', hostKey: 'connection:test.steps.hostKey', credentials: 'connection:test.steps.credentials',
-  sftp: 'connection:test.steps.sftp',
+  sftp: 'connection:test.steps.sftp', jumpHost: 'connection:test.steps.jumpHost',
 } as const satisfies Record<ConnectionTestStepId, string>;
 
 const NEW_TITLE_KEYS = {
@@ -97,11 +98,16 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
     setFields(current => ({ ...current, ...patch }));
     setError(current => current?.field && current.field in patch ? null : current);
   }
+  function setForwards(value: ConnectionFields['forwards']): void {
+    setFields(current => ({ ...current, forwards: value }));
+    setError(current => current?.field === 'forwards' ? null : current);
+  }
   async function submit(connect: boolean): Promise<void> {
     if (busy || submittingRef.current) return;
     submittingRef.current = true;
     try {
       const updated = connectionFromFields(connection?.id ?? crypto.randomUUID(), fields, protocol);
+      validateJumpHost(fields.jumpHost, connection?.id, nodes);
       const clusterProblem = updated.protocol === 'kubernetes' ? validateCluster(updated, nodes) : null;
       if (clusterProblem) { setError({ message: clusterProblem }); return; }
       setError(null);
@@ -111,8 +117,10 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
       const field = caught instanceof ConnectionFieldError ? caught.field : undefined;
       setError({ field, message: caught instanceof ConnectionFieldError ? caught.message : t('connection:form.saveFailed') });
       if (field) {
-        if ((field === 'color' || field === 'workingDirectory' || field === 'idleMinutes' || field === 'keepaliveSeconds' || field === 'keepaliveCount' || field === 'connectSeconds') && detailsRef.current) detailsRef.current.open = true;
-        requestAnimationFrame(() => document.getElementById(`${prefix}-${field}`)?.focus());
+        if ((field === 'color' || field === 'jumpHost' || field === 'forwards' || field === 'workingDirectory' || field === 'idleMinutes' || field === 'keepaliveSeconds' || field === 'keepaliveCount' || field === 'connectSeconds') && detailsRef.current) detailsRef.current.open = true;
+        // The forwards list has no id of its own; focus the port field of the first forward.
+        const target = field === 'forwards' ? `${prefix}-forward-${fields.forwards[0]?.id}-listenPort` : `${prefix}-${field}`;
+        requestAnimationFrame(() => document.getElementById(target)?.focus());
       }
     } finally { submittingRef.current = false; }
   }
@@ -135,6 +143,9 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
       {error?.field === field && <p className="field-error" id={`${prefix}-${field}-error`} role="alert">{error.message}</p>}
     </div>
   );
+
+  const jumpOptions = jumpHostOptions(nodes, connection?.id, fields.jumpHost);
+  const jumpCount = connection ? jumpHostReferences(nodes, connection.id) : 0;
 
   return (
     <section className="node-editor compact-editor" aria-label={t('connection:form.ariaLabel')}>
@@ -222,9 +233,25 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
             {textField(t('connection:form.fields.tags'), 'tags')}
             {textField(t('connection:form.fields.color'), 'color')}
             {sshAuth && <>
+              <label>{t('connection:form.jump.label')}<select id={`${prefix}-jumpHost`} value={fields.jumpHost} disabled={busy}
+                aria-invalid={error?.field === 'jumpHost' || undefined}
+                aria-describedby={error?.field === 'jumpHost' ? `${prefix}-jumpHost-error` : undefined}
+                onChange={event => setField('jumpHost', event.target.value)}>
+                <option value="">{t('connection:form.jump.none')}</option>
+                {jumpOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select></label>
+              <p className="editor-hint">{t('connection:form.jump.hint')}</p>
+              {error?.field === 'jumpHost' && <p className="field-error" id={`${prefix}-jumpHost-error`} role="alert">{error.message}</p>}
+            </>}
+            {sshAuth && <>
               <div className="editor-auth-row">{textField(t('connection:form.fields.idleMinutes'), 'idleMinutes')}{textField(t('connection:form.fields.connectSeconds'), 'connectSeconds')}</div>
               <div className="editor-auth-row">{textField(t('connection:form.fields.keepaliveSeconds'), 'keepaliveSeconds')}{textField(t('connection:form.fields.keepaliveCount'), 'keepaliveCount')}</div>
               <p className="editor-hint">{t('connection:form.timeouts.hint')}</p>
+            </>}
+            {protocol === 'ssh' && <>
+              <ForwardsEditor value={fields.forwards} onChange={setForwards} busy={busy} idPrefix={prefix}
+                errorId={error?.field === 'forwards' ? `${prefix}-forwards-error` : undefined} />
+              {error?.field === 'forwards' && <p className="field-error" id={`${prefix}-forwards-error`} role="alert">{error.message}</p>}
             </>}
           </div>
         </details>
@@ -250,7 +277,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
         <button className="danger-button" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>{t('connection:form.delete')}</button>
       </details>}
       {confirmDelete && onDelete && <ConfirmDialog title={t('connection:form.deleteTitle', { name: connection?.name })}
-        description={t('connection:form.deleteDescription')}
+        description={jumpCount ? `${t('connection:form.deleteDescription')} ${t('connection:form.deleteJumpHint', { count: jumpCount })}` : t('connection:form.deleteDescription')}
         busy={busy} onCancel={() => setConfirmDelete(false)} onConfirm={() => { void onDelete().then(saved => { if (saved) setConfirmDelete(false); }); }} />}
     </section>
   );

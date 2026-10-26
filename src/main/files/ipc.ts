@@ -5,12 +5,16 @@ import { extname, win32 } from 'node:path';
 import { z } from 'zod';
 import { parseRequest } from '../ssh/validation';
 import { AppError } from '../../shared/errors';
+import { AUTO_UPLOAD_LOCAL_PATH } from '../../shared/vault/schema';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import type { EditorChoice } from '../../shared/sftp';
 import { writeFile } from 'node:fs/promises';
 import type { KnownHosts } from '../ssh/known-hosts';
 import { requireSshSender } from '../ssh/ipc';
 import { findConnection } from '../ssh/session';
+import type { AuthPrompts } from '../ssh/auth-prompts';
+import { openJump } from '../ssh/jump';
+import { openRemoteHost } from '../containers/runner';
 import { vaultSessionManager } from '../vault/ipc';
 import { effectiveTimeouts } from '../../shared/vault/timeouts';
 import { FileError, fileError, localFileSystem, localPlaces } from './file-system';
@@ -32,6 +36,14 @@ const TransferSchema = z.discriminatedUnion('direction', [
 const JobSchema = z.object({ ...session, jobId: z.string().uuid() }).strict();
 const ConflictSchema = z.object({ ...session, conflictId: z.string().uuid(), choice: z.enum(['overwrite', 'skip', 'newer', 'cancel']), applyToAll: z.boolean() }).strict();
 const LocalPathSchema = z.object({ path: localPath }).strict();
+// Typed paths reach this channel: drive or UNC only, never device paths (\\?\, \\.\).
+const LocalListSchema = z.object({ path: localPath.refine(value => AUTO_UPLOAD_LOCAL_PATH.test(value)) }).strict();
+/** Resolves a local folder and checks the result again: normalisation must not turn it into a device path. */
+export function localListPath(value: string): string {
+  const resolved = win32.resolve(value);
+  if (!AUTO_UPLOAD_LOCAL_PATH.test(resolved)) throw new AppError('files.invalidRequest');
+  return resolved;
+}
 const LocalRenameSchema = z.object({ from: localPath, to: localPath }).strict();
 const LocalDeleteSchema = z.object({ paths: z.array(localPath).min(1).max(1000) }).strict();
 
@@ -69,7 +81,7 @@ function handle<T>(channel: string, schema: z.ZodType<T>, run: (ownerId: number,
   });
 }
 
-export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionManager {
+export function registerFileIpcHandlers(knownHosts: KnownHosts, prompts: AuthPrompts): SftpSessionManager {
   const manager = new SftpSessionManager({
     getConnection: id => {
       const connection = findConnection(vaultSessionManager.getSnapshot().vault.nodes, id);
@@ -78,6 +90,12 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
     },
     getTimeouts: connection => effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, connection),
     verifyHost: (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive),
+    ask: prompts.ask,
+    openJump: (connection, ownerId, active) => openJump(connection, {
+      getConnection: id => findConnection(vaultSessionManager.getSnapshot().vault.nodes, id),
+      openRemote: (jump, owner, active) => openRemoteHost(jump, (host, port, key, isActive) => knownHosts.verify(host, port, key, isActive), undefined,
+        effectiveTimeouts(vaultSessionManager.getSnapshot().vault.settings, jump), { ask: prompts.ask, ownerId: owner, isActive: active }),
+    }, ownerId, active),
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);
       if (owner && !owner.isDestroyed()) owner.send(IPC_CHANNELS.sftpEvent, event);
@@ -110,8 +128,8 @@ export function registerFileIpcHandlers(knownHosts: KnownHosts): SftpSessionMana
   handle(IPC_CHANNELS.sftpClose, SessionSchema, (ownerId, request) => manager.close(ownerId, request.sessionId));
 
   handle(IPC_CHANNELS.localPlaces, z.undefined(), () => localPlaces());
-  handle(IPC_CHANNELS.localList, LocalPathSchema, async (_ownerId, request) => {
-    const path = win32.resolve(request.path);
+  handle(IPC_CHANNELS.localList, LocalListSchema, async (_ownerId, request) => {
+    const path = localListPath(request.path);
     return { path, entries: await localFileSystem.list(path) };
   });
   handle(IPC_CHANNELS.localMkdir, LocalPathSchema, (_ownerId, request) => localFileSystem.mkdir(request.path));

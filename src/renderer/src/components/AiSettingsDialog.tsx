@@ -83,7 +83,7 @@ export function AiSettingsDialog({ settings, busy, onSave, onClose }: AiSettings
       {!draft && <>
         {providers.length ? <ul className="ai-provider-list">
           {providers.map(provider => <li key={provider.id}>
-            <div><strong>{provider.name}</strong><small>{kindLabel(provider.kind)} · {provider.model}{provider.id === defaultId ? ` · ${t('assistant:settings.default')}` : ''}</small></div>
+            <div><strong>{provider.name}</strong><small>{kindLabel(provider.kind)} · {provider.model}{provider.id === defaultId ? ` · ${t('assistant:settings.default')}` : ''}{provider.maskSecrets === false ? ` · ${t('assistant:settings.maskingOff')}` : ''}</small></div>
             {provider.id !== defaultId && <button type="button" className="secondary-button" disabled={busy}
               onClick={() => void save({ providers, defaultProviderId: provider.id })}>{t('assistant:settings.makeDefault')}</button>}
             <button type="button" className="secondary-button" disabled={busy} onClick={() => { setDraft({ ...provider }); setMessage(null); }}>{t('assistant:settings.edit')}</button>
@@ -114,6 +114,12 @@ export function AiSettingsDialog({ settings, busy, onSave, onClose }: AiSettings
           draft.kind === 'azure' ? t('assistant:settings.endpointHint') : undefined)}
         {draft.kind === 'azure' && field(t('assistant:settings.apiVersion'), 'apiVersion', t('assistant:settings.apiVersionHint'))}
         {field(draft.kind === 'openai' ? t('assistant:settings.apiKeyLocal') : t('assistant:settings.apiKey'), 'apiKey')}
+        <div className="ai-check">
+          <label><input type="checkbox" checked={draft.maskSecrets !== false} disabled={busy}
+            onChange={event => { setDraft({ ...draft, maskSecrets: event.target.checked ? undefined : false }); setMessage(null); }} />
+            {t('assistant:settings.maskSecrets')}</label>
+          <small>{t('assistant:settings.maskSecretsHint')}</small>
+        </div>
         <div className="form-actions">
           <button type="button" className="secondary-button" disabled={busy || testing} onClick={() => setDraft(null)}>{t('assistant:settings.back')}</button>
           <button type="button" className="secondary-button" disabled={busy || testing} onClick={() => {

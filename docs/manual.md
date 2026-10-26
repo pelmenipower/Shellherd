@@ -62,11 +62,19 @@ Home/End switch between tabs. Closing a tab only ends its session.
 Locking does not disconnect: sessions keep running in the background, and all tabs are back after unlocking. New connections and `Reconnect` work only after unlocking. `Other vault file` on the lock screen always asks and disconnects everything. Saved workspaces can be opened selectively after
 unlocking; this starts new SSH sessions.
 
+### Recently used vaults
+
+`Open vault` lists up to eight vault files under `Recently used` that you opened, created or saved last, newest first, with date and folder. A click selects the file; only the password is left. At start the newest file that still exists is preselected. If a file is gone (moved, deleted or network drive disconnected), it shows `File not found` and cannot be selected; it stays until you remove it. The `×` next to an entry only takes it off the list, the file stays untouched. The list holds paths and times only, never passwords or contents, and lives in `settings.json` in the user data folder. Paths show the folder and therefore often your Windows user name; keep that in mind before you share a screenshot of the start screen.
+
+Shellherd opens a vault file only if it comes from `Select vault file`, a double-click in Explorer, `Recently used`, or by dragging it from a local drive. A vault file on a network share (`\\server\…`) you open once via `Select vault file`; after that it is listed under `Recently used`. Shellherd refuses to open a file dragged from a network share. This way, injected code cannot make Shellherd trigger a network sign-in to a foreign server.
+
 ### Locking and the welcome tab
 
 The lock button in the header locks without a confirmation. An opaque lock screen covers the window; the keyboard reaches nothing behind it. Detached windows are locked too and show their own lock screen (without a password field); you unlock in the main window.
 
 - **Credentials in memory:** The credentials of open sessions stay in Shellherd's memory while locked. A changed, unsaved connection editor keeps its content, including the connection's stored password; an unchanged editor closes on lock. The lock does not protect against reading the process memory.
+- **Screen captures:** While locked, Shellherd excludes all its windows from screen captures and screen sharing (Teams, Zoom, Snipping Tool); there the background appears instead. After unlocking this is lifted. Photos of the screen and the preview of a minimized window in the taskbar are not reliably covered by this.
+- **Windows Hello:** If it is on for the vault, `Unlock with Windows Hello` stands above the password field, also after the automatic lock. See “Windows Hello”.
 - **Idle disconnect:** It keeps running while locked. A long lock can disconnect sessions; the disconnected bar waits after unlocking.
 - **Assistant:** Automatic assistant requests (reading output) fail while locked with “No vault is unlocked.”
 - **Host key:** An open host key prompt can appear above the lock screen. It shows only the host and fingerprint.
@@ -77,11 +85,50 @@ Right-click pastes the clipboard text into the terminal you clicked.
 Pasting goes through xterm and respects the server's bracketed paste mode.
 The usual copy and paste shortcuts remain available.
 
+Search in the terminal with `Ctrl+Shift+F`. `Enter` finds the next match, `Shift+Enter` the previous one, `Esc` closes the search. Upper and lower case do not matter. Matches are highlighted by the selection and are not copied to the clipboard. The terminals in the container and cluster docks have no search; there `Ctrl+Shift+F` goes to the terminal.
+
+Open links with `Ctrl+click`. Only `http` and `https` addresses up to 2048 characters without user name or password are allowed; everything else stays text. Hovering over a link shows a hint in the terminal that names the target: “Ctrl+click opens <host> in your browser”. If a link appears under the resting mouse, move the mouse briefly to another line.
+
+A tab whose terminal is not visible shows a ring after its name when new output arrives; the name turns bold and brighter. The mark disappears once you see the tab.
+
+When closed, the main window remembers its size, position and maximized state. The values are stored in `settings.json` in the user data folder, not in the vault. A window closed while minimized keeps its previous position.
+
 File view: `Edit` opens only text, configuration and source files in the default program, everything else in Notepad.
+
+### Windows Hello
+
+Settings → Vault → `Unlock with Windows Hello (PIN, face or fingerprint)` turns on unlocking the open vault with Windows Hello. Windows asks once for PIN, face or fingerprint, the very first time twice, because Shellherd then creates its Windows Hello key. Afterwards the lock screen shows `Unlock with Windows Hello`, and `Open vault` shows `Open with Windows Hello` for this file, also after a restart. Shellherd never asks on its own, only after a click or `Enter` on the button. The password keeps working; if you cancel the Windows prompt, the password field simply stays.
+
+- **What is stored:** not the password, but the key of this vault derived from it, encrypted with a key that only a Windows Hello signature creates. It lies in `hello-unlock.json` in the user data folder, for at most eight vaults. The private Windows Hello key stays with Windows, in the TPM security chip where available; Shellherd never sees it.
+- **Only here:** for this vault file, on this device, in this Windows account. It does not work on another computer or with a copy of the user data folder.
+- **When it ends:** Switching it off in the settings and `×` under `Recently used` delete the stored key. If the vault file is replaced or newly created, or you set up Windows Hello again (for example after resetting the PIN), Shellherd reports “Windows Hello no longer matches this vault …” and deletes the entry. You then unlock with the password and can turn Windows Hello on again. The Shellherd Windows Hello key stays in Windows until you reset the PIN; without an entry it opens nothing.
+- **What it protects against:** people at your device who do not know the vault password, and reading the stored key without your confirmation; with a TPM also from a copy of the disk.
+- **What it does not protect against:** malware under your Windows account can trigger a Windows Hello prompt; only confirm prompts you started yourself. Against malware that reads the memory of an unlocked Shellherd or records your password, Windows Hello does not help. Without a TPM (for example in some virtual machines) Windows protects the key only in software.
+- **Limits:** Detached windows still unlock only through the main window. In a Remote Desktop session Windows Hello is usually not available. The Windows prompt is a Windows window and is not part of the lock's window protection; it shows nothing from the vault.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+,` | Open settings |
+| `Ctrl+Shift+K` | Show or hide the AI assistant |
+| `Ctrl+Shift+Space` | Open the workflow palette |
+| `Ctrl+Shift+F` | Search in the terminal |
+| `Ctrl+click` | Open a link in the terminal (http and https only) |
+| `Ctrl+Tab` | Next tab in the focused pane |
+| `Ctrl+Shift+Tab` | Previous tab in the focused pane |
+| `Ctrl+Shift+T` | Open the connection picker of the focused pane |
+| `Ctrl+Shift+W` | Close the active tab of the focused pane (with confirmation) |
+
+`Ctrl+F`, `Ctrl+T` and `Ctrl+W` stay with the shell (one character forward, swap characters, delete word), which is why the Shift variants are used. The tab shortcuts do nothing while a dialog is open or while you type in a text field; in the terminal itself they work. `Ctrl+Shift+T` and `Ctrl+Shift+W` do not repeat when you hold the keys down.
+
+### Input to all panes
+
+In the pane header menu, `Send input to all panes` turns it on; the entry appears from two panes. What you type then goes to all connected SSH and local terminals of the shown view. Containers, pods, RDP, SFTP, clusters and the welcome page stay out. Workflows and the assistant still type into one tab only. Member panes show a warning line and the button `To all`; a click on it stops the input. It also ends when you switch views or when fewer than two terminals remain.
 
 ## Settings
 
-The gear on the right of the header opens the settings, as does `Ctrl+,`. Before unlocking, the `Settings` link at the bottom of the start card leads there. Every value applies immediately; there is no “Save”. Detached windows have no settings of their own; language and the vault setting still apply there. While an RDP session has the focus, shortcuts go to the remote computer, `Ctrl+,` included.
+The gear on the right of the header opens the settings, as does `Ctrl+,`. Before unlocking, the `Settings` link at the bottom of the start card leads there. Every value applies immediately; there is no “Save”. Detached windows have no settings of their own; language, appearance and vault settings still apply there. While an RDP session has the focus, shortcuts go to the remote computer, `Ctrl+,` included.
 
 ### Language
 
@@ -89,9 +136,17 @@ Shellherd follows the system language by default: German on a German Windows, En
 
 The AI assistant answers in the selected language. kubectl-like output and raw status values stay in English. The installer follows the Windows language.
 
+### Appearance
+
+`Appearance` under Settings → General offers `System`, `Dark` and `Light`; the default is `Dark`. `System` follows the Windows app color mode and changes along when you switch it. The change applies to all windows at once, without a restart; open sessions keep running. Window frames and Windows dialogs follow too. In light mode the terminal, manifests and code are light as well; Shellherd lifts terminal colors that are too faint to at least 4.5:1 contrast. The picture of a Remote Desktop session stays unchanged. Like the language, the choice is stored in `settings.json` in the user data folder, not in the vault, so it applies before unlocking.
+
 ### File association
 
 `Add to Windows` under Settings → General associates `.term` files with Shellherd: a double-click in Explorer or right-click → “Open with Shellherd” opens the vault. The association applies to the signed-in user only (HKCU) and needs no administrator rights. `Remove association` takes it out again.
+
+### Updates
+
+`Check for new versions` under Settings → General is on by default. At most once a day, after unlocking, Shellherd asks GitHub for the latest version (`releases/latest`) and shows it in the status bar. A click opens the release notes or skips this version. Only the request itself is sent, that is your IP address and `User-Agent: Shellherd/<version>`, nothing from the vault. Before unlocking there is no network request, and with the switch off there is none at all. The switch is also available without a vault. Shellherd does not install updates; you download and install them yourself.
 
 ### Vault
 
@@ -104,6 +159,8 @@ The AI assistant answers in the selected language. kubectl-like output and raw s
 - **Nothing is asked:** The lock works like manual locking, without a confirmation. Open settings and provider dialogs close. Detached windows are locked, not closed. After the lock, the lock screen names the reason.
 - **Imprecision:** The lock comes up to 10 seconds earlier or up to 30 seconds later than set; after waking from sleep, Shellherd locks immediately if the time has run out.
 - **Existing vaults:** Every vault carries the value 15, so from this version on they lock after 15 minutes; `0` turns the lock off.
+
+`Unlock with Windows Hello (PIN, face or fingerprint)` applies only to this vault on this device and is not stored in the vault. If Windows Hello is not set up, a hint appears here instead. See “Windows Hello”.
 
 ### Connections
 
@@ -121,9 +178,89 @@ Settings → Connections (after unlocking only) holds four values for SSH and SF
 - **Per connection:** Under `More options` of an SSH or SFTP connection, the four values can be overridden one by one (`Idle disconnect (min)`, `Keepalive (s)`, `Keepalive misses`, `Connection timeout (s)`). Empty means: default from the settings. Containers and clusters inherit the values of the SSH node they use.
 - **Short connection timeout:** It keeps running while the host key prompt is open. With a very short value, accepting a new key fails if you read for longer. Accept new keys through `Test connection` (its timer pauses in the prompt) or set a larger value.
 
+### Terminal
+
+Under Settings → Terminal (after unlocking) there are font, font size, scrollback, cursor shape and blinking. The values apply at once to all open terminals of this vault and are saved with it. Older Shellherd versions remove them when saving.
+
+| Value | Default | Limits |
+|---|---|---|
+| `Font` | Consolas | at most 64 characters: letters, digits, spaces, `.`, `_`, `-` |
+| `Font size` | 14 pixels | 8 to 32 |
+| `Scrollback` | 5,000 lines | 1,000 to 50,000 |
+| `Cursor` | Block | Block, Bar or Underline |
+| `Cursor blinks` | yes | yes or no |
+
+- **Font:** A name, not a list of installed fonts. Empty or not installed on this computer, Shellherd uses Consolas, then Cascadia Mono and a standard monospace font.
+- **Scrollback:** Every line takes memory; 10,000 lines need about 15 MB per terminal, up to 240 MB with 16 open terminals. A smaller value trims the scrollback of open terminals.
+
 ### AI providers
 
 Settings → AI assistant shows the number and the default of the configured providers. `Manage providers` opens the provider list, `Done` returns to the settings. The gear in the assistant panel opens the same list; keys are stored encrypted in the vault.
+
+### Masking in the AI assistant
+
+Before the assistant sends anything to a provider, Shellherd replaces secrets with placeholders such as `[SECRET_1]`. This applies to your question, the terminal excerpt, read output and the history sent along. The same value always gets the same placeholder within a history, so the model can refer to it. A value recognized once stays hidden in the whole history, even where no pattern shows; for this Shellherd remembers the last 1,000 recognized values per history, vault values always. `Clear history` starts over.
+
+Recognized are:
+- passwords, passphrases and API keys stored in this vault (6 characters or more), wherever they appear in the text,
+- private keys (`-----BEGIN … PRIVATE KEY-----`), also cut off and base64-encoded,
+- values after names such as `password`, `DB_PASSWORD`, `secret`, `token`, `api_key`, `client_secret` or `AccountKey`, with `=` or `:` and as an option (`--password …`),
+- passwords in addresses (`postgres://app:…@db`),
+- `Authorization: Bearer …` and `Basic …`,
+- keys from AWS (`AKIA…`), GitHub (`ghp_…`, `github_pat_…`), Slack (`xox…`, webhooks), OpenAI and Anthropic (`sk-…`) and Google (`AIza…`), GitLab (`glpat-…`), Stripe (`sk_live_…`, `rk_live_…`), npm (`npm_…`), Azure signatures (`sig=`) and JWTs,
+- passwords in `.netrc` (`password …`, also across several lines) and the string of `ConvertTo-SecureString`,
+- values under `data:` and `stringData:` when the text contains a Kubernetes secret (`kind: Secret`).
+
+Below your question, the assistant then shows “Sensitive values masked: 2”. The answer shows the placeholders unchanged. Shellherd never puts real values into answers or commands; otherwise injected terminal text could make the model write your password into a command. If a suggested command contains a placeholder, it shows “Contains masked values. Fill them in yourself before pressing Enter.”
+
+Masking is on for every provider, local models included, because a local endpoint may log or forward requests. It can be switched off per provider under `Manage providers` → `Edit` → `Mask secrets before sending`. The assistant then shows “Masking is off for this provider”. For `Analyze with AI` in a cluster tab it always stays on. If a text cannot be checked, Shellherd sends nothing.
+
+**Limits.** Masking recognizes patterns and known values; it does not understand content. Not recognized are, for example:
+- passwords without a recognizable name, such as right after a short option (`mysql -pSecret`, `sshpass -p Secret`, `curl -u admin:Secret`) or in running text, unless they are stored in the vault,
+- vault passwords shorter than 6 characters, the vault password itself and answers to login prompts,
+- altered values: base64 or hex encoded, split up or with spaces, `;` or `&` without quotes (then only up to that character),
+- passwords in addresses that contain `/`, `?` or `#` unencoded, and values longer than 4,096 characters (then only the beginning),
+- keys without a fixed format, such as plain hex keys from Azure, unless they follow a name such as `api-key`,
+- Kubernetes secrets as JSON (`-o json`),
+- cookies (`Cookie: …`, `Set-Cookie: …`) and PuTTY key files in the `.ppk` format,
+- more than 256 histories in one session: Shellherd then forgets the placeholders of the oldest one. Values it recognized there earlier are later masked only by the patterns and the vault values,
+- a single line longer than the excerpt sent along (6,000 or 8,000 characters); it is cut.
+
+Hashes, commit IDs and UUIDs stay on purpose. AI command line tools in their own tabs (Claude Code, Codex …) send by themselves and do not go through this masking. If sensitive output is on the screen, clear it (`clear`) before asking the assistant.
+
+## Workflows
+
+Workflows are saved commands that Shellherd types into a terminal for you. They are stored encrypted in the vault (at most 1,000) and are available in every window.
+
+### Palette
+
+`Ctrl+Shift+Space` or the `Workflows` button in the header opens the palette; the same shortcut closes it. It only works while the vault is unlocked, in secondary windows too. The title names the target tab (`Workflows → web-01`) or `no terminal selected`.
+
+The search looks at name, tags, description and command, ignoring case; with several words, each must match. Workflows for the shell of the active tab and for all shells come first, alphabetically; workflows for another shell follow dimmed and can still be chosen. `↑` and `↓` select, `Enter` or a click takes the workflow, `Esc` or a click outside the palette closes it.
+
+Without placeholders Shellherd types the command at once and closes the palette. Nothing runs: you press `Enter` yourself. Workflows go only into connected SSH, PowerShell and CMD tabs and container and pod shells; not into the file view, the container view itself, the cluster view, Remote Desktop or the welcome page. If the terminal is disconnected or runs a full-screen program such as `vim`, `less` or `top`, the palette stays open and tells you why. `Send input to all panes` does not apply to workflows; they always go into the active tab only.
+
+### Placeholders
+
+`{{name}}` in a command is a placeholder. Letters, digits, spaces, `_`, `.` and `-` are allowed, up to 40 characters. If a workflow has placeholders, the palette asks for each name once, in order of first use; the same name in several places gets the same value. A preview below shows the finished command. Shellherd removes line breaks and control characters from the values; an empty field stays an empty spot. `Type in` (or `Enter`) types the command, `Copy` puts it on the clipboard and closes the palette, `Back` or `Esc` returns to the list.
+
+### Managing workflows
+
+`Manage workflows` at the bottom of the palette opens the list, in the main window only. `New workflow` adds one, `Edit` changes it, `Delete` removes it at once without asking. `Done` closes the list. Every change is saved encrypted in the vault right away.
+
+| Field | Rule |
+|---|---|
+| `Name` | required, at most 120 characters |
+| `Command (single line)` | required, one line, at most 4,000 characters; join several commands with `&&` or `;` |
+| `Description (optional)` | at most 2,000 characters, shown in the palette below the command |
+| `Tags (comma-separated)` | at most 20 tags of up to 40 characters each; duplicates are dropped |
+| `For shell` | `All`, `SSH`, `PowerShell` or `CMD`; orders the palette but blocks nothing |
+
+Below the command field the form lists the placeholders it found.
+
+### From the assistant
+
+When the AI assistant suggests a command, `As workflow` opens the form with that command. Fill in the name and the other fields; `Save` adds the workflow, `Cancel` discards it. `As workflow` is available in the main window only.
 
 ## Split views and workspaces
 
@@ -169,8 +306,21 @@ The terminals support password, private key with optional
 passphrase, and SSH agent. On Windows, without `SSH_AUTH_SOCK` the
 OpenSSH agent at `\\.\pipe\openssh-ssh-agent` is used; the service must be running
 and contain the matching key. On Unix, `SSH_AUTH_SOCK` must be set.
-Agent forwarding is disabled. Interactive MFA / keyboard-interactive login
-will follow in a later step.
+
+Agent forwarding is disabled.
+
+If the server asks for more information during sign-in (one-time code, PIN, second
+password), the dialog "Sign in to …" opens in the tab's window (terminal and file view); for containers, clusters and
+the connection test it opens in the most recently used Shellherd window. Your answers go
+only to this server; they are not stored and not logged. If the server asks
+exactly once for a password and the connection has a stored password, Shellherd
+enters it once automatically; every other question goes to the dialog. At most 6
+prompts per connection, after which it fails with a message. Cancel in the dialog
+ends the attempt. The connection timeout (Settings → Connections) keeps running
+during the prompt; with 2FA, set the connection timeout to at least 60 s. The
+dialog never appears over the lock screen; locking cancels an open prompt. Several
+tabs with prompts ask one after another.
+
 
 ### After login
 
@@ -212,6 +362,88 @@ Right-click a tab (Shift+F10 or the menu key work too) to `Rename` it. The
 name applies to this tab only, not to the saved connection, and it travels
 with the tab to other windows. An empty name restores the connection name. A
 workspace does not save it.
+
+## Jump host
+
+An SSH or SFTP connection can run through another SSH connection (jump host,
+bastion). In the form, choose the connection under `Jump host` in `More options`.
+Shellherd connects to the jump host first and continues from there to the host
+and port in the form; those are seen from the jump host.
+
+- Exactly one hop. The jump host may not have a jump host of its own and may not be
+  the connection itself. Chains are not supported yet. The form rejects both;
+  Shellherd checks again when connecting.
+- Deactivated SSH connections are marked; a connection cannot be saved while it
+  uses a deactivated jump host.
+- The jump host uses its own credentials, timeouts and host key check. If it asks
+  for 2FA, the dialog names it.
+- The jump host applies to the terminal, the file view, containers, clusters and the
+  connection test. The connection test shows the step "Jump host … connected".
+- Deleting: the selection in other connections stays, and the delete dialog states
+  how many use it. Those connections fail with a message until you choose another
+  jump host or `None`. Shellherd does not silently switch to a direct connection,
+  because that would bypass the bastion.
+- A changed key of the jump host appears as the cause in the error card, without
+  fingerprints. `Test connection` on the jump host shows it.
+
+Risks:
+
+- **known_hosts:** The same internal address (e.g. `10.0.0.5:22`) behind two
+  different jump hosts shares one key entry in Shellherd. The second connection then
+  reports "key changed". Shellherd has no alias like OpenSSH `HostKeyAlias`. Avoid
+  connections with the same target address behind different jump hosts.
+- **Several 2FA hosts:** If you open a workspace with many connections through 2FA
+  jump hosts, the prompts come one after another. Later sessions can run into the
+  connection timeout; then use `Reconnect`.
+- **No sharing:** Each tab builds its own jump host hop and is asked the 2FA again.
+- **Older versions** (0.18 and older) remove the setting when saving.
+
+## Port forwards
+
+Under `More options` of an SSH connection you define port forwards (at most 16).
+They belong to a terminal session of this connection.
+
+| Kind | What happens |
+|---|---|
+| Local (-L) | Listens on 127.0.0.1 of this computer only. The target (host and port) is seen from the server. |
+| Remote (-R) | Listens on the server at `localhost`. Other machines reach the port only with `GatewayPorts` in `sshd_config`. The target is seen from this computer. |
+| Dynamic (-D) | SOCKS5 proxy without authentication on 127.0.0.1. Enter it as SOCKS proxy in your browser or program. TCP only, no UDP. |
+
+- The "Port forwards" bar below the terminal shows each forward with its state and a
+  button to start or stop it. It appears as soon as the connection is up.
+- With "Start on connect", Shellherd starts the forward after sign-in if it is not
+  running in another tab. This happens only for a connection you open yourself.
+- A forward runs at most once across the app. If it runs in another tab, the bar
+  shows only "running in another tab". As soon as the other tab stops or closes it,
+  a "Start" button appears here.
+- Changes to the list apply from the next connection; `Reconnect` picks them up.
+- Ending the session (closing the tab, disconnecting, idle timeout) stops its
+  forwards. Open connections through a forward keep the session from idling out.
+- While locked, running forwards keep running; starting is not possible.
+- If the port is already used on this computer, the bar says so. If the server refuses,
+  the cause is usually `AllowTcpForwarding` or a port in use on the server.
+- Pods and services in the cluster are forwarded from the cluster tab, see “Kubernetes → Forward port”.
+- **Risk remote:** With `GatewayPorts yes` on the server, the port is reachable from
+  the network. Shellherd does not prevent this; without that setting it stays on
+  `localhost` of the server.
+- **Older versions** (0.18 and older) remove the forwards when saving.
+
+## Importing connections
+
+`New` → `Import` (or the welcome page) takes over connections from other programs. The source is read only after the click; a preview with checkboxes shows everything found before anything is saved. Existing connections stay unchanged. Reading runs apart from the rest of the app and stops after 5 seconds, so a damaged file cannot block Shellherd.
+
+- **OpenSSH:** the file `~/.ssh/config`, chosen in the file dialog (default `%USERPROFILE%\.ssh\config`).
+- **PuTTY:** the sessions under `HKCU\Software\SimonTatham\PuTTY\Sessions`, read only, via `reg.exe export`.
+- **WinSCP:** the sessions under `HKCU\Software\Martin Prikryl\WinSCP 2\Sessions`, also read only. Sessions from a portable `WinSCP.ini` are not read. SFTP sessions become file connections, SCP sessions become SFTP.
+- **mRemoteNG:** the file `confCons.xml`, chosen in the file dialog (default `%APPDATA%\mRemoteNG\confCons.xml`). If the file is fully encrypted, the import stops with a note. RDP connections arrive as remote desktop connections with a domain, without a password.
+
+Imported are host, port, user name, key path, port forwards and, for WinSCP and mRemoteNG, the folders. Not imported are passwords, passphrases and key contents. Key files are never opened; Shellherd stores only the path. PuTTY keys (`.ppk`) get a hint, because Shellherd reads only format 2 with RSA.
+
+- **Duplicates:** a connection with the same host, port and user name as an existing SSH or SFTP connection is marked and unchecked in advance; RDP is compared with RDP. You can still select it.
+- **Jump host:** imported only if it is exactly one hop to another entry of the same source and is selected too. WinSCP and mRemoteNG import no jump host.
+- **Port forwards** do not start automatically after the import, only by click.
+- **Target folder:** by default a new folder “OpenSSH import”, “PuTTY import”, “WinSCP import” or “mRemoteNG import” at the top level. You can also choose an existing folder or the top level. A new import folder can be taken back with one delete.
+- **Not imported:** sessions of other protocols such as FTP, Telnet or VNC. The preview names their number.
 
 ## Containers and VMs
 
@@ -295,9 +527,9 @@ it uses `sudo -n` (the user needs NOPASSWD for that). Shellherd rejects kubeconf
 instead of on the server.
 
 In the setup form, “Production” is preselected; deselecting it is a deliberate
-decision. “Read-only” blocks restart, scale, delete and the shell; logs, YAML,
-events and describe stay allowed. Every change asks for confirmation. For
-production you have to type the resource name before the button becomes active.
+decision. “Read-only” blocks restart, scale, delete and the shell; logs, `Logs of all pods`, YAML,
+events, describe, `Forward port…` and `Analyze with AI` stay allowed. Every change asks for confirmation. For
+production you have to type the resource name before the button becomes active. Under “Web interfaces (optional)” you can enter the addresses of Argo CD and Harbor (see “Argo CD and Harbor”).
 
 The cluster tab shows nodes, workloads, pods and events live. A status bar below the
 header shows the state: “Live” with the age of the data (“updated 12 s ago”); while
@@ -337,9 +569,89 @@ The kubeconfig lives only in the main process's memory and is not written to
 disk. The tunnel to the API server listens only on `127.0.0.1`.
 Secret data is masked in the YAML view.
 
+### Forward port
+
+Right-click a running pod or a service → `Forward port…`. In the dialog you pick the port in the pod (the ports named in the manifest or `Other port…`) or the service port, and the local port. The same port is suggested; if you leave the field empty, Shellherd picks a free one. `Forward` starts the forward. The “Port forwards” bar at the bottom of the cluster tab shows `127.0.0.1:<port> → <target>`, the open connections and the last error, with `Open in browser`, `Copy address` and `Stop`.
+
+- **127.0.0.1 only:** The port can only be reached from this computer, never from the network. There is no field for it.
+- **Service:** Shellherd reads the selector and connects to the first ready pod (by name), on its `targetPort`, also when the port has a name. If the pod goes away, for example during a rollout, the next connection finds a new one by itself; running connections to the old pod end. Unlike `kubectl port-forward svc/…`, nothing has to be restarted. The bar names the pod (“via api-…:8080”). All connections go to this one pod; there is no load balancing.
+- **Pod:** The forward stays with this pod name. After a container restart it keeps working, as it does for StatefulSet pods that come back under the same name. If the pod is replaced, the bar reports “Pod … does not exist (any more).” For Deployments, use the service instead.
+- **Lifetime:** A forward belongs to its cluster tab. Closing the tab or the window, opening another vault or quitting Shellherd stops it. If the cluster reconnects, the local port stays open: new connections wait up to 30 seconds for the cluster, existing ones end. While locked, forwards keep running; new ones can only be started after unlocking. Nothing is saved, not even in the workspace.
+- **“Read-only” and production:** A port forward changes nothing in the cluster and is therefore allowed under “Read-only” too. For production clusters the dialog names what becomes reachable; there is no name to type. Through the forward, programs can still read and write data, for example in a database, with that database's own login.
+- **Permissions:** Kubernetes requires `create` on `pods/portforward` in the namespace (older versions `get`). The `edit` role has it, `view` does not. Services also need `get` on the service and `list` on pods. Without the permission the bar reports “No permission for port forwards in …”.
+- **Limits:** At most 10 forwards at a time, at most 32 simultaneous connections per forward, TCP only. `Open in browser` uses `http`, for ports 443 and 8443 `https`. Programs that close their side of the connection after sending (for example `nc -N`, `socat`) get no reply.
+- **Who reaches the port:** Every program and every user on this computer, including web pages in the browser through tricks such as DNS rebinding. There is no login on the port, just as with `kubectl port-forward`. So keep forwards open only as long as you need them, and on shared computers (terminal servers) do not forward to sensitive services.
+
+### Logs of all pods
+
+Right-click a Deployment, StatefulSet, DaemonSet, Job or Service → `Logs of all pods`. The **Logs** tab in the bottom panel then shows the logs of all its containers together. With the row only selected, `Show logs of all pods` starts the view; scrolling through rows alone never opens streams.
+
+- **Order:** by the timestamp Kubernetes adds to every line, in UTC (`HH:MM:SS.mmm`), even when a node runs in local time. Each line starts with `pod/container` in one of four colours. If the node clocks drift apart, the order across pods can be off by that drift.
+- **Filter and sources:** `Filter` shows only lines that contain the text, in the prefix or the message; matches are marked. Clicking a container chip hides it and shows it again.
+- **Follow:** New lines appear at the bottom. Scroll up and the view stops; `Follow (12 new)` shows what came in, and a click jumps to the end.
+- **Rollouts:** New pods join by themselves as soon as their container runs. Ended pods stay with “ended”. When a container restarts, Shellherd reads on from the last line. When a proxy or load balancer ends a quiet stream, Shellherd reads on after 5 seconds. When a stream fails, its chip shows “error” with the reason in the tooltip; switching `Compact`/`Raw` starts the view again.
+- **`Compact` / `Raw`** work as for single logs; colours from the app are removed. `Copy` takes all matches, including those not shown.
+- **Limits:** at most 20 containers at once (more wait and move up), the last 200 lines per container, 10,000 lines in total, the newest 2,000 matches shown. Lines over 4,000 characters are cut. With more than 8,000 lines per second Shellherd skips some and says so. Only the selector’s `matchLabels` count, as with “Show pods”; init containers are not included. After 100 containers in one view no new ones join; switching `Compact`/`Raw` starts the view again.
+- **Permissions:** `list` and `watch` on pods and `get` on `pods/log`. “Read-only” allows the view. Changing the row, the tab or the format ends it; after a reconnect it starts again.
+
+### Permission pre-check
+
+Shellherd asks once per namespace what the Kubernetes account may do (`SelfSubjectRulesReview`, a pure query with no effect on the cluster). Context menu entries the account may not run are greyed out up front and name the missing permission, e.g. “No permission: patch on deployments in shop”. This covers restart, scale, delete, cordon/uncordon, suspend, resume and `Run now…`, as well as logs, shell, `Logs of all pods` and `Forward port…`. The keys `r`, `S`, `Ctrl+D`, `s`, `l` and `p` report the same reason.
+
+- Shellherd asks at most once a minute per namespace while the cluster tab is visible, and right after a reconnect. A permission granted a moment ago can therefore look blocked for up to a minute.
+- If the cluster cannot answer completely (for example with an external authorizer as on GKE or with Azure RBAC), if the query is forbidden, reports an evaluation error (such as a binding to a deleted role) or takes longer than 10 seconds, Shellherd greys out nothing; a missing permission then shows up as before, when you run the action.
+- Rules that only cover certain object names count as allowed. Only what certainly fails is greyed out.
+- Nodes are checked with the rules of the cluster’s default namespace.
+
+### Analyze with AI
+
+Right-click a pod, a Deployment, StatefulSet, DaemonSet, a Job or an event → `Analyze with AI`. For pod problems in the red bar, `Analyze` next to them is enough. The AI assistant opens with a matching question, for example “Why does this pod keep restarting?”, which you can change, and a preview of what Shellherd wants to send. Nothing goes out before `Send analysis`. `Discard` cancels without sending anything.
+
+- **What goes along:** status, conditions and spec of the object (images, command, resources, probes, env, volumes), the last 15 events and the last 100 log lines of the conspicuous containers. After a restart the log lines of the previous container come along, plus the owning workload and the node. For a workload its pods come along, with events and logs of the most conspicuous pod. For an event, the event itself and the object it concerns go along. `Show the text to be sent` shows everything word for word, the preview names the size.
+- **What never goes along:**
+  - Secrets: Shellherd reads no Secrets and no ConfigMaps.
+  - Env values from `secretKeyRef`: they appear as a reference only (`<Secret checkout-db/password>`).
+  - Values of variables with names such as `PASSWORD`, `TOKEN` or `KEY`: they appear as `<hidden>`.
+  - Annotations.
+
+  Whatever still looks like a secret after that, for example a password in a log line, masking replaces with placeholders. For analyses it is always on.
+- **Read-only:**
+  - Shellherd only reads for this (`get`, `list` and `get` on `pods/log`) and never runs what the AI suggests. Commands in the answer have no button.
+  - If a command changes the cluster (for example `delete`, `scale`, `rollout restart`, `apply`), it says “Changes the cluster. For information only, Shellherd does not run it.” below it.
+  - “Read-only” allows the analysis.
+- **Permissions:** If the account may not read logs, events, the owner or the node, only that part is missing. The preview says which one and why.
+- **Follow-up questions:** After sending you can keep asking. Shellherd sends the context along every time so the model knows it. `Clear history` or a new analysis starts over.
+- **Size and cost:**
+  - at most 16,000 characters, about 4,000 tokens per request;
+  - every follow-up question costs at least as much as the first;
+  - for models with a small context window (below 8,000 tokens) an analysis is too large.
+- **Limits:**
+  - The AI only sees this excerpt: no metrics, no services, ingresses or network policies, no other namespaces, no logs before the last 100 lines and no content of ConfigMaps and Secrets.
+  - Its answer is a guess from this data. Check it with the suggested read-only commands.
+  - Logs can contain personal data. For production clusters the preview points this out separately.
+
+### Argo CD and Harbor
+
+In the cluster entry (`Edit` → “Web interfaces (optional)”) you can enter the address of Argo CD and of Harbor, for example `https://argocd.example.com` and `https://harbor.example.com`. Only `https` addresses without a user name are allowed.
+
+- **Recognizing Argo CD:** If an object carries the annotation `argocd.argoproj.io/tracking-id` (default since Argo CD 3) or the label `argocd.argoproj.io/instance`, its context menu shows “Argo CD: app …” at the top. Shellherd does not evaluate the label `app.kubernetes.io/instance`, because Helm sets it too.
+- **`Open in Argo CD`** opens the app in your browser. Without an address the entry is greyed out and says why.
+- **Self-heal hint:** Scaling, suspending, resuming and deleting a job on an object that Argo CD manages say in the confirmation whether Argo CD reverts the change, with the app’s sync and health status. For this Shellherd reads the Application in the cluster (`get` on `applications.argoproj.io`, in the namespace `argocd` or the namespace before `_` in the app name). If the account may not do that, if Argo CD runs in another cluster or if the cluster does not answer within 5 seconds, it says “may revert differences from Git (self-heal)”. For a restart the confirmation says that Argo CD usually does not revert it.
+- **`Open in Harbor`** is offered on pods, containers, Deployments, StatefulSets and DaemonSets when the registry host of the image matches the Harbor address. For pods the link leads to the running artifact (with the vulnerability scan, if Harbor scans) as long as the cluster reports its digest; otherwise, and for workloads, it leads to the repository page with all tags. If the image lies elsewhere, the entry is greyed out: “Image is not in harbor.example.com.”
+- **Read-only, links only:** Shellherd triggers no sync, no refresh, no rollback and no scan, and never queries Argo CD or Harbor itself. It only opens your browser; sign-in and permissions are handled there by Argo CD and Harbor as usual. The host of a link always comes from the cluster entry. Labels, annotations and image names from the cluster only decide the path.
+- **Limits:** If the Applications live in a namespace other than `argocd` (for example `openshift-gitops`), the confirmation says “may revert”. Harbor links use the project name instead of Harbor’s internal project ID. If Harbor shows the project list or an error page instead of the artifact, your Harbor version does not accept the name.
+
 ## File view: keyboard and transfers
 
 Typing in the file list jumps to the next entry whose name starts that way. The search follows the order shown, folders first. When you type quickly, Shellherd searches for the whole prefix (`no` finds `notes.md`); the same letter repeated moves to the next match each time. After a one-second pause the search starts over. Upper and lower case do not matter. This works on the local and the server side. The space bar, combinations with `Ctrl` or `Alt` and characters that need `AltGr` (such as `@`) do not jump.
+
+`Ctrl+L` in the file list, a double-click on the path bar or ⚙ → `Go to…` turns the path bar into an input field. `Enter` opens the folder, `Esc` cancels. On the server, `~` and `~/…` lead to the home folder; a path without a leading `/` starts from the current folder. Locally, drive paths (`D:\Projects`, also with `/`), network shares (`\\server\share`), `~` and paths starting from the current folder work; device paths such as `\\?\` do not. If the folder is missing, is a file or you lack the rights, the error appears under the field and the previous folder stays.
+
+`Ctrl+F` in the list or ⚙ → `Filter…` shows a filter field. It shows only entries whose name contains the text; upper and lower case do not matter. `Enter` or `↓` returns to the list. `Esc`, `×` or a folder change removes the filter.
+
+⚙ → `Hide hidden files` hides names that start with a dot (`.bashrc`, `.git`). This applies separately to the local and the server side and is remembered for all connections. Locally only the dot counts, not the Windows attribute “Hidden”. The default is to show everything.
+
+Hidden and filtered-out entries cannot be selected, copied, moved or deleted; `Ctrl+A` selects only what is visible. A folder is always copied or deleted completely, including the hidden files inside it. The status line shows how many entries are hidden (`4 hidden`). Nothing from the file view can be dragged into Explorer. To download, select the target folder on the left (for example with `Ctrl+L`) and press `F5`.
 
 Running transfers show their speed next to the progress after the first second (`12 MB/s`), smoothed over the last few seconds. While the question about an existing file is open and on finished transfers no speed is shown. Auto-upload shows none. Shellherd keeps just under four megabytes of requests in flight and copies up to four files of a folder in parallel; the row names the files currently running.
 
@@ -406,16 +718,11 @@ Shellherd shows problems where they occur.
 
 ## Server keys
 
-On first contact, compare the displayed SHA-256 fingerprint with a
-trusted source. Only explicitly confirmed keys
-are saved in `known-hosts.json` in the Electron user data directory.
-This file contains hosts, ports and public fingerprints, no credentials.
-It is located at `%APPDATA%\Shellherd\known-hosts.json`; on first start Shellherd takes it over
-once from `%APPDATA%\Terminus`. It is a separate
-Shellherd trust file; OpenSSH's `known_hosts` is not yet
-imported. Mismatching keys and corrupted trust files abort
-the connection. A key change must be clarified with the server administrator;
-a user interface for managing trusted hosts will follow later.
+On first contact, compare the displayed SHA-256 fingerprint with a trusted source. Only explicitly confirmed keys are saved in `known-hosts.json` in the Electron user data directory. This file contains hosts, ports and public fingerprints, no credentials. It is located at `%APPDATA%\Shellherd\known-hosts.json`; on first start Shellherd takes it over once from `%APPDATA%\Terminus`. Mismatching keys and corrupted trust files abort the connection.
+
+Settings → Connections → `Manage server keys` shows all confirmed and imported keys with host and port (hashed entries: “Hashed host name”), type for imported entries and SHA-256 fingerprint. The search field filters by host, type or fingerprint. `Remove` deletes an entry immediately; on the next connection Shellherd asks again. To accept an intended key change: remove the old entry, connect again, check the new fingerprint and confirm it. You find a hashed entry by the fingerprint that the error card names as `expected`.
+
+`Import from known_hosts…` reads an OpenSSH file that you choose in the dialog (suggested: `%USERPROFILE%\.ssh\known_hosts`, at most 4 MiB). Taken over are host names, `[host]:port` and hashed names (`|1|…`) with Ed25519, ECDSA and RSA keys, also several per server. The list shows hashed entries as “Hashed host name”. `@revoked` lines apply to all hosts: a key marked this way is never accepted by Shellherd, not even after a prompt. Skipped are `@cert-authority`, patterns such as `*.example.com` or `!host`, certificates and security keys (`sk-…`). The import does not change any key you have confirmed in Shellherd: for such servers Shellherd's entry continues to apply, and if the file deviates from it, the result names the server. Shellherd reads `known_hosts` only after this click and never writes it.
 
 ## Process boundaries and lifecycle
 

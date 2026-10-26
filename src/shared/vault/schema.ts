@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { CONNECTION_ICONS } from './appearance';
 import { TIMEOUT_LIMITS } from './timeouts';
+import { FONT_FAMILY_MAX, FONT_FAMILY_PATTERN, TERMINAL_LIMITS } from './terminal-settings';
 import type {
   FolderNode,
+  TerminalSettings,
   Vault,
   VaultNode,
   VaultSettings,
@@ -13,6 +15,7 @@ import type {
 } from './types';
 import { ContainerTargetSchema } from '../containers-schema';
 import { KubeNameSchema, KubeViewSnapshotSchema } from '../kubernetes-schema';
+import { MAX_BASE_URL, httpsBase } from '../kube-links';
 import type { EncryptedVaultFile } from './file-format';
 
 export const AuthenticationSchema = z.discriminatedUnion('method', [
@@ -45,7 +48,7 @@ const connectionBase = {
 };
 
 /** Drive path (`C:\…`) or UNC share (`\\server\share…`); device paths (`\\?\`, `\\.\`) are refused. */
-export const AUTO_UPLOAD_LOCAL_PATH = /^(?:[A-Za-z]:\\|\\\\(?![?.]\\))/;
+export const AUTO_UPLOAD_LOCAL_PATH = /^(?:[A-Za-z]:\\|\\\\(?![?.](?:[\\/]|$)))/;
 const noLineBreak = (value: string) => !/[\0\r\n]/.test(value);
 
 export const AutoUploadBindingSchema = z.object({
@@ -72,6 +75,18 @@ const LoginLineSchema = z.string().min(1).max(LOGIN_LIMITS.length).refine(line =
 const autoUpload = z.array(AutoUploadBindingSchema).max(16)
     .refine(list => new Set(list.map(binding => binding.id)).size === list.length).optional();
 
+/** Port forwards of an SSH connection; see docs/superpowers/specs/2026-10-24-ssh-pro-design.md 5.1. */
+export const MAX_FORWARDS = 16;
+const portSchema = z.number().int().min(1).max(65_535);
+const forwardHost = z.string().min(1).max(253).refine(host => !/[\s\x00-\x1f\x7f]/.test(host));
+export const PortForwardSchema = z.discriminatedUnion('kind', [
+    z.object({ id: z.string().uuid(), kind: z.literal('local'), localPort: portSchema, targetHost: forwardHost, targetPort: portSchema, auto: z.boolean() }),
+    z.object({ id: z.string().uuid(), kind: z.literal('remote'), remotePort: portSchema, targetHost: forwardHost, targetPort: portSchema, auto: z.boolean() }),
+    z.object({ id: z.string().uuid(), kind: z.literal('dynamic'), localPort: portSchema, auto: z.boolean() }),
+]); // not .strict(), like AutoUploadBindingSchema
+const forwards = z.array(PortForwardSchema).max(MAX_FORWARDS)
+    .refine(list => new Set(list.map(forward => forward.id)).size === list.length).optional();
+
 const remoteTarget = {
     host: z.string(),
     port: z.number().int().min(1).max(65_535),
@@ -85,6 +100,8 @@ export const SshConnectionNodeSchema = z.object({
     authentication: AuthenticationSchema,
     containers: z.object({ sudo: z.boolean().optional() }).optional(),
     autoUpload,
+    jumpHost: z.string().min(1).max(256).optional(),
+    forwards,
     timeouts: ConnectionTimeoutsSchema.partial().optional(),
     login: z.object({
         sudo: z.boolean().optional(),
@@ -98,6 +115,7 @@ export const SftpConnectionNodeSchema = z.object({
     ...remoteTarget,
     authentication: AuthenticationSchema,
     autoUpload,
+    jumpHost: z.string().min(1).max(256).optional(),
     timeouts: ConnectionTimeoutsSchema.partial().optional(),
 });
 
@@ -126,6 +144,9 @@ export const AiCliConnectionNodeSchema = z.object({
     workingDirectory: z.string().optional(),
 }).refine(node => node.tool !== 'custom' || Boolean(node.command?.trim()), { message: 'commandRequired', path: ['command'] });
 
+/** A valid https address (the form stores it normalized); main and renderer normalize again before use. Not "=== httpsBase(value)": a URL parser update must never make a vault unopenable. */
+const WebAddressSchema = z.string().max(MAX_BASE_URL).refine(value => httpsBase(value) !== null, { message: 'httpsAddress' });
+
 export const KubernetesConnectionNodeSchema = z.object({
     ...connectionBase,
     protocol: z.literal('kubernetes'),
@@ -138,6 +159,8 @@ export const KubernetesConnectionNodeSchema = z.object({
     namespace: KubeNameSchema.optional(),
     production: z.boolean(),
     readOnly: z.boolean(),
+    argoUrl: WebAddressSchema.optional(),
+    harborUrl: WebAddressSchema.optional(),
 });
 
 export const ConnectionNodeSchema = z.discriminatedUnion('protocol', [
@@ -210,6 +233,14 @@ export const WorkspaceSchema: z.ZodType<Workspace> = z.object({
   })).max(8).optional(),
 });
 
+export const TerminalSettingsSchema: z.ZodType<TerminalSettings> = z.object({
+    fontFamily: z.string().max(FONT_FAMILY_MAX).regex(FONT_FAMILY_PATTERN),
+    fontSize: z.number().int().min(TERMINAL_LIMITS.fontSize[0]).max(TERMINAL_LIMITS.fontSize[1]),
+    scrollback: z.number().int().min(TERMINAL_LIMITS.scrollback[0]).max(TERMINAL_LIMITS.scrollback[1]),
+    cursorStyle: z.enum(['block', 'bar', 'underline']),
+    cursorBlink: z.boolean(),
+});
+
 export const VaultSettingsSchema: z.ZodType<VaultSettings> = z.object({
     theme: z.enum(['dark', 'light', 'system']),
 
@@ -218,6 +249,7 @@ export const VaultSettingsSchema: z.ZodType<VaultSettings> = z.object({
 
     confirmBeforeClosingSession: z.boolean(),
     timeouts: ConnectionTimeoutsSchema.optional(),
+    terminal: TerminalSettingsSchema.optional(),
 });
 
 export const AiProviderSchema = z.object({
@@ -228,6 +260,7 @@ export const AiProviderSchema = z.object({
   apiKey: z.string().max(4096).optional(),
   baseUrl: z.string().url().max(2048).optional(),
   apiVersion: z.string().max(40).optional(),
+  maskSecrets: z.boolean().optional(),
 });
 
 export const AiSettingsSchema = z.object({

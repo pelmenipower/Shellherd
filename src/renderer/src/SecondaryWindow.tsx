@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { onDiagnosis } from './kube-diagnose';
 import type { ConnectionCatalog } from '../../shared/windows';
 import { SplitTerminalArea } from './components/SplitTerminalArea';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -19,13 +20,18 @@ import { useCtrlShiftShortcut } from './hooks/useShortcut';
 import { WorkflowPalette } from './components/WorkflowPalette';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { LockScreen } from './components/LockScreen';
+import { AuthPromptDialog } from './components/AuthPromptDialog';
 import { decodeError } from '../../shared/errors';
 import { disabledNotice, disabledTitle, sessionLimitNotice, skippedNotice } from './vault-notices';
+import { terminalPrefs } from './terminal-prefs';
+import { effectiveTerminalSettings } from '../../shared/vault/terminal-settings';
 
 /** Detached window: tabs and split layout only; vault, sidebar and editor stay in the main window. */
 export function SecondaryWindow() {
   const { t } = useT();
   const [catalog, setCatalog] = useState<ConnectionCatalog | null>(null);
+  // Older senders send no terminal settings; the readers then fall back to the defaults.
+  useEffect(() => { if (catalog) terminalPrefs.set(effectiveTerminalSettings({ terminal: catalog.terminal })); }, [catalog]);
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const [pendingClose, setPendingClose] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -113,6 +119,8 @@ export function SecondaryWindow() {
   };
   const closingTab = terminals.tabs.find(tab => tab.id === pendingClose);
   const assistant = useAssistantToggle();
+  // "Mit KI analysieren" in a cluster tab opens the panel; the panel takes the request itself.
+  useEffect(() => onDiagnosis(() => assistant.setOpen(true)), [assistant.setOpen]);
   useCtrlShiftShortcut('Space', () => { if (!locked) setPaletteOpen(open => !open); });
 
   return <>
@@ -133,6 +141,7 @@ export function SecondaryWindow() {
       onConfirm={() => { setPendingClose(null); terminals.close(closingTab.id); }} />}
     <ToastStack />
   </main>
+  <AuthPromptDialog locked={locked} />
   {locked && <LockScreen running={terminals.tabs.filter(isRunning).length} />}
   </>;
 }

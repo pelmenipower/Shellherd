@@ -1,0 +1,10 @@
+/* Port-forward bar under the terminal output. No motion (see docs/design-system.md). */
+.forward-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-12); min-height: var(--control-sm); box-sizing: border-box; padding: var(--space-4) var(--space-10); border-top: 1px solid var(--color-border); background: var(--color-bg-panel); font-size: var(--fs-sm); }
+.forward-bar-label { color: var(--color-text-muted); }
+.forward-list { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-16); margin: 0; padding: 0; list-style: none; }
+.forward-item { display: flex; align-items: center; gap: var(--space-8); }
+.forward-text { color: var(--color-text); font-family: var(--font-mono); }
+.forward-state { color: var(--color-text-muted); }
+.forward-open { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.forward-error { color: var(--color-danger); }
+.forward-button { min-height: var(--control-xs); padding: 0 var(--space-10); font-size: var(--fs-sm); }

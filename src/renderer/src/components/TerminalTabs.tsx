@@ -6,6 +6,7 @@ import { statusWord } from '../status-words';
 import { ConnectionIcon } from './ConnectionIcon';
 import type { ConnectionNode } from '../../../shared/vault/types';
 import { useT } from '../i18n';
+import { useTabActivity } from '../terminal-activity';
 
 interface TerminalTabsProps {
   appearance: ReadonlyMap<string, Pick<ConnectionNode, 'icon' | 'color'>>;
@@ -31,6 +32,7 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
   useEffect(() => {
     barRef.current?.querySelector('[aria-selected="true"]')?.closest('.terminal-tab-item')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [activeTabId]);
+  const activity = useTabActivity();
   if (!tabs.length) return null;
   return (
     <div ref={barRef} className="terminal-tab-bar" role="tablist" aria-label={barLabel ?? t('terminal:tabs.label')} onKeyDown={event => {
@@ -52,6 +54,7 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
       </button>}
       {tabs.map(tab => {
         const welcome = isWelcomeTab(tab);
+        const fresh = !welcome && activity.has(tab.id);
         const label = welcome ? t('terminal:tabs.welcome') : tabLabel(tab, allTabs);
         if (renamingId === tab.id && onRename) return <div className="terminal-tab-item" data-active={activeTabId === tab.id} key={tab.id}>
           <input className="view-rename" aria-label={t('terminal:tabs.renameLabel')} autoFocus defaultValue={label} onFocus={event => event.target.select()}
@@ -73,11 +76,12 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
               onTabMenu(tab.id, atOrigin ? rect.left : event.clientX, atOrigin ? rect.bottom : event.clientY);
             }}
             aria-controls={`terminal-${tab.id}`} aria-selected={activeTabId === tab.id}
-            tabIndex={activeTabId === tab.id ? 0 : -1} disabled={disabled} onClick={() => onSelect(tab.id)} data-fixed={welcome || undefined}
-            title={welcome ? label : `${label} · ${connectionAddress(tab)} · ${statusWord(tab.status, 'short')}`}>
+            tabIndex={activeTabId === tab.id ? 0 : -1} disabled={disabled} onClick={() => onSelect(tab.id)} data-fixed={welcome || undefined} data-activity={fresh || undefined}
+            title={welcome ? label : `${label} · ${connectionAddress(tab)} · ${statusWord(tab.status, 'short')}${fresh ? ` · ${t('terminal:tabs.activity')}` : ''}`}>
             {!welcome && <span className={`tab-status tab-status-${tab.status}`} aria-label={statusWord(tab.status, 'short')} />}
             {!welcome && <ConnectionIcon {...appearance.get(tab.connection.id)} />}
             <span className="tab-name">{label}</span>
+            {fresh && <span className="tab-activity" role="img" aria-label={t('terminal:tabs.activity')} />}
           </button>
           <button className="terminal-tab-close" type="button" disabled={disabled} aria-label={t('terminal:tabs.closeAria', { label })} title={t('terminal:tabs.closeTitle', { label })}
             onClick={() => onClose(tab.id)}>

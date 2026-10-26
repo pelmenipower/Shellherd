@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { GROUP_BY_IDS, KUBE_KINDS, KUBE_NAME, LABEL_KEY, LABEL_VALUE, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH, MAX_REPLICAS } from './kubernetes';
-import type { DockMode, KubeQuery, KubeRef, KubeTerminalTarget, KubeViewSnapshot } from './kubernetes';
+import { DIAGNOSE_KINDS, GROUP_BY_IDS, KUBE_KINDS, KUBE_NAME, LABEL_KEY, LABEL_VALUE, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH, MAX_REPLICAS } from './kubernetes';
+import type { DockMode, KubeForwardTarget, KubeQuery, KubeRef, KubeTerminalTarget, KubeViewSnapshot } from './kubernetes';
 
 export const KubeNameSchema = z.string().max(253).regex(KUBE_NAME);
 const viewId = z.string().uuid();
@@ -17,6 +17,12 @@ export const KubeDetailRequestSchema = z.object({ viewId, ref: KubeRefSchema, mo
 export const KubeActionRequestSchema = z.object({ viewId, ref: KubeRefSchema, action: z.enum(['restart', 'scale', 'delete', 'cordon', 'uncordon', 'suspend', 'resume', 'trigger']),
   replicas: z.number().int().min(0).max(MAX_REPLICAS).optional() }).strict();
 export const KubeProbeRequestSchema = z.object({ connectionId: z.string().min(1).max(256) }).strict();
+const portNumber = z.number().int().min(1).max(65_535);
+export const KubeForwardTargetSchema: z.ZodType<KubeForwardTarget> = z.object({
+  kind: z.enum(['pods', 'services']), namespace: KubeNameSchema, name: KubeNameSchema, port: portNumber,
+}).strict();
+export const KubeForwardStartRequestSchema = z.object({ viewId, target: KubeForwardTargetSchema, localPort: z.number().int().min(0).max(65_535) }).strict();
+export const KubeForwardStopRequestSchema = z.object({ viewId, forwardId: z.string().uuid() }).strict();
 export const KubeTerminalTargetSchema: z.ZodType<KubeTerminalTarget> = z.object({ namespace: KubeNameSchema, pod: KubeNameSchema, container: KubeNameSchema,
   mode: z.enum(['logs', 'previous', 'shell']), format: z.enum(['compact', 'raw']).optional() }).strict();
 const DockModeSchema: z.ZodType<DockMode> = z.enum(['logs', 'shell', 'events', 'yaml', 'describe']);
@@ -33,3 +39,21 @@ export const KubeViewSnapshotSchema: z.ZodType<KubeViewSnapshot> = z.object({ qu
   selected: z.string().max(600).optional(), dock: DockModeSchema,
   filters: z.partialRecord(z.enum(KUBE_KINDS), KubeFilterSnapshotSchema).optional(),
   logFormat: z.enum(['compact', 'raw']).optional() }).strict();
+const LabelMapSchema = z.record(z.string().max(317).regex(LABEL_KEY), z.string().max(63).regex(LABEL_VALUE));
+export const KubeLogsStartRequestSchema = z.object({
+  viewId, id: z.string().uuid(), namespace: KubeNameSchema,
+  // An empty selector would follow every pod of the namespace.
+  selector: LabelMapSchema.refine(labels => { const count = Object.keys(labels).length; return count > 0 && count <= 32; }, { message: 'selector' }),
+  format: z.enum(['compact', 'raw']),
+}).strict();
+export const KubeLogsStopRequestSchema = z.object({ viewId, id: z.string().uuid() }).strict();
+export const KubeAccessRequestSchema = z.object({ viewId, namespace: KubeNameSchema }).strict();
+const DiagnoseRefSchema = KubeRefSchema.refine(ref => DIAGNOSE_KINDS.includes(ref.kind) && ref.namespace !== undefined, { message: 'diagnoseKind' });
+const DiagnoseEventSchema = KubeRefSchema.refine(ref => ref.kind === 'events' && ref.namespace !== undefined, { message: 'diagnoseEvent' });
+export const KubeDiagnoseRequestSchema = z.object({ viewId, ref: DiagnoseRefSchema, event: DiagnoseEventSchema.optional() }).strict();
+const KubeLinkSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('argo'), app: z.string().min(1).max(253) }).strict(),
+  z.object({ type: z.literal('harbor'), image: z.string().min(1).max(512), digest: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional() }).strict(),
+]);
+export const KubeOpenLinkRequestSchema = z.object({ viewId, link: KubeLinkSchema }).strict();
+export const KubeArgoRequestSchema = z.object({ viewId, app: z.string().min(1).max(253) }).strict();

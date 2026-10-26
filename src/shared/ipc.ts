@@ -1,4 +1,4 @@
-import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent } from './ssh';
+import type { SshPrepareRequest, SshSessionRequest, SshInputRequest, SshResizeRequest, SshAckRequest, SshEvent, SshForwardRequest, AuthPromptRequest, AuthPromptAnswer } from './ssh';
 import type { AiProvider, ConnectionNode, Vault, WorkspaceLayout } from './vault/types';
 import type { AiAskRequest, AiCatalog, AiEvent } from './ai';
 import type { LanguageSetting, LanguageState, Locale } from './locale';
@@ -11,7 +11,11 @@ import type { LocalOpenRequest, SftpChmodRequest, SftpEditFileRequest, SftpEditR
 import type { DirectoryListing, LocalDeleteRequest, LocalPathRequest, LocalPlaces, LocalRenameRequest, SftpConflictAnswer, SftpDeleteRequest, SftpEvent, SftpJobRequest,
   SftpOpenRequest, SftpPathRequest, SftpRenameRequest, SftpSessionRequest, SftpSessionState, SftpTransferRequest } from './sftp';
 import type { RdpActionRequest, RdpBoundsRequest, RdpEvent, RdpOpenRequest, RdpSessionRequest, RdpVisibleRequest } from './rdp';
-import type { KubeActionRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
+import type { ImportReadResult, ImportSource } from './import';
+import type { KubeActionRequest, KubeAccessRequest, KubeArgoRequest, KubeArgoState, KubeDiagnoseRequest, KubeDiagnosis, KubeOpenLinkRequest, KubeDetail, KubeDetailRequest, KubeEvent, KubeForwardStartRequest, KubeForwardStatus, KubeForwardStopRequest, KubeLogsStartRequest, KubeLogsStopRequest, KubeOpenRequest, KubeOpenResult, KubeProbeRequest, KubeProbeResult, KubeSubscribeRequest, KubeViewRequest } from './kubernetes';
+import type { KubeDenied } from './kube-access';
+import type { ThemeSetting } from './theme';
+import type { KnownHostsImportReply, KnownHostView } from './known-hosts';
 
 /** Sent to every window when the vault locks; without minutes = manual lock. */
 export interface VaultLockedInfo { minutes?: number }
@@ -39,6 +43,10 @@ export const IPC_CHANNELS = {
   sshClose: 'ssh:close',
   sshAttach: 'ssh:attach',
   sshEvent: 'ssh:event',
+  sshAuthPrompt: 'ssh:auth-prompt',
+  sshAuthPromptClosed: 'ssh:auth-prompt-closed',
+  sshAuthPromptAnswer: 'ssh:auth-prompt-answer',
+  sshForward: 'ssh:forward',
   rdpOpen: 'rdp:open',
   rdpBounds: 'rdp:bounds',
   rdpVisible: 'rdp:visible',
@@ -94,6 +102,16 @@ export const IPC_CHANNELS = {
   closeSecondaryWindows: 'window:close-secondaries',
   vaultLaunchFile: 'vault:launch-file',
   lastVaultFile: 'vault:last-file',
+  recentVaults: 'vault:recent-list',
+  removeRecentVault: 'vault:recent-remove',
+  vaultDropFile: 'vault:drop-file',
+  knownHostsList: 'known-hosts:list',
+  knownHostsRemove: 'known-hosts:remove',
+  knownHostsImport: 'known-hosts:import',
+  helloStatus: 'vault:hello-status',
+  helloEnable: 'vault:hello-enable',
+  helloDisable: 'vault:hello-disable',
+  helloUnlock: 'vault:hello-unlock',
   connectionTest: 'connection:test',
   containersList: 'containers:list',
   containersAction: 'containers:action',
@@ -111,13 +129,28 @@ export const IPC_CHANNELS = {
   fileTypeUnregister: 'app:file-type-unregister',
   appGetLanguage: 'app:get-language',
   appSetLanguage: 'app:set-language',
+  appGetTheme: 'app:get-theme',
+  appSetTheme: 'app:set-theme',
   appLocaleChanged: 'app:locale-changed',
+  openExternal: 'app:open-external',
+  importRead: 'import:read',
+  updateStatus: 'app:update-status',
+  updateSetEnabled: 'app:update-set-enabled',
+  updateSkip: 'app:update-skip',
   kubeOpen: 'k8s:open',
   kubeSubscribe: 'k8s:subscribe',
   kubeDetail: 'k8s:detail',
   kubeAction: 'k8s:action',
   kubeClose: 'k8s:close',
   kubeProbe: 'k8s:probe',
+  kubeForwardStart: 'k8s:forward-start',
+  kubeForwardStop: 'k8s:forward-stop',
+  kubeLogsStart: 'k8s:logs-start',
+  kubeLogsStop: 'k8s:logs-stop',
+  kubeAccess: 'k8s:access',
+  kubeDiagnose: 'k8s:diagnose',
+  kubeOpenLink: 'k8s:open-link',
+  kubeArgoApp: 'k8s:argo-app',
   kubeEvent: 'k8s:event',
 } as const;
 
@@ -164,9 +197,28 @@ export type SaveVaultResult =
       filePath: string;
     };
 
+/** Version check state for the main window; see docs/superpowers/specs/2026-10-24-import-update-design.md. */
+export interface UpdateStatus { enabled: boolean; current: string; available: { version: string; url: string } | null }
+
+/** One entry of the open screen list. filePath is for display and for the existing unlockVault; the list itself only changes in main. */
+export interface RecentVault { id: string; filePath: string; name: string; folder: string; openedAt: number; missing: boolean }
+
+/** Windows Hello for one vault path on this device: available = Windows Hello is set up; enrolled = a wrapped key is stored for the path. */
+export interface HelloStatus { available: boolean; enrolled: boolean }
+
+export interface HelloUnlockRequest { filePath: string }
+
 export interface DesktopApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
+  /** Opens an http(s) link in the default browser; main validates it again. */
+  openExternal: (url: string) => Promise<void>;
+  /** Opens the source after a click: file dialog (OpenSSH) or registry export (PuTTY). Main window, unlocked vault. */
+  importRead: (source: ImportSource) => Promise<ImportReadResult>;
+  /** Runs the check when enabled and due (at most every 24 h), else returns the stored state. */
+  updateStatus: () => Promise<UpdateStatus>;
+  updateSetEnabled: (enabled: boolean) => Promise<UpdateStatus>;
+  updateSkip: (version: string) => Promise<UpdateStatus>;
   sshPrepare: (request: SshPrepareRequest) => Promise<{ sessionId: string }>;
   sshConnect: (request: SshSessionRequest) => Promise<void>;
   sshInput: (request: SshInputRequest) => Promise<void>;
@@ -176,6 +228,11 @@ export interface DesktopApi {
   /** Takes over a session transferred from another window. */
   sshAttach: (request: SshSessionRequest) => Promise<void>;
   onSshEvent: (listener: (event: SshEvent) => void) => () => void;
+  /** Server questions of a keyboard-interactive login; answered with answerAuthPrompt. */
+  onAuthPrompt: (listener: (request: AuthPromptRequest) => void) => () => void;
+  onAuthPromptClosed: (listener: (event: { promptId: string }) => void) => () => void;
+  answerAuthPrompt: (answer: AuthPromptAnswer) => Promise<void>;
+  sshForward: (request: SshForwardRequest) => Promise<void>;
   rdpOpen: (request: RdpOpenRequest) => Promise<{ sessionId: string }>;
   rdpBounds: (request: RdpBoundsRequest) => Promise<void>;
   rdpVisible: (request: RdpVisibleRequest) => Promise<void>;
@@ -191,6 +248,20 @@ export interface DesktopApi {
   kubeClose: (request: KubeViewRequest) => Promise<void>;
   /** Reads contexts of the kubeconfig on an SSH host; never returns the config itself. */
   kubeProbe: (request: KubeProbeRequest) => Promise<KubeProbeResult>;
+  /** Listens on 127.0.0.1 only and forwards to a pod or service port of the view's cluster; resolves with the running forward. */
+  kubeForwardStart: (request: KubeForwardStartRequest) => Promise<KubeForwardStatus>;
+  kubeForwardStop: (request: KubeForwardStopRequest) => Promise<void>;
+  /** Starts the logs of all pods of a selector for the view (one run per view); batches arrive as `logs` events with the same id. */
+  kubeLogsStart: (request: KubeLogsStartRequest) => Promise<void>;
+  kubeLogsStop: (request: KubeLogsStopRequest) => Promise<void>;
+  /** RBAC pre-check of one namespace; null = unknown, grey out nothing. */
+  kubeAccess: (request: KubeAccessRequest) => Promise<KubeDenied[] | null>;
+  /** "Mit KI analysieren": status, events, logs and spec of one object as text. Reads only (get, list, get pods/log), never Secrets. */
+  kubeDiagnose: (request: KubeDiagnoseRequest) => Promise<KubeDiagnosis>;
+  /** "In Argo CD öffnen" / "In Harbor öffnen": main builds the https address from the vault entry and opens the browser. */
+  kubeOpenLink: (request: KubeOpenLinkRequest) => Promise<void>;
+  /** Self-Heal state of an Argo CD application for the confirmation (get on applications.argoproj.io); null when unreadable. */
+  kubeArgoApp: (request: KubeArgoRequest) => Promise<KubeArgoState | null>;
   onKubeEvent: (listener: (event: KubeEvent) => void) => () => void;
   sftpOpen: (request: SftpOpenRequest) => Promise<{ sessionId: string }>;
   sftpHome: (request: SftpSessionRequest) => Promise<string>;
@@ -246,6 +317,28 @@ export interface DesktopApi {
   vaultLaunchFile: () => Promise<string | null>;
   /** Path of the vault opened last, if the file still exists; preselected on the open screen. */
   lastVaultFile: () => Promise<string | null>;
+  /** Newest first, at most 8. Main window only. */
+  recentVaults: () => Promise<RecentVault[]>;
+  /** Removes one entry by id and returns the new list; the file itself is untouched. */
+  removeRecentVault: (id: string) => Promise<RecentVault[]>;
+  /** Main checks a dropped vault path (local drives only) and returns it normalized; rejects with core.vaultPathNotAllowed. */
+  dropVaultFile: (filePath: string) => Promise<string>;
+  knownHostsList: () => Promise<KnownHostView[]>;
+  knownHostsRemove: (id: string) => Promise<KnownHostView[]>;
+  /** Native file dialog, then import; nothing is read without that click. */
+  knownHostsImport: () => Promise<KnownHostsImportReply>;
+  /** Never prompts and never reads the vault file. Main window only. */
+  helloStatus: (filePath: string) => Promise<HelloStatus>;
+  /** Prompts Windows Hello and stores the key of the unlocked vault for this device; rejects with core.helloCanceled and other codes. */
+  helloEnable: () => Promise<HelloStatus>;
+  /** Deletes the stored key of the unlocked vault; no prompt. */
+  helloDisable: () => Promise<HelloStatus>;
+  /** Same path checks and result as unlockVault, with Windows Hello instead of the password. */
+  helloUnlock: (request: HelloUnlockRequest) => Promise<UnlockVaultResult>;
+  /** Stored colour scheme (default 'dark'). Main window only. */
+  getTheme: () => Promise<ThemeSetting>;
+  /** Persists first, then applies to all windows; throws core.settingsWriteFailed. */
+  setTheme: (setting: ThemeSetting) => Promise<ThemeSetting>;
   /** Dry run of a possibly unsaved connection. */
   connectionTest: (connection: ConnectionNode) => Promise<ConnectionTestResult>;
   /** Probes an SSH connection or this computer for Docker and Podman and lists Proxmox guests; always fresh. */

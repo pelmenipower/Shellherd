@@ -6,3 +6,6 @@ export function xtermTheme(read: (name: string) => string): XtermColors {
   const pick = (key: keyof XtermColors): string => read(XTERM_TOKENS[key]).trim() || XTERM_FALLBACKS[key];
   return { background: pick('background'), foreground: pick('foreground'), cursor: pick('cursor'), selectionBackground: pick('selectionBackground') };
 }
+export const LIGHT_SCHEME_QUERY = '(prefers-color-scheme: light)';
+/** Light stage: xterm lifts every foreground to WCAG AA against its cell background; dark keeps xterm's palette as is. */
+export function xtermContrast(light: boolean): number { return light ? 4.5 : 1; }

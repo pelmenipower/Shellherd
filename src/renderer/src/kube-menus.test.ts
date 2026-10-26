@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ACTION_KINDS, KIND_COLUMNS, refKey, type ClusterStatus, type KubeKind, type KubeProblem, type KubeRow, type NodeTile, type ProblemKind } from '../../shared/kubernetes';
+import type { KubeDenied } from '../../shared/kube-access';
 import { actionReason } from './kube-commands';
 import { i18n, t } from './i18n';
 import { menuFor, type MenuContext, type MenuEntry, type MenuTarget } from './kube-menus';
@@ -91,7 +92,7 @@ describe('A1 pods', () => {
     const entries = rowMenu(pod());
     expect(labels(entries)).toEqual([
       'Container anzeigen', 'Pods auf Node worker2 anzeigen', 'Deployment api anzeigen', 'Filtern: app=api', 'Filtern: app.kubernetes.io/name=api', 'Nur Läuft anzeigen', '---',
-      'Logs', 'Logs des vorherigen Containers', 'Shell öffnen', 'Events', 'YAML', 'Describe', 'Logs als Tab öffnen', 'Shell als Tab öffnen', '---',
+      'Logs', 'Logs des vorherigen Containers', 'Shell öffnen', 'Events', 'YAML', 'Describe', 'Logs als Tab öffnen', 'Shell als Tab öffnen', 'Port weiterleiten…', 'Mit KI analysieren', '---',
       'Kopieren', 'Name', 'Namespace/Name', 'Image', 'Labels', 'Pod-IP', 'kubectl logs -f', 'kubectl exec', 'kubectl describe', '---', 'Pod löschen…',
     ]);
   });
@@ -231,7 +232,7 @@ describe('A1 pods', () => {
 
 describe('Argo (C28)', () => {
   it('puts the heading first and Argo-App-Name last under Kopieren, for any row kind', () => {
-    for (const r of [deployment({ labels: { 'argocd.argoproj.io/instance': 'shop-api' } }), pod({ labels: { 'argocd.argoproj.io/instance': 'shop-api' } }), row('services', 's', { labels: { 'argocd.argoproj.io/instance': 'shop-api' }, selector: { a: 'b' } })]) {
+    for (const r of [deployment({ argoApp: 'shop-api' }), pod({ argoApp: 'shop-api' }), row('services', 's', { argoApp: 'shop-api', selector: { a: 'b' } })]) {
       const entries = rowMenu(r);
       expect(entries[0]).toEqual({ kind: 'heading', label: 'Argo CD: App shop-api' });
       expect(entries[1].kind).toBe('item');
@@ -239,17 +240,73 @@ describe('Argo (C28)', () => {
       expect(copies[copies.length - 1]).toMatchObject({ id: 'copy-argo', label: 'Argo-App-Name', run: { type: 'copy', text: 'shop-api' } });
     }
   });
-  it('has no Argo entries without the label', () => {
-    const entries = rowMenu(deployment());
-    expect(entries.some(entry => entry.kind === 'heading' && entry.label.startsWith('Argo'))).toBe(false);
-    expect(has(entries, 'copy-argo')).toBe(false);
+  it('has no Argo entries without argoApp, also when only the raw label is there (main validates it)', () => {
+    for (const r of [deployment(), deployment({ labels: { app: 'api', 'argocd.argoproj.io/instance': 'shop-api' } })]) {
+      const entries = rowMenu(r, withStatus({ ...READY, argoUrl: 'https://argocd.example.test' }));
+      expect(entries.some(entry => entry.kind === 'heading' && entry.label.startsWith('Argo'))).toBe(false);
+      expect(has(entries, 'copy-argo')).toBe(false);
+      expect(has(entries, 'argo-open')).toBe(false);
+    }
+  });
+});
+
+describe('In Argo CD öffnen', () => {
+  const ARGO_READY: ClusterStatus = { ...READY, argoUrl: 'https://argocd.example.test' };
+  const firstGroup = (entries: MenuEntry[]): MenuEntry[] => entries.slice(0, entries.findIndex(entry => entry.kind === 'separator'));
+
+  it('ends the first group of a tracked row with the link and the host as hint', () => {
+    for (const r of [deployment({ argoApp: 'shop' }), row('cronjobs', 'nightly', { argoApp: 'shop' }), row('services', 's', { argoApp: 'shop', selector: { a: 'b' } })]) {
+      const entries = rowMenu(r, withStatus(ARGO_READY));
+      const group = firstGroup(entries);
+      expect(group.at(-1)).toEqual({ kind: 'item', id: 'argo-open', label: 'In Argo CD öffnen', hint: 'argocd.example.test', run: { type: 'link', link: { type: 'argo', app: 'shop' } } });
+    }
+  });
+
+  it('is greyed out without an address and free on read-only, reconnecting and disconnected clusters', () => {
+    expect(find(rowMenu(deployment({ argoApp: 'shop' })), 'argo-open')).toMatchObject({ disabled: true, hint: 'Keine Argo-CD-Adresse im Cluster-Eintrag.' });
+    for (const status of [{ ...ARGO_READY, readOnly: true }, { ...ARGO_READY, state: 'reconnecting' as const }, { ...ARGO_READY, state: 'error' as const }]) {
+      expect(find(rowMenu(deployment({ argoApp: 'team-a_shop' }), withStatus(status)), 'argo-open')).toMatchObject({ hint: 'argocd.example.test', run: { type: 'link', link: { type: 'argo', app: 'team-a_shop' } } });
+      expect(find(rowMenu(deployment({ argoApp: 'team-a_shop' }), withStatus(status)), 'argo-open').disabled).toBeUndefined();
+    }
+  });
+});
+
+describe('In Harbor öffnen', () => {
+  const HARBOR_READY: ClusterStatus = { ...READY, harborUrl: 'https://harbor.example.test' };
+  const DIGEST = `sha256:${'d'.repeat(64)}`;
+  const harborPod = pod({ cells: { status: 'Running', 'image:api': 'reg/api:1', 'image:proxy': 'harbor.example.test/shop/proxy:2' }, digests: { proxy: DIGEST } });
+
+  it('only exists with a Harbor address', () => {
+    expect(has(rowMenu(harborPod), 'harbor-open')).toBe(false);
+    expect(has(menu({ type: 'container', pod: harborPod, name: 'proxy' }), 'harbor-open')).toBe(false);
+  });
+
+  it('links the first image on the Harbor host, a pod with the digest of the running image', () => {
+    expect(find(rowMenu(harborPod, withStatus(HARBOR_READY)), 'harbor-open'))
+      .toEqual({ kind: 'item', id: 'harbor-open', label: 'In Harbor öffnen', hint: 'harbor.example.test', run: { type: 'link', link: { type: 'harbor', image: 'harbor.example.test/shop/proxy:2', digest: DIGEST } } });
+    const workload = deployment({ cells: { image: 'reg/api:1, harbor.example.test/shop/side:2, harbor.example.test/shop/other:3' } });
+    expect(find(rowMenu(workload, withStatus(HARBOR_READY)), 'harbor-open').run).toEqual({ type: 'link', link: { type: 'harbor', image: 'harbor.example.test/shop/side:2' } });
+    expect(find(menu({ type: 'container', pod: harborPod, name: 'proxy' }, withStatus(HARBOR_READY)), 'harbor-open').run)
+      .toEqual({ type: 'link', link: { type: 'harbor', image: 'harbor.example.test/shop/proxy:2', digest: DIGEST } });
+  });
+
+  it('is greyed out with the host when no image lies there', () => {
+    expect(find(rowMenu(pod(), withStatus(HARBOR_READY)), 'harbor-open')).toMatchObject({ disabled: true, hint: 'Image liegt nicht in harbor.example.test.' });
+    expect(find(menu({ type: 'container', pod: harborPod, name: 'api' }, withStatus(HARBOR_READY)), 'harbor-open')).toMatchObject({ disabled: true, hint: 'Image liegt nicht in harbor.example.test.' });
+  });
+
+  it('never appears on services, jobs, cron jobs, events and nodes', () => {
+    for (const r of [row('services', 's', { selector: { a: 'b' }, cells: { image: 'harbor.example.test/shop/api:1' } }), row('jobs', 'j', { cells: { image: 'harbor.example.test/shop/api:1' } }),
+      row('cronjobs', 'c'), row('events', 'e.1', { cells: { object: 'Pod/api-1' } }), node()]) {
+      expect(has(rowMenu(r, withStatus(HARBOR_READY)), 'harbor-open')).toBe(false);
+    }
   });
 });
 
 describe('A2 workloads', () => {
   it('lists a deployment menu', () => {
     expect(labels(rowMenu(deployment()))).toEqual([
-      'Pods anzeigen', '---', 'Events', 'YAML', 'Describe', '---',
+      'Pods anzeigen', '---', 'Logs aller Pods', 'Events', 'YAML', 'Describe', 'Mit KI analysieren', '---',
       'Kopieren', 'Name', 'Namespace/Name', 'Image', 'Selector', 'Labels', 'kubectl rollout restart', 'kubectl scale', 'kubectl rollout status', '---',
       'Rollout neu starten…', 'Skalieren…',
     ]);
@@ -302,7 +359,7 @@ describe('A3 jobs', () => {
   const job = (patch: Partial<KubeRow> = {}) => row('jobs', 'backup-123', { selector: { 'job-name': 'backup-123' }, owner: { kind: 'cronjobs', namespace: 'shop', name: 'backup' }, ...patch });
   it('lists the job menu with CronJob owner and delete', () => {
     expect(labels(rowMenu(job()))).toEqual([
-      'Pods anzeigen', 'CronJob backup anzeigen', '---', 'Events', 'YAML', 'Describe', '---',
+      'Pods anzeigen', 'CronJob backup anzeigen', '---', 'Logs aller Pods', 'Events', 'YAML', 'Describe', 'Mit KI analysieren', '---',
       'Kopieren', 'Name', 'Namespace/Name', 'kubectl logs', 'kubectl describe', '---', 'Job löschen…',
     ]);
     expect(find(rowMenu(job()), 'delete')).toMatchObject({ hint: 'Ctrl+d', run: { type: 'kubeAction', action: 'delete', ref: { kind: 'jobs', name: 'backup-123' } } });
@@ -366,7 +423,7 @@ describe('A5 services', () => {
   const service = (patch: Partial<KubeRow> = {}) => row('services', 'web', { cells: { clusterIp: '10.1.2.3', ports: '8080:30080/TCP,443/TCP' }, selector: { app: 'web' }, ...patch });
   it('lists the service menu without actions', () => {
     expect(labels(rowMenu(service()))).toEqual([
-      'Pods anzeigen', '---', 'Events', 'YAML', 'Describe', '---', 'Kopieren', 'Name', 'Cluster-IP', 'DNS-Name', 'Ports', 'Selector', 'kubectl port-forward',
+      'Pods anzeigen', 'Port weiterleiten…', '---', 'Logs aller Pods', 'Events', 'YAML', 'Describe', '---', 'Kopieren', 'Name', 'Cluster-IP', 'DNS-Name', 'Ports', 'Selector', 'kubectl port-forward',
     ]);
   });
   it('copies dns name and a port-forward with the first port', () => {
@@ -444,7 +501,7 @@ describe('A8 events', () => {
   const podEvent = () => event({ kind: 'Pod', name: 'api-1', ref: { kind: 'pods', namespace: 'shop', name: 'api-1' } });
   it('lists jump, events, describe, logs and copy for a pod event, without hotkeys (C8)', () => {
     const entries = rowMenu(podEvent());
-    expect(labels(entries)).toEqual(['Pod api-1 anzeigen', '---', 'Events des Objekts', 'Describe des Objekts', 'Logs des Pods', '---', 'Kopieren', 'Meldung', 'Objekt', 'Grund']);
+    expect(labels(entries)).toEqual(['Pod api-1 anzeigen', '---', 'Events des Objekts', 'Describe des Objekts', 'Logs des Pods', 'Mit KI analysieren', '---', 'Kopieren', 'Meldung', 'Objekt', 'Grund']);
     for (const entry of items(entries)) if (!entry.disabled) expect(entry.hint).toBeUndefined();
     expect(find(entries, 'involved').run).toMatchObject({ actions: [{ type: 'select' }, { type: 'jump', ref: { kind: 'pods', name: 'api-1' } }] });
     expect(find(entries, 'involved-logs').run).toMatchObject({ actions: [{ type: 'select' }, { type: 'jump' }, { type: 'dock', mode: 'logs' }], previous: false });
@@ -558,10 +615,10 @@ describe('C node tiles', () => {
 describe('D problems', () => {
   const entriesFor = (kind: ProblemKind, ctx?: MenuContext) => menu({ type: 'problem', problem: problem(kind) }, ctx);
   it.each([
-    ['crashloop', ['Anzeigen', '---', 'Logs des vorherigen Containers', 'Logs', 'Describe', 'Events', '---', 'Kopieren', 'Name', 'Namespace/Name', 'Meldung', 'kubectl logs --previous', '---', 'Pod löschen…']],
-    ['oomkilled', ['Anzeigen', '---', 'Logs des vorherigen Containers', 'Logs', 'Describe', 'Events', '---', 'Kopieren', 'Name', 'Namespace/Name', 'Meldung', 'kubectl logs --previous', '---', 'Pod löschen…']],
-    ['image', ['Anzeigen', '---', 'Logs', 'Describe', 'Events', '---', 'Kopieren', 'Name', 'Namespace/Name', 'Meldung', '---', 'Pod löschen…']],
-    ['pending', ['Anzeigen', '---', 'Logs', 'Describe', 'Events', '---', 'Kopieren', 'Name', 'Namespace/Name', 'Meldung', '---', 'Pod löschen…']],
+    ['crashloop', ['Anzeigen', '---', 'Logs des vorherigen Containers', 'Logs', 'Describe', 'Events', 'Mit KI analysieren', '---', 'Kopieren', 'Name', 'Namespace/Name', 'Meldung', 'kubectl logs --previous', '---', 'Pod löschen…']],
+    ['oomkilled', ['Anzeigen', '---', 'Logs des vorherigen Containers', 'Logs', 'Describe', 'Events', 'Mit KI analysieren', '---', 'Kopieren', 'Name', 'Namespace/Name', 'Meldung', 'kubectl logs --previous', '---', 'Pod löschen…']],
+    ['image', ['Anzeigen', '---', 'Logs', 'Describe', 'Events', 'Mit KI analysieren', '---', 'Kopieren', 'Name', 'Namespace/Name', 'Meldung', '---', 'Pod löschen…']],
+    ['pending', ['Anzeigen', '---', 'Logs', 'Describe', 'Events', 'Mit KI analysieren', '---', 'Kopieren', 'Name', 'Namespace/Name', 'Meldung', '---', 'Pod löschen…']],
     ['node', ['Anzeigen', 'Pods auf dieser Node anzeigen', '---', 'Describe', 'Events', 'SSH-Verbindung öffnen', '---', 'Kopieren', 'Name', 'Meldung']],
   ] as const)('lists the %s menu', (kind, expected) => {
     expect(labels(entriesFor(kind))).toEqual(expected);
@@ -861,5 +918,136 @@ describe('English catalog', () => {
       expect(find(entries, 'events').label).toBe('Events');
       expect(labels(menu({ type: 'background' }))).toContain('Help…');
     } finally { await i18n.changeLanguage('de-DE'); }
+  });
+});
+
+describe('port forward entry', () => {
+  const service = (patch: Partial<KubeRow> = {}) => row('services', 'web', { cells: { ports: '80/TCP' }, selector: { app: 'web' }, ports: [{ port: 80 }], ...patch });
+
+  it('opens the dialog for a running pod, also on a read-only cluster', () => {
+    const target = pod();
+    expect(find(rowMenu(target), 'forward')).toMatchObject({ label: 'Port weiterleiten…', run: { type: 'forward', row: target } });
+    expect(find(rowMenu(target), 'forward').disabled).toBeUndefined();
+    expect(find(rowMenu(target, withStatus(READ_ONLY)), 'forward').disabled).toBeUndefined();
+  });
+
+  it('explains why it is not available', () => {
+    expect(find(rowMenu(pod({ cells: { status: 'Pending' } })), 'forward')).toMatchObject({ disabled: true, hint: 'Der Pod läuft nicht.' });
+    expect(find(rowMenu(pod(), withStatus(RECONNECTING)), 'forward')).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
+    expect(find(rowMenu(service({ ports: undefined })), 'forward')).toMatchObject({ disabled: true, hint: 'Dieser Service hat keinen TCP-Port.' });
+    expect(find(rowMenu(service({ selector: undefined })), 'forward')).toMatchObject({ disabled: true, hint: 'Dieser Service hat keinen Selector, z. B. ExternalName.' });
+    expect(find(rowMenu(service()), 'forward').disabled).toBeUndefined();
+  });
+});
+
+describe('logs of all pods and the rights pre-check in menus', () => {
+  const FORBIDDEN_PATCH = 'Keine Berechtigung: patch auf deployments in shop';
+  const withAccess = (denied: KubeDenied[] | null, status: ClusterStatus = READY): MenuContext =>
+    context({ status, state: state({ status, access: { shop: { at: NOW, denied } } }) });
+  const job = row('jobs', 'backup-1', { selector: { 'job-name': 'backup-1' } });
+  const service = row('services', 'web', { selector: { app: 'web' }, ports: [{ port: 80 }] });
+
+  it('offers Logs aller Pods before Events for workloads, jobs and services, and runs logsAll', () => {
+    for (const target of [deployment(), row('statefulsets', 'db', { selector: { app: 'db' } }), row('daemonsets', 'agent', { selector: { app: 'agent' } }), job, service]) {
+      const labelsOf = labels(rowMenu(target));
+      expect(labelsOf.indexOf('Logs aller Pods'), target.ref.kind).toBe(labelsOf.indexOf('Events') - 1);
+      expect(find(rowMenu(target), 'logs-all')).toMatchObject({ run: { type: 'logsAll', row: target } });
+      expect(find(rowMenu(target), 'logs-all').disabled).toBeUndefined();
+    }
+    expect(has(rowMenu(pod()), 'logs-all')).toBe(false);
+    expect(has(rowMenu(row('cronjobs', 'nightly')), 'logs-all')).toBe(false);
+  });
+
+  it('greys it out without a selector, while not connected and without the right; read-only allows it', () => {
+    expect(find(rowMenu(deployment({ selector: undefined })), 'logs-all').hint).toBe(t('kubeActions:reasons.noSelectorWorkload'));
+    expect(find(rowMenu({ ...job, selector: undefined }), 'logs-all').hint).toBe(t('kubeActions:reasons.noSelectorJob'));
+    expect(find(rowMenu({ ...service, selector: {} }), 'logs-all').hint).toBe(t('kubeActions:reasons.noSelectorService'));
+    expect(find(rowMenu(deployment(), withStatus(RECONNECTING)), 'logs-all').hint).toBe(RECONNECTING_MESSAGE);
+    expect(find(rowMenu(deployment(), withAccess([{ id: 'logsAll', verb: 'watch', resource: 'pods' }])), 'logs-all').hint).toBe('Keine Berechtigung: watch auf pods in shop');
+    expect(find(rowMenu(deployment(), withStatus(READ_ONLY)), 'logs-all').disabled).toBeUndefined();
+  });
+
+  it('greys out restart and scale without patch, nothing when the rights are unknown, read-only first', () => {
+    const entries = rowMenu(deployment(), withAccess([{ id: 'patchDeployments', verb: 'patch', resource: 'deployments' }]));
+    expect(find(entries, 'restart')).toMatchObject({ disabled: true, hint: FORBIDDEN_PATCH });
+    expect(find(entries, 'scale')).toMatchObject({ disabled: true, hint: FORBIDDEN_PATCH });
+    const unknown = rowMenu(deployment(), withAccess(null));
+    expect(find(unknown, 'restart').disabled).toBeUndefined();
+    expect(find(unknown, 'scale').disabled).toBeUndefined();
+    expect(find(rowMenu(deployment(), withAccess([{ id: 'patchDeployments', verb: 'patch', resource: 'deployments' }], READ_ONLY)), 'restart').hint).toBe(READ_ONLY_MESSAGE);
+  });
+
+  it('says cluster-wide for nodes and checks them with the default namespace', () => {
+    const ctx = withAccess([{ id: 'patchNodes', verb: 'patch', resource: 'nodes' }]);
+    expect(find(menu({ type: 'node', tile: tile() }, ctx), 'cordon').hint).toBe('Keine Berechtigung: patch auf nodes (clusterweit)');
+    expect(find(rowMenu(node(), ctx), 'cordon').hint).toBe('Keine Berechtigung: patch auf nodes (clusterweit)');
+  });
+
+  it('gives logs, shell, forward and the tab entries of a pod their right, after Pod läuft nicht', () => {
+    const ctx = withAccess([
+      { id: 'logs', verb: 'get', resource: 'pods/log' }, { id: 'shell', verb: 'create', resource: 'pods/exec' }, { id: 'forward', verb: 'create', resource: 'pods/portforward' },
+    ]);
+    const entries = rowMenu(singlePod(), ctx);
+    expect(find(entries, 'logs').hint).toBe('Keine Berechtigung: get auf pods/log in shop');
+    expect(find(entries, 'previous').hint).toBe('Keine Berechtigung: get auf pods/log in shop');
+    expect(find(entries, 'shell').hint).toBe('Keine Berechtigung: create auf pods/exec in shop');
+    expect(find(entries, 'forward').hint).toBe('Keine Berechtigung: create auf pods/portforward in shop');
+    expect(find(entries, 'popout-logs').hint).toBe('Keine Berechtigung: get auf pods/log in shop');
+    expect(find(entries, 'popout-shell').hint).toBe('Keine Berechtigung: create auf pods/exec in shop');
+    const stopped = rowMenu(pod({ containers: ['api'], cells: { status: 'Completed' } }), ctx);
+    expect(find(stopped, 'shell').hint).toBe(t('kubeActions:reasons.notRunning'));
+    expect(find(stopped, 'forward').hint).toBe(t('kubeActions:reasons.notRunning'));
+  });
+
+  it('checks the logs entries of problems, events and the dock', () => {
+    const ctx = withAccess([{ id: 'logs', verb: 'get', resource: 'pods/log' }, { id: 'shell', verb: 'create', resource: 'pods/exec' }]);
+    const reason = 'Keine Berechtigung: get auf pods/log in shop';
+    expect(find(menu({ type: 'problem', problem: problem('crashloop') }, ctx), 'logs').hint).toBe(reason);
+    expect(find(menu({ type: 'problem', problem: problem('crashloop') }, ctx), 'previous').hint).toBe(reason);
+    const event = row('events', 'e1', { cells: { object: 'Pod/api-1' }, involved: { kind: 'Pod', name: 'api-1', ref: { kind: 'pods', namespace: 'shop', name: 'api-1' } } });
+    expect(find(rowMenu(event, ctx), 'involved-logs').hint).toBe(reason);
+    const dockEntries = menu({ type: 'dock', mode: 'logs', pod: singlePod(), container: 'api', previous: false }, ctx);
+    expect(find(dockEntries, 'mode-logs').hint).toBe(reason);
+    expect(find(dockEntries, 'previous').hint).toBe(reason);
+    expect(find(dockEntries, 'mode-shell').hint).toBe('Keine Berechtigung: create auf pods/exec in shop');
+  });
+});
+
+describe('analyze ("Mit KI analysieren")', () => {
+  const POD_REF = { kind: 'pods' as const, namespace: 'shop', name: 'api-1' };
+  const event = (involved: KubeRow['involved']) => row('events', 'ev1', { cells: { message: 'Back-off', reason: 'BackOff', object: 'Pod/api-1' }, involved });
+
+  it('is offered on pod, deployment, statefulset, daemonset and job rows with the row as target', () => {
+    for (const r of [pod(), deployment(), row('statefulsets', 'db'), row('daemonsets', 'agent'), row('jobs', 'migrate')]) {
+      const entry = find(rowMenu(r), 'analyze');
+      expect(entry).toMatchObject({ label: 'Mit KI analysieren', run: { type: 'analyze', target: { ref: r.ref } } });
+      expect(entry.disabled).toBeUndefined();
+    }
+  });
+
+  it('is not offered on services, ingresses, cronjobs, nodes, node tiles and node problems', () => {
+    for (const r of [row('services', 's', { selector: { a: 'b' } }), row('ingresses', 'i'), row('cronjobs', 'c'), node()]) expect(has(rowMenu(r), 'analyze')).toBe(false);
+    expect(has(menu({ type: 'node', tile: tile() }), 'analyze')).toBe(false);
+    expect(has(menu({ type: 'problem', problem: problem('node') }), 'analyze')).toBe(false);
+  });
+
+  it('carries the problem kind from the problem menu and from state.problems on the pod row', () => {
+    expect(find(menu({ type: 'problem', problem: problem('crashloop') }), 'analyze').run).toEqual({ type: 'analyze', target: { ref: POD_REF, problem: 'crashloop' } });
+    const ctx = context({ state: state({ problems: [problem('oomkilled')] }) });
+    expect(find(rowMenu(pod(), ctx), 'analyze').run).toEqual({ type: 'analyze', target: { ref: POD_REF, problem: 'oomkilled' } });
+  });
+
+  it('analyses the object of an event with the event as trigger; a node event is refused with its reason', () => {
+    const podEvent = event({ kind: 'Pod', name: 'api-1', ref: POD_REF });
+    expect(find(rowMenu(podEvent), 'analyze').run).toEqual({ type: 'analyze', target: { ref: POD_REF, event: podEvent.ref } });
+    const nodeEvent = event({ kind: 'Node', name: 'worker2', ref: { kind: 'nodes', name: 'worker2' } });
+    expect(find(rowMenu(nodeEvent), 'analyze')).toMatchObject({ disabled: true, hint: 'Für Node gibt es keine KI-Analyse.' });
+    expect(find(rowMenu(event({ kind: 'ReplicaSet', name: 'api-5d8f' })), 'analyze')).toMatchObject({ disabled: true, hint: 'Objekte vom Typ ReplicaSet zeigt Shellherd nicht an.' });
+  });
+
+  it('is disabled without a connection and free on a read-only cluster', () => {
+    expect(find(rowMenu(pod(), withStatus(RECONNECTING)), 'analyze')).toMatchObject({ disabled: true, hint: RECONNECTING_MESSAGE });
+    expect(find(rowMenu(pod(), withStatus(null)), 'analyze')).toMatchObject({ disabled: true, hint: NOT_CONNECTED_MESSAGE });
+    expect(find(rowMenu(pod(), withStatus(READ_ONLY)), 'analyze').disabled).toBeUndefined();
   });
 });

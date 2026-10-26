@@ -4,13 +4,15 @@ import { pipeline } from 'node:stream/promises';
 import { posix } from 'node:path';
 import { Client } from 'ssh2';
 import type { SFTPWrapper } from 'ssh2';
-import { limitError, type CodedError } from '../../shared/errors';
-import type { ConnectionNode, ConnectionTimeouts } from '../../shared/vault/types';
+import { AppError, limitError, type CodedError } from '../../shared/errors';
+import type { ConnectionNode, ConnectionTimeouts, SftpConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import { DEFAULT_TIMEOUTS } from '../../shared/vault/timeouts';
 import { MAX_SFTP_SESSIONS } from '../../shared/sftp';
 import type { EditorChoice } from '../../shared/sftp';
 import type { ConflictChoice, DirectoryListing, SftpEvent, SftpSessionState, SftpStatus, SftpTransferRequest, TransferConflict, TransferJob } from '../../shared/sftp';
 import { sshConnectConfig } from '../ssh/client-config';
+import type { AskPrompts } from '../ssh/auth-prompts';
+import type { Jump } from '../ssh/jump';
 import { classifyError } from '../ssh/session';
 import type { ConnectionErrorCode } from '../../shared/connection-errors';
 import { FileError, fileError } from './file-system';
@@ -39,6 +41,10 @@ export interface SftpDependencies {
   getTimeouts?: (connection: ConnectionNode) => ConnectionTimeouts;
   /** Injected so tests never open network connections. */
   createClient?: () => Client;
+  /** Keyboard-interactive questions; without it the server gets no keyboard answers. */
+  ask?: AskPrompts;
+  /** Opens the hop named by `jumpHost`; undefined without one. `isActive` turns false once the session ended. */
+  openJump?: (connection: SshConnectionNode | SftpConnectionNode, ownerId: number, isActive: () => boolean) => Promise<Jump | undefined>;
 }
 
 interface Job {
@@ -63,6 +69,7 @@ interface Session {
   running?: Job;
   conflict?: { conflict: TransferConflict; resolve: (answer: { choice: ConflictChoice; applyToAll: boolean }) => void };
   key?: Buffer;
+  jump?: Jump;
   idleMs?: number;
   lastIo?: number;
   idleTimer?: ReturnType<typeof setTimeout>;
@@ -92,13 +99,25 @@ export class SftpSessionManager {
     const timeouts = (this.dependencies.getTimeouts ?? (() => DEFAULT_TIMEOUTS))(connection);
     session.idleMs = timeouts.idleMinutes * 60_000;
     try {
+      if (connection.jumpHost) {
+        // Without an opener the host would be reached directly, which the spec forbids.
+        if (!this.dependencies.openJump) throw new AppError('ssh.jumpHostUnusable', { name: connection.jumpHost });
+        session.jump = await this.dependencies.openJump(connection, session.ownerId, () => this.active(session));
+        // The session may have ended while the hop opened; finish could not close it then.
+        if (!this.active(session)) { session.jump?.close(); return; }
+      }
+      const { ask } = this.dependencies;
       const { config, key } = await sshConnectConfig(connection, (hostKey, callback) => {
         void this.dependencies.verifyHost(connection.host, connection.port, hostKey, () => this.active(session))
           .then(valid => {
             if (!valid && this.active(session)) this.finish(session, 'error', { code: 'files.hostKeyRejected' }, 'hostkey-rejected');
             callback(valid && this.active(session));
           }).catch(error => { this.fail(session, error); callback(false); });
-      }, timeouts);
+      }, timeouts, {
+        client: session.client,
+        keyboard: ask ? { ask, ownerId: session.ownerId, isActive: () => this.active(session) } : undefined,
+        sock: session.jump?.sock,
+      });
       session.key = key;
       if (!this.active(session)) { this.clearKey(session); return; }
       session.client.once('ready', () => {
@@ -169,7 +188,14 @@ export class SftpSessionManager {
   async list(ownerId: number, id: string, path: string): Promise<DirectoryListing> {
     const fs = this.remote(ownerId, id);
     const resolved = await fs.realpath(path);
-    return { path: resolved, entries: await fs.list(resolved) };
+    try {
+      return { path: resolved, entries: await fs.list(resolved) };
+    } catch (error) {
+      // Servers answer a file path with "no such file" (OpenSSH) or a plain failure; only then ask what it is.
+      const entry = await fs.stat(resolved).catch(() => null);
+      if (entry && entry.type !== 'directory') throw new FileError('files.notADirectory');
+      throw error;
+    }
   }
 
   mkdir(ownerId: number, id: string, path: string): Promise<void> { return this.remote(ownerId, id).mkdir(path); }
@@ -375,6 +401,7 @@ export class SftpSessionManager {
     session.conflict?.resolve({ choice: 'cancel', applyToAll: false });
     session.edits?.closeAll();
     session.client.destroy();
+    session.jump?.close();
     session.status = status;
     this.dependencies.emit(session.ownerId, { type: 'status', sessionId: session.id, status, ...(error ? { error: limitError(error) } : {}), ...(code ? { code } : {}) });
   }

@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { MAX_REPLICAS, type KubeActionRequest, type KubeAction, type KubeRef } from '../../../../shared/kubernetes';
-import { confirmationFor } from '../../confirm-action';
+import { MAX_REPLICAS, type KubeActionRequest, type KubeAction, type KubeArgoState, type KubeRef } from '../../../../shared/kubernetes';
+import { argoNoteFor, argoNoteText, confirmationFor } from '../../confirm-action';
 import { errorText } from '../../error-text';
 import { useNativeSurfaceBlock } from '../../native-surface';
 import { useT } from '../../i18n';
@@ -13,17 +13,21 @@ export interface PendingAction {
   currentReplicas?: number;
   /** Replicas typed in the command line (`:scale 3`). */
   replicas?: number;
+  /** Argo CD application of the target row, when tracked; the dialog then reads its Self-Heal state. */
+  argoApp?: string;
 }
 
 interface ConfirmActionProps {
   pending: PendingAction;
   cluster: { name: string; production: boolean };
   run: (request: Omit<KubeActionRequest, 'viewId'>) => Promise<void>;
+  /** get on the Argo CD application; null when unreadable. */
+  readArgo: (app: string) => Promise<KubeArgoState | null>;
   onClose: () => void;
 }
 
 /** Confirmation for restart, scale and delete. Production and scale-to-zero need the name typed. */
-export function ConfirmAction({ pending, cluster, run, onClose }: ConfirmActionProps) {
+export function ConfirmAction({ pending, cluster, run, readArgo, onClose }: ConfirmActionProps) {
   const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -43,6 +47,18 @@ export function ConfirmAction({ pending, cluster, run, onClose }: ConfirmActionP
   }, cluster);
   const typingOk = confirmation.requireTyping === null || typed === confirmation.requireTyping;
   const canConfirm = replicasValid && typingOk && !busy;
+  // The Argo line never gates the confirm button; it is read once per dialog and dropped when the dialog closes.
+  const note = pending.argoApp ? argoNoteFor(pending.action, pending.ref.kind) : null;
+  const [argo, setArgo] = useState<KubeArgoState | null | undefined>(undefined);
+  useEffect(() => {
+    if (!note || !pending.argoApp) return;
+    let live = true;
+    readArgo(pending.argoApp).then(state => { if (live) setArgo(state); }, () => { if (live) setArgo(null); });
+    return () => { live = false; };
+    // One read per dialog: it lives for exactly one pending action, and readArgo is a new closure on every render of the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const argoLine = note && pending.argoApp ? argoNoteText(note, pending.argoApp, argo) : null;
 
   useEffect(() => {
     dialogRef.current?.showModal();
@@ -63,7 +79,7 @@ export function ConfirmAction({ pending, cluster, run, onClose }: ConfirmActionP
   };
 
   return (
-    <dialog ref={dialogRef} className="confirm-dialog compact-confirm kube-confirm" aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`}
+    <dialog ref={dialogRef} className="confirm-dialog compact-confirm kube-confirm" aria-labelledby={`${id}-title`} aria-describedby={argoLine ? `${id}-body ${id}-argo` : `${id}-body`}
       onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}
       onKeyDown={event => {
         event.stopPropagation();
@@ -71,6 +87,7 @@ export function ConfirmAction({ pending, cluster, run, onClose }: ConfirmActionP
       }}>
       <h2 id={`${id}-title`}>{confirmation.title}</h2>
       <p id={`${id}-body`}>{confirmation.body}</p>
+      {argoLine && <p id={`${id}-argo`} className={`kube-confirm-argo${argoLine.warn ? ' is-warn' : ''}`} aria-live="polite">{argoLine.text}</p>}
       {isScale && (
         <label className="kube-field">
           <span>{t('kubeActions:confirm.replicas', { max: MAX_REPLICAS })}</span>
