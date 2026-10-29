@@ -79,7 +79,7 @@ describe('HelloVaults', () => {
     expect((await hello.status('C:\\A\\two.term')).enrolled).toBe(false);
   });
 
-  it('matches paths like the grant list and keeps at most eight vaults', async () => {
+  it.runIf(process.platform === 'win32')('matches paths like the grant list and keeps at most eight vaults', async () => {
     const { hello, enable } = setup();
     await enable();
     expect((await hello.status('c:\\a\\V.TERM')).enrolled).toBe(true);

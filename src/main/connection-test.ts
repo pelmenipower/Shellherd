@@ -1,3 +1,4 @@
+import { capabilities, executableOnPath, supportsShell } from './platform';
 import { lookup } from 'node:dns/promises';
 import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -68,11 +69,14 @@ export async function testConnection(node: ConnectionNode, dependencies: Connect
         : { step: 'toolFound', params, ok: false, note: { code: 'core.testNotInstalled', params: { install: tool.install } } });
       return done();
     }
-    const { file } = localShellCommand(node.protocol);
+    if (!supportsShell(node.protocol)) { steps.push({ step: 'programFound', ok: false, note: { code: 'ssh.localShellUnavailable' } }); return done(); }
+    const file = node.protocol === 'bash' || node.protocol === 'zsh' || node.protocol === 'fish'
+      ? executableOnPath(node.protocol)! : localShellCommand(node.protocol).file;
     const program = await stat(file).catch(() => null);
     steps.push({ step: 'programFound', ok: Boolean(program?.isFile()), detail: file });
     return done();
   }
+  if (node.protocol === 'rdp' && !capabilities.rdp) { steps.push({ step: 'hostGiven', ok: false, note: { code: 'core.rdpUnavailable' } }); return done(); }
   if (!node.host.trim()) { steps.push({ step: 'hostGiven', ok: false, note: { code: 'core.testHostMissing' } }); return done(); }
   // Behind a jump host the far side resolves the target, so no local lookup (spec 4.4).
   const sshNode = node.protocol === 'ssh' || node.protocol === 'sftp' ? node : undefined;

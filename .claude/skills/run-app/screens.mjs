@@ -441,7 +441,7 @@ const blocks = {
       await click('.assistant-input button[type=submit]');
       await waitFor('KI-Antwort', `!document.querySelector('.assistant-typing') && [...document.querySelectorAll('.assistant-message.is-assistant .assistant-command code')].some(c => c.textContent.includes('rollout restart'))`);
       if (await evaluate(count('.assistant-message.is-assistant .assistant-command button')) !== 0) throw new Error('Ein Befehl im Cluster-Tab hat einen Knopf');
-      if (await evaluate(`[...document.querySelectorAll('.assistant-panel button')].some(b => ['Eintippen', 'Kopieren', 'Als Workflow'].includes(b.textContent.trim()))`)) throw new Error('Eintippen, Kopieren oder Als Workflow im Cluster-Tab');
+      if (await evaluate(`[...document.querySelectorAll('.assistant-panel button')].some(b => ['Eintippen', 'Kopieren'].includes(b.textContent.trim()))`)) throw new Error('Eintippen oder Kopieren im Cluster-Tab');
       if (!await evaluate(`[...document.querySelectorAll('.assistant-command.is-mutating code')].some(c => c.textContent.includes('rollout restart'))`)) throw new Error('Ändernder Befehl nicht markiert');
       if (await evaluate(`[...document.querySelectorAll('.assistant-command.is-mutating code')].some(c => c.textContent.includes('get endpoints'))`)) throw new Error('Lesender Befehl als ändernd markiert');
       await waitFor('Maskiert-Hinweis', `[...document.querySelectorAll('.assistant-note')].some(n => n.textContent.startsWith('Vertrauliche Werte maskiert:'))`);
@@ -746,8 +746,6 @@ const blocks = {
       const protectedNow = await contentProtection();
       if (protectedNow.length < 2 || protectedNow.includes(false)) throw new Error(`Fensterschutz fehlt im gesperrten Nebenfenster: ${JSON.stringify(protectedNow)}`);
       if (!await evaluate(`!document.querySelector('.lock-screen form')`)) throw new Error('Sperrbildschirm im Nebenfenster zeigt ein Formular');
-      await key('Control+Shift+Space'); await pause(500);
-      if (!await evaluate(`!document.querySelector('dialog.workflow-palette[open]') && document.querySelectorAll('dialog[open]').length === 1`)) throw new Error('Workflow-Palette öffnet sich im gesperrten Nebenfenster');
       await call('ss', undefined, '?name=lock-secondary'); shots.push(path.join(SHOTS, 'lock-secondary.png'));
       await use(main);
       await waitFor('Sperrbildschirm im Hauptfenster', `document.querySelector('dialog.lock-screen[open]')`);

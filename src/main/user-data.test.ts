@@ -50,7 +50,7 @@ describe('migrateUserData', () => {
 
   it('does nothing when source and target are the same path in another spelling', () => {
     writeFileSync(join(source, 'known-hosts.json'), 'a');
-    expect(migrateUserData(source, join(root, 'TERMINUS'))).toEqual([]);
+    expect(migrateUserData(source, join(root, 'TERMINUS'))).toEqual(process.platform === 'win32' ? [] : ['known-hosts.json']);
     expect(migrateUserData(source, join(source, '..', 'Terminus'))).toEqual([]);
   });
 

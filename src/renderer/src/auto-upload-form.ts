@@ -22,6 +22,7 @@ export function draftOf(binding: AutoUploadBinding): AutoUploadDraft {
 
 /** Trailing backslashes removed, except on a drive root (`X:\`). */
 function trimLocal(path: string): string {
+  if (path.trim().startsWith('/')) return path.trim().replace(/\/+$/, '') || '/';
   const slashed = path.trim().replace(/\//g, '\\');
   const trimmed = slashed.replace(/\\+$/, '');
   return /^[A-Za-z]:$/.test(trimmed) ? `${trimmed}\\` : trimmed;
@@ -39,13 +40,18 @@ export function bindingFromDraft(base: AutoUploadBinding, draft: AutoUploadDraft
 
 /** Last path segment, else the whole path (drive roots). */
 export function bindingName(binding: Pick<AutoUploadBinding, 'localPath'>): string {
-  const path = binding.localPath.replace(/\\+$/, '');
-  const name = path.slice(path.lastIndexOf('\\') + 1);
+  const path = binding.localPath.replace(/[\\/]+$/, '');
+  const name = path.slice(Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/')) + 1);
   return !name || name.endsWith(':') ? binding.localPath : name;
 }
 
 /** Same rule as the main process (K11): case-insensitive, compared with a trailing backslash. */
 function overlaps(a: string, b: string): boolean {
+  if (a.startsWith('/') || b.startsWith('/')) {
+    const left = `${a.replace(/\/+$/, '')}/`;
+    const right = `${b.replace(/\/+$/, '')}/`;
+    return left.startsWith(right) || right.startsWith(left);
+  }
   const left = `${a.replace(/\\+$/, '').toLowerCase()}\\`;
   const right = `${b.replace(/\\+$/, '').toLowerCase()}\\`;
   return left.startsWith(right) || right.startsWith(left);

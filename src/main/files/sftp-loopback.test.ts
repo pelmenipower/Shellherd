@@ -23,6 +23,10 @@ function startServer(root: string): Promise<{ server: Server; port: number }> {
   const hostKey = testHostKey();
   const local = (path: string) => join(root, posix.normalize(`/${path}`));
   const server = new Server({ hostKeys: [hostKey] }, client => {
+    // Cancellation tests deliberately close the socket while the server still replies.
+    client.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EPIPE' && error.code !== 'ECONNRESET') throw error;
+    });
     client.on('authentication', context => context.method === 'password' && context.password === 'synthetic-secret' ? context.accept() : context.reject(['password']));
     client.on('ready', () => client.on('session', accept => accept().on('sftp', acceptSftp => {
       const sftp = acceptSftp();
@@ -82,7 +86,7 @@ function startServer(root: string): Promise<{ server: Server; port: number }> {
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve({ server, port: (server.address() as AddressInfo).port })));
 }
 
-describe.runIf(process.platform === 'win32')('SFTP auto-upload over a real SSH connection', () => {
+describe('SFTP auto-upload over a real SSH connection', () => {
   const base = mkdtempSync(join(tmpdir(), 'terminus-sync-'));
   const remoteRoot = join(base, 'server');
   const bound = join(base, 'bound');
@@ -155,7 +159,7 @@ describe.runIf(process.platform === 'win32')('SFTP auto-upload over a real SSH c
   }, 30_000);
 });
 
-describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', () => {
+describe('SFTP over a real SSH connection', () => {
   const base = mkdtempSync(join(tmpdir(), 'terminus-sftp-'));
   const remoteRoot = join(base, 'server');
   const localRoot = join(base, 'local');
@@ -263,7 +267,7 @@ describe.runIf(process.platform === 'win32')('SFTP over a real SSH connection', 
   });
 });
 
-describe.runIf(process.platform === 'win32')('SFTP resumable transfers over a real SSH connection', () => {
+describe('SFTP resumable transfers over a real SSH connection', () => {
   const MiB = 1024 * 1024;
   const base = mkdtempSync(join(tmpdir(), 'terminus-resume-'));
   const remoteRoot = join(base, 'server');

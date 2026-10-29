@@ -112,7 +112,6 @@ Settings → Vault → `Unlock with Windows Hello (PIN, face or fingerprint)` tu
 |---|---|
 | `Ctrl+,` | Open settings |
 | `Ctrl+Shift+K` | Show or hide the AI assistant |
-| `Ctrl+Shift+Space` | Open the workflow palette |
 | `Ctrl+Shift+F` | Search in the terminal |
 | `Ctrl+click` | Open a link in the terminal (http and https only) |
 | `Ctrl+Tab` | Next tab in the focused pane |
@@ -124,7 +123,7 @@ Settings → Vault → `Unlock with Windows Hello (PIN, face or fingerprint)` tu
 
 ### Input to all panes
 
-In the pane header menu, `Send input to all panes` turns it on; the entry appears from two panes. What you type then goes to all connected SSH and local terminals of the shown view. Containers, pods, RDP, SFTP, clusters and the welcome page stay out. Workflows and the assistant still type into one tab only. Member panes show a warning line and the button `To all`; a click on it stops the input. It also ends when you switch views or when fewer than two terminals remain.
+In the pane header menu, `Send input to all panes` turns it on; the entry appears from two panes. What you type then goes to all connected SSH and local terminals of the shown view. Containers, pods, RDP, SFTP, clusters and the welcome page stay out. The assistant still types into one tab only. Member panes show a warning line and the button `To all`; a click on it stops the input. It also ends when you switch views or when fewer than two terminals remain.
 
 ## Settings
 
@@ -228,39 +227,26 @@ Masking is on for every provider, local models included, because a local endpoin
 
 Hashes, commit IDs and UUIDs stay on purpose. AI command line tools in their own tabs (Claude Code, Codex …) send by themselves and do not go through this masking. If sensitive output is on the screen, clear it (`clear`) before asking the assistant.
 
-## Workflows
 
-Workflows are saved commands that Shellherd types into a terminal for you. They are stored encrypted in the vault (at most 1,000) and are available in every window.
+## Terminal toolbar
 
-### Palette
+Each plain SSH terminal has a configurable bottom toolbar. Use `＋` to add an item; right-click to edit, duplicate, disable, move or delete. Drag items to reorder them. Configuration is encrypted in the vault. Items apply to all SSH connections or the current connection. Detached windows share the configuration; edit it in the main window.
 
-`Ctrl+Shift+Space` or the `Workflows` button in the header opens the palette; the same shortcut closes it. It only works while the vault is unlocked, in secondary windows too. The title names the target tab (`Workflows → web-01`) or `no terminal selected`.
+Command buttons have a name, icon, color, optional short text and description. The Enter switch on the right toggles immediate execution; its tooltip names the current mode. This vault-wide setting either inserts the command without Enter or executes it by appending Enter. A button can require confirmation showing the target connection and complete command. Commands target only their own terminal, even when input broadcasting is enabled. Recognized fullscreen applications block insertion; Shellherd cannot reliably detect other prompts. Use command buttons at a normal shell prompt. Example: `clear && cd /`, or an absolute path to your server-side script.
 
-The search looks at name, tags, description and command, ignoring case; with several words, each must match. Workflows for the shell of the active tab and for all shells come first, alphabetically; workflows for another shell follow dimmed and can still be chosen. `↑` and `↓` select, `Enter` or a click takes the workflow, `Esc` or a click outside the palette closes it.
+Dynamic displays execute invisibly through independent channels on the same SSH session. Their commands and output never enter the terminal. They use the original SSH account, not an interactive terminal's current directory or `sudo -i` environment. Checks must be noninteractive.
 
-Without placeholders Shellherd types the command at once and closes the palette. Nothing runs: you press `Enter` yourself. Workflows go only into connected SSH, PowerShell and CMD tabs and container and pod shells; not into the file view, the container view itself, the cluster view, Remote Desktop or the welcome page. If the terminal is disconnected or runs a full-screen program such as `vim`, `less` or `top`, the palette stays open and tells you why. `Send input to all panes` does not apply to workflows; they always go into the active tab only.
+You decide which returned values select each icon, color and text. Values can represent a choice, information or a result. Select symbols directly from the visual icon picker, including individual mappings and the unknown-value fallback.
 
-### Placeholders
+```json
+{"value":"banana","message":"Optional tooltip text"}
+```
 
-`{{name}}` in a command is a placeholder. Letters, digits, spaces, `_`, `.` and `-` are allowed, up to 40 characters. If a workflow has placeholders, the palette asks for each name once, in order of first use; the same name in several places gets the same value. A preview below shows the finished command. Shellherd removes line breaks and control characters from the values; an empty field stays an empty spot. `Type in` (or `Enter`) types the command, `Copy` puts it on the clipboard and closes the palette, `Back` or `Esc` returns to the list.
+stdout must contain one JSON object. `value` is a required string (`"1"`, not `1`); `message` is optional. Extra fields are ignored. Exit code 0 means the check ran successfully, including when reporting `"value":"stopped"`. User-defined exact, case-sensitive mappings determine icon, color and optional text; unknown values have a separate configurable appearance.
 
-### Managing workflows
+Refresh on click, periodically or both. Intervals range from 100 ms to one day, timeouts from 100 ms to five minutes. Periodic checks run immediately after connecting/enabling. Checks are per terminal tab; overlapping runs are skipped, with at most four simultaneous checks per session; other due indicators wait for a free channel. Combined stdout/stderr is limited to 32 KiB. The vault supports 64 items and 100 mappings per item.
 
-`Manage workflows` at the bottom of the palette opens the list, in the main window only. `New workflow` adds one, `Edit` changes it, `Delete` removes it at once without asking. `Done` closes the list. Every change is saved encrypted in the vault right away.
-
-| Field | Rule |
-|---|---|
-| `Name` | required, at most 120 characters |
-| `Command (single line)` | required, one line, at most 4,000 characters; join several commands with `&&` or `;` |
-| `Description (optional)` | at most 2,000 characters, shown in the palette below the command |
-| `Tags (comma-separated)` | at most 20 tags of up to 40 characters each; duplicates are dropped |
-| `For shell` | `All`, `SSH`, `PowerShell` or `CMD`; orders the palette but blocks nothing |
-
-Below the command field the form lists the placeholders it found.
-
-### From the assistant
-
-When the AI assistant suggests a command, `As workflow` opens the form with that command. Fill in the name and the other fields; `Save` adds the workflow, `Cancel` discards it. `As workflow` is available in the main window only.
+Technical errors and disconnected sessions appear gray and never inherit a successful green mapping. Tooltips include errors, check times and the last successful run. Failed checks can display bounded stderr. Locking the vault or closing/disconnecting the session stops checks; running channels receive TERM and close. Remote scripts remain responsible for any background processes they start.
 
 ## Split views and workspaces
 

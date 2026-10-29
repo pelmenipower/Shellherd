@@ -202,7 +202,7 @@ describe('file transfer', () => {
     await expect(transfer(from, to, ['/a'])).rejects.toMatchObject({ code: 'files.existsAsDirectory' });
   });
 
-  it('skips server names that are unsafe on Windows and rejects an unsafe top-level name', async () => {
+  it.runIf(process.platform === 'win32')('skips server names that are unsafe on Windows and rejects an unsafe top-level name', async () => {
     const from = memory({ '/dir': null, '/dir/..\\evil.bat': 'x', '/dir/a:b': 'x', '/dir/trail.': 'x', '/dir/ok.txt': 'ok' });
     const to = memory({ '/target': null });
     const { items, skipped } = await planTransfer(from, to, ['/dir'], '/target', signal());

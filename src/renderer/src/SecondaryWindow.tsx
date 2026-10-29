@@ -1,3 +1,5 @@
+import { ToolbarContext } from './toolbar-context';
+import { DEFAULT_TOOLBAR } from '../../shared/toolbar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { onDiagnosis } from './kube-diagnose';
 import type { ConnectionCatalog } from '../../shared/windows';
@@ -16,8 +18,6 @@ import { fromWorkspaceViews, toWorkspaceViews } from './terminal-views';
 import { findNode } from './vault-selection';
 import { AssistantPanel } from './components/AssistantPanel';
 import { useAssistantToggle } from './hooks/useAssistantToggle';
-import { useCtrlShiftShortcut } from './hooks/useShortcut';
-import { WorkflowPalette } from './components/WorkflowPalette';
 import { MAX_SSH_SESSIONS } from '../../shared/ssh';
 import { LockScreen } from './components/LockScreen';
 import { AuthPromptDialog } from './components/AuthPromptDialog';
@@ -35,7 +35,6 @@ export function SecondaryWindow() {
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
   const [pendingClose, setPendingClose] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const returnFocus = useRef<HTMLElement | null>(null);
   const terminals = useTerminalTabs();
   const terminalLayout = useTerminalLayout(terminals.tabs, terminals.activeTabId);
@@ -52,7 +51,7 @@ export function SecondaryWindow() {
     const unsubscribe = window.desktopApi.onConnectionCatalog(setCatalog);
     const offLocked = window.desktopApi.onVaultLocked(() => {
       if (document.activeElement instanceof HTMLElement) returnFocus.current = document.activeElement;
-      setLocked(true); setPaletteOpen(false);
+      setLocked(true);
     });
     const offUnlocked = window.desktopApi.onVaultUnlocked(() => {
       setLocked(false);
@@ -121,9 +120,8 @@ export function SecondaryWindow() {
   const assistant = useAssistantToggle();
   // "Mit KI analysieren" in a cluster tab opens the panel; the panel takes the request itself.
   useEffect(() => onDiagnosis(() => assistant.setOpen(true)), [assistant.setOpen]);
-  useCtrlShiftShortcut('Space', () => { if (!locked) setPaletteOpen(open => !open); });
 
-  return <>
+  return <ToolbarContext.Provider value={{ config: catalog?.toolbar ?? DEFAULT_TOOLBAR, active: !locked }}>
   <main className="vault-shell secondary-shell" inert={locked}>
     <div className="secondary-body"><div className="terminal-area">
       <SplitTerminalArea nodes={catalog?.nodes ?? []} onConnect={connect} tabs={terminals.tabs} selected={terminals.activeTabId}
@@ -134,7 +132,6 @@ export function SecondaryWindow() {
     </div>
     {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)} />}
     </div>
-    {paletteOpen && <WorkflowPalette workflows={catalog?.workflows ?? []} tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => setPaletteOpen(false)} />}
     {closingTab && <ConfirmDialog title={t('app:dialogs.closeTab.title', { name: tabLabel(closingTab, terminals.tabs) })}
       description={t('app:dialogs.closeTab.description')}
       confirmLabel={t('app:dialogs.confirmDisconnect')} busy={false} onCancel={() => setPendingClose(null)}
@@ -143,5 +140,5 @@ export function SecondaryWindow() {
   </main>
   <AuthPromptDialog locked={locked} />
   {locked && <LockScreen running={terminals.tabs.filter(isRunning).length} />}
-  </>;
+  </ToolbarContext.Provider>;
 }

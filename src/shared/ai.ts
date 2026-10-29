@@ -13,7 +13,7 @@ export const isKubeContext = (context: AiAskContext): context is AiKubeContext =
 export interface AiChatMessage { role: 'user' | 'assistant'; content: string }
 
 /** What the assistant works on; the screen text itself travels inside the user messages. */
-export interface AiTerminalContext { shell: 'ssh' | 'powershell' | 'cmd'; target: string }
+export interface AiTerminalContext { shell: 'ssh' | 'powershell' | 'cmd' | 'bash' | 'zsh' | 'fish'; target: string }
 
 export interface AiAskRequest {
   requestId: string;

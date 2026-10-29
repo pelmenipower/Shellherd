@@ -9,6 +9,10 @@ const LABEL_KEYS = {
   rdp: 'vault:protocols.rdp.label',
   powershell: 'vault:protocols.powershell.label',
   cmd: 'vault:protocols.cmd.label',
+  bash: 'vault:protocols.bash.label',
+  zsh: 'vault:protocols.zsh.label',
+  fish: 'vault:protocols.fish.label',
+
   aicli: 'vault:protocols.aicli.label',
   kubernetes: 'vault:protocols.kubernetes.label',
   ftp: 'vault:protocols.ftp.label',
@@ -20,6 +24,10 @@ const SHORT_KEYS = {
   rdp: 'vault:protocols.rdp.short',
   powershell: 'vault:protocols.powershell.short',
   cmd: 'vault:protocols.cmd.short',
+  bash: 'vault:protocols.bash.short',
+  zsh: 'vault:protocols.zsh.short',
+  fish: 'vault:protocols.fish.short',
+
   aicli: 'vault:protocols.aicli.short',
   kubernetes: 'vault:protocols.kubernetes.short',
 } as const satisfies Record<ConnectionProtocol, string>;

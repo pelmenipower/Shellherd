@@ -22,7 +22,7 @@ import type { WindowRegistry } from './windows';
 const finite = z.number().finite().min(-1_000_000).max(1_000_000);
 export const TabConnectionSchema = z.object({
   id: z.string().min(1).max(256), name: z.string().max(500),
-  protocol: z.enum(['ssh', 'sftp', 'rdp', 'powershell', 'cmd', 'aicli']), address: z.string().max(1000), view: z.enum(['files', 'containers']).optional(),
+  protocol: z.enum(['ssh', 'sftp', 'rdp', 'powershell', 'cmd', 'bash', 'zsh', 'fish', 'aicli']), address: z.string().max(1000), view: z.enum(['files', 'containers']).optional(),
   target: TerminalTargetSchema.optional(),
   runtime: z.enum(['docker', 'podman']).optional(),
   title: z.string().max(500).optional(),
@@ -81,7 +81,7 @@ export function moveSession(owners: Pick<WindowIpcDependencies, 'ssh' | 'rdp' | 
 
 export function catalog(): ConnectionCatalog {
   const { vault } = vaultSessionManager.getSnapshot();
-  return { nodes: redactSecrets(vault.nodes), confirmBeforeClosingSession: vault.settings.confirmBeforeClosingSession, workflows: vault.workflows ?? [], terminal: effectiveTerminalSettings(vault.settings) };
+  return { toolbar: vault.toolbar, nodes: redactSecrets(vault.nodes), confirmBeforeClosingSession: vault.settings.confirmBeforeClosingSession, terminal: effectiveTerminalSettings(vault.settings) };
 }
 
 export function registerWindowIpcHandlers({ registry, ssh, rdp, sftp, createSecondary, closeOwnerSessions }: WindowIpcDependencies): {

@@ -5,7 +5,7 @@ import { SshSessionManager } from './session';
 import type { ConnectionNode } from '../../shared/vault/types';
 import type { SshEvent } from '../../shared/ssh';
 
-const shell: ConnectionNode = { id: 'ps', type: 'connection', protocol: 'powershell', name: 'PS', tags: [], workingDirectory: tmpdir() };
+const shell: ConnectionNode = { id: 'ps', type: 'connection', protocol: process.platform === 'win32' ? 'powershell' : 'bash', name: 'PS', tags: [], workingDirectory: tmpdir() };
 
 function setup() {
   const events: { owner: number; event: SshEvent }[] = [];
@@ -18,7 +18,7 @@ function setup() {
   return { events, pty, manager, emit: (text: string) => data?.(text) };
 }
 
-describe.runIf(process.platform === 'win32')('session transfer between windows', () => {
+describe('session transfer between windows', () => {
   it('holds output during the handover and delivers it to the new window on attach', async () => {
     const { events, pty, manager, emit } = setup();
     const { sessionId } = manager.prepare(1, { connectionId: 'ps', cols: 80, rows: 24 });

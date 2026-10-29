@@ -34,7 +34,6 @@
     "del": "Del"
   },
   "shortcuts": {
-    "palette": "Ctrl+Shift+Space",
     "assistant": "Ctrl+Shift+K",
     "settings": "Ctrl+,"
   },

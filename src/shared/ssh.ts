@@ -24,6 +24,7 @@ export type SshEvent =
       error?: CodedError;
       /** Card classification; only with status 'error', or 'closed-by-server'/'idle' with status 'closed'. */
       code?: ConnectionErrorCode }
+  | { type: 'toolbar'; sessionId: string; result: import('./toolbar').ToolbarResult }
   | { type: 'forwards'; sessionId: string; forwards: ForwardStatus[] };
 
 export interface AuthPromptField { text: string; echo: boolean }

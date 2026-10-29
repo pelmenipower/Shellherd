@@ -1,0 +1,167 @@
+// Isolated UI + real SSH smoke test. Pass a sandbox-capable Electron/packaged executable.
+import { _electron as electron } from 'playwright-core';
+import ssh2 from 'ssh2';
+const { Server } = ssh2;
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { mkdtemp, copyFile, rm } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import assert from 'node:assert/strict';
+assert.notEqual(process.getuid?.(), 0);
+const root = await mkdtemp(join(tmpdir(), 'shellherd-toolbar-smoke-'));
+const file = join(root, 'synthetic.term');
+const password = 'synthetic-cross-platform-fixture';
+const inputs = [], commands = [], peers = [];
+const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
+const server = new Server({ hostKeys: [key] }, peer => {
+  peers.push(peer); peer.on('error', () => {});
+  peer.on('authentication', context => context.method === 'password' && context.password === 'synthetic' ? context.accept() : context.reject());
+  peer.on('ready', () => peer.on('session', accept => {
+    const session = accept(); session.on('pty', accept => accept()); session.on('window-change', accept => accept?.());
+    session.on('shell', accept => { const stream = accept(); stream.on('error', () => {}); stream.write('synthetic-prompt$ '); stream.on('data', data => { inputs.push(data.toString()); stream.write(data); }); });
+    session.on('sftp', accept => {
+      const sftp = accept(); let read = false;
+      const attrs = directory => ({ mode: directory ? 0o40755 : 0o100755, uid: 1000, gid: 1000, size: 0, atime: 0, mtime: 0 });
+      sftp.on('REALPATH', (id, path) => sftp.name(id, [{ filename: path === '.' ? '/home/demo' : path.replace(/\/$/, '') || '/', longname: '', attrs: attrs(true) }]));
+      sftp.on('OPENDIR', id => { read = false; sftp.handle(id, Buffer.from('dir')); });
+      sftp.on('READDIR', id => { if (read) sftp.status(id, 1); else { read = true; sftp.name(id, ['cpu.sh', "ram's report.sh"].map(filename => ({ filename, longname: filename, attrs: attrs(false) }))); } });
+      sftp.on('STAT', (id, path) => { if (path.includes('missing')) sftp.status(id, 2); else sftp.attrs(id, attrs(false)); });
+      sftp.on('CLOSE', id => sftp.status(id, 0));
+    });
+    session.on('exec', (accept, _reject, info) => { commands.push(info.command); const stream = accept(); stream.on('error', () => {}); stream.write('{"value":"banana","message":"invisible-service-output"}'); stream.exit(0); stream.end(); });
+  }));
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+let app;
+try {
+  await copyFile(new URL('../src/test/fixtures/cross-platform-v1.term', import.meta.url), file);
+  const style = { icon: 'server', color: '#aaaaaa', text: '' };
+  const base = { description: '', enabled: true, showText: true, confirm: false, ...style, trigger: 'click', intervalMs: 500, timeoutMs: 2000, mappings: [], unknown: style };
+  const config = { mode: 'type', items: [
+    { ...base, id: randomUUID(), kind: 'command', name: 'Quick clear', command: 'clear && cd /' },
+    { ...base, id: randomUUID(), kind: 'status', name: 'Service probe', command: '/opt/check.sh', mappings: [{ value: 'banana', icon: 'check', color: '#00ff00', text: 'Healthy' }] },
+  ] };
+  app = await electron.launch({ colorScheme: null, executablePath: resolve(process.argv[2] ?? 'dist/linux-unpacked/shellherd'), args: [`--user-data-dir=${join(root, 'profile')}`], env: { ...process.env, XDG_CONFIG_HOME: join(root, 'config') }, timeout: 30000 });
+  const page = await app.firstWindow();
+  const pageErrors = []; page.on('pageerror', error => pageErrors.push(error.message));
+  await page.waitForLoadState('domcontentloaded');
+  await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); dialog.showMessageBox = async () => ({ response: 1 }); }, file);
+  await page.evaluate(async ({ file, password, config, port }) => {
+    await window.desktopApi.dropVaultFile(file);
+    const opened = await window.desktopApi.unlockVault({ filePath: file, password });
+    const vault = { ...opened.vault, nodes: [{ id: 'synthetic-ssh', type: 'connection', protocol: 'ssh', name: 'Toolbar synthetic SSH', host: '127.0.0.1', port, username: 'test', authentication: { method: 'password', password: 'synthetic' }, tags: [] }], workspaces: [], toolbar: config };
+    vault.settings.autoLockMinutes = 0; vault.settings.confirmBeforeClosingSession = false;
+    await window.desktopApi.saveCurrentVault({ vault });
+    await window.desktopApi.lockVault({ disconnect: true });
+  }, { file, password, config, port: server.address().port });
+  await page.evaluate(() => window.desktopApi.setLanguage('de-DE'));
+  await page.waitForFunction(() => document.documentElement.lang === 'de-DE');
+  if (!await page.locator('input[type=password]').count()) await page.getByRole('button', { name: 'Vault öffnen', exact: true }).click();
+  await page.getByRole('button', { name: /Vault-Datei auswählen/ }).click();
+  await page.getByLabel('Passwort', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Vault öffnen', exact: true }).click();
+  await page.locator('.tree-node-button').filter({ hasText: 'Toolbar synthetic SSH' }).dblclick();
+  const toolbar = page.getByRole('toolbar', { name: 'Terminal-Toolbar' });
+  await toolbar.waitFor();
+  await page.waitForFunction(() => document.querySelector('.terminal-panel:not([hidden]) .terminal-live-status')?.textContent?.includes('Verbunden'));
+  await toolbar.getByRole('button', { name: 'Quick clear', exact: true }).click();
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(inputs.join(''), 'clear && cd /');
+  await toolbar.getByRole('button', { name: 'Service probe', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.toolbar-items')?.textContent.includes('Healthy'));
+  assert.deepEqual(commands, ['/opt/check.sh']);
+  assert.ok(!inputs.join('').includes('/opt/check.sh'));
+  const terminalText = await page.evaluate(() => [...document.querySelectorAll('.xterm-rows')].map(el => el.textContent).join('\n'));
+  assert.ok(!terminalText.includes('invisible-service-output'));
+  assert.ok((await toolbar.getByRole('button', { name: 'Service probe', exact: true }).getAttribute('title')).includes('invisible-service-output'));
+  await toolbar.getByRole('switch', { name: 'Befehlsmodus der Toolbar', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.toolbar-settings')?.getAttribute('aria-checked') === 'true');
+  await toolbar.getByRole('button', { name: 'Quick clear', exact: true }).click();
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(inputs.join(''), 'clear && cd /clear && cd /\r');
+  await toolbar.getByRole('button', { name: 'Toolbar-Element hinzufügen', exact: true }).click();
+  const dialog = page.locator('dialog.toolbar-editor');
+  await dialog.getByRole('button', { name: 'Datei auf Server auswählen', exact: true }).click();
+  await dialog.getByRole('button', { name: "ram's report.sh", exact: true }).click();
+  assert.equal(await dialog.getByLabel('Befehl (eine Zeile)', { exact: true }).inputValue(), "'/home/demo/ram'\\''s report.sh'");
+  assert.equal(commands.length, 1); // Browsing never executes a command.
+  await dialog.getByLabel('Befehl (eine Zeile)', { exact: true }).fill('~/cp');
+  await dialog.getByLabel('Befehl (eine Zeile)', { exact: true }).press('Tab');
+  await page.waitForFunction(() => document.querySelector('.remote-command-input input')?.value === "'/home/demo/cpu.sh'");
+  await dialog.getByRole('button', { name: 'Pfad prüfen', exact: true }).click();
+  await dialog.getByRole('status').filter({ hasText: 'Datei existiert' }).waitFor();
+  await dialog.getByLabel('Befehl (eine Zeile)', { exact: true }).fill('/missing');
+  await dialog.getByRole('button', { name: 'Pfad prüfen', exact: true }).click();
+  await dialog.getByRole('status').filter({ hasText: 'nicht gefunden' }).waitFor();
+  await dialog.getByLabel('Name', { exact: true }).fill('New action');
+  await dialog.getByLabel('Befehl (eine Zeile)', { exact: true }).fill('ls -la');
+  const commandIcons = dialog.getByRole('group', { name: 'Symbol', exact: true });
+  assert.equal(await commandIcons.locator('svg').count(), 13);
+  await commandIcons.getByRole('radio', { name: 'Werkzeug', exact: true }).check();
+  assert.ok(await commandIcons.getByRole('radio', { name: 'Werkzeug', exact: true }).isChecked());
+  await dialog.screenshot({ path: '/tmp/shellherd-icon-picker.png' });
+  await dialog.getByLabel('Vor dem Eintippen oder Ausführen nachfragen').check();
+  await dialog.getByRole('button', { name: 'Speichern', exact: true }).click();
+  await dialog.waitFor({ state: 'detached' });
+  await toolbar.getByRole('button', { name: 'New action', exact: true }).click();
+  const confirmation = page.locator('dialog.compact-confirm'); await confirmation.waitFor();
+  assert.ok((await confirmation.innerText()).includes('ls -la'));
+  const countBefore = inputs.length;
+  await confirmation.getByRole('button', { name: 'Abbrechen', exact: true }).click();
+  assert.equal(inputs.length, countBefore);
+  await toolbar.getByRole('button', { name: 'New action', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Deaktivieren', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.toolbar-item[aria-label="New action"]')?.classList.contains('is-disabled'));
+  await toolbar.getByRole('button', { name: 'Toolbar-Element hinzufügen', exact: true }).click();
+  const statusEditor = page.locator('dialog.toolbar-editor');
+  await statusEditor.getByLabel('Name', { exact: true }).fill('Periodic status');
+  assert.equal(await statusEditor.getByLabel('Typ', { exact: true }).locator('option[value=status]').innerText(), 'Dynamische Anzeige');
+  await statusEditor.getByLabel('Typ', { exact: true }).selectOption('status');
+  await statusEditor.getByLabel('Anzeigen für', { exact: true }).selectOption('');
+  await statusEditor.getByLabel('Hintergrundbefehl (JSON)', { exact: true }).fill('/opt/periodic.sh');
+  await statusEditor.getByRole('combobox', { name: 'Aktualisieren', exact: true }).selectOption('both');
+  await statusEditor.getByLabel('Intervall (ms, mindestens 100)', { exact: true }).fill('200');
+  await statusEditor.getByRole('button', { name: 'Zuordnung hinzufügen', exact: true }).click();
+  const mapping = statusEditor.locator('.toolbar-mapping');
+  await mapping.getByLabel('JSON-Wert (Zeichenfolge, Groß-/Kleinschreibung beachten)', { exact: true }).fill('banana');
+  await mapping.getByLabel('Kurzer Text (optional)', { exact: true }).fill('Periodic healthy');
+  const mappingIcons = mapping.getByRole('group', { name: 'Symbol', exact: true });
+  await mappingIcons.getByRole('radio', { name: 'Haken', exact: true }).check();
+  await mappingIcons.getByRole('radio', { name: 'Haken', exact: true }).press('ArrowRight');
+  assert.ok(await mappingIcons.getByRole('radio', { name: 'Stopp', exact: true }).isChecked());
+  await statusEditor.getByRole('group', { name: 'Symbol', exact: true }).last().getByRole('radio', { name: 'Start', exact: true }).check();
+  await statusEditor.getByRole('button', { name: 'Speichern', exact: true }).click();
+  await statusEditor.waitFor({ state: 'detached' });
+  await page.waitForFunction(() => document.querySelector('.toolbar-items')?.textContent.includes('Periodic healthy'));
+  await new Promise(resolve => setTimeout(resolve, 650));
+  assert.ok(commands.filter(command => command === '/opt/periodic.sh').length >= 2);
+  assert.ok(!inputs.join('').includes('/opt/periodic.sh'));
+  assert.equal(pageErrors.length, 0, pageErrors.join('\n'));
+  await page.evaluate(() => window.desktopApi.setTheme('light'));
+  await page.waitForFunction(() => matchMedia('(prefers-color-scheme: light)').matches);
+  await page.screenshot({ path: '/tmp/shellherd-toolbar.png' });
+  await page.evaluate(() => window.desktopApi.setTheme('dark'));
+  await page.waitForFunction(() => matchMedia('(prefers-color-scheme: dark)').matches);
+  await page.screenshot({ path: '/tmp/shellherd-toolbar-dark.png' });
+  await page.getByRole('button', { name: 'Vault sperren', exact: true }).click();
+  await page.locator('dialog.lock-screen[open]').waitFor();
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const stoppedCount = commands.length;
+  await new Promise(resolve => setTimeout(resolve, 650));
+  assert.equal(commands.length, stoppedCount, 'Checks must stop when the vault locks');
+  const stored = await page.evaluate(({ file, password }) => window.desktopApi.unlockVault({ filePath: file, password }), { file, password });
+  const persisted = stored.vault.toolbar.items.find(item => item.name === 'Periodic status');
+  assert.equal(persisted.connectionId, undefined);
+  assert.equal(persisted.intervalMs, 200);
+  assert.equal(persisted.mappings[0].value, 'banana');
+  assert.equal(persisted.mappings[0].icon, 'stop');
+  assert.equal(persisted.unknown.icon, 'play');
+  assert.equal(stored.vault.toolbar.items.find(item => item.name === 'New action').icon, 'tools');
+
+  console.log('Toolbar smoke passed: encrypted configuration, real SSH, remote SFTP picker, Tab completion, path checks, insert/execute, invisible JSON-driven display, visual icon selection, mappings, periodic checks, confirmation, disable and vault-lock cleanup.');
+} catch (error) {
+  if (app) { const page = app.windows()[0]; if (page) { console.error((await page.locator('body').innerText()).slice(-2000)); await page.screenshot({ path: '/tmp/shellherd-toolbar-failure.png' }).catch(() => {}); } }
+  throw error;
+} finally {
+  await app?.close(); peers.forEach(peer => peer.end()); await new Promise(resolve => server.close(resolve)); await rm(root, { recursive: true, force: true });
+}

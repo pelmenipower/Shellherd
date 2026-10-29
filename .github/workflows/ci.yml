@@ -6,9 +6,16 @@ on:
     branches: [main, staging]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   check:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
@@ -17,7 +24,24 @@ jobs:
           node-version: 24
           cache: npm
 
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 libx11-dev libxkbfile-dev xvfb libgtk-3-0 libnss3 libasound2t64
+      - if: runner.os == 'Windows'
+        name: Check Windows PowerShell 5.1 installer
+        shell: powershell
+        run: ./scripts/test-windows-installer.ps1
+      - if: runner.os == 'Windows'
+        name: Check PowerShell 7 installer
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1
       - run: npm ci
-      - run: npm run build:hello
-      - run: npm run typecheck
+      - run: npm run build
       - run: npx vitest run
+      - if: runner.os == 'Linux'
+        name: Check packaged Linux startup
+        run: |
+          npx electron-builder --linux --dir --x64 --publish never
+          sudo chown root:root dist/linux-unpacked/chrome-sandbox
+          sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
+          xvfb-run -a node scripts/smoke-linux.mjs
+          xvfb-run -a node scripts/toolbar-smoke.mjs

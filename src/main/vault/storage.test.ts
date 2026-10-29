@@ -8,7 +8,9 @@ import {
   ensureVaultFileExtension,
   readEncryptedVaultFile,
   saveVault,
+  writeEncryptedVaultFile,
 } from './storage';
+import { encryptVault } from './crypto';
 import { exampleVault } from '../../shared/vault/example';
 
 const calls: string[] = [];
@@ -138,4 +140,15 @@ describe('vault storage', () => {
       decryptVault(await readEncryptedVaultFile(savedPath), 'wrong-password'),
     ).rejects.toThrow(expect.objectContaining({ code: 'core.wrongPassword' }));
   });
+});
+it.runIf(process.platform === 'linux')('writes encrypted vault files with owner-only permissions', async () => {
+  const { stat } = await import('node:fs/promises');
+  const root = await mkdtemp(join(tmpdir(), 'shellherd-permissions-'));
+  try {
+    const encrypted = await encryptVault(exampleVault, 'test-permissions', { memoryKiB: 16_384, iterations: 1, parallelism: 1 });
+    const file = await writeEncryptedVaultFile(join(root, 'vault.term'), encrypted);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect(await readEncryptedVaultFile(file)).toEqual(encrypted);
+    expect(await readFile(file, 'utf8')).not.toContain('test-permissions');
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

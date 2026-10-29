@@ -26,15 +26,19 @@ extraResources:
     to: icon.ico
   - from: resources/icon.png
     to: icon.png
-  - from: out/rdp-host
-    to: rdp-host
-  - from: out/hello
-    to: hello
 
-# node-pty ships N-API prebuilds that load in Electron as-is; a rebuild would need a C++ toolchain.
-npmRebuild: false
+# Rebuild native dependencies on the target OS, against the packaged Electron version.
+npmRebuild: true
+asarUnpack:
+  - '**/node_modules/node-pty/**'
+  - '**/*.node'
 
 win:
+  extraResources:
+    - from: out/rdp-host
+      to: rdp-host
+    - from: out/hello
+      to: hello
   icon: resources/icon.ico
   target:
     - target: nsis
@@ -56,4 +60,43 @@ nsis:
 portable:
   artifactName: ${productName}-Portable-${version}.${ext}
 
+afterPack: scripts/linux-after-pack.cjs
+
 publish: null
+
+linux:
+  syncDesktopName: true
+  executableName: shellherd
+  icon: resources/icon.png
+  category: System
+  maintainer: Alexander Schmidt <pelmenipower@users.noreply.github.com>
+  target:
+    - target: AppImage
+      arch: x64
+    - target: deb
+      arch: x64
+  desktop:
+    entry:
+      Name: Shellherd
+      Comment: Encrypted connection manager for SSH and infrastructure
+      Terminal: 'false'
+      Keywords: SSH;SFTP;Terminal;Docker;Kubernetes;
+
+appImage:
+  executableArgs: []
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+deb:
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - libasound2 | libasound2t64
+    - libgbm1
+  artifactName: ${productName}-${version}-amd64.${ext}

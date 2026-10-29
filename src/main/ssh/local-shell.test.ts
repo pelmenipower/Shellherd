@@ -115,3 +115,39 @@ describe('local shell sessions', () => {
     expect(() => manager.prepare(1, { connectionId: 'r', cols: 80, rows: 24 })).toThrow(expect.objectContaining({ code: 'ssh.notTerminal' }));
   });
 });
+
+describe.runIf(process.platform === 'linux')('Linux local shell sessions', () => {
+  it('initializes, streams, resizes and terminates Bash through the PTY abstraction', async () => {
+    const connection: ConnectionNode = { id: 'bash', type: 'connection', protocol: 'bash', name: 'Bash', tags: [], workingDirectory: tmpdir() };
+    const { manager, shell, events, spawnShell } = setup(connection);
+    const { sessionId } = manager.prepare(1, { connectionId: 'bash', cols: 80, rows: 24 });
+    await manager.connect(1, sessionId);
+    expect(spawnShell).toHaveBeenCalledWith(expect.stringMatching(/\/bash$/), ['-l'], expect.objectContaining({ cwd: tmpdir(), useConpty: false }));
+    shell.emit('hello');
+    expect(events.some(event => event.type === 'data')).toBe(true);
+    manager.resize(1, sessionId, { cols: 100, rows: 40 });
+    expect(shell.mock.resize).toHaveBeenCalledWith(100, 40);
+    await manager.input(1, sessionId, 'echo test\r');
+    expect(shell.mock.write).toHaveBeenCalledWith('echo test\r');
+    manager.close(1, sessionId);
+    expect(shell.mock.kill).toHaveBeenCalledOnce();
+  });
+  it('reports Windows shells as unavailable without spawning a process', async () => {
+    const { manager, events, spawnShell } = setup(powershell);
+    const { sessionId } = manager.prepare(1, { connectionId: 'ps', cols: 80, rows: 24 });
+    await manager.connect(1, sessionId);
+    expect(spawnShell).not.toHaveBeenCalled();
+    expect(events).toContainEqual(expect.objectContaining({ status: 'error', error: { code: 'ssh.localShellUnavailable' } }));
+  });
+  it('loads the real native node-pty module and runs a Bash terminal', async () => {
+    const { spawn } = await import('node-pty');
+    const pty = spawn('/bin/bash', ['--noprofile', '--norc', '-c', 'printf shellherd-native-ok'], { cwd: tmpdir(), cols: 80, rows: 24 });
+    let output = '';
+    pty.onData(data => { output += data; });
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { pty.kill(); reject(new Error('PTY exit timeout')); }, 5000);
+      pty.onExit(({ exitCode }) => { clearTimeout(timer); exitCode === 0 ? resolve() : reject(new Error('PTY failed')); });
+    });
+    expect(output).toContain('shellherd-native-ok');
+  });
+});

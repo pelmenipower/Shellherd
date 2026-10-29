@@ -16,6 +16,7 @@ export function FileTypeSetting() {
       .finally(() => setPending(false));
   };
   if (registered === null) return null;
+  if (window.desktopApi.capabilities && !window.desktopApi.capabilities.fileAssociation) return null;
   return (
     <div className="file-type-setting">
       <span>{registered ? t('app:fileType.registered') : t('app:fileType.unregistered')}</span>

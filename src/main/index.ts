@@ -34,6 +34,7 @@ import { webLinkHref } from '../shared/links';
 import { readAppSettings, writeAppSettings } from './app-settings';
 import { z } from 'zod';
 import { AppError } from '../shared/errors';
+import { capabilities } from './platform';
 import { LANGUAGE_SETTINGS, LOCALE_ARG } from '../shared/locale';
 import { THEME_SETTINGS } from '../shared/theme';
 import { localeStore } from './locale';
@@ -116,7 +117,7 @@ function createWindow(role: WindowRole, bounds?: Rectangle, maximized = false): 
       nodeIntegration: false,
       sandbox: true,
       devTools: false,
-      additionalArguments: [`${LOCALE_ARG}${localeStore.get().effective}`],
+      additionalArguments: [`${LOCALE_ARG}${localeStore.get().effective}`, `--shellherd-capabilities=${JSON.stringify(capabilities)}`],
     },
   });
   windowRegistry.register(window, role);
@@ -364,14 +365,14 @@ app.whenReady().then(() => {
   };
   registerVaultIpcHandlers({
     onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); protectWindows(false); },
-    onLock: () => { protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo); },
+    onLock: () => { sshSessionManager?.stopToolbars(); protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo); },
     onUnlock: () => { protectWindows(false); autoLock?.touch(); announce(IPC_CHANNELS.vaultUnlocked); },
     onVaultChange: () => { broadcastCatalog(); ai.broadcast(); rdpSessionManager.prewarm(); kubeSessions?.refreshStatus(); },
     guard: event => windowRegistry.requireMain(event),
   });
   autoLock = new AutoLock({
     minutes: () => vaultSessionManager.isUnlocked() ? vaultSessionManager.getSnapshot().vault.settings.autoLockMinutes : 0,
-    lock: minutes => { try { vaultSessionManager.lock(); } finally { protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
+    lock: minutes => { try { vaultSessionManager.lock(); } finally { sshSessionManager?.stopToolbars(); protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
     systemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
     rdpConnected: () => rdpSessionManager.hasConnected(),
   });

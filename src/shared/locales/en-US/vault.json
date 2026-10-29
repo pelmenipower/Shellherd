@@ -30,6 +30,18 @@
     },
     "ftp": {
       "label": "FTP"
+    },
+    "bash": {
+      "label": "Bash",
+      "short": "Bash"
+    },
+    "zsh": {
+      "label": "Zsh",
+      "short": "Zsh"
+    },
+    "fish": {
+      "label": "Fish",
+      "short": "Fish"
     }
   },
   "address": {

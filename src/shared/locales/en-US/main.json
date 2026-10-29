@@ -46,7 +46,10 @@
     "shells": {
       "ssh": "Linux/Unix shell over SSH",
       "powershell": "Windows PowerShell 5.1, local",
-      "cmd": "Windows cmd.exe, local"
+      "cmd": "Windows cmd.exe, local",
+      "bash": "Bash",
+      "zsh": "Zsh",
+      "fish": "Fish"
     },
     "prompt": {
       "intro": "Terminal assistant in Shellherd. Shell: {{shell}} ({{target}}).",

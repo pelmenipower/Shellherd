@@ -22,6 +22,7 @@ function fakeDeps(files: Record<string, Buffer> = {}, options: { exported?: Buff
   const made: string[] = [];
   const runs: { file: string; args: string[] }[] = [];
   const deps: ImportDeps = {
+    registryImport: true,
     env: options.env ?? {},
     home: HOME,
     tempRoot: 'C:\\Temp',
@@ -258,4 +259,12 @@ describe('parseInWorker', () => {
     const result = parseInWorker('putty', 'text', HOME, { createWorker: () => { throw new Error('bad path'); } });
     await expect(result).rejects.toMatchObject({ code: 'core.importUnreadable' });
   });
+});
+
+it('refuses Windows registry import before spawning or reading files when unavailable', async () => {
+  const { deps, runs, made } = fakeDeps();
+  deps.registryImport = false;
+  await expect(readImport('putty', null, deps)).rejects.toMatchObject({ code: 'core.importWindowsOnly' });
+  expect(runs).toEqual([]);
+  expect(made).toEqual([]);
 });

@@ -34,13 +34,13 @@ export function formatRate(bytesPerSecond: number): string { return `${formatSiz
 export function formatDate(modified: number): string { return modified > 0 ? formatDateTime(modified, 'short') : ''; }
 
 export function joinPath(side: FileSide, dir: string, name: string): string {
-  if (side === 'remote') return dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
+  if (side === 'remote' || dir.startsWith('/')) return dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
   return dir.endsWith('\\') ? `${dir}${name}` : `${dir}\\${name}`;
 }
 
 /** Parent folder; null at a root (`/` or `C:\`). */
 export function parentPath(side: FileSide, path: string): string | null {
-  if (side === 'remote') {
+  if (side === 'remote' || path.startsWith('/')) {
     if (path === '/' || !path.startsWith('/')) return null;
     const trimmed = path.replace(/\/+$/, '');
     const index = trimmed.lastIndexOf('/');
@@ -58,7 +58,7 @@ export function parentPath(side: FileSide, path: string): string | null {
 export function pathSegments(side: FileSide, path: string): { label: string; path: string }[] {
   const segments: { label: string; path: string }[] = [];
   for (let current: string | null = path; current; current = parentPath(side, current)) {
-    const label = side === 'remote' ? (current === '/' ? '/' : current.slice(current.lastIndexOf('/') + 1))
+    const label = side === 'remote' || current.startsWith('/') ? (current === '/' ? '/' : current.slice(current.lastIndexOf('/') + 1))
       : (parentPath(side, current) === null ? current.replace(/\\$/, '') : current.slice(current.lastIndexOf('\\') + 1));
     segments.unshift({ label, path: current });
   }
@@ -70,7 +70,7 @@ export function nameError(side: FileSide, name: string): string | null {
   const trimmed = name.trim();
   if (!trimmed) return t('files:names.empty');
   if (trimmed === '.' || trimmed === '..') return t('files:names.reserved');
-  if (side === 'remote' ? trimmed.includes('/') : /[\\/:*?"<>|]/.test(trimmed)) {
+  if ((side === 'remote' || (typeof window !== 'undefined' && window.desktopApi?.capabilities?.platform === 'linux')) ? trimmed.includes('/') : /[\\/:*?"<>|]/.test(trimmed)) {
     return side === 'remote' ? t('files:names.slash') : t('files:names.chars');
   }
   return null;
@@ -79,7 +79,7 @@ export function nameError(side: FileSide, name: string): string | null {
 /** Whether `name` clashes with an entry of the folder. Local names ignore case (NTFS); server names are exact.
  *  A case-only change of `original` itself is no clash. `allNames` must hold every entry, hidden ones too. */
 export function nameTaken(side: FileSide, allNames: readonly string[], name: string, original?: string): boolean {
-  if (side === 'remote') return allNames.includes(name);
+  if (side === 'remote' || (typeof window !== 'undefined' && window.desktopApi?.capabilities?.platform === 'linux')) return name !== original && allNames.includes(name);
   const key = foldCase(name);
   if (original !== undefined && foldCase(original) === key) return false;
   return allNames.some(existing => foldCase(existing) === key);
@@ -101,7 +101,7 @@ export function resolveGoTo(side: FileSide, input: string, current: string, home
   const text = input.trim();
   if (!text) return null;
   const base = home ?? current;
-  if (side === 'remote') {
+  if (side === 'remote' || current.startsWith('/')) {
     if (text === '~') return { path: base };
     if (text.startsWith('~/')) return { path: joinPath('remote', base, text.slice(2)) };
     return { path: text.startsWith('/') ? text : joinPath('remote', current, text) };
