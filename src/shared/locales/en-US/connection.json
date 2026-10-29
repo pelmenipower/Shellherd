@@ -28,7 +28,10 @@
       "powershell": "New local PowerShell",
       "cmd": "New local cmd",
       "aicli": "New AI CLI (Claude Code, Codex, Gemini)",
-      "kubernetes": "New Kubernetes cluster"
+      "kubernetes": "New Kubernetes cluster",
+      "bash": "Bash",
+      "zsh": "Zsh",
+      "fish": "Fish"
     },
     "connect": {
       "ssh": "Connect via SSH",
@@ -37,7 +40,10 @@
       "powershell": "Start shell",
       "cmd": "Start shell",
       "aicli": "Start CLI",
-      "kubernetes": "Open cluster"
+      "kubernetes": "Open cluster",
+      "bash": "Bash",
+      "zsh": "Zsh",
+      "fish": "Fish"
     },
     "fields": {
       "name": "Connection name",

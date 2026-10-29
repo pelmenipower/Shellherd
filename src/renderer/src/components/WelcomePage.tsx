@@ -1,3 +1,4 @@
+import { protocolAvailable } from '../platform';
 import type { ConnectionProtocol, Workspace } from '../../../shared/vault/types';
 import type { ImportSource } from '../../../shared/import';
 import { NEW_CONNECTION_KINDS } from '../../../shared/vault/connections';
@@ -51,7 +52,7 @@ export function WelcomePage({ vaultName, version, onShowReleaseNotes, connection
         <section aria-labelledby="welcome-new">
           <h2 id="welcome-new">{t('app:welcome.newConnection')}</h2>
           <ul className="welcome-list">
-            {NEW_CONNECTION_KINDS.filter(kind => !kind.planned).map(kind => <li key={kind.protocol}>
+            {NEW_CONNECTION_KINDS.filter(kind => !kind.planned && protocolAvailable(kind.protocol)).map(kind => <li key={kind.protocol}>
               <button type="button" disabled={busy} onClick={() => onNewConnection(kind.protocol as ConnectionProtocol)}><strong>{protocolLabel(kind.protocol)}</strong></button>
             </li>)}
           </ul>

@@ -111,7 +111,6 @@ Einstellungen → Vault → `Mit Windows Hello entsperren (PIN, Gesicht oder Fin
 |---|---|
 | `Strg+,` | Einstellungen öffnen |
 | `Strg+Umschalt+K` | KI-Assistenten ein- oder ausblenden |
-| `Strg+Umschalt+Leertaste` | Workflow-Palette öffnen |
 | `Strg+Umschalt+F` | Suche im Terminal |
 | `Strg+Klick` | Link im Terminal öffnen (nur http und https) |
 | `Strg+Tab` | Nächsten Tab im fokussierten Bereich wählen |
@@ -123,7 +122,7 @@ Einstellungen → Vault → `Mit Windows Hello entsperren (PIN, Gesicht oder Fin
 
 ### Eingabe an alle
 
-Im Menü des Bereichskopfs schaltet `Eingabe an alle Bereiche senden` ein; der Eintrag erscheint ab zwei Bereichen. Was du tippst, geht dann an alle verbundenen SSH- und lokalen Terminals der angezeigten Ansicht. Container, Pods, RDP, SFTP, Cluster und die Willkommensseite bleiben aus. Workflows und der Assistent schreiben weiter nur in einen Tab. Die Bereiche der Mitglieder zeigen eine Warnlinie und den Knopf `An alle`; ein Klick darauf beendet die Eingabe. Sie endet auch beim Ansichtswechsel und wenn weniger als zwei Terminals übrig sind.
+Im Menü des Bereichskopfs schaltet `Eingabe an alle Bereiche senden` ein; der Eintrag erscheint ab zwei Bereichen. Was du tippst, geht dann an alle verbundenen SSH- und lokalen Terminals der angezeigten Ansicht. Container, Pods, RDP, SFTP, Cluster und die Willkommensseite bleiben aus. Der Assistent schreibt weiter nur in einen Tab. Die Bereiche der Mitglieder zeigen eine Warnlinie und den Knopf `An alle`; ein Klick darauf beendet die Eingabe. Sie endet auch beim Ansichtswechsel und wenn weniger als zwei Terminals übrig sind.
 
 ## Einstellungen
 
@@ -229,39 +228,36 @@ Die Maskierung ist für jeden Anbieter an, auch für lokale Modelle, denn ein lo
 
 Hashes, Commit-IDs und UUIDs bleiben absichtlich stehen. KI-Kommandozeilen in eigenen Tabs (Claude Code, Codex …) senden selbst und laufen nicht über diese Maskierung. Stehen sensible Ausgaben auf dem Bildschirm, leere ihn (`clear`), bevor du den Assistenten fragst.
 
-## Workflows
 
-Workflows sind gespeicherte Befehle, die Shellherd für dich in ein Terminal tippt. Sie liegen verschlüsselt im Vault (höchstens 1.000) und stehen in allen Fenstern bereit.
+## Terminal-Toolbar
 
-### Palette
+Unter jedem normalen SSH-Terminal liegt eine anpassbare Toolbar. `＋` legt ein Element an. Rechtsklick bietet Bearbeiten, Duplizieren, Deaktivieren, Verschieben und Löschen; die Reihenfolge lässt sich außerdem per Ziehen ändern. Konfigurationen liegen verschlüsselt im Vault. Ein Element gilt für alle SSH-Verbindungen oder nur für die aktuelle Verbindung. Nebenfenster zeigen dieselbe Konfiguration; bearbeitet wird sie im Hauptfenster.
 
-`Strg+Umschalt+Leertaste` oder der Knopf `Workflows` in der Kopfzeile öffnet die Palette, dasselbe Kürzel schließt sie wieder. Sie geht nur bei entsperrtem Vault, auch im Nebenfenster. Die Überschrift nennt den Ziel-Tab (`Workflows → web-01`) oder `kein Terminal ausgewählt`.
+### Befehlsbuttons
 
-Die Suche prüft Name, Tags, Beschreibung und Befehl ohne Rücksicht auf Groß- und Kleinschreibung; bei mehreren Wörtern muss jedes vorkommen. Workflows für die Shell des aktiven Tabs und für alle Shells stehen oben, alphabetisch; Workflows für eine andere Shell folgen blasser und bleiben wählbar. `↑` und `↓` wählen, `Enter` oder ein Klick nimmt den Workflow, `Esc` oder ein Klick neben die Palette schließt sie.
+Name, Symbol, Farbe, kurzer Text und Beschreibung sind frei wählbar. Der Enter-Schalter rechts in der Leiste schaltet das sofortige Ausführen ein oder aus; sein Tooltip nennt den aktuellen Modus. Die Einstellung gilt für alle Befehlsbuttons im Vault: **Eintippen** sendet den Befehl ohne Enter; **Ausführen** hängt Enter an. Optional verlangt ein Button zuvor eine Bestätigung mit Verbindungsname und vollständigem Befehl. Eingaben betreffen ausschließlich den jeweiligen Terminal-Tab, auch wenn „Eingabe an alle“ aktiv ist. In erkannten Vollbildprogrammen werden sie abgelehnt. Shellherd kann nicht zuverlässig erkennen, ob die Shell gerade eine andere Eingabe erwartet; die Toolbar ist für normale Shell-Eingaben gedacht.
 
-Ohne Platzhalter tippt Shellherd den Befehl sofort ein und schließt die Palette. Ausgeführt wird nichts: `Enter` drückst du selbst. Workflows nehmen nur verbundene SSH-, PowerShell- und CMD-Tabs sowie die Shell eines Containers oder Pods an; Dateiansicht, Container-Ansicht selbst, Cluster-Ansicht, Remotedesktop und Willkommensseite nicht. Ist das Terminal getrennt oder läuft darin ein Vollbildprogramm wie `vim`, `less` oder `top`, bleibt die Palette offen und nennt den Grund. `Eingabe an alle` gilt für Workflows nicht; sie gehen immer nur in den aktiven Tab.
+Beispiel: `clear && cd /`. Ein Skript auf dem Server wird über seinen Pfad aufgerufen, etwa `/opt/scripts/check-container-updates.sh`; sein normaler Output bleibt dabei im Terminal.
 
-### Platzhalter
+### Dynamische Anzeigen
 
-`{{name}}` im Befehl ist ein Platzhalter. Erlaubt sind Buchstaben, Ziffern, Leerzeichen, `_`, `.` und `-`, höchstens 40 Zeichen. Hat ein Workflow Platzhalter, fragt die Palette jeden Namen einmal ab, in der Reihenfolge des ersten Vorkommens; derselbe Name an mehreren Stellen bekommt denselben Wert. Darunter zeigt eine Vorschau den fertigen Befehl. Zeilenumbrüche und Steuerzeichen in den Werten entfernt Shellherd, ein leeres Feld bleibt eine leere Stelle. `Eintippen` (oder `Enter`) tippt den Befehl ein, `Kopieren` legt ihn in die Zwischenablage und schließt die Palette, `Zurück` oder `Esc` führt zur Liste zurück.
+Dynamische Anzeigen führen ihren Hintergrundbefehl über einen separaten Ausführungskanal derselben SSH-Verbindung aus. Weder Befehl noch Ausgabe erscheinen im Terminal. Sie verwenden den ursprünglichen SSH-Benutzer und übernehmen weder ein interaktives `cd` noch `sudo -i` aus dem Terminal. Prüfbefehle müssen ohne interaktive Rückfragen auskommen.
 
-### Workflows verwalten
+Du bestimmst frei, welche Rückgabewerte welches Symbol, welche Farbe und welchen Text anzeigen. Die Werte können beispielsweise eine Auswahl, eine Information oder ein Ergebnis beschreiben. Die Symbole wählst du direkt aus einer sichtbaren Icon-Auswahl – auch für jede Zuordnung und unbekannte Werte.
 
-`Workflows verwalten` unten in der Palette öffnet die Liste, nur im Hauptfenster. `Neuer Workflow` legt einen an, `Bearbeiten` ändert ihn, `Löschen` entfernt ihn sofort und ohne Rückfrage. `Fertig` schließt die Liste. Jede Änderung wird gleich verschlüsselt im Vault gespeichert.
+Der minimale Vertrag lautet:
 
-| Feld | Regel |
-|---|---|
-| `Name` | Pflicht, höchstens 120 Zeichen |
-| `Befehl (eine Zeile)` | Pflicht, eine Zeile, höchstens 4.000 Zeichen; mehrere Befehle verbindest du mit `&&` oder `;` |
-| `Beschreibung (optional)` | höchstens 2.000 Zeichen, steht in der Palette unter dem Befehl |
-| `Tags (durch Komma getrennt)` | höchstens 20 Tags mit je bis zu 40 Zeichen; doppelte fallen weg |
-| `Für Shell` | `Alle`, `SSH`, `PowerShell` oder `CMD`; ordnet die Palette, sperrt aber nichts |
+```json
+{"value":"banana","message":"Optionaler Text für den Tooltip"}
+```
 
-Unter dem Befehlsfeld nennt das Formular die erkannten Platzhalter.
-
-### Aus dem Assistenten
-
-Schlägt der KI-Assistent einen Befehl vor, öffnet `Als Workflow` das Formular mit diesem Befehl. Name und übrige Felder ergänzt du; `Speichern` legt den Workflow an, `Abbrechen` verwirft ihn. `Als Workflow` gibt es nur im Hauptfenster.
+- stdout enthält genau ein JSON-Objekt. `value` ist eine Zeichenfolge; etwa `"1"`, nicht `1`. `message` ist optional. Zusätzliche Felder sind erlaubt und werden ignoriert.
+- Exitcode 0 bedeutet, dass die Prüfung ausgeführt wurde. Auch ein gestoppter Dienst kann mit Exitcode 0 und `"value":"stopped"` gemeldet werden.
+- Eigene exakte, groß-/kleinschreibungssensitive Zuordnungen bestimmen Symbol, Farbe und Text. Unbekannte Werte haben eine eigene einstellbare Darstellung.
+- Aktualisierung per Klick, Intervall oder beidem. Intervalle sind von 100 ms bis zu einem Tag einstellbar, Zeitlimits von 100 ms bis zu fünf Minuten. Intervallprüfungen starten nach dem Verbinden beziehungsweise Aktivieren einmal sofort. Jeder Terminal-Tab besitzt eigene Prüfungen.
+- Bereits laufende Prüfungen werden übersprungen. Pro SSH-Sitzung laufen höchstens vier Prüfbefehle gleichzeitig; weitere fällige Anzeigen warten auf einen freien Kanal. Ausgaben sind zusammen auf 32 KiB begrenzt. Es gibt maximal 64 Toolbar-Elemente und 100 Zuordnungen je Element.
+- Technische Fehler, ungültiges JSON, Zeitüberschreitungen und getrennte Verbindungen erscheinen grau; sie übernehmen keine grüne Wert-Zuordnung. Tooltip: Fehlermeldung, Prüfzeitpunkt und letzter erfolgreicher Lauf. stderr wird bei fehlgeschlagenen Prüfungen begrenzt angezeigt.
+- Beim Sperren des Vaults, Schließen oder Trennen einer Sitzung enden die Prüfungen. Laufende Kanäle erhalten TERM und werden geschlossen. Die Behandlung selbst gestarteter Hintergrundprozesse bleibt Aufgabe des entfernten Skripts.
 
 ## Split-Ansichten und Workspaces
 

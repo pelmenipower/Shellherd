@@ -8,6 +8,7 @@ import { findConnection } from '../ssh/session';
 import { requireSshSender } from '../ssh/ipc';
 import { vaultSessionManager } from '../vault/ipc';
 import { RdpSessionManager } from './host';
+import { capabilities } from '../platform';
 import { RDP_ACTIONS } from '../../shared/rdp';
 import type { RdpSurfaceMode } from '../../shared/rdp';
 
@@ -47,6 +48,7 @@ export function registerRdpIpcHandlers(): RdpSessionManager {
   });
   ipcMain.handle(IPC_CHANNELS.rdpOpen, (event, request: unknown) => {
     const ownerId = requireSshSender(event);
+    if (!capabilities.rdp) throw new AppError('core.rdpUnavailable');
     return manager.open(ownerId, BrowserWindow.fromWebContents(event.sender)!, parseRequest(OpenSchema, request, 'core.invalidRdpRequest'));
   });
   ipcMain.handle(IPC_CHANNELS.rdpBounds, (event, request: unknown) => {

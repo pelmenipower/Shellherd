@@ -1,7 +1,9 @@
+import { z } from 'zod';
 import { app, BrowserWindow, dialog, ipcMain, webContents } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { join } from 'node:path';
-import { spawn as spawnShell } from 'node-pty';
+import type { SpawnShell } from './session';
+const spawnShell: SpawnShell = (file, args, options) => require('node-pty').spawn(file, args, options);
 import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { mainT } from '../i18n';
@@ -44,6 +46,8 @@ export function createKnownHosts(): KnownHosts {
 export function registerSshIpcHandlers(knownHosts: KnownHosts, prompts: AuthPrompts, sudoRejections = new SudoRejections(),
   openKubeTerminal?: SshDependencies['openKubeTerminal']): SshSessionManager {
   const manager = new SshSessionManager({
+    getToolbar: () => vaultSessionManager.getSnapshot().vault.toolbar,
+    toolbarAllowed: () => vaultSessionManager.isUnlocked(),
     sudoRejections,
     openKubeTerminal,
     ask: prompts.ask,
@@ -65,6 +69,14 @@ export function registerSshIpcHandlers(knownHosts: KnownHosts, prompts: AuthProm
       const owner = webContents.fromId(ownerId);
       if (owner && !owner.isDestroyed()) owner.send(IPC_CHANNELS.sshEvent, event);
     },
+  });
+  ipcMain.handle(IPC_CHANNELS.sshRemotePath, (event, request: unknown) => {
+    const parsed = parseRequest(z.object({ sessionId: z.string().uuid(), action: z.enum(['list', 'complete', 'validate']), path: z.string().max(4000).refine(value => !/[\x00-\x1f\x7f]/.test(value)) }).strict(), request);
+    return manager.remotePath(requireSshSender(event), parsed.sessionId, parsed.action, parsed.path);
+  });
+  ipcMain.handle(IPC_CHANNELS.sshToolbar, (event, request: unknown) => {
+    const parsed = parseRequest(z.object({ sessionId: z.string().uuid(), action: z.enum(['start', 'stop', 'check']), itemId: z.string().uuid().optional() }).strict(), request);
+    return manager.toolbar(requireSshSender(event), parsed.sessionId, parsed.action, parsed.itemId);
   });
   ipcMain.handle(IPC_CHANNELS.sshPrepare, (event, request: unknown) => manager.prepare(requireSshSender(event), parseRequest(PrepareSchema, request)));
   ipcMain.handle(IPC_CHANNELS.sshConnect, (event, request: unknown) => manager.connect(requireSshSender(event), parseRequest(SessionSchema, request).sessionId));

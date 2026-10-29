@@ -35,6 +35,8 @@ export const IPC_CHANNELS = {
   vaultActivity: 'vault:activity',
   vaultLocked: 'vault:locked',
   vaultUnlocked: 'vault:unlocked',
+  sshRemotePath: 'ssh:remote-path',
+  sshToolbar: 'ssh:toolbar',
   sshPrepare: 'ssh:prepare',
   sshConnect: 'ssh:connect',
   sshInput: 'ssh:input',
@@ -209,6 +211,8 @@ export interface HelloStatus { available: boolean; enrolled: boolean }
 export interface HelloUnlockRequest { filePath: string }
 
 export interface DesktopApi {
+  sshRemotePath: (request: import('./remote-path').RemotePathRequest) => Promise<import('./remote-path').RemotePathReply>;
+  sshToolbar: (request: { sessionId: string; action: 'start' | 'stop' | 'check'; itemId?: string }) => Promise<void>;
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   /** Opens an http(s) link in the default browser; main validates it again. */
@@ -369,6 +373,7 @@ export interface DesktopApi {
   /** Main window only. */
   setLanguage: (setting: LanguageSetting) => Promise<LanguageState>;
   onLocaleChanged: (listener: (state: LanguageState) => void) => () => void;
+  capabilities: import('./platform').PlatformCapabilities;
   getVersion: () => Promise<string>;
   selectVaultFile: () => Promise<SelectVaultFileResult>;
   selectPrivateKeyFile: () => Promise<SelectVaultFileResult>;

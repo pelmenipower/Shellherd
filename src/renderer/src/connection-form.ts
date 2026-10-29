@@ -109,7 +109,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
   if (connection?.protocol === 'rdp') {
     Object.assign(fields, { password: connection.password ?? '', domain: connection.rdp.domain ?? '', clipboard: connection.rdp.clipboard ? 'on' : 'off' });
   }
-  if (connection?.protocol === 'powershell' || connection?.protocol === 'cmd') fields.workingDirectory = connection.workingDirectory ?? '';
+  if (connection?.protocol === 'powershell' || (connection?.protocol === 'cmd' || connection?.protocol === 'bash' || connection?.protocol === 'zsh' || connection?.protocol === 'fish')) fields.workingDirectory = connection.workingDirectory ?? '';
   if (connection?.protocol === 'aicli') Object.assign(fields, { workingDirectory: connection.workingDirectory ?? '', tool: connection.tool, command: connection.command ?? '' });
   if (connection?.protocol === 'kubernetes') Object.assign(fields, {
     accessHosts: [...connection.accessHosts], kubeconfigSource: connection.kubeconfig.source,

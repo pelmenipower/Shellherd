@@ -41,6 +41,7 @@
     "connectionLost": "Die Verbindung wurde getrennt.",
     "verifyUnavailable": "Der Server liefert keine Prüfsumme: sha256sum fehlt, die Datei ist nicht lesbar oder Befehle sind nicht erlaubt.",
     "verifyTooMany": "Prüfen geht bis {{max}} Dateien je Übertragung.",
-    "verifyUnsafeName": "„{{name}}“ lässt sich nicht prüfen: Der Name enthält Zeichen, die nicht sicher an den Server übergeben werden können."
+    "verifyUnsafeName": "„{{name}}“ lässt sich nicht prüfen: Der Name enthält Zeichen, die nicht sicher an den Server übergeben werden können.",
+    "editorUnavailable": "Kein unterstützter grafischer Texteditor installiert (gedit, Kate, Mousepad, Xed oder GNOME Text Editor)."
   }
 }

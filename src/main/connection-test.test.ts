@@ -74,7 +74,7 @@ describe('connection test (dry run)', () => {
     } finally { connect.mockRestore(); }
   });
 
-  it('checks RDP reachability and local shells without connecting', async () => {
+  it.runIf(process.platform === 'win32')('checks RDP reachability and local shells without connecting', async () => {
     const rdp: ConnectionNode = { id: 'r', type: 'connection', protocol: 'rdp', name: 'R', host: 'desk.test', port: 3389, rdp: { clipboard: true }, tags: [] };
     const reachable = await testConnection(rdp, { ...trust, probePort: async () => {} });
     expect(reachable.ok).toBe(true);
@@ -185,3 +185,13 @@ describe('connection test through a jump host', () => {
 
 const node = (protocol: 'ssh' | 'sftp', password: string): ConnectionNode => ({ id: 'x', type: 'connection', protocol, name: 'Test', host: '127.0.0.1', port: 22,
   username: 'synthetic-user', authentication: { method: 'password', password }, tags: [] });
+
+it.runIf(process.platform === 'linux')('reports RDP as unavailable before resolving or probing a Windows desktop', async () => {
+  const resolve = vi.fn();
+  const probePort = vi.fn();
+  const result = await testConnection({ id: 'r', type: 'connection', protocol: 'rdp', name: 'R', host: 'desk.test', port: 3389, rdp: { clipboard: true }, tags: [] }, { verifyHost: async () => true, resolve, probePort });
+  expect(result.ok).toBe(false);
+  expect(result.steps[0].note).toEqual({ code: 'core.rdpUnavailable' });
+  expect(resolve).not.toHaveBeenCalled();
+  expect(probePort).not.toHaveBeenCalled();
+});

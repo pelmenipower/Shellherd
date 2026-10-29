@@ -19,7 +19,8 @@ export function recentKey(filePath: string, platform: NodeJS.Platform = process.
 }
 
 /** Grant key: resolved Windows path, ASCII letters folded only (Unicode look-alikes such as the Kelvin sign stay distinct). */
-export const grantKey = (p: string): string => win32.resolve(p).replace(/[A-Z]/g, c => c.toLowerCase());
+export const grantKey = (p: string, platform: NodeJS.Platform = process.platform): string => platform === 'win32'
+  ? win32.resolve(p).replace(/[A-Z]/g, c => c.toLowerCase()) : posix.resolve(p);
 
 /** Stable id for the renderer: first 16 hex chars of sha256(recentKey(filePath)). */
 export function recentId(filePath: string, platform?: NodeJS.Platform): string {

@@ -17,7 +17,7 @@ const PROMPT_LINES = [
   'assistant.prompt.goal', 'assistant.prompt.afterOutput', 'assistant.prompt.danger', 'assistant.prompt.question',
 ] as const;
 const SHELL_KEYS = {
-  ssh: 'assistant.shells.ssh', powershell: 'assistant.shells.powershell', cmd: 'assistant.shells.cmd',
+  ssh: 'assistant.shells.ssh', powershell: 'assistant.shells.powershell', cmd: 'assistant.shells.cmd', bash: 'assistant.shells.bash', zsh: 'assistant.shells.zsh', fish: 'assistant.shells.fish',
 } as const satisfies Record<AiTerminalContext['shell'], string>;
 const KUBE_PROMPT_LINES = [
   'assistant.kubePrompt.data', 'assistant.kubePrompt.task', 'assistant.kubePrompt.brevity', 'assistant.kubePrompt.readOnly',

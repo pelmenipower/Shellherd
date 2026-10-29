@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { posix, win32 } from 'node:path';
+import { posix } from 'node:path';
+import { localPath } from '../platform';
 import { pipeline } from 'node:stream/promises';
 import type { Client } from 'ssh2';
 import type { TransferDirection } from '../../shared/sftp';
@@ -45,7 +46,7 @@ export async function verifyCopies(client: Client, pairs: { source: string; targ
   for (const { source, target } of pairs) {
     const [local, remote] = direction === 'upload' ? [source, target] : [target, source];
     const [a, b] = await Promise.all([sha256Local(local), sha256Remote(client, remote)]);
-    if (a !== b) mismatched.push(win32.basename(target));
+    if (a !== b) mismatched.push(localPath.basename(target));
   }
   return mismatched;
 }

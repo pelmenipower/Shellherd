@@ -50,8 +50,6 @@
     "maskingOff": "Maskierung ist für diesen Anbieter aus: Terminaltext geht unverändert hinaus.",
     "type": "Eintippen",
     "copy": "Kopieren",
-    "saveWorkflowTitle": "Als Workflow speichern",
-    "saveWorkflow": "Als Workflow",
     "typing": "Antwort wird geschrieben",
     "awaiting": "Prüfe den Befehl und drücke im Terminal Enter.",
     "awaitingAuto": " Danach liest der Assistent die Ausgabe und ordnet sie kurz ein.",

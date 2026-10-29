@@ -17,8 +17,8 @@ export type Authentication =
     };
 
 /** Connection kinds. Remote kinds connect to a host; local kinds start a shell on this computer. */
-export type ConnectionProtocol = 'ssh' | 'sftp' | 'rdp' | 'powershell' | 'cmd' | 'aicli' | 'kubernetes';
-export type LocalShellProtocol = 'powershell' | 'cmd';
+export type ConnectionProtocol = 'ssh' | 'sftp' | 'rdp' | 'powershell' | 'cmd' | 'bash' | 'zsh' | 'fish' | 'aicli' | 'kubernetes';
+export type LocalShellProtocol = 'powershell' | 'cmd' | 'bash' | 'zsh' | 'fish';
 
 /** Timeouts of SSH-backed sessions; see docs/superpowers/specs/2026-10-21-connection-timeouts-design.md. */
 export interface ConnectionTimeouts {
@@ -184,19 +184,9 @@ export interface Vault {
   settings: VaultSettings;
   /** AI providers for the terminal assistant; keys stay encrypted in the vault. */
   ai?: AiSettings;
-  /** Saved commands with {{placeholders}}, typed into a terminal on demand. */
-  workflows?: Workflow[];
-}
-
-export interface Workflow {
-  id: string;
-  name: string;
-  /** One line; `{{name}}` marks a value asked for when the workflow is used. */
-  command: string;
-  description?: string;
-  tags: string[];
-  /** Shell the command is written for; absent means any. */
-  shell?: 'ssh' | 'powershell' | 'cmd';
+  /** Legacy data only; retained on save, no longer used by the application. */
+  workflows?: unknown;
+  toolbar?: import('../toolbar').ToolbarConfig;
 }
 
 export type AiProviderKind = 'openai' | 'azure' | 'anthropic' | 'gemini';

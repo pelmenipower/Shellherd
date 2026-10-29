@@ -39,7 +39,7 @@
     "rdpFailed": "Die RDP-Verbindung ist fehlgeschlagen.",
     "rdpDisconnected": "Die RDP-Verbindung wurde getrennt.",
     "rdpSessionLimit": "Maximal {{max}} Sessions gleichzeitig. Schließe zuerst einen Tab.",
-    "rdpUnavailable": "Die RDP-Verbindung ist nicht verfügbar.",
+    "rdpUnavailable": "RDP ist auf dieser Plattform nicht verfügbar.",
     "rdpHelperLost": "Der RDP-Helfer wurde unerwartet beendet.",
     "invalidRdpRequest": "Ungültige RDP-Anfrage.",
     "rdpNotFound": "Die RDP-Verbindung wurde nicht gefunden.",
@@ -70,6 +70,7 @@
     "importTooLarge": "Die Importquelle ist zu groß (höchstens 4 MiB).",
     "importTooComplex": "Die Importquelle ist zu umfangreich oder beschädigt. Shellherd hat das Lesen nach 5 Sekunden abgebrochen.",
     "importUnreadable": "Die Importquelle konnte nicht gelesen werden.",
-    "importEncrypted": "Die Datei ist verschlüsselt. Exportiere sie in mRemoteNG ohne vollständige Dateiverschlüsselung."
+    "importEncrypted": "Die Datei ist verschlüsselt. Exportiere sie in mRemoteNG ohne vollständige Dateiverschlüsselung.",
+    "importWindowsOnly": "Registry-Import ist nur unter Windows verfügbar."
   }
 }

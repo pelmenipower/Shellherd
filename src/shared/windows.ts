@@ -1,4 +1,4 @@
-import type { ConnectionProtocol, TerminalSettings, VaultNode, Workflow, WorkspaceLayout, WorkspaceView } from './vault/types';
+import type { ConnectionProtocol, TerminalSettings, VaultNode, WorkspaceLayout, WorkspaceView } from './vault/types';
 import type { SshStatus } from './ssh';
 import type { ContainerRuntime, TerminalTarget } from './containers';
 import type { KubeTerminalTarget } from './kubernetes';
@@ -70,7 +70,7 @@ export interface IncomingTab {
 export type ExternalDragHover = { x: number; y: number; label: string; kind?: 'tab' | 'view' } | null;
 
 /** What detached windows know about the vault: connection metadata without secrets. */
-export interface ConnectionCatalog { nodes: VaultNode[]; confirmBeforeClosingSession: boolean; workflows: Workflow[]; terminal?: TerminalSettings }
+export interface ConnectionCatalog { toolbar?: import('./toolbar').ToolbarConfig; nodes: VaultNode[]; confirmBeforeClosingSession: boolean; terminal?: TerminalSettings }
 
 export interface WindowBounds { x: number; y: number; width: number; height: number }
 export interface WorkspaceWindowState { bounds: WindowBounds; layout: WorkspaceLayout; views?: WorkspaceView[] }

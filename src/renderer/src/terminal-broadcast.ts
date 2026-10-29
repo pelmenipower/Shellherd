@@ -3,7 +3,7 @@ import type { TerminalTab } from './terminal-tabs';
 /** Plain SSH or local shell, connected; never containers, pods, RDP, SFTP, clusters or the welcome tab. */
 export function broadcastEligible(tab: Pick<TerminalTab, 'connection' | 'status'>): boolean {
   const { protocol, view, target, kube } = tab.connection;
-  return tab.status === 'connected' && !view && !target && !kube && (protocol === 'ssh' || protocol === 'powershell' || protocol === 'cmd');
+  return tab.status === 'connected' && !view && !target && !kube && (protocol === 'ssh' || protocol === 'powershell' || (protocol === 'cmd' || protocol === 'bash' || protocol === 'zsh' || protocol === 'fish'));
 }
 
 /** Terminal replies (DSR, DA, focus, mouse reports) must not be typed into the other members. */

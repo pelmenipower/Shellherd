@@ -74,8 +74,6 @@
   "header": {
     "sidebarShow": "Show connections",
     "sidebarHide": "Hide connections",
-    "workflows": "Workflows",
-    "workflowsTitle": "Search and type workflows ({{shortcut}})",
     "assistant": "AI assistant",
     "assistantTitle": "Show or hide the AI assistant ({{shortcut}})",
     "lock": "Lock vault",

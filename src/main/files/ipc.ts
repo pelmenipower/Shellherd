@@ -1,7 +1,8 @@
 import { ipcMain, shell, webContents } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { spawn } from 'node:child_process';
-import { extname, win32 } from 'node:path';
+import { extname, win32, posix } from 'node:path';
+import { localPath as hostPath, capabilities, executableOnPath } from '../platform';
 import { z } from 'zod';
 import { parseRequest } from '../ssh/validation';
 import { AppError } from '../../shared/errors';
@@ -22,7 +23,7 @@ import { SftpSessionManager } from './sftp-session';
 
 const noNul = (value: string) => !value.includes('\0');
 const remotePath = z.string().min(1).max(4096).refine(noNul).refine(value => value.startsWith('/') || value === '.');
-const localPath = z.string().min(1).max(32_767).refine(noNul).refine(value => win32.isAbsolute(value));
+const localPath = z.string().min(1).max(32_767).refine(noNul).refine(value => hostPath.isAbsolute(value));
 const session = { sessionId: z.string().uuid() };
 const SessionSchema = z.object(session).strict();
 const OpenSchema = z.object({ connectionId: z.string().min(1).max(256) }).strict();
@@ -39,8 +40,10 @@ const LocalPathSchema = z.object({ path: localPath }).strict();
 // Typed paths reach this channel: drive or UNC only, never device paths (\\?\, \\.\).
 const LocalListSchema = z.object({ path: localPath.refine(value => AUTO_UPLOAD_LOCAL_PATH.test(value)) }).strict();
 /** Resolves a local folder and checks the result again: normalisation must not turn it into a device path. */
-export function localListPath(value: string): string {
-  const resolved = win32.resolve(value);
+export function localListPath(value: string, platform: NodeJS.Platform = process.platform): string {
+  const paths = platform === 'win32' ? win32 : posix;
+  if (!paths.isAbsolute(value) || (platform !== 'win32' && !value.startsWith('/'))) throw new AppError('files.invalidRequest');
+  const resolved = paths.resolve(value);
   if (!AUTO_UPLOAD_LOCAL_PATH.test(resolved)) throw new AppError('files.invalidRequest');
   return resolved;
 }
@@ -61,13 +64,24 @@ export function editorFor(path: string, editor: EditorChoice): EditorChoice {
   return editor === 'notepad' || !EDITABLE.test(extname(path)) ? 'notepad' : 'default';
 }
 
-function openInNotepad(path: string): void {
+async function openInNotepad(path: string): Promise<void> {
+  if (capabilities.platform !== 'win32') {
+    const editor = ['gedit', 'kate', 'mousepad', 'xed', 'gnome-text-editor'].map(name => executableOnPath(name)).find(Boolean);
+    if (!editor) throw new FileError('files.editorUnavailable');
+    const child = spawn(editor, ['--', path], { detached: true, stdio: 'ignore', shell: false });
+    await new Promise<void>((resolve, reject) => {
+      child.once('error', () => reject(new FileError('files.editorUnavailable')));
+      child.once('spawn', () => { child.unref(); resolve(); });
+    });
+    return;
+  }
   spawn(win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'notepad.exe'), [path], { detached: true, stdio: 'ignore' }).unref();
 }
 
 /** Opens an edited copy with the program Windows associates with it, never by running it. */
 export async function openForEditing(path: string, editor: EditorChoice = 'default'): Promise<void> {
-  if (editorFor(path, editor) === 'notepad' || await shell.openPath(path)) openInNotepad(path);
+  if (capabilities.platform !== 'win32') { await openInNotepad(path); return; }
+  if (editorFor(path, editor) === 'notepad' || await shell.openPath(path)) await openInNotepad(path);
 }
 
 /** Registers a handler whose errors reach the window as readable text, never as internal details. */

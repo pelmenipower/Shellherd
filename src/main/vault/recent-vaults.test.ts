@@ -7,8 +7,8 @@ import { grantKey, recentId, recentKey, RecentVaults } from './recent-vaults';
 
 describe('grantKey', () => {
   it('folds ASCII letters only', () => {
-    expect(grantKey('C:\\Vaults\\A.term')).toBe(grantKey('c:\\vaults\\a.term'));
-    expect(grantKey('\\\\nas.k\\s\\v.term')).not.toBe(grantKey('\\\\nas.\u212A\\s\\v.term'));
+    expect(grantKey('C:\\Vaults\\A.term', 'win32')).toBe(grantKey('c:\\vaults\\a.term', 'win32'));
+    expect(grantKey('\\\\nas.k\\s\\v.term', 'win32')).not.toBe(grantKey('\\\\nas.\u212A\\s\\v.term', 'win32'));
   });
 });
 
@@ -49,7 +49,7 @@ describe('RecentVaults', () => {
     return file;
   }
 
-  it('has() does not match a Kelvin sign for a k in a UNC share', async () => {
+  it.runIf(process.platform === 'win32')('has() does not match a Kelvin sign for a k in a UNC share', async () => {
     await store().touch('\\\\nas.k\\s\\v.term');
     expect(await store().has('\\\\nas.K\\s\\v.term')).toBe(false);
     expect(await store().has('\\\\NAS.K\\S\\V.TERM')).toBe(true);
@@ -201,7 +201,7 @@ describe('RecentVaults', () => {
       expect(calls).toEqual([]);
     });
 
-    it.each(['//srv/s/v.term', '\\/srv\\s\\v.term'])('does not probe the two-slash path %s', async unc => {
+    it.runIf(process.platform === 'win32').each(['//srv/s/v.term', '\\/srv\\s\\v.term'])('does not probe the two-slash path %s', async unc => {
       await writeFile(settings, JSON.stringify({ recentVaults: [{ filePath: unc, openedAt: 1 }] }));
       const calls: string[] = [];
       const list = await new RecentVaults(settings, legacy, now, probeOf([], calls)).list();
@@ -213,7 +213,7 @@ describe('RecentVaults', () => {
       await writeEntries();
       const calls: string[] = [];
       const recent = new RecentVaults(settings, legacy, now, probeOf([], calls));
-      expect(await recent.has(join(dir, 'A.TERM').toUpperCase())).toBe(true);
+      expect(await recent.has(join(dir, 'A.TERM').toUpperCase())).toBe(process.platform === 'win32');
       expect(await recent.has(join(dir, 'x.term'))).toBe(false);
       expect(calls).toEqual([]);
     });

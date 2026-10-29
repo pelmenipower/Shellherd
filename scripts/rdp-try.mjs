@@ -6,6 +6,11 @@ import { createInterface } from 'node:readline';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+if (process.platform !== 'win32') {
+  console.error('Der eingebettete RDP-Host ist nur unter Windows verfügbar.');
+  process.exit(1);
+}
+
 const [server, account = '', port = '3389'] = process.argv.slice(2);
 if (!server) {
   console.error('Aufruf: npm run rdp:try -- <server> [DOMAIN\\benutzer] [port]');

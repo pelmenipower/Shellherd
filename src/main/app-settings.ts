@@ -83,7 +83,7 @@ export function readAppSettings(file: string): AppSettings {
 export function writeAppSettings(file: string, patch: Partial<AppSettings>): boolean {
   try {
     const tmp = `${file}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ ...readRaw(file), ...patch }, null, 2));
+    writeFileSync(tmp, JSON.stringify({ ...readRaw(file), ...patch }, null, 2), { mode: 0o600 });
     renameSync(tmp, file);
     return true;
   } catch { return false; }

@@ -1,3 +1,4 @@
+import { capabilities } from './platform';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -31,6 +32,7 @@ export interface WorkerLike {
 
 /** Process and file calls of the import, injectable for tests. */
 export interface ImportDeps {
+  registryImport: boolean;
   env: Record<string, string | undefined>;
   home: string;
   tempRoot: string;
@@ -50,6 +52,7 @@ export interface ImportDeps {
 export function defaultImportDeps(): ImportDeps {
   const execFileAsync = promisify(execFile);
   return {
+    registryImport: capabilities.registryImport,
     env: process.env,
     home: homedir(),
     tempRoot: app.getPath('temp'),
@@ -155,6 +158,7 @@ async function readText(file: string, deps: ImportDeps): Promise<string> {
 /** Reads a source after a click: a file dialog for OpenSSH and mRemoteNG, a reg.exe export for PuTTY and WinSCP. */
 export async function readImport(source: ImportSource, parent: BrowserWindow | null, deps: ImportDeps = defaultImportDeps()): Promise<ImportReadResult> {
   if (source === 'openssh' || source === 'mremoteng') return readFromDialog(source, parent, deps);
+  if (!deps.registryImport) throw new AppError('core.importWindowsOnly');
   return readRegistry(source, deps);
 }
 

@@ -260,7 +260,7 @@ export function FilePane({ tabId, side, title, listing, active, disabled, notice
         </form> : <nav aria-label={t('files:pane.path')} onDoubleClick={openPathField} title={t('files:pane.pathHint')}>
           {path && pathSegments(side, path).map((segment, index, all) => <span key={segment.path}>
             <button type="button" disabled={disabled || index === all.length - 1} onClick={() => onNavigate(segment.path)}>{segment.label}</button>
-            {index < all.length - 1 && segment.label !== '/' && <span aria-hidden="true">{side === 'remote' ? '/' : '\\'}</span>}
+            {index < all.length - 1 && segment.label !== '/' && <span aria-hidden="true">{side === 'remote' || segment.path.startsWith('/') ? '/' : '\\'}</span>}
           </span>)}
         </nav>}
         {pathField?.error && <p id={pathErrorId} className="field-error" role="alert">{pathField.error}</p>}

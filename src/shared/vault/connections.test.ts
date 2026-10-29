@@ -44,15 +44,16 @@ describe('login block redaction', () => {
 
 describe('redactVault', () => {
   it('strips secrets and AI settings but keeps everything else', () => {
-    const vault: Vault = { ...exampleVault, nodes, ai: { providers: [{ id: 'p', apiKey: 'secret-ai' }] } as unknown as Vault['ai'] };
+    const vault: Vault = { ...exampleVault, nodes, toolbar: { mode: 'type', items: [] }, workflows: [{ command: 'synthetic-legacy' }], ai: { providers: [{ id: 'p', apiKey: 'secret-ai' }] } as unknown as Vault['ai'] };
     const before = JSON.stringify(vault);
     const redacted = redactVault(vault);
     const text = JSON.stringify(redacted);
-    for (const secret of ['secret-key', 'secret-pass', 'secret-rdp', 'secret-ai']) expect(text).not.toContain(secret);
+    for (const secret of ['secret-key', 'secret-pass', 'secret-rdp', 'secret-ai', 'synthetic-legacy']) expect(text).not.toContain(secret);
     expect(redacted).not.toHaveProperty('ai');
     expect(redacted.id).toBe(vault.id);
     expect(redacted.name).toBe(vault.name);
-    expect(redacted.workflows).toBe(vault.workflows);
+    expect(redacted).not.toHaveProperty('workflows');
+    expect(redacted).not.toHaveProperty('toolbar');
     expect(redacted.workspaces).toBe(vault.workspaces);
     expect(redacted.settings).toBe(vault.settings);
     expect(JSON.stringify(vault)).toBe(before);

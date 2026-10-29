@@ -12,7 +12,7 @@ import { AssistantService } from './assistant';
 import { vaultLiterals } from './secret-mask';
 
 const MessageSchema = z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(64 * 1024) }).strict();
-const TerminalContextSchema = z.object({ shell: z.enum(['ssh', 'powershell', 'cmd']), target: z.string().max(500) }).strict();
+const TerminalContextSchema = z.object({ shell: z.enum(['ssh', 'powershell', 'cmd', 'bash', 'zsh', 'fish']), target: z.string().max(500) }).strict();
 const KubeContextSchema = z.object({ kube: z.object({ cluster: z.string().min(1).max(200), production: z.boolean() }).strict() }).strict();
 const AskSchema = z.object({
   requestId: z.string().uuid(),

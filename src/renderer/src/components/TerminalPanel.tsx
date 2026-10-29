@@ -1,3 +1,4 @@
+import { TerminalToolbar } from './TerminalToolbar';
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Terminal } from '@xterm/xterm';
@@ -362,6 +363,15 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       <span className="terminal-live-status" role="status">{statusWord(status, 'long', { name: connection.name })}</span>
       {searchOpen && !embedded && <TerminalSearchBar onFind={onFind} onClose={closeSearch} focusRequest={searchFocus} />}
       <div ref={container} className="terminal-container" />
+      {!embedded && connection.protocol === 'ssh' && !connection.target && !connection.kube && connection.id !== LOCAL_CONTAINER_HOST && <TerminalToolbar
+        connectionId={connection.id} connectionName={connection.name} sessionId={sessionRef.current} connected={status === 'connected'}
+        input={async command => {
+          if (!sessionRef.current || status !== 'connected') throw new Error('not connected');
+          if (terminal.current?.buffer.active.type === 'alternate') throw new Error('fullscreen');
+          await window.desktopApi.sshInput({ sessionId: sessionRef.current, data: command });
+          terminal.current?.focus();
+        }} />}
+
       {linkTarget && <div className="terminal-link-hint" aria-hidden="true">{t('terminal:links.hintTarget', { host: linkTarget })}</div>}
       {status === 'connected' && forwardList && forwardList.forwards.length > 0 && (
         <ForwardBar sessionId={forwardList.sessionId} forwards={forwardList.forwards} />
