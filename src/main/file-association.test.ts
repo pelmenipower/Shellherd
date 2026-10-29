@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FileAssociation, iconValue, launchCommand, legacyRegistryDeletes, pointsToVaultProgId, registryEntries, vaultFileFromArgs } from './file-association';
 
 describe('vault file association', () => {
-  it('finds an existing vault file among Explorer arguments', () => {
+  it.runIf(process.platform === 'win32')('finds an existing vault file among Explorer arguments', () => {
     const exists = (path: string) => path !== 'C:\\missing.term';
     expect(vaultFileFromArgs(['C:\\app\\electron.exe', 'C:\\app', 'C:\\Vaults\\Prod.TERM'], exists)).toBe('C:\\Vaults\\Prod.TERM');
     expect(vaultFileFromArgs(['electron.exe', 'C:\\old.terminus'], exists)).toBe('C:\\old.terminus');

@@ -1,3 +1,4 @@
+import { capabilities } from '../platform';
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 
@@ -83,6 +84,7 @@ export function createHelloSigner(executable: string, packaged: boolean, env: No
     async available() {
       const mode = fakeHelloMode(packaged, env);
       if (mode !== undefined) return mode !== 'unavailable';
+      if (!capabilities.windowsHello) return false;
       try { return readHelloReply(await runHelper(executable, { op: 'status' }, STATUS_TIMEOUT_MS)).available === true; } catch { return false; }
     },
     async sign(challenge, create) {
@@ -95,6 +97,7 @@ export function createHelloSigner(executable: string, packaged: boolean, env: No
           await Promise.resolve();
           return fakeSign(mode, challenge);
         }
+        if (!capabilities.windowsHello) throw new AppError('core.helloUnavailable');
         return helloSignature(readHelloReply(await runHelper(executable, { op: 'sign', challenge: challenge.toString('base64'), create }, HELLO_TIMEOUT_MS)).signature);
       } finally {
         busy = false;

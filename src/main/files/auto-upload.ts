@@ -1,7 +1,8 @@
 import { watch } from 'node:fs';
 import type { FSWatcher } from 'node:fs';
 import { lstat, realpath } from 'node:fs/promises';
-import { posix, win32 } from 'node:path';
+import { posix } from 'node:path';
+import { localPath } from '../platform';
 import { compileExcludes } from '../../shared/exclude-glob';
 import type { ExcludeMatcher } from '../../shared/exclude-glob';
 import type { AutoUploadStatus, TransferJob } from '../../shared/sftp';
@@ -93,7 +94,7 @@ export class AutoUploads {
       const info = await lstat(binding.localPath).catch(() => null);
       if (!info || !info.isDirectory() && !info.isSymbolicLink()) throw new FileError('files.syncLocalMissing');
       if (info.isSymbolicLink()) throw new FileError('files.syncLocalLink');
-      b.root = await realpath(win32.resolve(binding.localPath));
+      b.root = await realpath(localPath.resolve(binding.localPath));
       b.remoteRoot = await this.remote.realpath(binding.remotePath).catch(() => { throw new FileError('files.syncRemoteMissing'); });
       if (b.remoteRoot === '/') throw new FileError('files.syncRemoteRoot');
       if ((await this.remote.stat(b.remoteRoot))?.type !== 'directory') throw new FileError('files.syncRemoteMissing');
@@ -143,8 +144,8 @@ export class AutoUploads {
     const b = this.bound.get(id);
     if (!b || b.closed || b.status.state === 'error') return;
     if (filename === null) { b.full = true; this.schedule(b); return; }
-    const rel = win32.relative(b.root, win32.resolve(b.root, filename));
-    if (filename.includes('\0') || win32.isAbsolute(filename) || rel === '..' || rel.startsWith('..\\') || win32.isAbsolute(rel)) {
+    const rel = localPath.relative(b.root, localPath.resolve(b.root, filename));
+    if (filename.includes('\0') || localPath.isAbsolute(filename) || rel === '..' || (rel.startsWith('../') || rel.startsWith('..\\')) || localPath.isAbsolute(rel)) {
       // Deleting the watched folder floods the watcher with absolute names instead of an error.
       if (!b.checkingRoot) {
         b.checkingRoot = true;
@@ -152,7 +153,7 @@ export class AutoUploads {
       }
       return;
     }
-    if (!rel || b.matcher(rel.split('\\').join('/'), false)) return;
+    if (!rel || b.matcher(rel.split(localPath.sep).join('/'), false)) return;
     b.pending.set(rel, (b.pending.get(rel) ?? false) || eventType === 'rename');
     this.schedule(b);
   }
@@ -200,14 +201,14 @@ export class AutoUploads {
   private skipFor(b: Bound) {
     // modified 0: the file could not be inspected (locked); it would wrongly look "older" than the server copy.
     return (source: string, entry: { type: string; modified: number }): boolean =>
-      entry.type === 'link' || entry.modified === 0 || b.matcher(win32.relative(b.root, source).split('\\').join('/'), entry.type === 'directory');
+      entry.type === 'link' || entry.modified === 0 || b.matcher(localPath.relative(b.root, source).split(localPath.sep).join('/'), entry.type === 'directory');
   }
 
   private async fullSync(b: Bound): Promise<void> {
     const skip = this.skipFor(b);
     const children = (await this.deps.local.list(b.root))
-      .filter(entry => !unsafeLocalName(entry.name) && !skip(win32.join(b.root, entry.name), entry))
-      .map(entry => win32.join(b.root, entry.name));
+      .filter(entry => !unsafeLocalName(entry.name) && !skip(localPath.join(b.root, entry.name), entry))
+      .map(entry => localPath.join(b.root, entry.name));
     let items: PlannedItem[];
     try { ({ items } = await planTransfer(this.deps.local, this.remote, children, b.remoteRoot, b.controller.signal, skip)); }
     catch (error) {
@@ -223,16 +224,16 @@ export class AutoUploads {
   private async batch(b: Bound, pending: Map<string, boolean>): Promise<void> {
     const found: { abs: string; rel: string; directory: boolean }[] = [];
     for (const [name, renamed] of pending) {
-      const path = win32.join(b.root, name);
+      const path = localPath.join(b.root, name);
       const info = await lstat(path).catch(() => null);
       // Deletions are never mirrored; folders report `change` for every file inside, only new ones matter.
       if (!info || info.isSymbolicLink() || (info.isDirectory() && !renamed)) continue;
       // The real path catches junctions in ancestors and 8.3 short names that would dodge the excludes.
       const real = await realpath(path).catch(() => null);
-      const rel = real && win32.relative(b.root, real);
-      if (!real || !rel || rel === '..' || rel.startsWith('..\\') || win32.isAbsolute(rel)) continue;
-      const parts = rel.split('\\');
-      if (parts.some(unsafeLocalName) || b.matcher(parts.join('/'), info.isDirectory())) continue;
+      const rel = real && localPath.relative(b.root, real);
+      if (!real || !rel || rel === '..' || (rel.startsWith('../') || rel.startsWith('..\\')) || localPath.isAbsolute(rel)) continue;
+      const parts = rel.split(localPath.sep);
+      if (parts.some(part => unsafeLocalName(part)) || b.matcher(parts.join('/'), info.isDirectory())) continue;
       found.push({ abs: real, rel: parts.join('/'), directory: info.isDirectory() });
     }
     const folders = found.filter(entry => entry.directory).map(entry => entry.rel);
@@ -241,7 +242,7 @@ export class AutoUploads {
 
   private async forceOne(b: Bound, rel: string): Promise<void> {
     b.skipped.delete(rel);
-    const abs = win32.join(b.root, ...rel.split('/'));
+    const abs = localPath.join(b.root, ...rel.split('/'));
     if ((await lstat(abs).catch(() => null))?.isFile()) await this.send(b, abs, rel, true);
     this.publish(b);
   }
@@ -336,4 +337,8 @@ export class AutoUploads {
   }
 }
 
-const pathKey = (path: string): string => `${win32.resolve(path).replace(/\\+$/, '').toLowerCase()}\\`;
+const pathKey = (path: string): string => {
+  const resolved = localPath.resolve(path);
+  const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  return key.endsWith(localPath.sep) ? key : `${key}${localPath.sep}`;
+};

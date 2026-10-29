@@ -296,6 +296,7 @@ export function removeNodeFromVault(
   return {
     ...vault,
     nodes: removeNode(vault.nodes, nodeId),
+    ...(vault.toolbar ? { toolbar: { ...vault.toolbar, items: vault.toolbar.items.filter(item => !item.connectionId || !removedConnectionIds.has(item.connectionId)) } } : {}),
     workspaces: vault.workspaces.map(
       (workspace) => ({
         ...workspace,

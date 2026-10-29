@@ -19,11 +19,9 @@
     "notAvailable": "Die Terminalverbindung ist nicht verfügbar.",
     "alreadyStarted": "Die Terminalverbindung wurde bereits gestartet.",
     "connectionTypeChanged": "Die Verbindungsart hat sich geändert. Öffne den Tab erneut.",
-    "localContainerWindowsOnly": "Lokale Container-Tabs sind nur unter Windows verfügbar.",
     "proxmoxRemoteOnly": "Proxmox gibt es nur auf entfernten Hosts.",
     "programNotInstalled": "{{program}} ist nicht installiert oder nicht im PATH.",
     "programStartFailed": "{{program}} konnte nicht gestartet werden.",
-    "localShellWindowsOnly": "Lokale PowerShell- und CMD-Sitzungen sind nur unter Windows verfügbar.",
     "startFolderMissing": "Der Startordner „{{folder}}“ existiert nicht.",
     "aiToolNotInstalled": "{{tool}} ist nicht installiert oder nicht im PATH. Installation: {{install}}",
     "localShellStartFailed": "Die lokale Shell konnte nicht gestartet werden.",
@@ -60,6 +58,7 @@
     "forwardPortDenied": "Port {{port}} darf auf diesem Computer nicht geöffnet werden.",
     "forwardRemoteRefused": "Der Server lehnt die Weiterleitung von Port {{port}} ab (AllowTcpForwarding oder Port belegt).",
     "forwardElsewhere": "Diese Weiterleitung läuft schon in einem anderen Tab.",
-    "forwardFailed": "Die Weiterleitung konnte nicht gestartet werden."
+    "forwardFailed": "Die Weiterleitung konnte nicht gestartet werden.",
+    "localShellUnavailable": "Diese Shell ist auf diesem System nicht verfügbar."
   }
 }

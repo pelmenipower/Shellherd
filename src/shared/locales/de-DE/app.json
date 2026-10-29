@@ -74,8 +74,6 @@
   "header": {
     "sidebarShow": "Verbindungen einblenden",
     "sidebarHide": "Verbindungen ausblenden",
-    "workflows": "Workflows",
-    "workflowsTitle": "Workflows suchen und eintippen ({{shortcut}})",
     "assistant": "KI-Assistent",
     "assistantTitle": "KI-Assistent ein- oder ausblenden ({{shortcut}})",
     "lock": "Vault sperren",

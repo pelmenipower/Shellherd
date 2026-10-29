@@ -114,6 +114,7 @@ function keyPathOf(value: string, home: string): string | null {
   });
   if (unresolved) return null;
   if (path.startsWith('~')) path = home + path.slice(1);
+  if (home.startsWith('/')) return path.startsWith('/') ? path : `${home}/.ssh/${path}`;
   path = path.replace(/\//g, '\\');
   return /^[A-Za-z]:/.test(path) || path.startsWith('\\\\') ? path : `${home}\\.ssh\\${path}`;
 }

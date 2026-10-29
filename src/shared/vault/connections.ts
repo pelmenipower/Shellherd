@@ -13,6 +13,9 @@ export const PROTOCOLS: Record<ConnectionProtocol, ProtocolInfo> = {
   rdp: { defaultPort: 3389, defaultIcon: 'desktop' },
   powershell: { defaultIcon: 'terminal' },
   cmd: { defaultIcon: 'terminal' },
+  bash: { defaultIcon: 'terminal' },
+  zsh: { defaultIcon: 'terminal' },
+  fish: { defaultIcon: 'terminal' },
   aicli: { defaultIcon: 'terminal' },
   kubernetes: { defaultIcon: 'network' },
 };
@@ -23,6 +26,9 @@ export const NEW_CONNECTION_KINDS: { protocol: ConnectionProtocol | 'ftp'; plann
   { protocol: 'rdp' },
   { protocol: 'powershell' },
   { protocol: 'cmd' },
+  { protocol: 'bash' },
+  { protocol: 'zsh' },
+  { protocol: 'fish' },
   { protocol: 'aicli' },
   { protocol: 'sftp' },
   { protocol: 'kubernetes' },
@@ -42,7 +48,7 @@ export function redactSecrets(nodes: VaultNode[]): VaultNode[] {
 
 /** Copy without secrets for the locked renderer: SSH/SFTP auth → agent, RDP password and AI settings removed. */
 export function redactVault(vault: Vault): Vault {
-  const { ai: _ai, ...rest } = vault;
+  const { ai: _ai, workflows: _legacyWorkflows, toolbar: _toolbar, ...rest } = vault;
   return { ...rest, nodes: redactSecrets(vault.nodes) };
 }
 

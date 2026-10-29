@@ -56,7 +56,7 @@ export class RemoteEdits {
     const dir = await mkdtemp(join(tmpdir(), 'shellherd-edit-'));
     const localPath = join(dir, name);
     try {
-      await pipeline(this.fs.read(remotePath), createWriteStream(localPath));
+      await pipeline(this.fs.read(remotePath), createWriteStream(localPath, { mode: 0o600 }));
     } catch (error) { await rm(dir, { recursive: true, force: true }); throw error; }
     const edit: Edit = { info: { id: randomUUID(), name, remotePath, state: 'open' }, dir, localPath, editor, remoteModified: entry.modified,
       uploading: false, pending: false, listener: (current, previous) => {

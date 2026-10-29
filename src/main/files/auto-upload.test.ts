@@ -302,7 +302,7 @@ describe('AutoUploads', () => {
     await s.auto.start(s.binding());
     await s.ready();
     rmSync(s.root, { recursive: true, force: true });
-    s.auto.handleEvent(s.binding().id, 'rename', `\\\\?\\${s.root}`);
+    s.auto.handleEvent(s.binding().id, 'rename', process.platform === 'win32' ? `\\\\?\\${s.root}` : s.root);
     await waitFor(() => s.status().state === 'error');
     expect(s.status().error).toEqual({ code: 'files.syncLocalMissing' });
     s.auto.handleEvent(s.binding().id, 'rename', 'x');

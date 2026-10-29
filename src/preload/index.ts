@@ -18,6 +18,9 @@ function subscribe<T>(channel: string, listener: (value: T) => void): () => void
 const localeArg = process.argv.find(arg => arg.startsWith(LOCALE_ARG))?.slice(LOCALE_ARG.length);
 
 const desktopApi: DesktopApi = {
+  sshRemotePath: request => ipcRenderer.invoke('ssh:remote-path', request),
+  sshToolbar: request => ipcRenderer.invoke('ssh:toolbar', request),
+  capabilities: JSON.parse(process.argv.find(arg => arg.startsWith('--shellherd-capabilities='))?.slice('--shellherd-capabilities='.length) ?? '{"platform":"unknown","rdp":false,"windowsHello":false,"fileAssociation":false,"registryImport":false,"localShells":[]}'),
   windowReady: () => ipcRenderer.invoke('window:ready'),
   windowCloseReady: () => ipcRenderer.invoke('window:close-ready'),
   connectionCatalog: () => ipcRenderer.invoke('window:connection-catalog'),

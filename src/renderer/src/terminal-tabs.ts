@@ -51,7 +51,7 @@ export function kubeTabName(target: KubeTerminalTarget, clusterName: string): st
 }
 
 /**
- * Shell the assistant and workflow ranking assume. Container tabs run a POSIX shell inside the container,
+ * Shell the assistant assumes. Container tabs run a POSIX shell inside the container,
  * also on this computer, where the tab keeps protocol 'cmd' for the local terminal plumbing.
  */
 export function shellOf(tab: TerminalTab | undefined): AiTerminalContext['shell'] | null {
@@ -59,7 +59,7 @@ export function shellOf(tab: TerminalTab | undefined): AiTerminalContext['shell'
   if (tab.connection.kube) return tab.connection.kube.mode === 'shell' ? 'ssh' : null;
   if (tab.connection.target) return 'ssh';
   const { protocol } = tab.connection;
-  return protocol === 'ssh' || protocol === 'powershell' || protocol === 'cmd' ? protocol : null;
+  return protocol === 'ssh' || protocol === 'powershell' || (protocol === 'cmd' || protocol === 'bash' || protocol === 'zsh' || protocol === 'fish') ? protocol : null;
 }
 
 const kubeKey = (kube: KubeTerminalTarget | undefined): string => kube ? [kube.namespace, kube.pod, kube.container, kube.mode, kube.format ?? ''].join('\n') : '';

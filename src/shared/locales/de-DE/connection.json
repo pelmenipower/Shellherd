@@ -28,7 +28,10 @@
       "powershell": "Neue lokale PowerShell",
       "cmd": "Neue lokale cmd",
       "aicli": "Neue KI-CLI (Claude Code, Codex, Gemini)",
-      "kubernetes": "Neuer Kubernetes-Cluster"
+      "kubernetes": "Neuer Kubernetes-Cluster",
+      "bash": "Bash",
+      "zsh": "Zsh",
+      "fish": "Fish"
     },
     "connect": {
       "ssh": "SSH verbinden",
@@ -37,7 +40,10 @@
       "powershell": "Shell starten",
       "cmd": "Shell starten",
       "aicli": "CLI starten",
-      "kubernetes": "Cluster öffnen"
+      "kubernetes": "Cluster öffnen",
+      "bash": "Bash",
+      "zsh": "Zsh",
+      "fish": "Fish"
     },
     "fields": {
       "name": "Verbindungsname",

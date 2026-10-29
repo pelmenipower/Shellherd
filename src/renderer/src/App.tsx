@@ -1,3 +1,6 @@
+import { ToolbarContext } from './toolbar-context';
+import { DEFAULT_TOOLBAR } from '../../shared/toolbar';
+import { protocolAvailable } from './platform';
 import {
   useCallback,
   useEffect,
@@ -59,10 +62,7 @@ import { ReleaseNotesDialog } from './components/ReleaseNotes';
 import { AssistantPanel } from './components/AssistantPanel';
 import { AiSettingsDialog } from './components/AiSettingsDialog';
 import { useAssistantToggle } from './hooks/useAssistantToggle';
-import { useCtrlShiftShortcut, useCtrlShortcut } from './hooks/useShortcut';
-import { WorkflowPalette } from './components/WorkflowPalette';
-import { WorkflowsDialog } from './components/WorkflowsDialog';
-import type { Workflow } from '../../shared/vault/types';
+import { useCtrlShortcut } from './hooks/useShortcut';
 import { ConnectionForm } from './components/ConnectionForm';
 import { keepAutoUpload, parentFolderId } from './connection-form';
 import { findNode } from './vault-selection';
@@ -139,9 +139,6 @@ export default function App() {
   useEffect(() => onDiagnosis(() => assistant.setOpen(true)), [assistant.setOpen]);
   const [appDialog, setAppDialog] = useState<AppDialog | null>(null);
   const settingsReturnFocus = useRef<HTMLElement | null>(null);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [workflowEditor, setWorkflowEditor] = useState<{ initial?: Partial<Workflow> } | null>(null);
-  useCtrlShiftShortcut('Space', () => { if (screenRef.current === 'vault' && !lockedRef.current) setPaletteOpen(open => !open); });
 
   const [vault, setVault] = useState<Vault | null>(null);
   const [vaultPath, setVaultPath] = useState<string | null>(
@@ -656,7 +653,7 @@ export default function App() {
     lockReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setLocked({ minutes, vaultId: vault.id });
     setVault(current => current && redactVault(current));
-    setAppDialog(null); settingsReturnFocus.current = null; setPaletteOpen(false);
+    setAppDialog(null); settingsReturnFocus.current = null;
     // A clean editor holds the connection's stored secret in its draft; a dirty one is the user's unsaved input and stays.
     if (!editorDirty) setEditorOpen(false);
   }
@@ -877,7 +874,7 @@ export default function App() {
       : terminals.tabs.some(tab => !isWelcomeTab(tab));
     const runningCount = terminals.tabs.filter(isRunning).length;
     const closeEditor = () => navigateEditor(() => { setEditorOpen(false); setEditorDirty(false); });
-    return <>
+    return <ToolbarContext.Provider value={{ config: vault.toolbar ?? DEFAULT_TOOLBAR, active: !locked, saving: busy, save: locked ? undefined : toolbar => persistVault({ ...vault, toolbar }) }}>
     <main className="vault-shell" inert={locked !== null}>
       {vaultFileDialog}{fileDropHint}
       <header className="app-header">
@@ -890,7 +887,6 @@ export default function App() {
           activeId={activeWorkspaceId} dirty={workspaceDirty} onSave={saveWorkspace}
           onOpen={id => navigateEditor(() => openWorkspace(id))} onRename={renameWorkspace} onDelete={deleteWorkspace}
           onClose={() => navigateEditor(() => closeWorkspace())} />
-        <button className="secondary-button" type="button" title={t('app:header.workflowsTitle', { shortcut: t('common:shortcuts.palette') })} onClick={() => setPaletteOpen(true)}>{t('app:header.workflows')}</button>
         <button className="secondary-button assistant-toggle" type="button" aria-pressed={assistant.open} title={t('app:header.assistantTitle', { shortcut: t('common:shortcuts.assistant') })}
           onClick={assistant.toggle}>{t('app:header.assistant')}</button>
         <button className="secondary-button lock-button" type="button" disabled={busy} onClick={() => void lockVault()}>{t('app:header.lock')}</button>
@@ -924,14 +920,14 @@ export default function App() {
               }}>{t('app:sidebar.new')}</button>
             {newMenu && <ContextMenu x={newMenu.x} y={newMenu.y} label={t('app:sidebar.newMenu')} onClose={closeNewMenu} entries={[
               { kind: 'heading', label: t('app:sidebar.newConnection') },
-              ...NEW_CONNECTION_KINDS.map((item): ContextMenuEntry => item.planned
+              ...NEW_CONNECTION_KINDS.filter(item => item.planned || protocolAvailable(item.protocol)).map((item): ContextMenuEntry => item.planned
                 ? { kind: 'item', label: protocolLabel(item.protocol), hint: t('common:planned'), disabled: true, onSelect: () => {} }
                 : { kind: 'item', label: protocolLabel(item.protocol), onSelect: () => newConnection(item.protocol as ConnectionProtocol) }),
               { kind: 'separator' },
               { kind: 'item', label: t('app:sidebar.newFolder'), disabled: !canCreateFolder, onSelect: () => setShowFolderForm(true) },
               { kind: 'separator' },
               { kind: 'heading', label: t('vault:import.heading') },
-              ...(['openssh', 'putty', 'winscp', 'mremoteng'] as const).map((source): ContextMenuEntry => ({
+              ...(['openssh', 'putty', 'winscp', 'mremoteng'] as const).filter(source => (source !== 'putty' && source !== 'winscp') || window.desktopApi.capabilities?.registryImport !== false).map((source): ContextMenuEntry => ({
                 kind: 'item', label: importLabels[source], onSelect: () => setAppDialog({ kind: 'import', source }),
               })),
             ]} />}
@@ -983,13 +979,9 @@ export default function App() {
                 onDirtyChange={setEditorDirty} onSave={saveFolder} onDelete={deleteSelectedNode} onCancel={closeEditor} /> : null}
           </aside>}
           {assistant.open && <AssistantPanel tabs={terminals.tabs} activeTabId={terminals.activeTabId} onClose={() => assistant.setOpen(false)}
-            onManageProviders={() => setAppDialog({ kind: 'ai', backToSettings: false })} onSaveWorkflow={command => setWorkflowEditor({ initial: { command } })} />}
+            onManageProviders={() => setAppDialog({ kind: 'ai', backToSettings: false })} />}
         </section>
       </div>
-      {paletteOpen && <WorkflowPalette workflows={vault.workflows ?? []} tabs={terminals.tabs} activeTabId={terminals.activeTabId}
-        onClose={() => setPaletteOpen(false)} onManage={() => { setPaletteOpen(false); setWorkflowEditor({}); }} />}
-      {workflowEditor && <WorkflowsDialog workflows={vault.workflows ?? []} busy={busy} initial={workflowEditor.initial}
-        onClose={() => setWorkflowEditor(null)} onSave={workflows => persistVault({ ...vault, workflows })} />}
       {appDialog?.kind === 'ai' && <AiSettingsDialog settings={vault.ai} busy={busy}
         onClose={() => appDialog.backToSettings ? setAppDialog({ kind: 'settings', instant: true, focus: 'manageAi' }) : closeDialogs()}
         onSave={settings => persistVault({ ...vault, ai: settings })} />}
@@ -1016,7 +1008,7 @@ export default function App() {
         ? () => unlockFromLock(filePath => window.desktopApi.helloUnlock({ filePath })).catch((error: unknown) => { refreshLockHello(); throw error; })
         : undefined}
       onSwitch={() => switchVault()} />}
-    </>;
+    </ToolbarContext.Provider>;
   }
 
   return (

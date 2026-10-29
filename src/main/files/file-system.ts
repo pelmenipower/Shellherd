@@ -2,7 +2,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { access, lstat, mkdir, open, readdir, realpath, rename, rmdir, stat, unlink, utimes } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import { homedir } from 'node:os';
-import { win32 } from 'node:path';
+import { localPath } from '../platform';
 import type { Readable, Writable } from 'node:stream';
 import { AppError, type CodedError } from '../../shared/errors';
 import type { FileEntry, LocalPlaces } from '../../shared/sftp';
@@ -56,7 +56,8 @@ export function fileError(error: unknown): CodedError {
 }
 
 /** Names Windows cannot store safely: separators, drive/stream colons, control chars, trailing dot/space, device names. */
-export const unsafeLocalName = (name: string): boolean =>
+export const unsafeLocalName = (name: string, platform: NodeJS.Platform = process.platform): boolean =>
+  platform !== 'win32' ? name === '' || name === '.' || name === '..' || /[\/\0]/.test(name) :
   name === '' || name === '.' || name === '..' || /[\\/:*?"<>|\x00-\x1f]/.test(name) || /[. ]$/.test(name)
   || /^(con|prn|aux|nul|com[1-9]|lpt[1-9]|conin\$|conout\$)(\..*)?$/i.test(name);
 
@@ -78,13 +79,13 @@ function localEntry(name: string, info: Stats, target?: Stats | null): FileEntry
 }
 
 export const localFileSystem: FileSystem = {
-  join: (dir, name) => win32.join(dir, name),
-  basename: path => win32.basename(path),
+  join: (dir, name) => localPath.join(dir, name),
+  basename: path => localPath.basename(path),
   list: async dir => {
     const names = await readdir(dir);
     if (names.length > MAX_ENTRIES) throw new FileError('files.tooManyEntries', { max: MAX_ENTRIES });
     const entries = await mapLimit(names, 32, async name => {
-      const path = win32.join(dir, name);
+      const path = localPath.join(dir, name);
       // Locked system files (pagefile.sys) cannot be inspected; they are listed without details.
       const info = await lstat(path).catch(() => null);
       if (!info) return { name, type: 'file', size: 0, modified: 0 } satisfies FileEntry;
@@ -94,7 +95,7 @@ export const localFileSystem: FileSystem = {
   },
   stat: async path => {
     const info = await stat(path).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
-    return info ? localEntry(win32.basename(path), info) : null;
+    return info ? localEntry(localPath.basename(path), info) : null;
   },
   mkdir: async path => { await mkdir(path); },
   read: path => createReadStream(path, { highWaterMark: 256 * 1024 }),

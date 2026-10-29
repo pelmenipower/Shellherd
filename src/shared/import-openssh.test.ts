@@ -328,3 +328,8 @@ describe('globMatch', () => {
     expect(ms).toBeLessThan(100);
   });
 });
+
+it('preserves Linux IdentityFile paths when importing OpenSSH config', () => {
+  const result = parseOpenSshConfig('Host a\n IdentityFile ~/.ssh/id_ed25519\nHost b\n IdentityFile /opt/keys/work\nHost c\n IdentityFile %d/.ssh/work', '/home/alice');
+  expect(result.candidates.map(candidate => candidate.keyPath)).toEqual(['/home/alice/.ssh/id_ed25519', '/opt/keys/work', '/home/alice/.ssh/work']);
+});

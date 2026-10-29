@@ -18,6 +18,10 @@
 
   /* Lines */
   --color-border: #2e3a4c;
+  --color-toolbar-border: color-mix(in srgb, var(--color-border) 55%, transparent);
+  --color-toolbar-bg: color-mix(in srgb, var(--color-bg-panel) 60%, transparent);
+  --color-toolbar-hover: color-mix(in srgb, var(--color-bg-active) 65%, transparent);
+  --color-toolbar-switch: color-mix(in srgb, var(--color-text-muted) 16%, transparent);
   --color-border-strong: #4d5b70;
   /* Input border: >= 3:1 on --color-bg-input (#0f1520, 3.78) and on --color-bg-panel (#151d2a, 3.50) */
   --color-border-control: #637389;
@@ -122,6 +126,10 @@
     --color-backdrop: rgb(29 25 21 / 40%);
 
     --color-border: #d6cfc6;
+    --color-toolbar-border: color-mix(in srgb, var(--color-border) 55%, transparent);
+    --color-toolbar-bg: color-mix(in srgb, var(--color-bg-panel) 60%, transparent);
+    --color-toolbar-hover: color-mix(in srgb, var(--color-bg-active) 65%, transparent);
+    --color-toolbar-switch: color-mix(in srgb, var(--color-text-muted) 16%, transparent);
     --color-border-strong: #8a7f73;
     /* Input border: >= 3:1 on --color-bg-input (#ffffff, 4.20) and on --color-bg-panel (#f8f6f3, 3.89) */
     --color-border-control: #857a6d;

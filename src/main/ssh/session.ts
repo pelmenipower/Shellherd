@@ -1,3 +1,8 @@
+import { remotePath } from './remote-path';
+import type { RemotePathAction, RemotePathReply } from '../../shared/remote-path';
+import { ToolbarChecks } from './toolbar-checks';
+import { toolbarItems, type ToolbarConfig } from '../../shared/toolbar';
+import { capabilities, executableOnPath, supportsShell } from '../platform';
 import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -48,6 +53,8 @@ const KUBE_TERMINAL_MODES: KubeTerminalMode[] = ['logs', 'previous', 'shell'];
 export type SpawnShell = (file: string, args: string[] | string, options: IPtyForkOptions | IWindowsPtyForkOptions) => IPty;
 
 export interface SshDependencies {
+  getToolbar?: () => ToolbarConfig | undefined;
+  toolbarAllowed?: () => boolean;
   getConnection: (id: string) => ConnectionNode;
   /** Shared with container lists; a private instance when not given. */
   sudoRejections?: SudoRejections;
@@ -95,6 +102,9 @@ interface Session {
   /** Port forwards as they were at connect (later vault changes apply to the next connection). */
   forwardList?: PortForward[];
   forwards?: SessionForwards;
+  toolbar?: ToolbarChecks;
+  toolbarKey?: string;
+  pathRequests?: Set<() => void>;
   /** Cluster pod terminal (logs or shell); no SSH client, the stream comes from the cluster's session. */
   kube?: KubeTerminalTarget;
   kubeStream?: KubeStream;
@@ -127,7 +137,7 @@ export function findConnection(nodes: VaultNode[], id: string): ConnectionNode |
 }
 
 /** Fixed system paths; never resolved through PATH. */
-export function localShellCommand(protocol: LocalShellProtocol, systemRoot = process.env.SystemRoot ?? 'C:\\Windows'): { file: string; args: string[] } {
+export function localShellCommand(protocol: Extract<LocalShellProtocol, 'powershell' | 'cmd'>, systemRoot = process.env.SystemRoot ?? 'C:\\Windows'): { file: string; args: string[] } {
   return protocol === 'powershell'
     ? { file: win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), args: ['-NoLogo'] }
     : { file: win32.join(systemRoot, 'System32', 'cmd.exe'), args: [] };
@@ -254,7 +264,7 @@ export class SshSessionManager {
         return;
       }
       if (session.target && connection.protocol !== 'ssh') throw new AppError('ssh.connectionTypeChanged');
-      if (connection.protocol === 'powershell' || connection.protocol === 'cmd' || connection.protocol === 'aicli') { await this.startLocalShell(session, connection); return; }
+      if (connection.protocol === 'powershell' || (connection.protocol === 'cmd' || connection.protocol === 'bash' || connection.protocol === 'zsh' || connection.protocol === 'fish') || connection.protocol === 'aicli') { await this.startLocalShell(session, connection); return; }
       if (connection.protocol !== 'ssh' || !session.client) throw new AppError('ssh.connectionTypeChanged');
       const block = !session.target ? connection.login : undefined;
       if (block && (block.sudo === true || (block.commands?.length ?? 0) > 0)) session.login = { sudo: block.sudo === true, commands: [...(block.commands ?? [])] };
@@ -439,7 +449,6 @@ export class SshSessionManager {
 
   private async startLocalContainer(session: Session): Promise<void> {
     this.step(session, 'shell');
-    if (process.platform !== 'win32') throw new LocalShellError('ssh.localContainerWindowsOnly');
     const target = session.target!;
     if (target.item.kind !== 'container') throw new LocalShellError('ssh.proxmoxRemoteOnly');
     const argv = terminalArgv(target);
@@ -449,7 +458,7 @@ export class SshSessionManager {
     let pty: IPty;
     try {
       pty = this.dependencies.spawnShell(file, argv.slice(1), { name: 'xterm-256color', cols: session.size.cols, rows: session.size.rows,
-        cwd: homedir(), env: shellEnvironment(), useConpty: true });
+        cwd: homedir(), env: shellEnvironment(), useConpty: capabilities.platform === 'win32' });
     } catch { throw new LocalShellError('ssh.programStartFailed', { program: argv[0] }); }
     session.pty = pty;
     session.phase = 'connected';
@@ -460,7 +469,7 @@ export class SshSessionManager {
 
   private async startLocalShell(session: Session, connection: LocalConnectionNode): Promise<void> {
     this.step(session, 'shell');
-    if (process.platform !== 'win32') throw new LocalShellError('ssh.localShellWindowsOnly');
+    if (connection.protocol !== 'aicli' && !supportsShell(connection.protocol)) throw new LocalShellError('ssh.localShellUnavailable');
     const cwd = connection.workingDirectory?.trim() || homedir();
     const folder = await stat(cwd).catch(() => undefined);
     if (!folder?.isDirectory()) throw new LocalShellError('ssh.startFolderMissing', { folder: cwd });
@@ -476,14 +485,21 @@ export class SshSessionManager {
         }
         if (!this.active(session)) return;
       }
+      if (capabilities.platform !== 'win32') {
+        file = executableOnPath('bash') ?? '/bin/sh';
+        args = ['-lc', aiCliCommandLine(connection)];
+      } else {
       file = localShellCommand('cmd').file;
       // cmd /k: after the tool exits, the tab stays a prompt in the project folder.
       args = `/d /k ${aiCliCommandLine(connection)}`;
+      }
+    } else if (connection.protocol === 'bash' || connection.protocol === 'zsh' || connection.protocol === 'fish') {
+      file = executableOnPath(connection.protocol)!; args = ['-l'];
     } else ({ file, args } = localShellCommand(connection.protocol));
     let pty: IPty;
     try {
       pty = this.dependencies.spawnShell(file, args, { name: 'xterm-256color', cols: session.size.cols, rows: session.size.rows,
-        cwd, env: shellEnvironment(), useConpty: true });
+        cwd, env: shellEnvironment(), useConpty: capabilities.platform === 'win32' });
     } catch { throw new LocalShellError('ssh.localShellStartFailed'); }
     session.pty = pty;
     session.phase = 'connected';
@@ -660,6 +676,42 @@ export class SshSessionManager {
   }
 
   closeAll(): void { for (const session of [...this.sessions.values()]) this.finish(session, 'closed'); }
+  toolbar(ownerId: number, id: string, action: 'start' | 'stop' | 'check', itemId?: string): void {
+    const session = this.owned(ownerId, id);
+    if (action === 'stop') { session.toolbar?.stop(); session.toolbar = undefined; return; }
+    if (session.phase !== 'connected' || !session.client || session.target || session.kube) throw new AppError('ssh.notConnected');
+    const config = this.dependencies.getToolbar?.();
+    if (!config || !this.dependencies.toolbarAllowed?.()) throw new AppError('core.vaultLocked');
+    const items = toolbarItems(config, session.connectionId);
+    const key = JSON.stringify(items);
+    if (action === 'start' || !session.toolbar || session.toolbarKey !== key) {
+      session.toolbar?.stop();
+      session.toolbar = new ToolbarChecks((command, callback) => session.client!.exec(command, (error, channel) => callback(error ?? undefined, channel)),
+        result => this.dependencies.emit(session.ownerId, { type: 'toolbar', sessionId: id, result }),
+        () => this.active(session) && session.phase === 'connected' && (this.dependencies.toolbarAllowed?.() ?? false));
+      session.toolbar.configure(items);
+      session.toolbarKey = key;
+    }
+    if (action === 'check') {
+      if (!toolbarItems(config, session.connectionId).some(item => item.id === itemId && item.kind === 'status' && item.enabled)) throw new AppError('ssh.invalidRequest');
+      session.toolbar?.run(itemId!);
+    }
+  }
+
+  async remotePath(ownerId: number, id: string, action: RemotePathAction, path: string): Promise<RemotePathReply> {
+    const session = this.owned(ownerId, id);
+    if (session.phase !== 'connected' || !session.client || session.target || session.kube || !this.dependencies.toolbarAllowed?.()) throw new AppError('ssh.notConnected');
+    session.pathRequests ??= new Set();
+    if (session.pathRequests.size >= 2) return { path, error: 'busy' };
+    return remotePath(session.client, action, path,
+      () => this.active(session) && session.phase === 'connected' && (this.dependencies.toolbarAllowed?.() ?? false),
+      cancel => { session.pathRequests!.add(cancel); return () => { session.pathRequests?.delete(cancel); }; });
+  }
+
+  stopToolbars(): void {
+    for (const session of this.sessions.values()) { for (const cancel of session.pathRequests ?? []) cancel(); session.toolbar?.stop(); session.toolbar = undefined; session.toolbarKey = undefined; }
+  }
+
   closeOwner(ownerId: number): void {
     for (const session of [...this.sessions.values()]) if (session.ownerId === ownerId) this.finish(session, 'closed');
   }
@@ -671,6 +723,8 @@ export class SshSessionManager {
     this.sessions.delete(session.id);
     clearTimeout(session.timer);
     clearTimeout(session.idleTimer);
+    for (const cancel of session.pathRequests ?? []) cancel();
+    session.toolbar?.stop();
     this.clearKey(session);
     this.dropSudo(session);
     session.outstanding.clear();

@@ -51,7 +51,8 @@ function removeOrphans(target: string, name: string): void {
 export function migrateUserData(source: string, target: string, files: readonly string[] = LEGACY_USER_DATA_FILES, ops: UserDataOps = defaultOps): string[] {
   const copied: string[] = [];
   try {
-    if (resolve(source).toLowerCase() === resolve(target).toLowerCase()) return copied;
+    const pathKey = (path: string): string => process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path);
+    if (pathKey(source) === pathKey(target)) return copied;
     for (const name of files) {
       try {
         if (basename(name) !== name || name.includes('\\') || name.includes('/') || name === '' || name === '..') continue;

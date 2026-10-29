@@ -258,7 +258,7 @@ const GOOD_FIXTURE = `
 
 describe('design tokens lint', () => {
   it('R0 finds every stylesheet', () => {
-    for (const file of ['tokens.css', 'styles.css', 'terminal-ui.css', 'files-ui.css', 'assistant-ui.css', 'workflows-ui.css',
+    for (const file of ['tokens.css', 'styles.css', 'terminal-ui.css', 'files-ui.css', 'assistant-ui.css',
       'kubernetes-ui.css', 'kubernetes-dock.css', 'containers-ui.css', 'components/navigation-ui.css', 'components/editor-ui.css', 'components/toast-ui.css']) {
       expect(FILES).toContain(file);
     }

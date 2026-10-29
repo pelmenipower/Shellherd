@@ -39,7 +39,7 @@ describe('moveSession', () => {
 
 describe('catalog', () => {
   const withSettings = (settings: Record<string, unknown>) =>
-    vi.mocked(vaultSessionManager.getSnapshot).mockReturnValue({ vault: { nodes: [], workflows: [], settings } } as never);
+    vi.mocked(vaultSessionManager.getSnapshot).mockReturnValue({ vault: { nodes: [], settings } } as never);
 
   it('sends the default terminal settings for a vault without them', () => {
     withSettings({ confirmBeforeClosingSession: true });

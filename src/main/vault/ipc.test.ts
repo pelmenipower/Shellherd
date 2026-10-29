@@ -46,14 +46,14 @@ describe('vault path grants in the IPC handlers', () => {
     expect(mocks.read).not.toHaveBeenCalled();
   });
 
-  it('grants a dropped local file and opens it in another spelling', async () => {
+  it.runIf(process.platform === 'win32')('grants a dropped local file and opens it in another spelling', async () => {
     await expect(invoke(IPC_CHANNELS.vaultDropFile, '\\\\srv\\s\\v.term')).rejects.toMatchObject({ code: 'core.vaultPathNotAllowed' });
     expect(await invoke(IPC_CHANNELS.vaultDropFile, 'C:/drop/v.term')).toBe('C:\\drop\\v.term');
     await expect(invoke(IPC_CHANNELS.unlockVault, { filePath: 'c:\\DROP\\v.term', password: 'x' })).rejects.toMatchObject({ code: 'core.vaultFileNotFound' });
     expect(mocks.read.mock.calls[0]?.[0]).toBe('c:\\DROP\\v.term');
   });
 
-  it('does not open a granted path through a Kelvin sign look-alike', async () => {
+  it.runIf(process.platform === 'win32')('does not open a granted path through a Kelvin sign look-alike', async () => {
     expect(await invoke(IPC_CHANNELS.vaultDropFile, 'C:\\\u212A\\kelvin\\v.term')).toBe('C:\\\u212A\\kelvin\\v.term');
     await expect(invoke(IPC_CHANNELS.unlockVault, { filePath: 'C:\\k\\kelvin\\v.term', password: 'x' })).rejects.toMatchObject({ code: 'core.vaultPathNotAllowed' });
     expect(mocks.read).not.toHaveBeenCalledWith('C:\\k\\kelvin\\v.term');
@@ -68,7 +68,7 @@ describe('vault path grants in the IPC handlers', () => {
 });
 
 describe('Windows Hello in the IPC handlers (run-app fake)', () => {
-  const filePath = 'C:\\hello\\v.term';
+  const filePath = process.platform === 'win32' ? 'C:\\hello\\v.term' : '/tmp/hello/v.term';
   const password = 'synthetic-hello-pw';
   const options = { memoryKiB: 16_384, iterations: 1, parallelism: 1 };
   let file: EncryptedVaultFile;

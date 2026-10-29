@@ -50,8 +50,6 @@
     "maskingOff": "Masking is off for this provider: terminal text is sent unchanged.",
     "type": "Type in",
     "copy": "Copy",
-    "saveWorkflowTitle": "Save as workflow",
-    "saveWorkflow": "As workflow",
     "typing": "Writing answer",
     "awaiting": "Check the command and press Enter in the terminal.",
     "awaitingAuto": " The assistant then reads the output and briefly interprets it.",

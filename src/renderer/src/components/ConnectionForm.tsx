@@ -28,11 +28,11 @@ const STEP_LABEL_KEYS = {
 
 const NEW_TITLE_KEYS = {
   ssh: 'connection:form.newTitle.ssh', sftp: 'connection:form.newTitle.sftp', rdp: 'connection:form.newTitle.rdp', powershell: 'connection:form.newTitle.powershell',
-  cmd: 'connection:form.newTitle.cmd', aicli: 'connection:form.newTitle.aicli', kubernetes: 'connection:form.newTitle.kubernetes',
+  cmd: 'connection:form.newTitle.cmd', bash: 'connection:form.newTitle.bash', zsh: 'connection:form.newTitle.zsh', fish: 'connection:form.newTitle.fish', aicli: 'connection:form.newTitle.aicli', kubernetes: 'connection:form.newTitle.kubernetes',
 } as const satisfies Record<ConnectionProtocol, string>;
 const CONNECT_LABEL_KEYS = {
   ssh: 'connection:form.connect.ssh', sftp: 'connection:form.connect.sftp', rdp: 'connection:form.connect.rdp', powershell: 'connection:form.connect.powershell',
-  cmd: 'connection:form.connect.cmd', aicli: 'connection:form.connect.aicli', kubernetes: 'connection:form.connect.kubernetes',
+  cmd: 'connection:form.connect.cmd', bash: 'connection:form.connect.bash', zsh: 'connection:form.connect.zsh', fish: 'connection:form.connect.fish', aicli: 'connection:form.connect.aicli', kubernetes: 'connection:form.connect.kubernetes',
 } as const satisfies Record<ConnectionProtocol, string>;
 
 interface ConnectionFormProps {
@@ -62,7 +62,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const submittingRef = useRef(false);
   const protocol = connection?.protocol ?? requestedProtocol ?? 'ssh';
-  const remote = protocol !== 'powershell' && protocol !== 'cmd' && protocol !== 'aicli' && protocol !== 'kubernetes';
+  const remote = protocol !== 'powershell' && protocol !== 'cmd' && protocol !== 'bash' && protocol !== 'zsh' && protocol !== 'fish' && protocol !== 'aicli' && protocol !== 'kubernetes';
   const sshAuth = protocol === 'ssh' || protocol === 'sftp';
   const [fields, setFields] = useState<ConnectionFields>(() => fieldsFromConnection(protocol, connection));
   const [parentId, setParentId] = useState(initialParentId);
@@ -186,7 +186,7 @@ export function ConnectionForm({ connection, isNew = false, protocol: requestedP
           {textField(t('connection:form.fields.projectFolder'), 'workingDirectory')}
           <p className="editor-hint">{t('connection:form.aicli.folderHint')}</p>
         </>}
-        {(protocol === 'powershell' || protocol === 'cmd') && <>
+        {(protocol === 'powershell' || (protocol === 'cmd' || protocol === 'bash' || protocol === 'zsh' || protocol === 'fish')) && <>
           {textField(t('connection:form.fields.startFolder'), 'workingDirectory')}
           <p className="editor-hint">{t('connection:form.shell.hint', { shell: protocolShort(protocol) })}</p>
         </>}

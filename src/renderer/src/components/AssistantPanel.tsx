@@ -20,8 +20,6 @@ interface AssistantPanelProps {
   onClose: () => void;
   /** Main window only: opens the provider settings. */
   onManageProviders?: () => void;
-  /** Main window only: saves a suggested command as workflow. */
-  onSaveWorkflow?: (command: string) => void;
 }
 
 interface ChatEntry {
@@ -73,7 +71,7 @@ const write = (key: string, value: string): void => { try { localStorage.setItem
  * In a cluster tab it analyses one object instead ("Mit KI analysieren"): the user sees the context before
  * sending, and suggested commands are text only, without any button (user ruling: read-only analysis).
  */
-export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, onSaveWorkflow }: AssistantPanelProps) {
+export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders }: AssistantPanelProps) {
   const { t } = useT();
   const [catalog, setCatalog] = useState<AiCatalog | null>(null);
   const [providerId, setProviderId] = useState<string>(() => read(PROVIDER_KEY) ?? '');
@@ -309,7 +307,7 @@ export function AssistantPanel({ tabs, activeTabId, onClose, onManageProviders, 
                         : entry.note ?? (SECRET_PLACEHOLDER.test(segment.command) ? t('assistant:panel.maskedCommand') : t('assistant:panel.suggestion'))}</span>
                       <button type="button" disabled={!insertableCommand(segment.command)} onClick={() => typeCommand(tab.id, entry.id, segment.command)}>{t('assistant:panel.type')}</button>
                       <button type="button" onClick={() => void window.desktopApi.writeClipboardText(segment.command).catch(() => {})}>{t('assistant:panel.copy')}</button>
-                      {onSaveWorkflow && <button type="button" title={t('assistant:panel.saveWorkflowTitle')} onClick={() => onSaveWorkflow(segment.command)}>{t('assistant:panel.saveWorkflow')}</button>}
+
                     </div>)}
                 </div>)}
               {entry.pending && <span className="assistant-typing" aria-label={t('assistant:panel.typing')}>…</span>}

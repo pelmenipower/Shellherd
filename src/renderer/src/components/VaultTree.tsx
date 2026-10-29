@@ -1,3 +1,4 @@
+import { protocolAvailable } from '../platform';
 import { useCallback, useState } from 'react';
 import type { DragEvent } from 'react';
 import type { NodeDropTarget } from '../../../shared/vault/mutations';
@@ -135,7 +136,7 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
   };
   const createEntries = (parentId: string, heading: string): ContextMenuEntry[] => [
     { kind: 'heading', label: heading },
-    ...NEW_CONNECTION_KINDS.map((item): ContextMenuEntry => item.planned
+    ...NEW_CONNECTION_KINDS.filter(item => item.planned || protocolAvailable(item.protocol)).map((item): ContextMenuEntry => item.planned
       ? { kind: 'item', label: protocolLabel(item.protocol), hint: t('common:planned'), disabled: true, onSelect: () => {} }
       : { kind: 'item', label: protocolLabel(item.protocol), disabled: !onNewConnection, onSelect: () => onNewConnection?.(item.protocol as ConnectionProtocol, parentId) }),
     { kind: 'separator' },

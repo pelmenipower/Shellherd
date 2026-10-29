@@ -10,14 +10,14 @@ vi.mock('../vault/ipc', () => ({ vaultSessionManager: { getSnapshot: vi.fn() } }
 
 describe('localListPath', () => {
   it('keeps drive and UNC folders, resolved', () => {
-    expect(localListPath('C:\\x')).toBe('C:\\x');
-    expect(localListPath('\\\\server\\share\\x')).toBe('\\\\server\\share\\x');
+    expect(localListPath('C:\\x', 'win32')).toBe('C:\\x');
+    expect(localListPath('\\\\server\\share\\x', 'win32')).toBe('\\\\server\\share\\x');
   });
 
   it('refuses device paths, also after normalisation', () => {
     // `\\?` and `\\.` alone resolve to `C:\?` and `C:\`, so they are refused by the schema, not here.
     for (const bad of ['\\\\?/C:/x', '\\\\./pipe/x', '\\\\?\\C:\\x', '\\\\.\\pipe\\x']) {
-      expect(() => localListPath(bad), bad).toThrow();
+      expect(() => localListPath(bad, 'win32'), bad).toThrow();
     }
   });
 });

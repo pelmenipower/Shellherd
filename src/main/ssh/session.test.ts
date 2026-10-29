@@ -441,8 +441,10 @@ describe('SSH session manager with a real local SSH server', () => {
     const holder = sudoTab('sudo-quiet');
     const closed = sudoTab('web-1');
     const next = sudoTab('web-1');
-    const connecting = [manager.connect(1, holder), manager.connect(1, closed), manager.connect(1, next)];
+    // The test needs this tab to hold the gate; concurrent SSH handshakes may finish in any order.
+    const holding = manager.connect(1, holder);
     await waitFor(() => Boolean(quietPrompt));
+    const connecting = [holding, manager.connect(1, closed), manager.connect(1, next)];
     // The gate is taken after the SSH handshake, so waiting tabs are already connected to the host.
     await waitFor(() => peers.length === 3);
     expect(execCommands).toHaveLength(1);
@@ -946,7 +948,7 @@ describe('targetExitError', () => {
   });
 });
 
-describe.runIf(process.platform === 'win32')('local container tabs', () => {
+describe('local container tabs', () => {
   it('starts docker exec through node-pty with an argument array', async () => {
     const spawned: { file: string; args: string[] | string }[] = [];
     const localEvents: SshEvent[] = [];
@@ -1084,7 +1086,7 @@ describe('SSH connection steps and failure codes', () => {
     await expect(manager.input(1, id, 'x'.repeat(20_000))).rejects.toThrow(expect.objectContaining({ code: 'ssh.tooMuchInput' }));
   });
 
-  it.runIf(process.platform === 'win32')('sends only the shell step for a local container', async () => {
+  it('sends only the shell step for a local container', async () => {
     const localEvents: SshEvent[] = [];
     const pty = { onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write() {}, resize() {}, kill() {}, pause() {}, resume() {} };
     const local = new SshSessionManager({ getConnection: () => { throw new Error('no vault lookups'); },
