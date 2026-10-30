@@ -33,7 +33,9 @@ const AI_PORT = Number(process.env.AI_FAKE_PORT ?? 9335);
 const exe = process.platform === 'win32' ? 'electron.exe' : 'electron';
 const app = await electron.launch({
   executablePath: path.join(REPO, 'node_modules/electron/dist', exe),
-  args: [APP_DIR],
+  // Explicit opt-in for synthetic screenshots on Linux hosts without a usable
+  // Chromium sandbox. Never used by the packaged app or package smoke tests.
+  args: [...(process.platform === 'linux' && process.env.SHELLHERD_RUN_NO_SANDBOX === '1' ? ['--no-sandbox'] : []), APP_DIR],
   cwd: REPO,
   // No emulated colour scheme: Playwright defaults to light, the app follows nativeTheme instead.
   colorScheme: null,
@@ -46,7 +48,7 @@ const app = await electron.launch({
     // served by ai-fake.mjs (npm run drive:sshd)
     SHELLHERD_UPDATE_URL: `http://127.0.0.1:${AI_PORT}/releases/latest`,
     // Windows Hello stand-in (src/main/vault/hello-helper.ts); an unpacked Shellherd only, never a packaged build.
-    SHELLHERD_HELLO_FAKE: 'ok',
+    SHELLHERD_HELLO_FAKE: process.platform === 'win32' ? 'ok' : '',
   },
   timeout: 60_000,
 });

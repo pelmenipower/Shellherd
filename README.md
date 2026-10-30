@@ -16,26 +16,16 @@
 </div>
 
 <p align="center">
-  <img src="docs/images/brag.gif" alt="22-second tour of Shellherd: SSH terminals, Kubernetes, SFTP and the AI assistant in one window" width="100%">
+  <img src="docs/images/screenshot-terminals.png" alt="Shellherd 0.31 on Linux with SSH sessions, a customizable terminal toolbar and the connection tree" width="100%">
 </p>
-<p align="center"><sub>22-second tour · <a href="docs/images/brag.mp4?raw=1">with sound (MP4)</a></sub></p>
-
-<p align="center">
-  <img src="docs/images/screenshot-terminals.png" alt="Shellherd with two SSH sessions side by side and the connection tree on the left" width="100%">
-</p>
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/images/screenshot-connection-error.png" alt="Connection error card with cause, next step and actions"></td>
-    <td width="50%"><img src="docs/images/screenshot-notice.png" alt="Success notice after saving a workspace"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Clear connection errors with the next step</sub></td>
-    <td align="center"><sub>Notices that tell you what happened</sub></td>
-  </tr>
-</table>
 
 Shellherd keeps all your servers, desktops and clusters in one window. Connections and their credentials live in a single encrypted vault file (`.term`) that you can carry around, back up or keep in sync – no account and no cloud service required.
+
+## New in 0.31.0
+
+Windows and Linux now share the same release: Windows setup and portable EXEs, an Ubuntu/Debian DEB and a portable Linux AppImage, with installation scripts and SHA-256 checksums. On Linux, open local Bash, Zsh or Fish sessions alongside your SSH connections.
+
+The new **SSH terminal toolbar** replaces the workflow palette. Pin commands, choose whether a click inserts or runs them, and add JSON-driven status displays for CPU, RAM or your own health checks. Previous workflow data stays in the vault; recreate the commands you need as toolbar buttons. [Set up CPU and RAM displays](#cpu-and-ram-toolbar-examples) or read the [full changelog](CHANGELOG.en.md#0310--2026-10-30).
 
 ## Features
 
@@ -44,13 +34,14 @@ Shellherd keeps all your servers, desktops and clusters in one window. Connectio
 - **Root shell and start commands** – per SSH connection, become root with `sudo -i` after login and type start commands, one line each.
 - **Split views and workspaces** – drag tabs into up to four panes, rename tabs and views, and save the layout as a named workspace.
 - **Remote Desktop (RDP, Windows)** – embedded in a tab, no extra install, including shortcuts like Ctrl+Alt+Del.
-- **SFTP file browser** – two-pane, WinSCP style (go to path, filter, hide dotfiles), with a transfer queue, edit-and-upload for remote files and Auto-Upload that mirrors a local folder to the server while the view is open. Transfers keep many requests in flight, resume where they stopped and can be verified by SHA-256 checksum. Text, configuration and source files open in their default program, everything else in Notepad, so a remote script never runs by accident.
+- **SFTP file browser** – two-pane, WinSCP style (go to path, filter, hide dotfiles), with a transfer queue, edit-and-upload for remote files and Auto-Upload that mirrors a local folder to the server while the view is open. Transfers keep many requests in flight, resume where they stopped and can be verified by SHA-256 checksum. Edit remote files in a local text editor; remote scripts are opened as text.
 - **Docker and Podman** – a container view per SSH host or for the local machine: containers, images, volumes and networks with filters, logs, shell and inspect.
 - **Proxmox** – LXC containers and VMs under their host, with shell, serial console and power actions.
-- **Kubernetes** – set up a cluster from an existing SSH connection; live nodes, workloads, pods and events with drill-down, logs, shell, YAML and describe, and port forwards to pods and services on 127.0.0.1, logs of all pods of a workload merged by time, and menu entries greyed out up front when RBAC forbids them, and an AI analysis of a failing pod or workload that only reads and never sends Secrets, links to Argo CD and Harbor, and a self-heal hint before changing what Argo CD manages. Production clusters ask you to type the resource name before any change.
-- **German and English UI** – follows the Windows language by default; switch any time without a restart. Dates, numbers and sorting follow the language too.
+- **Kubernetes** – live nodes, workloads, pods and events through an existing SSH connection. Inspect YAML, describe resources, open shells, stream merged workload logs and forward pod or service ports to 127.0.0.1. RBAC pre-checks disable forbidden actions; production changes require typing the resource name.
+- **Cluster diagnosis and GitOps links** – preview a read-only AI analysis of failing resources with masking always enabled and no Secrets read. Open matching resources in Argo CD or Harbor, and see a self-heal warning before changing an Argo CD managed resource.
+- **German and English UI** – follows the system language by default; switch any time without a restart. Dates, numbers and sorting follow the language too.
 - **Lock screen** – lock by hand or automatically after a set time without input; sessions keep running behind it and are back after unlocking. Idle disconnect, keepalive and connection timeout are set per vault and can be overridden per connection.
-- **Settings in one place** – gear in the header or `Ctrl+,`: language, light or dark appearance, `.term` file association, confirmation before disconnecting, auto-lock, connection timeouts and the AI providers.
+- **Settings in one place** – gear in the header or `Ctrl+,`: language, light or dark appearance, Windows `.term` file association, confirmation before disconnecting, auto-lock, connection timeouts and the AI providers.
 - **SSH terminal toolbar** – customizable command buttons and JSON-driven dynamic displays, scoped to one connection or all SSH connections. Choose insert/execute mode, optional confirmation, icons, colors and exact value mappings. [CPU/RAM examples](#cpu-and-ram-toolbar-examples).
 - **Terminal comfort** – search in the terminal with `Ctrl+Shift+F`, links opened with Ctrl+click (http and https only), tab shortcuts, a mark on background tabs with new output, input to all panes, and font, scrollback and cursor settings.
 - **Local shells** – PowerShell and CMD on Windows; automatically detected Bash, Zsh and Fish on Linux.
@@ -58,6 +49,19 @@ Shellherd keeps all your servers, desktops and clusters in one window. Connectio
 - **AI assistant** (optional) – reads the terminal, explains output and suggests the next command. Nothing reaches the terminal until you click **Type in**, and nothing runs until you press Enter. Works with OpenAI-compatible endpoints (including Ollama and LM Studio), Azure AI Foundry, Anthropic and Google Gemini.
 
 ## Screenshots
+
+Captured from Shellherd 0.31.0 running on Linux with a synthetic vault and local demo services. CPU/RAM status values are simulated; screenshots contain no real infrastructure or credentials. [Reproduce the gallery](docs/images/README.md).
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/screenshot-terminals-light.png" alt="Two SSH terminals with command buttons and CPU/RAM status displays in the light theme"></td>
+    <td width="50%"><img src="docs/images/screenshot-toolbar.png" alt="Toolbar editor with a background JSON command, remote script picker and refresh interval"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Light theme, root shell and shared SSH toolbar</sub></td>
+    <td align="center"><sub>Configure commands and dynamic displays per vault or connection</sub></td>
+  </tr>
+</table>
 
 <p align="center">
   <img src="docs/images/screenshot-kubernetes.png" alt="Kubernetes view of a production cluster: node tiles with CPU and RAM, a problem banner and the pod table" width="100%">
@@ -74,7 +78,7 @@ Shellherd keeps all your servers, desktops and clusters in one window. Connectio
     <td align="center"><sub>Docker containers per SSH host</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/screenshot-settings.png" alt="Settings dialog with language, file association, disconnect confirmation and AI providers"></td>
+    <td width="50%"><img src="docs/images/screenshot-settings.png" alt="Linux settings with language, appearance and platform-specific options"></td>
     <td width="50%"><img src="docs/images/screenshot-assistant.png" alt="AI assistant panel next to a terminal, suggesting a command with buttons to type it in or copy it"></td>
   </tr>
   <tr>
@@ -96,11 +100,11 @@ Download the latest version from the [releases page](https://github.com/pelmenip
 
 The builds are not code-signed yet, so Windows SmartScreen may warn on first start. Choose **More info → Run anyway**.
 
-**Supported platforms:** Windows 10/11 x64 and Linux x86_64 (Ubuntu 22.04/24.04 or newer with a graphical desktop). Linux packages include Electron and their native modules; end users do not need Node.js. Linux builds are prepared by this change; check the assets of a release for availability.
+**Supported platforms:** Windows 10/11 x64 and Linux x86_64 (Ubuntu 22.04/24.04 or newer with a graphical desktop). Linux packages include Electron and their native modules; end users do not need Node.js. Linux packages and the installation scripts are included starting with 0.31.0; older releases may contain only Windows executables.
 
 ### Windows installation
 
-The setup EXE installs Shellherd for the current user and adds a Start menu entry. Alternatively, after a release containing the PowerShell installer has been published, paste this into **PowerShell**:
+The setup EXE installs Shellherd for the current user and adds a Start menu entry. For releases from 0.31.0 onward, you can also paste this into **PowerShell**:
 
 ```powershell
 & ([scriptblock]::Create((Invoke-RestMethod 'https://github.com/pelmenipower/Shellherd/releases/latest/download/install.ps1')))
@@ -114,21 +118,21 @@ To inspect the script first, download `install.ps1` from the release and open it
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-Optional: `-Version 0.30.0` selects a published version, `-Silent` runs the setup without its wizard, and `-InstallerPath .\Shellherd-Setup-0.30.0.exe` uses a trusted local build. Local EXEs are supplied by you and are not checked against release checksums.
+Optional: `-Version 0.31.0` selects a published version, `-Silent` runs the setup without its wizard, and `-InstallerPath .\Shellherd-Setup-0.31.0.exe` uses a trusted local build. Local EXEs are supplied by you and are not checked against release checksums.
 
-**Availability:** Both online installation commands require a release containing their scripts, `SHA256SUMS` and the corresponding packages. These new assets have not been published by this change. Until then, use a local installer or download an existing EXE manually.
+**Availability:** The online installation commands require a published release of **0.31.0 or later** with the scripts, `SHA256SUMS` and matching packages. Preparing or merging a release branch alone does not publish these files; the Release workflow must finish successfully on `main`. Until then, use a local installer or an existing Windows download.
 
 ### Linux installation
 
-Once a Linux release with the installer and checksums has been published, install it with:
+For a published release of 0.31.0 or later, install the Linux DEB with:
 
 ```bash
 curl -fsSL https://github.com/pelmenipower/Shellherd/releases/latest/download/install.sh | bash
 ```
 
-The script downloads the DEB, verifies its SHA-256 checksum and installs it through APT, including dependencies and desktop integration. Only APT requests sudo privileges. No Node.js is required. This command becomes available after the first release containing `install.sh`, `SHA256SUMS` and the Linux DEB; these assets have not been published by this change.
+The script downloads the DEB, verifies its SHA-256 checksum and installs it through APT, including dependencies and desktop integration. Only APT requests sudo privileges. No Node.js is required. The selected release must contain `install.sh`, `SHA256SUMS` and the Linux DEB (0.31.0 or later).
 
-For a local build, use `bash ./install.sh --package ./dist/Shellherd-0.30.0-amd64.deb`.
+For a local build, use `bash ./install.sh --package ./dist/Shellherd-0.31.0-amd64.deb`.
 
 For Ubuntu, the DEB is the recommended installation. Download the matching version and install it with APT so desktop libraries are resolved:
 
@@ -163,7 +167,7 @@ This requires a published release with `install.sh`, `SHA256SUMS` and the DEB, j
 **Local development build:** from the repository directory, install your freshly built DEB with:
 
 ```bash
-bash ./install.sh --package ./dist/Shellherd-0.30.0-amd64.deb
+bash ./install.sh --package ./dist/Shellherd-0.31.0-amd64.deb
 ```
 
 Replace the filename if your build uses another version. The installer uses APT's `--reinstall`, so this also updates a local build whose version number has not changed. Local packages are supplied by you and are not verified against release checksums. The script does not build the app. After the installation completes, finish your sessions, fully close Shellherd and reopen it to load the updated app. Vault files are retained.
@@ -337,12 +341,14 @@ Feature branches merge into `staging` by pull request. `main` only receives pull
 
 ### Releasing
 
-1. On `staging`, bump the version: `npm run version:minor` (or `:patch` / `:major`).
-2. Add a matching `## [x.y.z] – YYYY-MM-DD` section to both [`CHANGELOG.md`](CHANGELOG.md) (German) and [`CHANGELOG.en.md`](CHANGELOG.en.md) (English), with the same number of entries – the build and the tests fail otherwise.
-3. Commit, push `staging` and open a pull request into `main`.
-4. Merge it once CI is green.
+1. Create a dedicated release branch from the current `origin/main` (or from `origin/staging` when preparing changes already staged). A separate worktree keeps other work isolated: `git worktree add -b release/0.31.0 ../shellherd-release origin/main`.
+2. On that branch, bump the version with `npm run version:minor` (or `:patch` / `:major`). Add a matching `## [x.y.z] – YYYY-MM-DD` section to both [`CHANGELOG.md`](CHANGELOG.md) (German) and [`CHANGELOG.en.md`](CHANGELOG.en.md) (English), with the same number of entries.
+3. Update the README and screenshots, run `npm run build` and `npm test`, then commit and push only the release branch. Open its pull request **against `staging`**.
+4. The maintainer merges the release branch into `staging`, then opens and merges the `staging` → `main` pull request after CI passes. Never work, commit or push directly on `main` or `staging`.
 
-On every push to `main`, the [release workflow](.github/workflows/release.yml) reads the version from `package.json`. If there is no tag `vX.Y.Z` yet, it runs the tests, builds both executables, creates the tag on the merged commit and publishes a GitHub release with both changelog sections as bilingual release notes. Merges that keep the version publish nothing.
+On every push to `main`, the [release workflow](.github/workflows/release.yml) reads the version from `package.json`. For a version without an existing tag, it tests and packages **Windows and Linux**, validates the Linux packages, and uploads all four installers, both installation scripts and `SHA256SUMS` to a draft. Only after every asset is uploaded does it publish the release and mark it as latest, with bilingual release notes.
+
+**A merge does not bump the version automatically.** If `vX.Y.Z` is already published, the Release workflow skips packaging and publication. CI still builds and tests the code on both platforms, but creates no downloadable release installers. Rerunning Release with the same published version does not change this. Prepare a new version on a separate branch instead of replacing published assets or moving tags.
 
 ## License
 

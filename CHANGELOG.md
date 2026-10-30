@@ -4,6 +4,15 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.31.0] – 2026-10-30
+
+- Neu: Linux x86_64 mit DEB für Ubuntu/Debian und portablem AppImage. Windows erhält weiterhin Setup und portable EXE. Die Pakete werden auf Windows und Linux gebaut und getestet; Linux-Pakete enthalten Electron und die nativen Module.
+- Neu: Lokale Bash-, Zsh- und Fish-Terminals unter Linux, SSH-Agent über SSH_AUTH_SOCK, Desktop-Integration und Bearbeiten entfernter Textdateien mit einem installierten grafischen Editor. Eingebettetes RDP und Windows Hello bleiben Windows-Funktionen; übertragene Vaults lassen sich mit ihrem Passwort öffnen.
+- Neu: Konfigurierbare Toolbar in SSH-Terminals statt der bisherigen Workflow-Palette. Befehlsbuttons und dynamische Anzeigen gelten für eine Verbindung oder alle SSH-Verbindungen. Einfügen oder Ausführen, optionale Rückfrage, Symbole, Farben, Reihenfolge und JSON-Wertzuordnungen werden verschlüsselt im Vault gespeichert. Die bisherigen Workflow-Daten bleiben im Vault erhalten, werden aber nicht automatisch zu Toolbar-Elementen.
+- Neu: Hintergrundbefehle liefern dynamische Anzeigen als JSON, auf Klick oder in einem Intervall. Skripte lassen sich über die entfernte Dateiauswahl wählen; Tab ergänzt Befehlspfade. CPU- und RAM-Beispielskripte samt Einrichtung liegen unter examples/toolbar und in der README.
+- Neu: Installations- und Update-Skripte für Linux und Windows prüfen Downloads anhand von SHA256SUMS. Ein Release enthält beide Windows-EXEs, AppImage, DEB, install.sh, install.ps1 und Prüfsummen; veröffentlicht wird erst nach erfolgreichen Builds beider Plattformen.
+- Doku: README für 0.31.0 mit neuen Screenshots aus der echten App, Plattformgrenzen, Installation, Updates und einer Release-Anleitung über eigenen Branch → staging → main. Eine bereits veröffentlichte Versionsnummer erzeugt weiterhin kein zweites Release.
+
 ## [0.30.0] – 2026-10-25
 
 - Neu: Argo CD und Harbor im Cluster-Tab. Mit der Argo-CD- und der Harbor-Adresse im Cluster-Eintrag öffnen `In Argo CD öffnen` und `In Harbor öffnen` die App bzw. das Image im Browser, bei Pods das laufende Artefakt. Argo-verwaltete Objekte erkennt Shellherd an der Tracking-Annotation oder am Label `argocd.argoproj.io/instance`.
