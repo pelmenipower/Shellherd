@@ -50,6 +50,9 @@ const localPath = (root, p) => {
 
 /** Answers an exec command by matching known substrings; nothing from the command is ever run or used as a path. */
 function execReply(command, kubeconfig, root) {
+  // Fixed synthetic readings for the release gallery, never real host metrics.
+  if (command === '~/.local/share/shellherd/cpu.sh') return { out: '{"value":"ok","message":"Demo CPU: 18%"}\n', code: 0 };
+  if (command === '~/.local/share/shellherd/ram.sh') return { out: '{"value":"ok","message":"Demo RAM: 3.2 / 8 GiB"}\n', code: 0 };
   if (command.includes('for c in docker podman pct qm')) return { out: 'has:docker\n', code: 0 };
   const marker = /\[terminus-list-[0-9a-f]{16}\]/.exec(command)?.[0];
   if (marker) {

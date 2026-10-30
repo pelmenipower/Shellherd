@@ -4,6 +4,15 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.31.0] – 2026-10-30
+
+- New: Linux x86_64 with a DEB for Ubuntu/Debian and a portable AppImage. Windows continues to receive setup and portable EXEs. Packages are built and tested on Windows and Linux; Linux packages include Electron and native modules.
+- New: Local Bash, Zsh and Fish terminals on Linux, SSH agents through SSH_AUTH_SOCK, desktop integration and remote text editing with an installed graphical editor. Embedded RDP and Windows Hello remain Windows features; transferred vaults can be opened with their password.
+- New: A customizable SSH terminal toolbar replaces the workflow palette. Command buttons and dynamic displays apply to one connection or all SSH connections. Insert or execute mode, optional confirmation, icons, colors, ordering and JSON value mappings are encrypted in the vault. Previous workflow data is retained in the vault but is not automatically converted to toolbar items.
+- New: Background commands provide dynamic displays as JSON, on click or at an interval. Pick scripts through the remote file browser; Tab completes command paths. CPU and RAM example scripts and setup instructions are included under examples/toolbar and in the README.
+- New: Linux and Windows installation and update scripts verify downloads against SHA256SUMS. A release contains both Windows EXEs, AppImage, DEB, install.sh, install.ps1 and checksums; publication waits for successful builds on both platforms.
+- Docs: README for 0.31.0 with new screenshots from the running app, platform limitations, installation, updates and release instructions through a separate branch → staging → main. An already published version still does not produce a second release.
+
 ## [0.30.0] – 2026-10-25
 
 - New: Argo CD and Harbor in the cluster tab. With the Argo CD and Harbor addresses in the cluster entry, `Open in Argo CD` and `Open in Harbor` open the app or the image in your browser, for pods the running artifact. Shellherd recognizes objects managed by Argo CD by the tracking annotation or the `argocd.argoproj.io/instance` label.
