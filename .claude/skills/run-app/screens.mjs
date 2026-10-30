@@ -572,6 +572,7 @@ const blocks = {
   async settings() {
     await click('.settings-button');
     await waitFor('Einstellungsdialog', `document.querySelector('dialog.settings-dialog[open]')`);
+    await evaluate(`document.querySelector('dialog.settings-dialog').scrollTop = 0`);
     await pause(300);
     await shot('settings');
     await click('dialog.settings-dialog button:has-text("Anbieter verwalten")');

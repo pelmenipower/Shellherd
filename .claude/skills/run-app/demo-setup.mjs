@@ -127,6 +127,8 @@ async function addAiProvider() {
 }
 
 // Start states: start card (create/open buttons), open form (last vault preselected, password field) or vault already open.
+// Scene selectors use German labels even on English-language Linux desktops.
+await call('eval', 'await window.desktopApi.setLanguage("de-DE")');
 const vaultOpen = await visible('.workspace-save');
 if (!vaultOpen) {
   if (fs.existsSync(VAULT)) {
