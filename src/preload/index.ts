@@ -18,6 +18,8 @@ function subscribe<T>(channel: string, listener: (value: T) => void): () => void
 const localeArg = process.argv.find(arg => arg.startsWith(LOCALE_ARG))?.slice(LOCALE_ARG.length);
 
 const desktopApi: DesktopApi = {
+  syncLabEnabled: process.argv.includes('--shellherd-sync-lab=1'),
+  syncLabAction: request => ipcRenderer.invoke('sync-lab:action', request),
   sshRemotePath: request => ipcRenderer.invoke('ssh:remote-path', request),
   sshToolbar: request => ipcRenderer.invoke('ssh:toolbar', request),
   capabilities: JSON.parse(process.argv.find(arg => arg.startsWith('--shellherd-capabilities='))?.slice('--shellherd-capabilities='.length) ?? '{"platform":"unknown","rdp":false,"windowsHello":false,"fileAssociation":false,"registryImport":false,"localShells":[]}'),

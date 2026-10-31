@@ -211,6 +211,9 @@ export interface HelloStatus { available: boolean; enrolled: boolean }
 export interface HelloUnlockRequest { filePath: string }
 
 export interface DesktopApi {
+  /** Fixture-only lab, available exclusively in an explicitly enabled development checkout. */
+  syncLabEnabled: boolean;
+  syncLabAction: (request: import('./sync-lab').SyncLabRequest) => Promise<import('./sync-lab').SyncLabReply>;
   sshRemotePath: (request: import('./remote-path').RemotePathRequest) => Promise<import('./remote-path').RemotePathReply>;
   sshToolbar: (request: { sessionId: string; action: 'start' | 'stop' | 'check'; itemId?: string }) => Promise<void>;
   readClipboardText: () => Promise<string>;

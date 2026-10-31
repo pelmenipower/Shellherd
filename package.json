@@ -58,6 +58,8 @@
     "electron": "^44.4.2",
     "electron-builder": "26.17.0",
     "electron-vite": "^4.0.0",
+    "libsodium-wrappers": "0.8.4",
+    "noise-handshake": "4.2.0",
     "playwright-core": "1.55.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

@@ -20,6 +20,13 @@ import type { Vault } from '../../shared/vault/types';
 /** New vaults are `.term` files; `.terminus` files of earlier versions keep their name. */
 const FILE_EXTENSION = '.term';
 
+export interface VaultWriteOptions {
+  /** Sync transactions need the rename to be durable before finalizing their checkpoint. Linux only. */
+  durable?: boolean;
+  /** Called as soon as rename succeeded, even if the subsequent directory flush fails. */
+  onCommitted?: (encryptedWire: string) => void;
+}
+
 export function ensureVaultFileExtension(
   filePath: string,
 ): string {
@@ -31,6 +38,8 @@ export function ensureVaultFileExtension(
 export async function writeEncryptedVaultFile(
   filePath: string,
   encryptedVault: EncryptedVaultFile,
+  beforeCommit?: () => Promise<void>,
+  options: VaultWriteOptions = {},
 ): Promise<string> {
   const finalPath = ensureVaultFileExtension(filePath);
   const temporaryPath =
@@ -56,7 +65,13 @@ export async function writeEncryptedVaultFile(
       await handle.close();
     }
 
+    await beforeCommit?.();
     await rename(temporaryPath, finalPath);
+    options.onCommitted?.(serializedVault);
+    if (options.durable) {
+      const directory = await open(dirname(finalPath), 'r');
+      try { await directory.sync(); } finally { await directory.close(); }
+    }
   } finally {
     await rm(temporaryPath, {
       force: true,

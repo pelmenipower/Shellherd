@@ -81,6 +81,7 @@ import { ImportDialog } from './components/ImportDialog';
 import { UpdateBadge } from './components/UpdateBadge';
 import { RecentVaults } from './components/RecentVaults';
 import { helloReady, isHelloCancel, useHelloStatus } from './hello';
+import { SyncLabDialog } from './components/SyncLabDialog';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
 type LockState = { minutes?: number; vaultId: string };
@@ -138,9 +139,11 @@ export default function App() {
   // "Mit KI analysieren" in a cluster tab opens the panel; the panel takes the request itself.
   useEffect(() => onDiagnosis(() => assistant.setOpen(true)), [assistant.setOpen]);
   const [appDialog, setAppDialog] = useState<AppDialog | null>(null);
+  const [syncLabOpen, setSyncLabOpen] = useState(false);
   const settingsReturnFocus = useRef<HTMLElement | null>(null);
 
   const [vault, setVault] = useState<Vault | null>(null);
+  useEffect(() => { setSyncLabOpen(false); }, [screen, vault?.id]);
   const [vaultPath, setVaultPath] = useState<string | null>(
     null,
   );
@@ -232,6 +235,7 @@ export default function App() {
   screenRef.current = screen;
 
   function openSettings(instant: boolean): void {
+    setSyncLabOpen(false);
     settingsReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setAppDialog({ kind: 'settings', instant, focus: 'close' });
   }
@@ -653,7 +657,7 @@ export default function App() {
     lockReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setLocked({ minutes, vaultId: vault.id });
     setVault(current => current && redactVault(current));
-    setAppDialog(null); settingsReturnFocus.current = null;
+    setAppDialog(null); setSyncLabOpen(false); settingsReturnFocus.current = null;
     // A clean editor holds the connection's stored secret in its draft; a dirty one is the user's unsaved input and stays.
     if (!editorDirty) setEditorOpen(false);
   }
@@ -859,10 +863,12 @@ export default function App() {
     mremoteng: t('vault:import.mremoteng'),
   };
   const settingsVault = screen === 'vault' ? vault : null;
+  const syncLabDialog = syncLabOpen && <SyncLabDialog vaultName={screen === 'vault' && !locked ? vault?.name : undefined} onVaultChanged={result => { openFresh(result); setSyncLabOpen(false); notify.ok(t('syncLab:synced')); }} onClose={() => { setSyncLabOpen(false); setAppDialog({ kind: 'settings', instant: true, focus: 'close' }); }} />;
   const settingsDialog = appDialog?.kind === 'settings' && <SettingsDialog vault={settingsVault} vaultPath={settingsVault ? vaultPath : null} busy={busy}
     instant={appDialog.instant} initialFocus={appDialog.focus} onClose={closeDialogs}
     onManageAi={() => { if (settingsVault) setAppDialog({ kind: 'ai', backToSettings: true }); }}
     onManageHostKeys={() => { if (settingsVault) setAppDialog({ kind: 'hostKeys' }); }}
+    onSyncLab={window.desktopApi.syncLabEnabled ? () => { setAppDialog(null); setSyncLabOpen(true); } : undefined}
     onSaveSettings={settings => settingsVault ? persistVault({ ...settingsVault, settings }) : Promise.resolve(false)} />;
 
   if (screen === 'vault' && vault) {
@@ -994,6 +1000,7 @@ export default function App() {
           return persistVault({ ...vault, nodes: next });
         }} />}
       {settingsDialog}
+      {syncLabDialog}
       <ToastStack />
       <footer className="app-status"><span role="status">{busy ? t('common:status.saving') : saved ? t('app:status.saved') : t('app:status.open')}</span>
         <span>{t('app:status.activeSessions', { count: runningCount })}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>
@@ -1016,6 +1023,7 @@ export default function App() {
       {fileDropHint}
       <ToastStack />
       {settingsDialog}
+      {syncLabDialog}
       <AuthPromptDialog locked={locked !== null} />
       <section className="welcome-card">
         <div className="brand large-brand">
