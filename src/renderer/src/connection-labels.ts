@@ -1,5 +1,5 @@
 import type { ConnectionNode, ConnectionProtocol } from '../../shared/vault/types';
-import { isRemoteConnection } from '../../shared/vault/connections';
+import { isDirectKubeconfig, isRemoteConnection } from '../../shared/vault/connections';
 import { aiCliLabel } from '../../shared/ai-cli';
 import { t } from './i18n';
 
@@ -45,7 +45,7 @@ export function protocolShort(protocol: ConnectionProtocol): string {
 /** Display address without secrets, e.g. `user@host:22` or `Lokal · PowerShell`. */
 export function connectionAddress(node: ConnectionNode): string {
   if (node.protocol === 'aicli') return t('vault:address.local', { name: aiCliLabel(node) ?? t('vault:address.customCommand') });
-  if (node.protocol === 'kubernetes') return t('vault:address.cluster', { count: node.accessHosts.length });
+  if (node.protocol === 'kubernetes') return isDirectKubeconfig(node.kubeconfig) ? t('vault:address.clusterDirect') : t('vault:address.cluster', { count: node.accessHosts.length });
   if (!isRemoteConnection(node)) return t('vault:address.local', { name: protocolShort(node.protocol) });
   return `${node.username ? `${node.username}@` : ''}${node.host}:${node.port}`;
 }

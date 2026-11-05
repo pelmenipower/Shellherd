@@ -200,19 +200,38 @@
       "remove": "{{label}} entfernen",
       "add": "SSH-Verbindung hinzufügen",
       "choose": "Auswählen …",
-      "noneLeft": "Keine weiteren SSH-Verbindungen"
+      "noneLeft": "Keine weiteren SSH-Verbindungen",
+      "mode": {
+        "legend": "Zugang",
+        "ssh": "Über SSH",
+        "direct": "Direkt",
+        "directHint": "Shellherd spricht den API-Server von diesem Rechner aus an. Es wird keine SSH-Verbindung gebraucht."
+      }
     },
     "kubeconfig": {
       "legend": "Kubeconfig",
       "auto": "Automatisch (KUBECONFIG, ~/.kube/config, /etc/kubernetes/admin.conf)",
       "path": "Pfad auf dem Host",
-      "pathLabel": "Kubeconfig-Pfad auf dem Host"
+      "pathLabel": "Kubeconfig-Pfad auf dem Host",
+      "inline": "Eingefügt (im Vault gespeichert)",
+      "file": "Datei auf diesem Rechner",
+      "textLabel": "Kubeconfig",
+      "textHint": "Wird verschlüsselt im Vault gespeichert und wandert mit ihm.",
+      "stored_one": "Kubeconfig gespeichert · {{count}} Zeichen",
+      "stored_other": "Kubeconfig gespeichert · {{count}} Zeichen",
+      "replace": "Ersetzen",
+      "fileLabel": "Pfad auf diesem Rechner",
+      "fileHint": "Wird bei jedem Verbinden neu gelesen.",
+      "pickFile": "Datei wählen …",
+      "pickFailed": "Die Datei konnte nicht gewählt werden."
     },
     "context": {
       "label": "Context",
       "read": "Contexts lesen",
       "reading": "Liest …",
-      "readFailed": "Die Contexts konnten nicht gelesen werden."
+      "readFailed": "Die Contexts konnten nicht gelesen werden.",
+      "execConsent": "Login-Programm beim Verbinden ausführen: {{command}}",
+      "execHint": "Dieses Programm läuft auf diesem Rechner mit deinen Rechten. Nur bestätigen, wenn die kubeconfig aus vertrauenswürdiger Hand stammt."
     },
     "namespace": {
       "label": "Namespace",
@@ -236,7 +255,10 @@
       "accessNotSsh": "Die Zugangs-Verbindung „{{name}}“ ist keine SSH-Verbindung.",
       "accessDisabled": "Die Zugangs-Verbindung „{{name}}“ ist deaktiviert.",
       "nameMissing": "Gib einen Namen an.",
-      "linkUrl": "Gib eine https-Adresse ohne Benutzername, Abfrage oder Anker an."
+      "linkUrl": "Gib eine https-Adresse ohne Benutzername, Abfrage oder Anker an.",
+      "kubeconfigTextEmpty": "Füge eine Kubeconfig ein.",
+      "kubeconfigTextTooLong": "Die Kubeconfig ist zu groß (höchstens {{max}} Zeichen).",
+      "kubeconfigLocalPath": "Gib einen absoluten Pfad oder ~/ an."
     }
   }
 }

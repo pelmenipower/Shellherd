@@ -2,9 +2,9 @@ import { ConnectionNodeSchema, LOGIN_CONTROL, LOGIN_LIMITS } from '../../shared/
 import { CONNECTION_ICONS } from '../../shared/vault/appearance';
 import { PROTOCOLS } from '../../shared/vault/connections';
 import { TIMEOUT_LIMITS, parseBounded } from '../../shared/vault/timeouts';
-import { KUBE_NAME } from '../../shared/kubernetes';
+import { KUBECONFIG_LOCAL_PATH, KUBECONFIG_TEXT_MAX, KUBE_NAME } from '../../shared/kubernetes';
 import { httpsBase } from '../../shared/kube-links';
-import type { Authentication, ConnectionNode, ConnectionProtocol, PortForward, VaultNode } from '../../shared/vault/types';
+import type { Authentication, ConnectionNode, KubeconfigSource, ConnectionProtocol, PortForward, VaultNode } from '../../shared/vault/types';
 import { flattenConnections, kubeconfigPathError, noAccessMessage } from './cluster-form';
 import { draftsFromForwards, forwardsFromDrafts } from './forward-form';
 import type { ForwardDraft } from './forward-form';
@@ -40,8 +40,14 @@ export interface ConnectionFields {
   disabled: 'on' | 'off';
   /** Kubernetes only: ordered SSH connection ids. */
   accessHosts: string[];
-  kubeconfigSource: 'auto' | 'path';
+  /** Kubernetes only. 'inline'/'file' = direct access (no SSH host). */
+  kubeconfigSource: KubeconfigSource['source'];
+  /** 'path': on the access host; 'file': on this computer. */
   kubeconfigPath: string;
+  /** 'inline' only: the pasted kubeconfig. */
+  kubeconfigText: string;
+  /** 'inline' only: approved login-plugin command line; '' = none. */
+  execConsent: string;
   context: string;
   namespace: string;
   production: 'on' | 'off';
@@ -82,7 +88,7 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
     icon: connection?.icon ?? PROTOCOLS[protocol].defaultIcon,
     containerSudo: 'off', loginSudo: 'off', loginCommands: '',
     disabled: connection?.disabled ? 'on' : 'off',
-    accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off', argoUrl: '', harborUrl: '',
+    accessHosts: [], kubeconfigSource: 'inline', kubeconfigPath: '', kubeconfigText: '', execConsent: '', context: '', namespace: '', production: 'on', readOnly: 'off', argoUrl: '', harborUrl: '',
     idleMinutes: '', keepaliveSeconds: '', keepaliveCount: '', connectSeconds: '',
     jumpHost: '', forwards: [],
   };
@@ -113,7 +119,9 @@ export function fieldsFromConnection(protocol: ConnectionProtocol, connection?: 
   if (connection?.protocol === 'aicli') Object.assign(fields, { workingDirectory: connection.workingDirectory ?? '', tool: connection.tool, command: connection.command ?? '' });
   if (connection?.protocol === 'kubernetes') Object.assign(fields, {
     accessHosts: [...connection.accessHosts], kubeconfigSource: connection.kubeconfig.source,
-    kubeconfigPath: connection.kubeconfig.source === 'path' ? connection.kubeconfig.path : '',
+    kubeconfigPath: connection.kubeconfig.source === 'path' || connection.kubeconfig.source === 'file' ? connection.kubeconfig.path : '',
+    kubeconfigText: connection.kubeconfig.source === 'inline' ? connection.kubeconfig.text : '',
+    execConsent: connection.kubeconfig.source === 'inline' ? connection.kubeconfig.execConsent ?? '' : '',
     context: connection.context ?? '', namespace: connection.namespace ?? '',
     production: connection.production ? 'on' : 'off', readOnly: connection.readOnly ? 'on' : 'off',
     argoUrl: connection.argoUrl ?? '', harborUrl: connection.harborUrl ?? '',
@@ -200,12 +208,23 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
     node = { ...base, protocol, tool: fields.tool, ...(fields.tool === 'custom' ? { command } : {}),
       ...(fields.workingDirectory.trim() ? { workingDirectory: fields.workingDirectory.trim() } : {}) };
   } else if (protocol === 'kubernetes') {
-    // Access hosts and the kubeconfig path get field errors here; ConnectionForm adds validateCluster for the rest.
-    if (fields.accessHosts.length === 0) throw new ConnectionFieldError('accessHosts', noAccessMessage());
+    // Access hosts and the kubeconfig source get field errors here; ConnectionForm adds validateCluster for the rest.
+    const direct = fields.kubeconfigSource === 'inline' || fields.kubeconfigSource === 'file';
+    if (!direct && fields.accessHosts.length === 0) throw new ConnectionFieldError('accessHosts', noAccessMessage());
     const kubeconfigPath = fields.kubeconfigPath.trim();
+    let kubeconfig: KubeconfigSource = { source: 'auto' };
     if (fields.kubeconfigSource === 'path') {
       const problem = kubeconfigPathError(kubeconfigPath);
       if (problem) throw new ConnectionFieldError('kubeconfigPath', problem);
+      kubeconfig = { source: 'path', path: kubeconfigPath };
+    } else if (fields.kubeconfigSource === 'file') {
+      if (!kubeconfigPath) throw new ConnectionFieldError('kubeconfigPath', t('connection:cluster.validation.kubeconfigEmpty'));
+      if (!KUBECONFIG_LOCAL_PATH.test(kubeconfigPath) || /[\0\r\n]/.test(kubeconfigPath)) throw new ConnectionFieldError('kubeconfigPath', t('connection:cluster.validation.kubeconfigLocalPath'));
+      kubeconfig = { source: 'file', path: kubeconfigPath };
+    } else if (fields.kubeconfigSource === 'inline') {
+      if (!fields.kubeconfigText.trim()) throw new ConnectionFieldError('kubeconfigText', t('connection:cluster.validation.kubeconfigTextEmpty'));
+      if (fields.kubeconfigText.length > KUBECONFIG_TEXT_MAX) throw new ConnectionFieldError('kubeconfigText', t('connection:cluster.validation.kubeconfigTextTooLong', { max: KUBECONFIG_TEXT_MAX }));
+      kubeconfig = { source: 'inline', text: fields.kubeconfigText, ...(fields.execConsent ? { execConsent: fields.execConsent } : {}) };
     }
     const namespace = fields.namespace.trim();
     if (namespace && !KUBE_NAME.test(namespace)) throw new ConnectionFieldError('namespace', t('connection:validation.namespaceInvalid'));
@@ -217,8 +236,7 @@ export function connectionFromFields(id: string, fields: ConnectionFields, proto
       if (!root) throw new ConnectionFieldError(field, t('connection:cluster.validation.linkUrl'));
       links[field] = root;
     }
-    node = { ...base, protocol, accessHosts: [...fields.accessHosts],
-      kubeconfig: fields.kubeconfigSource === 'path' ? { source: 'path', path: kubeconfigPath } : { source: 'auto' },
+    node = { ...base, protocol, accessHosts: direct ? [] : [...fields.accessHosts], kubeconfig,
       ...(context ? { context } : {}), ...(namespace ? { namespace } : {}),
       production: fields.production === 'on', readOnly: fields.readOnly === 'on', ...links };
   } else {

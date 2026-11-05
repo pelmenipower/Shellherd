@@ -10,7 +10,7 @@ const fields: ConnectionFields = {
   method: 'agent', password: 'synthetic-only', keyPath: '/synthetic/key', passphrase: 'synthetic-only',
   domain: '', clipboard: 'on', workingDirectory: '', tool: 'claude', command: '',
   tags: 'prod, linux, prod, ,', color: '', icon: 'terminal', containerSudo: 'off', loginSudo: 'off', loginCommands: '', disabled: 'off',
-  accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', context: '', namespace: '', production: 'on', readOnly: 'off', argoUrl: '', harborUrl: '',
+  accessHosts: [], kubeconfigSource: 'auto', kubeconfigPath: '', kubeconfigText: '', execConsent: '', context: '', namespace: '', production: 'on', readOnly: 'off', argoUrl: '', harborUrl: '',
   idleMinutes: '', keepaliveSeconds: '', keepaliveCount: '', connectSeconds: '',
   jumpHost: '', forwards: [],
 };
@@ -167,6 +167,44 @@ describe('kubernetes clusters in the form', () => {
         expect(error).toBeInstanceOf(ConnectionFieldError);
         expect(error).toMatchObject({ field, message: 'Gib eine https-Adresse ohne Benutzername, Abfrage oder Anker an.' });
       }
+    }
+  });
+});
+
+describe('direct kubernetes clusters in the form', () => {
+  const direct = { ...fields, accessHosts: [], kubeconfigSource: 'inline' as const, kubeconfigText: 'apiVersion: v1\nkind: Config\n' };
+  const fieldOf = (patch: Partial<ConnectionFields>) => {
+    try { connectionFromFields('k', { ...direct, ...patch }, 'kubernetes'); } catch (caught) { return caught; }
+    return null;
+  };
+  it('starts a new cluster as direct and pasted', () => {
+    expect(fieldsFromConnection('kubernetes')).toMatchObject({ kubeconfigSource: 'inline', kubeconfigText: '', execConsent: '' });
+  });
+  it('round-trips pasted text with and without an approved login program', () => {
+    const plain = connectionFromFields('k', direct, 'kubernetes');
+    expect(plain).toMatchObject({ accessHosts: [], kubeconfig: { source: 'inline', text: direct.kubeconfigText } });
+    expect((plain as { kubeconfig: object }).kubeconfig).not.toHaveProperty('execConsent');
+    expect(fieldsFromConnection('kubernetes', plain)).toMatchObject({ kubeconfigSource: 'inline', kubeconfigText: direct.kubeconfigText, execConsent: '' });
+    const approved = connectionFromFields('k', { ...direct, execConsent: 'kubelogin get-token' }, 'kubernetes');
+    expect(approved).toMatchObject({ kubeconfig: { source: 'inline', execConsent: 'kubelogin get-token' } });
+    expect(fieldsFromConnection('kubernetes', approved)).toMatchObject({ execConsent: 'kubelogin get-token' });
+  });
+  it('round-trips a local file and stores the trimmed path', () => {
+    const node = connectionFromFields('k', { ...direct, kubeconfigSource: 'file', kubeconfigPath: ' ~/.kube/config ', kubeconfigText: 'ignored', execConsent: 'x' }, 'kubernetes');
+    expect(node).toMatchObject({ accessHosts: [], kubeconfig: { source: 'file', path: '~/.kube/config' } });
+    expect(fieldsFromConnection('kubernetes', node)).toMatchObject({ kubeconfigSource: 'file', kubeconfigPath: '~/.kube/config', kubeconfigText: '', execConsent: '' });
+  });
+  it('drops access hosts left in the form when saving direct', () => {
+    expect(connectionFromFields('k', { ...direct, accessHosts: ['a'] }, 'kubernetes')).toMatchObject({ accessHosts: [] });
+  });
+  it('reports empty and oversized text on the text field', () => {
+    expect(fieldOf({ kubeconfigText: '  \n' })).toMatchObject({ field: 'kubeconfigText', message: 'Füge eine Kubeconfig ein.' });
+    expect(fieldOf({ kubeconfigText: 'x'.repeat(65_537) })).toMatchObject({ field: 'kubeconfigText' });
+  });
+  it('reports empty, UNC, relative and control-character paths on the path field', () => {
+    expect(fieldOf({ kubeconfigSource: 'file', kubeconfigPath: ' ' })).toMatchObject({ field: 'kubeconfigPath', message: 'Gib den Pfad zur Kubeconfig an.' });
+    for (const path of [String.raw`\\server\share\c`,'//server/c', 'rel/c', '/a\nb']) {
+      expect(fieldOf({ kubeconfigSource: 'file', kubeconfigPath: path })).toMatchObject({ field: 'kubeconfigPath', message: 'Gib einen absoluten Pfad oder ~/ an.' });
     }
   });
 });

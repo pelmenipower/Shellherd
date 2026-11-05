@@ -48,7 +48,8 @@
     "local": "Lokal · {{name}}",
     "customCommand": "Eigener Befehl",
     "cluster_one": "Cluster · {{count}} Zugang",
-    "cluster_other": "Cluster · {{count}} Zugänge"
+    "cluster_other": "Cluster · {{count}} Zugänge",
+    "clusterDirect": "Cluster · direkt"
   },
   "disabled": "deaktiviert",
   "tree": {

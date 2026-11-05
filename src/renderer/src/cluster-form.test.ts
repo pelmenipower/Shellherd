@@ -44,6 +44,12 @@ describe('cluster creation and validation', () => {
     expect(validateCluster({ ...emptyCluster('k'), name: 'x', accessHosts: ['a'], kubeconfig: { source: 'path', path: 'rel/path' } }, [ssh('a', 'h')]))
       .toBe('Der Pfad muss mit / oder ~/ beginnen.');
   });
+  it('needs no access hosts for direct clusters but still a name', () => {
+    const direct = { ...emptyCluster('k'), name: 'D', kubeconfig: { source: 'inline' as const, text: 'x' } };
+    expect(validateCluster(direct, [])).toBeNull();
+    expect(validateCluster({ ...direct, kubeconfig: { source: 'file', path: '~/.kube/config' } }, [])).toBeNull();
+    expect(validateCluster({ ...direct, name: '' }, [])).toBe('Gib einen Namen an.');
+  });
   it('accepts a valid cluster and rejects disabled access hosts', () => {
     const cluster = { ...emptyCluster('k'), name: 'Prod', accessHosts: ['a'], kubeconfig: { source: 'path' as const, path: '~/.kube/config' } };
     expect(validateCluster(cluster, [ssh('a', 'h')])).toBeNull();

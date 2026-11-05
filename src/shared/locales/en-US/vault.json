@@ -48,7 +48,8 @@
     "local": "Local · {{name}}",
     "customCommand": "Custom command",
     "cluster_one": "Cluster · {{count}} access host",
-    "cluster_other": "Cluster · {{count}} access hosts"
+    "cluster_other": "Cluster · {{count}} access hosts",
+    "clusterDirect": "Cluster · direct"
   },
   "disabled": "disabled",
   "tree": {
