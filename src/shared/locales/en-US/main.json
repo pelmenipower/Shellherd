@@ -22,6 +22,9 @@
       "detail": "SHA-256 fingerprint:\n{{fingerprint}}\n\nCompare this fingerprint with a trusted source. If you confirm, this server key is saved for future connections.",
       "confirm": "Trust and save key"
     },
+    "kubeconfig": {
+      "title": "Choose kubeconfig"
+    },
     "privateKey": {
       "title": "Select private SSH key"
     },

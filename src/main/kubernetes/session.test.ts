@@ -653,6 +653,57 @@ suite('KubeSessions', () => {
     await settle();
     expect(world.deps.openAccess).toHaveBeenCalledTimes(2);
   });
+  suite('direct access (no SSH host)', () => {
+    const direct = (kubeconfig = KUBECONFIG, policy?: ClusterAccess['policy']): ClusterAccess => ({ kubeconfig, source: 'inline', ...(policy ? { policy } : {}) });
+    const directWorld = (access = direct()) => setup({ openAccess: vi.fn(async () => access) });
+
+    it('never opens a tunnel, shows no host and uses the server of the kubeconfig', async () => {
+      const world = directWorld();
+      const view = world.sessions.open(1, 'c1').viewId;
+      await settle();
+
+      expect(world.deps.openTunnel).not.toHaveBeenCalled();
+      const status = statusesOf(world, view).at(-1);
+      expect(status?.state).toBe('ready');
+      expect(status).not.toHaveProperty('host');
+      const configs = vi.mocked(world.deps.createApi).mock.calls.map(call => call[0]);
+      expect(configs[0].getCurrentCluster()?.server).toBe('https://k8s-cp1:6443');
+      expect(configs[0].getCurrentCluster()?.tlsServerName).toBeUndefined();
+    });
+
+    it('retries the certificate name without a tunnel', async () => {
+      const world = directWorld();
+      world.api.listErrors = [new KubeApiError('TLS: certificate does not match the server name', undefined, { code: 'kubernetes.tlsAltname' })];
+      const view = world.sessions.open(1, 'c1').viewId;
+      await settle();
+
+      expect(statusesOf(world, view).at(-1)?.state).toBe('ready');
+      const configs = vi.mocked(world.deps.createApi).mock.calls.map(call => call[0]);
+      expect(configs[1].getCurrentCluster()?.tlsServerName).toBe('kubernetes');
+      expect(world.deps.openTunnel).not.toHaveBeenCalled();
+    });
+
+    it('stays ready on the health tick and disposes without a host', async () => {
+      const world = directWorld();
+      const view = world.sessions.open(1, 'c1').viewId;
+      await settle();
+
+      world.clock.run(HEALTH_MS);
+      expect(statusesOf(world, view).at(-1)?.state).toBe('ready');
+      expect(() => world.sessions.close(1, view)).not.toThrow();
+      expect(() => world.sessions.closeAll()).not.toThrow();
+    });
+
+    it('hands access.policy to the parser: a login plugin without consent ends in an error', async () => {
+      const exec = KUBECONFIG.replace('token: secret-token', 'exec: { apiVersion: client.authentication.k8s.io/v1, command: aws }');
+      const world = directWorld(direct(exec, { source: 'inline' }));
+      const view = world.sessions.open(1, 'c1').viewId;
+      await settle();
+
+      expect(statusesOf(world, view).at(-1)).toMatchObject({ state: 'error', error: { code: 'kubernetes.loginPluginNeedsConsent' } });
+      expect(world.deps.createApi).not.toHaveBeenCalled();
+    });
+  });
 });
 
 suite('userError', () => {

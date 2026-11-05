@@ -267,17 +267,22 @@ class Session {
       this.trying = name;
       this.emitStatus();
     });
-    if (this.disposed) { access.host.close(); throw new AppError(ENDED); }
+    if (this.disposed) { access.host?.close(); throw new AppError(ENDED); }
     this.access = access;
-    this.hostName = access.connection.name;
-    const parsed = parseKubeconfig(access.kubeconfig, cluster.context);
+    this.hostName = access.connection?.name;
+    const parsed = parseKubeconfig(access.kubeconfig, cluster.context, access.policy ?? { source: 'ssh' });
     // Without a namespace in the vault or the context the tab shows all namespaces.
     this.contextNamespace = parsed.namespace;
     this.emitStatus();
-    const tunnel = await this.deps.openTunnel(access, parsed.server);
-    if (this.disposed) { tunnel.close(); throw new AppError(ENDED); }
-    this.tunnel = tunnel;
-    const api = await this.probe(parsed, tunnel.port);
+    // Direct access (no SSH host) talks to the API server as written in the kubeconfig.
+    let port: number | null = null;
+    if (access.host) {
+      const tunnel = await this.deps.openTunnel(access, parsed.server);
+      if (this.disposed) { tunnel.close(); throw new AppError(ENDED); }
+      this.tunnel = tunnel;
+      port = tunnel.port;
+    }
+    const api = await this.probe(parsed, port);
     if (this.disposed) throw new AppError(ENDED);
     this.api = api;
     this.overview = new Overview(api,
@@ -291,7 +296,7 @@ class Session {
   }
 
   /** Lists nodes once. A certificate that does not match the server name gets one retry with the name `kubernetes`. */
-  private async probe(parsed: ParsedKubeconfig, port: number): Promise<KubeApi> {
+  private async probe(parsed: ParsedKubeconfig, port: number | null): Promise<KubeApi> {
     const first = this.deps.createApi(parsed.build(port));
     try {
       await first.list('nodes', null);
@@ -326,7 +331,7 @@ class Session {
   /** Runs on the health timer and whenever a watcher reports trouble. */
   private checkHealth(): void {
     if (this.disposed || this.state !== 'ready') return;
-    if (this.access?.host.closed) {
+    if (this.access?.host?.closed) {
       this.reconnect();
       return;
     }
@@ -379,7 +384,7 @@ class Session {
     this.metrics = false;
     try { this.tunnel?.close(); } catch { /* already closed */ }
     this.tunnel = undefined;
-    try { this.access?.host.close(); } catch { /* already closed */ }
+    try { this.access?.host?.close(); } catch { /* already closed */ }
     this.access = undefined;
   }
 
