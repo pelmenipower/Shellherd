@@ -7,6 +7,11 @@ export const KUBE_NAME = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/;
 export const LABEL_KEY = /^([a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?\/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/;
 export const LABEL_VALUE = /^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$/;
 export const MAX_REPLICAS = 1000;
+/** Direct kubeconfig limits; here (not vault/schema) so kubernetes-schema and vault/schema share them without an import cycle. */
+export const KUBECONFIG_TEXT_MAX = 65_536;
+export const EXEC_CONSENT_MAX = 4096;
+/** Drive path, POSIX root or `~/` / `~\`; never UNC or device paths. */
+export const KUBECONFIG_LOCAL_PATH = /^(?:~[\\/]|\/(?!\/)|[A-Za-z]:[\\/])/;
 
 export const KUBE_KINDS = ['pods', 'deployments', 'statefulsets', 'daemonsets', 'jobs', 'cronjobs', 'services', 'ingresses', 'nodes', 'events'] as const;
 export type KubeKind = typeof KUBE_KINDS[number];

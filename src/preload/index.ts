@@ -105,6 +105,7 @@ const desktopApi: DesktopApi = {
   kubeAction: request => ipcRenderer.invoke('k8s:action', request),
   kubeClose: request => ipcRenderer.invoke('k8s:close', request),
   kubeProbe: request => ipcRenderer.invoke('k8s:probe', request),
+  kubeSelectConfigFile: () => ipcRenderer.invoke('k8s:select-config-file'),
   kubeForwardStart: request => ipcRenderer.invoke('k8s:forward-start', request),
   kubeForwardStop: request => ipcRenderer.invoke('k8s:forward-stop', request),
   kubeLogsStart: request => ipcRenderer.invoke('k8s:logs-start', request),

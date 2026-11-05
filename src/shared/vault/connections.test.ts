@@ -24,6 +24,20 @@ describe('connection helpers', () => {
   });
 });
 
+describe('inline kubeconfig redaction', () => {
+  const base = { type: 'connection', protocol: 'kubernetes', name: 'K', tags: [] as string[], production: false, readOnly: false, accessHosts: [] as string[] } as const;
+  const inline: VaultNode = { ...base, id: 'i', kubeconfig: { source: 'inline', text: 'token: secret-token', execConsent: 'secret-cmd' } };
+  const file: VaultNode = { ...base, id: 'f', kubeconfig: { source: 'file', path: '~/.kube/config' } };
+
+  it('empties pasted text and consent, leaves file sources alone', () => {
+    const [a, b] = redactSecrets([inline, file]);
+    expect(a).toMatchObject({ kubeconfig: { source: 'inline', text: '' } });
+    expect(JSON.stringify(a)).not.toContain('execConsent');
+    expect(JSON.stringify([a, b])).not.toContain('secret-');
+    expect(b).toEqual(file);
+  });
+});
+
 describe('login block redaction', () => {
   const login = { sudo: true, commands: ['synthetic-command'] };
   const ssh: VaultNode = { id: 's', type: 'connection', protocol: 'ssh', name: 'S', host: 'h', port: 22, tags: [],

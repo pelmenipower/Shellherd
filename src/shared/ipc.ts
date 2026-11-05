@@ -145,6 +145,7 @@ export const IPC_CHANNELS = {
   kubeAction: 'k8s:action',
   kubeClose: 'k8s:close',
   kubeProbe: 'k8s:probe',
+  kubeSelectConfigFile: 'k8s:select-config-file',
   kubeForwardStart: 'k8s:forward-start',
   kubeForwardStop: 'k8s:forward-stop',
   kubeLogsStart: 'k8s:logs-start',
@@ -252,6 +253,8 @@ export interface DesktopApi {
   kubeClose: (request: KubeViewRequest) => Promise<void>;
   /** Reads contexts of the kubeconfig on an SSH host; never returns the config itself. */
   kubeProbe: (request: KubeProbeRequest) => Promise<KubeProbeResult>;
+  /** Native file dialog for a local kubeconfig; returns only the path. */
+  kubeSelectConfigFile: () => Promise<SelectVaultFileResult>;
   /** Listens on 127.0.0.1 only and forwards to a pod or service port of the view's cluster; resolves with the running forward. */
   kubeForwardStart: (request: KubeForwardStartRequest) => Promise<KubeForwardStatus>;
   kubeForwardStop: (request: KubeForwardStopRequest) => Promise<void>;

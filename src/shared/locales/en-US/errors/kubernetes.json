@@ -27,8 +27,8 @@
     "kubeconfigNoContext": "The kubeconfig contains no context.",
     "contextMissing": "Context “{{name}}” does not exist in the kubeconfig (available: {{available}}).",
     "contextIncomplete": "The context refers to a missing cluster or user.",
-    "loginPluginUnsupported": "This kubeconfig uses a login plugin. That is not supported yet.",
-    "certFilesUnsupported": "The kubeconfig refers to certificate files. Use a kubeconfig with embedded certificates (e.g. /etc/kubernetes/admin.conf).",
+    "loginPluginUnsupported": "This kubeconfig uses a login plugin that is not supported here. Login plugins only run with direct access.",
+    "certFilesUnsupported": "The kubeconfig refers to certificate files. Use a kubeconfig with embedded certificates (…-data) or “File on this computer”.",
     "serverUrlInvalid": "The server address in the kubeconfig is invalid.",
     "httpsRequired": "The API server must be reachable over HTTPS.",
     "unauthorized": "Not signed in. The credentials in the kubeconfig were rejected.",
@@ -63,6 +63,13 @@
     "problemNodePressure": "{{name}}: {{pressure}}",
     "noArgoUrl": "The cluster entry has no Argo CD address.",
     "noHarborUrl": "The cluster entry has no Harbor address.",
-    "linkRefused": "This link is not opened: it does not match the address in the cluster entry."
+    "linkRefused": "This link is not opened: it does not match the address in the cluster entry.",
+    "kubeconfigFileUnreadable": "The file “{{path}}” could not be read.",
+    "loginPluginNeedsConsent": "This kubeconfig starts the program “{{command}}”. Confirm it in the cluster entry under Context.",
+    "loginPluginNotStarted": "The login program “{{command}}” could not be started. Check its path in the kubeconfig.",
+    "authProviderUnsupported": "This kubeconfig uses an auth-provider. Use an exec plugin or a token instead.",
+    "tlsVerifyRequired": "This kubeconfig turns off TLS verification (insecure-skip-tls-verify). Direct access does not support that.",
+    "proxyUnsupported": "This kubeconfig uses proxy-url. That is not supported.",
+    "tokenFileUnsupported": "This kubeconfig reads a token from a file (token-file). That is not supported. Enter the token itself or use an exec plugin."
   }
 }

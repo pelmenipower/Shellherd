@@ -49,6 +49,24 @@ describe('ConnectionNodeSchema', () => {
         expect(ConnectionNodeSchema.safeParse({ ...cluster, namespace: 'Shop' }).success).toBe(false);
     });
 
+    it('validates direct kubeconfig sources against accessHosts', () => {
+        const base = { id: 'k1', type: 'connection', name: 'k8s', tags: [], protocol: 'kubernetes', production: false, readOnly: false };
+        const ok = (extra: object) => ConnectionNodeSchema.safeParse({ ...base, ...extra }).success;
+        const inline = (extra: object = {}) => ({ accessHosts: [], kubeconfig: { source: 'inline', text: 'apiVersion: v1', ...extra } });
+        const file = (path: string) => ({ accessHosts: [], kubeconfig: { source: 'file', path } });
+        expect(ok(inline())).toBe(true);
+        expect(ok(inline({ execConsent: '/bin/login --x' }))).toBe(true);
+        for (const path of ['~/.kube/config', '~\\.kube\\config', 'C:\\u\\.kube\\config', '/home/u/.kube/config']) expect(ok(file(path))).toBe(true);
+        expect(ok({ ...inline(), accessHosts: ['cp1'] })).toBe(false);
+        expect(ok({ accessHosts: [], kubeconfig: { source: 'auto' } })).toBe(false);
+        expect(ok({ ...file('/a/b'), accessHosts: ['cp1'] })).toBe(false);
+        expect(ok(inline({ text: 'x'.repeat(65_537) }))).toBe(false);
+        expect(ok(inline({ text: 'a\0b' }))).toBe(false);
+        expect(ok(inline({ execConsent: 'x'.repeat(4097) }))).toBe(false);
+        expect(ok(inline({ execConsent: 'a\nb' }))).toBe(false);
+        for (const path of ['\\\\?\\x', '\\\\server\\share\\c', '//server/c', 'rel/c']) expect(ok(file(path))).toBe(false);
+    });
+
     it('accepts optional https addresses for Argo CD and Harbor and refuses anything else there', () => {
         const cluster = { id: 'k1', type: 'connection', name: 'k8s', tags: [], protocol: 'kubernetes', accessHosts: ['cp1'],
             kubeconfig: { source: 'auto' }, production: true, readOnly: false };
