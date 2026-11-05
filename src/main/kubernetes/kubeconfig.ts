@@ -3,7 +3,7 @@ import type { SpawnOptions } from 'node:child_process';
 import path from 'node:path';
 import { KubeConfig } from '@kubernetes/client-node';
 import type { User } from '@kubernetes/client-node';
-// shortcut: js-yaml is client-node's transitive copy; the test pins that both resolve to the same file
+// Same js-yaml copy client-node parses with; the test pins that both resolve to the same file.
 import { load as parseYaml } from 'js-yaml';
 import { AppError } from '../../shared/errors';
 
