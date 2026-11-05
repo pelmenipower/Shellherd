@@ -98,6 +98,15 @@ export function toApiError(error: unknown): KubeApiError {
   if (e.code === 'ECONNRESET' || cause.code === 'ECONNRESET' || e.message === 'socket hang up') {
     return new KubeApiError('Connection to the API server was reset', undefined, { code: 'kubernetes.connectionReset' });
   }
+  // Missing or blocked files: a login plugin that did not start (spawn) or a certificate/key file that cannot be read (open).
+  const fileError = [e, cause].find(item => ['ENOENT', 'EACCES', 'EPERM'].includes(item.code as string) && typeof item.path === 'string');
+  if (fileError) {
+    const file = fileError.path as string;
+    if (String(fileError.syscall).startsWith('spawn')) {
+      return new KubeApiError('Login plugin could not be started', undefined, { code: 'kubernetes.loginPluginNotStarted', params: { command: file.slice(0, 200) } });
+    }
+    return new KubeApiError('The file could not be read', undefined, { code: 'kubernetes.kubeconfigFileUnreadable', params: { path: file.slice(0, 1024) } });
+  }
   return new KubeApiError('The Kubernetes API reported an error', status, { code: 'kubernetes.apiError' });
 }
 
