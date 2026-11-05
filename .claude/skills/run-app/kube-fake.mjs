@@ -15,6 +15,8 @@ export const KUBE_SERVER = 'https://k8s-cp1:6443';
 export const KUBE_TOKEN = 'synthetic-kube-token';
 /** Method, path and query of every API request, one per line; headers are never written. In the fake's dir (run dir/kube). */
 export const KUBE_REQUEST_LOG = 'kube-requests.log';
+/** Direct kubeconfig (server 127.0.0.1, tls-server-name k8s-cp1) written into the fake's dir; never a real location. */
+export const KUBE_DIRECT_FILE = 'kubeconfig-direct.yaml';
 // Running pods serve one synthetic text page on this port; every other port is refused like by a kubelet.
 export const POD_HTTP_PORT = 8080;
 const RUN_DIR = process.env.SHELLHERD_RUN_DIR ?? path.join(os.tmpdir(), 'shellherd-run');
@@ -245,9 +247,20 @@ export async function startKubeFake({ port = 9334, dir = path.join(RUN_DIR, 'kub
     'users:', '- name: admin', `  user: { token: ${KUBE_TOKEN} }`, '',
   ].join('\n');
 
+  const directKubeconfig = [
+    'apiVersion: v1', 'kind: Config', 'current-context: direct', 'clusters:', '- name: direct', '  cluster:',
+    `    server: https://127.0.0.1:${server.address().port}`, '    tls-server-name: k8s-cp1', `    certificate-authority-data: ${cert.toString('base64')}`,
+    'contexts:', '- name: direct', '  context: { cluster: direct, user: admin, namespace: shop }',
+    'users:', '- name: admin', `  user: { token: ${KUBE_TOKEN} }`, '',
+  ].join('\n');
+  const directFile = path.join(dir, KUBE_DIRECT_FILE);
+  writeFileSync(directFile, directKubeconfig);
+
   return {
     port: server.address().port,
     kubeconfig,
+    directKubeconfig,
+    directFile,
     requests,
     close: () => new Promise(resolve => {
       for (const res of open) res.end();
