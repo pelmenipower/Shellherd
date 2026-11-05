@@ -512,6 +512,39 @@ it uses `sudo -n` (the user needs NOPASSWD for that). Shellherd rejects kubeconf
 `auth-provider` sections, because their plugins would run on this machine
 instead of on the server.
 
+### Direct access
+
+A cluster entry does not need an SSH connection. In the form, switch “Access” from
+“Through SSH” to “Direct”; Shellherd then talks to the API server from this computer.
+The kubeconfig comes from one of two sources:
+
+- “Pasted (stored in the vault)”: you paste the text. It is stored encrypted in the
+  vault and travels with it. A stored text shows “Kubeconfig stored · … characters”;
+  “Replace” swaps it.
+- “File on this computer”: enter an absolute path or `~/…`, or pick the file with
+  “Choose file…”. The file is read again at every connect. After changing it, close the
+  cluster tab and open it again. UNC paths are not supported.
+
+You pick the context from the list read from the kubeconfig. Direct access does not
+reconnect automatically; if the connection drops, open the tab again.
+
+If the chosen context contains a login program (`exec`), it runs on this computer with
+your permissions, without a terminal (no TTY) and for at most 60 s. For a pasted
+kubeconfig it only starts after you confirm “Run login program when connecting: …” under
+Context; changing the text or the context voids the confirmation. A file on this computer
+needs no confirmation. Relative program paths are resolved against the file's folder
+(they are not allowed for pasted text). On Windows, Shellherd does not start `.cmd` or
+`.bat` files; use an `.exe` or the full path.
+
+Not supported are `token-file`, `auth-provider`, `proxy-url` and
+`insecure-skip-tls-verify`; `token-file` is now also refused for clusters through SSH. If the
+kubeconfig refers to certificate files, use embedded certificates (`…-data`) or
+“File on this computer”.
+
+Older Shellherd versions do not open a vault that contains a direct cluster entry.
+
+### Setup and use
+
 In the setup form, “Production” is preselected; deselecting it is a deliberate
 decision. “Read-only” blocks restart, scale, delete and the shell; logs, `Logs of all pods`, YAML,
 events, describe, `Forward port…` and `Analyze with AI` stay allowed. Every change asks for confirmation. For
