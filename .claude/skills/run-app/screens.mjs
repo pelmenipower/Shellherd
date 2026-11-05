@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|kube-ai|kube-links|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|kube-ai|kube-links|kube-direct|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -291,6 +291,24 @@ const blocks = {
     await waitFor('Kubernetes-Ansicht', `document.body.innerText.includes('bereit über web-01') && ${count('.kube-table tbody tr')} >= 5`);
     await pause(1500); // first metrics round
     await shot('kubernetes');
+  },
+  // Direct cluster (kubeconfig file in the run dir, no SSH tunnel): edit form in file mode, then the tab with plain "bereit".
+  async 'kube-direct'() {
+    if (!await evaluate(`document.body.innerText.includes('lokal-k8s')`)) { console.log('Kubernetes direkt übersprungen: lokal-k8s fehlt im Baum (kubeconfig-direct.yaml fehlt?).'); return; }
+    await rclick('.vault-tree-row >> text=lokal-k8s >> nth=0');
+    await menuItem('Bearbeiten');
+    await waitFor('Formular direkt', `document.querySelector('input[type=radio][value=file]')?.checked && document.querySelector('input[id$="-kubeconfigPath"]')?.value.includes('kubeconfig-direct.yaml')`);
+    // The path lies in the run dir; a home-based RUN_DIR would show the user name.
+    if (insideHome(RUN_DIR)) console.log('Warnung: RUN_DIR liegt im Benutzerordner, kube-direct-form.png zeigt den Pfad mit dem Benutzernamen.');
+    await pause(300);
+    await shot('kube-direct-form');
+    await closeTabs();
+    await click('.vault-tree-row >> text=lokal-k8s >> nth=0');
+    await key('Enter');
+    await waitFor('Kubernetes-Ansicht direkt', `document.querySelector('.kube-view:not([hidden]) .kube-status')?.textContent.trim() === 'bereit' && ${count('.kube-table tbody tr')} >= 5`);
+    await pause(1500); // first metrics round
+    await shot('kube-direct');
+    await closeTabs();
   },
   // Port forwards from the cluster tab: pod dialog, pod and service forward proven by an HTTP GET, a service without a ready pod, stop.
   async 'kube-forward'() {
