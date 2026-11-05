@@ -508,14 +508,14 @@ The kubeconfig is searched in this order: `$KUBECONFIG` of the login shell
 (first file), `~/.kube/config`, then `/etc/kubernetes/admin.conf`. Shellherd reads the file under
 `/etc/kubernetes` via sudo with the SSH connection's login:
 if a password is saved, Shellherd answers the sudo prompt with it, otherwise
-it uses `sudo -n` (the user needs NOPASSWD for that). Shellherd rejects kubeconfigs with `exec` or
+it uses `sudo -n` (the user needs NOPASSWD for that). Through SSH, Shellherd rejects kubeconfigs with `exec` or
 `auth-provider` sections, because their plugins would run on this machine
 instead of on the server.
 
 ### Direct access
 
-A cluster entry does not need an SSH connection. In the form, switch “Access” from
-“Through SSH” to “Direct”; Shellherd then talks to the API server from this computer.
+A cluster entry does not need an SSH connection. New cluster entries start with “Access” set to “Direct”;
+switch entries that go through SSH there. Shellherd then talks to the API server from this computer.
 The kubeconfig comes from one of two sources:
 
 - “Pasted (stored in the vault)”: you paste the text. It is stored encrypted in the
@@ -531,10 +531,10 @@ reconnect automatically; if the connection drops, open the tab again.
 If the chosen context contains a login program (`exec`), it runs on this computer with
 your permissions, without a terminal (no TTY) and for at most 60 s. For a pasted
 kubeconfig it only starts after you confirm “Run login program when connecting: …” under
-Context; changing the text or the context voids the confirmation. A file on this computer
+Context; changing the text or the context voids the confirmation. The confirmation appears after you click “Read contexts”. A file on this computer
 needs no confirmation. Relative program paths are resolved against the file's folder
 (they are not allowed for pasted text). On Windows, Shellherd does not start `.cmd` or
-`.bat` files; use an `.exe` or the full path.
+`.bat` files; use an `.exe` (program name or full path).
 
 Not supported are `token-file`, `auth-provider`, `proxy-url` and
 `insecure-skip-tls-verify`; `token-file` is now also refused for clusters through SSH. If the

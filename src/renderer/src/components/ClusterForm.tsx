@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { VaultNode } from '../../../shared/vault/types';
 import { flattenConnections } from '../cluster-form';
 import type { ConnectionFields } from '../connection-form';
@@ -30,11 +30,13 @@ export function ClusterForm({ idPrefix, fields, nodes, busy, error, onChange }: 
   const [probeError, setProbeError] = useState<string | null>(null);
   const [pickError, setPickError] = useState(false);
   const [replacing, setReplacing] = useState(false);
+  // Bumped whenever the source changes so a late probe answer is dropped.
+  const probeSeq = useRef(0);
   const firstHost = fields.accessHosts[0];
   const source = fields.kubeconfigSource;
   const direct = source === 'inline' || source === 'file';
   // Contexts belong to the source they were read from.
-  useEffect(() => { setContexts([]); setCurrentContext(undefined); setExecCommands({}); setProbeError(null); },
+  useEffect(() => { probeSeq.current += 1; setContexts([]); setCurrentContext(undefined); setExecCommands({}); setProbeError(null); },
     [firstHost, source, fields.kubeconfigText, fields.kubeconfigPath]);
 
   const connections = flattenConnections(nodes);
@@ -54,15 +56,18 @@ export function ClusterForm({ idPrefix, fields, nodes, busy, error, onChange }: 
 
   async function readContexts(): Promise<void> {
     if (!probeRequest || probing) return;
+    const seq = probeSeq.current;
     setProbing(true);
     setProbeError(null);
     try {
       const result = await window.desktopApi.kubeProbe(probeRequest);
+      if (seq !== probeSeq.current) return;
       setContexts(result.contexts);
       setCurrentContext(result.currentContext);
       setExecCommands(result.execCommands ?? {});
       if (direct && !fields.context.trim() && result.currentContext) onChange({ context: result.currentContext, execConsent: '' });
     } catch (caught) {
+      if (seq !== probeSeq.current) return;
       setContexts([]);
       setCurrentContext(undefined);
       setExecCommands({});

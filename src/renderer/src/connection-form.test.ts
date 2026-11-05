@@ -203,7 +203,7 @@ describe('direct kubernetes clusters in the form', () => {
   });
   it('reports empty, UNC, relative and control-character paths on the path field', () => {
     expect(fieldOf({ kubeconfigSource: 'file', kubeconfigPath: ' ' })).toMatchObject({ field: 'kubeconfigPath', message: 'Gib den Pfad zur Kubeconfig an.' });
-    for (const path of [String.raw`\\server\share\c`,'//server/c', 'rel/c', '/a\nb']) {
+    for (const path of [String.raw`\\server\share\c`,'//server/c', '/\\server\\share\\c', 'rel/c', '/a\nb']) {
       expect(fieldOf({ kubeconfigSource: 'file', kubeconfigPath: path })).toMatchObject({ field: 'kubeconfigPath', message: 'Gib einen absoluten Pfad oder ~/ an.' });
     }
   });
