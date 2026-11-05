@@ -99,7 +99,7 @@ export function toApiError(error: unknown): KubeApiError {
     return new KubeApiError('Connection to the API server was reset', undefined, { code: 'kubernetes.connectionReset' });
   }
   // Missing or blocked files: a login plugin that did not start (spawn) or a certificate/key file that cannot be read (open).
-  const fileError = [e, cause].find(item => ['ENOENT', 'EACCES', 'EPERM'].includes(item.code as string) && typeof item.path === 'string');
+  const fileError = [e, cause].find(item => (['ENOENT', 'EACCES', 'EPERM'].includes(item.code as string) || (item.code === 'EINVAL' && String(item.syscall).startsWith('spawn'))) && typeof item.path === 'string');
   if (fileError) {
     const file = fileError.path as string;
     if (String(fileError.syscall).startsWith('spawn')) {

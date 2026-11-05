@@ -110,6 +110,9 @@ describe('toApiError', () => {
     expect(toApiError(spawnError).coded).toEqual({ code: 'kubernetes.loginPluginNotStarted', params: { command: 'kubelogin' } });
     expect(toApiError(new Error('x', { cause: spawnError })).coded.code).toBe('kubernetes.loginPluginNotStarted');
     expect(toApiError(spawnError).message).not.toContain('kubelogin ENOENT');
+    const cmd = Object.assign(new Error('spawn EINVAL'), { code: 'EINVAL', syscall: 'spawn', path: 'C:/x/az.cmd' });
+    expect(toApiError(cmd).coded).toEqual({ code: 'kubernetes.loginPluginNotStarted', params: { command: 'C:/x/az.cmd' } });
+    expect(toApiError(Object.assign(new Error('x'), { code: 'EINVAL', syscall: 'open', path: '/k' })).coded.code).toBe('kubernetes.apiError');
   });
 
   it('maps undici TLS failures through the cause code and reason', () => {

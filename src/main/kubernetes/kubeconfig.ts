@@ -87,18 +87,21 @@ export function listContexts(text: string): { contexts: string[]; currentContext
 
 /** Credentials inside a pasted kubeconfig, for masking. Any error yields []. */
 export function kubeconfigSecrets(text: string): string[] {
-  try {
-    const found: string[] = [];
-    for (const user of load(text).getUsers()) {
-      for (const value of [user.token, user.password, user.keyData]) if (typeof value === 'string' && value) found.push(value);
-      const config = (user.authProvider as { config?: Record<string, unknown> } | null | undefined)?.config;
-      for (const key of ['id-token', 'refresh-token', 'client-secret', 'access-token']) {
-        const value = config?.[key];
-        if (typeof value === 'string' && value) found.push(value);
-      }
-    }
-    return found;
-  } catch { return []; }
+  // Reads the YAML document directly: client-node refuses whole files (token-file, no contexts) and would unmask the rest.
+  let doc: unknown;
+  try { doc = parseYaml(text); } catch { return []; }
+  const users = (doc as { users?: unknown } | null)?.users;
+  if (!Array.isArray(users)) return [];
+  const found: string[] = [];
+  const add = (value: unknown): void => { if (typeof value === 'string' && value) found.push(value); };
+  for (const item of users) {
+    const user = (item as { user?: unknown } | null)?.user as Record<string, unknown> | null | undefined;
+    if (!user || typeof user !== 'object') continue;
+    for (const key of ['token', 'password', 'client-key-data']) add(user[key]);
+    const config = (user['auth-provider'] as { config?: Record<string, unknown> } | null | undefined)?.config;
+    if (config && typeof config === 'object') for (const key of ['id-token', 'refresh-token', 'client-secret', 'access-token']) add(config[key]);
+  }
+  return found;
 }
 
 const isRelativeCommand = (command: string): boolean => /[\\/]/.test(command) && !path.isAbsolute(command);
@@ -161,8 +164,11 @@ export function parseKubeconfig(text: string, contextName?: string, policy: Kube
         // shortcut: client-node 2.0.0 (exact pin) keeps ExecAuth private; the test fails if the field moves
         const auth = (built as unknown as { authenticators?: object[] }).authenticators?.find(item => 'execFn' in item) as { execFn: unknown } | undefined;
         if (!auth) throw new KubeInputError('kubernetes.loginPluginUnsupported');
-        auth.execFn = (command: string, args: string[] | undefined, options: SpawnOptions) =>
-          spawn(command, args ?? [], { ...options, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, timeout: EXEC_TIMEOUT_MS });
+        auth.execFn = (command: string, args: string[] | undefined, options: SpawnOptions) => {
+          // spawn of .cmd/.bat throws EINVAL without a path on Windows; add it so toApiError names the command
+          try { return spawn(command, args ?? [], { ...options, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, timeout: EXEC_TIMEOUT_MS }); }
+          catch (error) { throw Object.assign(error as object, { path: command }); }
+        };
       }
       return built;
     },

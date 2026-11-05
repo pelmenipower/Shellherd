@@ -41,7 +41,7 @@ describe('readLocalKubeconfig', () => {
   });
   it('rejects UNC, device, relative and control-character paths without touching the disk', async () => {
     const f = files();
-    for (const bad of ['\\\\server\\share\\c', '//server/c', '\\\\?\\C:\\c', 'rel/c', '/a\nb', '/a\0b']) {
+    for (const bad of ['\\\\server\\share\\c', '//server/c', '/\\server\\share\\c', '\\\\?\\C:\\c', 'rel/c', '/a\nb', '/a\0b']) {
       await expect(readLocalKubeconfig(bad, f)).rejects.toThrowError(unreadable(bad));
     }
     expect(f.stat).not.toHaveBeenCalled();

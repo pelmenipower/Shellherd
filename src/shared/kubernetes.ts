@@ -11,7 +11,7 @@ export const MAX_REPLICAS = 1000;
 export const KUBECONFIG_TEXT_MAX = 65_536;
 export const EXEC_CONSENT_MAX = 4096;
 /** Drive path, POSIX root or `~/` / `~\`; never UNC or device paths. */
-export const KUBECONFIG_LOCAL_PATH = /^(?:~[\\/]|\/(?!\/)|[A-Za-z]:[\\/])/;
+export const KUBECONFIG_LOCAL_PATH = /^(?:~[\\/]|\/(?![\\/])|[A-Za-z]:[\\/])/;
 
 export const KUBE_KINDS = ['pods', 'deployments', 'statefulsets', 'daemonsets', 'jobs', 'cronjobs', 'services', 'ingresses', 'nodes', 'events'] as const;
 export type KubeKind = typeof KUBE_KINDS[number];

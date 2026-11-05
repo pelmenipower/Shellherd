@@ -217,6 +217,6 @@ describe('KubeOpenLinkRequestSchema and KubeArgoRequestSchema', () => {
     expect(ok({ connectionId: 'c1', text: 'x' })).toBe(false);
     expect(ok({ text: 'x'.repeat(KUBECONFIG_TEXT_MAX + 1) })).toBe(false);
     expect(ok({ text: '' })).toBe(false);
-    for (const path of ['\\\\server\\share\\c', '\\\\?\\C:\\x', '//server/c', 'rel/c', '/a\nb', '/a\0b']) expect(ok({ path })).toBe(false);
+    for (const path of ['\\\\server\\share\\c', '\\\\?\\C:\\x', '//server/c', '/\\server\\share\\c', 'rel/c', '/a\nb', '/a\0b']) expect(ok({ path })).toBe(false);
   });
 });

@@ -139,7 +139,7 @@ users:
         expect(() => parseKubeconfig(text, undefined, policy)).toThrowError(code('kubernetes.tokenFileUnsupported'));
       }
       expect(() => listContexts(text)).toThrowError(code('kubernetes.tokenFileUnsupported'));
-      expect(kubeconfigSecrets(text)).toEqual([]);
+      expect(kubeconfigSecrets(text)).toEqual(['t']); // other users stay masked
     }
   });
   it('resolves js-yaml to the same file for us and for client-node', () => {
@@ -253,5 +253,10 @@ describe('kubeconfigSecrets', () => {
     expect(kubeconfigSecrets(full({ user: 'token: T1\n    password: P1\n    client-key-data: K1' })).sort()).toEqual(['K1', 'P1', 'T1']);
     expect(kubeconfigSecrets(full({ user: 'auth-provider: { name: oidc, config: { id-token: I1, refresh-token: R1, other: O } }' })).sort()).toEqual(['I1', 'R1']);
     expect(kubeconfigSecrets(': : :')).toEqual([]);
+  });
+  it('still masks when client-node would refuse the file (token-file user, no contexts)', () => {
+    const users = 'users:\n- name: a\n  user: { token-file: /x }\n- name: b\n  user: { token: T2 }\n';
+    expect(kubeconfigSecrets(users)).toEqual(['T2']);
+    expect(kubeconfigSecrets(full({ user: 'token: T3' }).replace(/contexts:[\s\S]*?(?=\n\w|$)/, ''))).toContain('T3');
   });
 });

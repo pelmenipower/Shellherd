@@ -29,6 +29,8 @@ export async function readLocalKubeconfig(file: string, files: LocalFiles = node
   const unreadable = new KubeInputError('kubernetes.kubeconfigFileUnreadable', { path: file });
   if (!KUBECONFIG_LOCAL_PATH.test(file) || /[\0\r\n]/.test(file)) throw unreadable;
   const expanded = expandHome(file);
+  // Defense in depth: on Windows anything that does not resolve to a drive path (e.g. UNC) is refused before any disk access.
+  if (process.platform === 'win32' && !/^[A-Za-z]:\\/.test(path.win32.resolve(expanded))) throw unreadable;
   try {
     const info = await files.stat(expanded);
     if (!info.isFile() || info.size > DIRECT_FILE_MAX_BYTES) throw unreadable;

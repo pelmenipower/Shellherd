@@ -64,7 +64,7 @@ describe('ConnectionNodeSchema', () => {
         expect(ok(inline({ text: 'a\0b' }))).toBe(false);
         expect(ok(inline({ execConsent: 'x'.repeat(4097) }))).toBe(false);
         expect(ok(inline({ execConsent: 'a\nb' }))).toBe(false);
-        for (const path of ['\\\\?\\x', '\\\\server\\share\\c', '//server/c', 'rel/c']) expect(ok(file(path))).toBe(false);
+        for (const path of ['\\\\?\\x', '\\\\server\\share\\c', '//server/c', '/\\server\\share\\c', 'rel/c']) expect(ok(file(path))).toBe(false);
     });
 
     it('accepts optional https addresses for Argo CD and Harbor and refuses anything else there', () => {
