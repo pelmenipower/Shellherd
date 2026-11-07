@@ -710,6 +710,28 @@ Settings → Connections → `Manage server keys` shows all confirmed and import
 
 `Import from known_hosts…` reads an OpenSSH file that you choose in the dialog (suggested: `%USERPROFILE%\.ssh\known_hosts`, at most 4 MiB). Taken over are host names, `[host]:port` and hashed names (`|1|…`) with Ed25519, ECDSA and RSA keys, also several per server. The list shows hashed entries as “Hashed host name”. `@revoked` lines apply to all hosts: a key marked this way is never accepted by Shellherd, not even after a prompt. Skipped are `@cert-authority`, patterns such as `*.example.com` or `!host`, certificates and security keys (`sk-…`). The import does not change any key you have confirmed in Shellherd: for such servers Shellherd's entry continues to apply, and if the file deviates from it, the result names the server. Shellherd reads `known_hosts` only after this click and never writes it.
 
+## Remote access (development)
+
+Only in an unpacked development build with `SHELLHERD_SYNC_LAB=1`, explicitly without security sign-off: the feature has no independent security review. Do not use it for real devices or real credentials.
+
+**Flow:**
+
+1. Both devices: Settings → `Set up remote access (development)`, enter the server address, `Connect`, sign in with username and server password. The vault must be unlocked.
+2. Choose a device name and `Announce this device online`. The dialog shows this device's fingerprint.
+3. On the viewing device, the other device appears under `Online devices`. Compare the fingerprint independently on both devices, tick `I compared the fingerprint on the other device`, then `View screen`.
+4. The other device asks `Share your screen?` with the requester's fingerprint. `Share screen` is locked for the first second. While the picture is running, a bar shows who is watching, with `End`.
+5. Either side can end at any time (`End connection` or `End`). Locking the vault also ends the connection.
+
+**Limits:**
+
+- View only. Mouse and keyboard are not transmitted.
+- Same network (LAN) only, no TURN relay. Only direct connections over host candidates exist; behind NAT or across separate networks setup fails with “No direct connection possible”.
+- A session lasts five minutes at most; after that a new request is needed.
+- Lock screen, UAC prompts and the sign-in screen are not transmitted.
+- On Linux there is no window protection: the Shellherd window is visible in the picture, too. On Wayland the system shows its own picker for what is shared.
+- The device identity is only persistent with an operating system key store. Without one it is temporary and the fingerprint changes on the next start.
+- The `remote-scene.mjs` scene and real tests need a network interface with a LAN address on each device; loopback alone is not enough for WebRTC.
+
 ## Process boundaries and lifecycle
 
 - Main: encrypted files, vault session key, `ssh2`, host key verification.

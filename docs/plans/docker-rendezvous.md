@@ -13,6 +13,8 @@ Teilnehmertrennung, Limits und verlorene HTTP-Bestätigungen. Betriebshinweise
 stehen in `server/README.md`. Kein produktiver Desktop-Agent oder unabhängiger
 Sicherheitsreview wird dadurch behauptet.
 
+Stand 2026-11-07: Der Server hat zusätzlich `POST /v1/refresh` (leerer Body, verlängert die Anmeldung um 15 Minuten, höchstens 12 Stunden ab Login, Token bleibt gleich; die Rendezvous-Bindung der Geräte bleibt erhalten). Der Rendezvous-Pfad wird vom Desktop-Meilenstein 1 „Fernzugriff (Ansehen)“ genutzt; `rendezvous.mjs` in `.claude/skills/run-app/` stellt dafür einen synthetischen Fake bereit. Verbleibende Lücken: Eingabeinjektion, TURN/Medienrelay, Betriebssystemdienst und unabhängiger Sicherheitsreview.
+
 ## Umsetzung
 
 1. Bestehenden Sync-Transport kompatibel weiterverwenden; Container-Listener nur

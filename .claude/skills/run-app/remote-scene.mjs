@@ -1,0 +1,209 @@
+// Remote-view scene: drives two running app instances (A = shared device, B = viewer) against the rendezvous fake.
+// Usage: node .claude/skills/run-app/remote-scene.mjs
+// Needs (see SKILL.md, "Fernzugriff-Szene"): `npm run drive:sshd` (rendezvous fake on 8788), two drivers started with
+// SHELLHERD_SYNC_LAB=1 SHELLHERD_REMOTE_CAPTURE_FAKE=1 (A on 9333, B on 9336 with its own SHELLHERD_RUN_DIR), an unlocked
+// demo vault in each (`demo-setup.mjs`), and a non-loopback network interface (WebRTC uses host candidates only).
+// Env: A_RUN_DIR/A_PORT (default <tmp>/shellherd-run, 9333), B_RUN_DIR/B_PORT (default <tmp>/shellherd-run-b, 9336),
+// REMOTE_SERVER_URL (default http://127.0.0.1:8788). Synthetic data only; no real vault or profile is touched.
+// Exit codes: 0 ok, 1 step failed, 2 driver unreachable, 3 no non-loopback interface.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const SERVER_URL = process.env.REMOTE_SERVER_URL ?? 'http://127.0.0.1:8788';
+const USER = 'demo';
+const PASSWORD = 'synthetic-rendezvous-demo';
+const NAME_A = 'Gerät A';
+const NAME_B = 'Gerät B';
+const ENDED_REMOTE = 'Das andere Gerät hat die Verbindung beendet.';
+const ENDED_DECLINED = 'Das andere Gerät hat die Anfrage abgelehnt.';
+// Colours of the fake capture pattern (src/renderer/src/remote-capture-fake.ts), quadrant centres at 25 % / 75 %.
+const PATTERN = [
+  { x: 0.25, y: 0.25, rgb: [230, 40, 40] },
+  { x: 0.75, y: 0.25, rgb: [40, 190, 80] },
+  { x: 0.25, y: 0.75, rgb: [40, 90, 230] },
+  { x: 0.75, y: 0.75, rgb: [240, 200, 40] }
+];
+const TOLERANCE = 48;
+const END_WITHIN_MS = 8000;
+
+class Fail extends Error { constructor(message, code = 1) { super(message); this.code = code; } }
+
+function instance(label, runDirKey, portKey, runDirDefault, portDefault) {
+  const runDir = process.env[runDirKey] ?? path.join(os.tmpdir(), runDirDefault);
+  const port = Number(process.env[portKey] ?? portDefault);
+  async function call(route, body, query = '') {
+    let token;
+    try { token = fs.readFileSync(path.join(runDir, 'token'), 'utf8'); }
+    catch { throw new Fail(`${label}: Token fehlt in ${runDir} (Treiber nicht gestartet?)`, 2); }
+    let response;
+    try { response = await fetch(`http://127.0.0.1:${port}/${route}${query}`, { method: body === undefined ? 'GET' : 'POST', body, headers: { 'x-driver-token': token } }); }
+    catch { throw new Fail(`${label}: Treiber auf Port ${port} nicht erreichbar`, 2); }
+    const text = await response.text();
+    if (!response.ok) throw new Fail(`${label} /${route}: ${text}`);
+    return JSON.parse(text);
+  }
+  return {
+    label, runDir, port, call,
+    click: selector => call('click', selector),
+    fill: (selector, value) => call('fill', `${selector}\n${value}`),
+    key: name => call('key', undefined, `?k=${encodeURIComponent(name)}`),
+    evaluate: expression => call('eval', `return (${expression})`),
+    main: code => call('main', code),
+    shot: name => call('ss', undefined, `?name=${name}`),
+    async waitFor(step, expression, timeout = 20000) {
+      for (const end = Date.now() + timeout; ; await pause(250)) {
+        if (await call('eval', `return !!(${expression})`)) return;
+        if (Date.now() >= end) throw new Fail(`${label}: ${step} (Timeout nach ${timeout / 1000} s)`);
+      }
+    }
+  };
+}
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+const A = instance('A', 'A_RUN_DIR', 'A_PORT', 'shellherd-run', 9333);
+const B = instance('B', 'B_RUN_DIR', 'B_PORT', 'shellherd-run-b', 9336);
+const log = message => console.log(message);
+const LAB = 'dialog.remote-lab-dialog';
+const text = (instanceRef, selector) => instanceRef.evaluate(`document.querySelector(${JSON.stringify(selector)})?.textContent?.trim() ?? ''`);
+const has = selector => `!!document.querySelector(${JSON.stringify(selector)})`;
+const shots = [];
+
+function hasNonLoopbackInterface() {
+  return Object.values(os.networkInterfaces()).flat().some(entry => entry && !entry.internal && !entry.address.startsWith('169.254.') && !entry.address.startsWith('fe80:'));
+}
+
+// Opens the lab dialog from the settings dialog and signs in, one instance at a time (the server rejects parallel logins).
+async function signIn(side) {
+  await side.waitFor('Einstellungen-Knopf', has('.settings-button'));
+  await side.click('.settings-button');
+  await side.waitFor('Fernzugriff-Eintrag', `[...document.querySelectorAll('dialog.settings-dialog button')].some(b => b.textContent.includes('Fernzugriff einrichten'))`);
+  await side.call('eval', `[...document.querySelectorAll('dialog.settings-dialog button')].find(b => b.textContent.includes('Fernzugriff einrichten')).click()`);
+  await side.waitFor('Fernzugriff-Dialog', has(`${LAB}[open]`));
+  await side.fill(`${LAB} input[type=url]`, SERVER_URL);
+  await side.click(`${LAB} form button[type=submit]`);
+  await side.waitFor('Anmeldeformular', has(`${LAB} input[type=password]`));
+  await side.fill(`${LAB} input[autocomplete=username]`, USER);
+  await side.fill(`${LAB} input[type=password]`, PASSWORD);
+  await side.click(`${LAB} form button[type=submit]`);
+  await side.waitFor('Anmeldung (Gerätename-Feld)', has(`${LAB} .remote-lab-account form input`));
+  log(`${side.label}: angemeldet`);
+}
+
+async function goOnline(side, name) {
+  await side.fill(`${LAB} .remote-lab-account form input`, name);
+  await side.click(`${LAB} .remote-lab-account form button[type=submit]`);
+  await side.waitFor('online (Fingerabdruck sichtbar)', has(`${LAB} .remote-lab-account > code.remote-lab-fingerprint`));
+  const fingerprint = await text(side, `${LAB} .remote-lab-account > code.remote-lab-fingerprint`);
+  log(`${side.label}: online, Fingerabdruck ${fingerprint}`);
+  return fingerprint;
+}
+
+// Closes the lab dialog and the settings dialog it returns to, so the consent dialog and the share bar are reachable.
+async function closeDialogs(side) {
+  await side.click(`${LAB} .remote-lab-heading button`);
+  await side.waitFor('Fernzugriff-Dialog geschlossen', `!${has(`${LAB}[open]`)}`);
+  if (await side.evaluate(has('dialog.settings-dialog[open]'))) {
+    await side.key('Escape');
+    await side.waitFor('Einstellungen geschlossen', `!${has('dialog.settings-dialog[open]')}`);
+  }
+}
+
+// Draws the viewer video into a canvas and compares the four pattern points.
+const PIXEL_CHECK = `(() => {
+  const video = document.querySelector('${LAB} video');
+  if (!video || !(video.readyState >= 2 && video.videoWidth > 0)) return null;
+  const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  const context = canvas.getContext('2d'); context.drawImage(video, 0, 0);
+  return ${JSON.stringify(PATTERN)}.map(point => ({ ...point, got: [...context.getImageData(Math.floor(point.x * canvas.width), Math.floor(point.y * canvas.height), 1, 1).data].slice(0, 3) }));
+})()`;
+
+// Requests a view at B (after the fingerprint comparison) and waits for the consent dialog at A.
+async function request(consentFingerprintOfB, fingerprintOfA) {
+  await B.waitFor('A in der Geräteliste', `[...document.querySelectorAll('${LAB} .remote-lab-device code')].some(c => c.textContent.trim() === ${JSON.stringify(fingerprintOfA)})`);
+  log('B: sieht A, Fingerabdruck stimmt mit A überein');
+  const checkbox = `${LAB} .remote-lab-device input[type=checkbox]`;
+  if (!await B.evaluate(`document.querySelector(${JSON.stringify(checkbox)}).checked`)) await B.click(checkbox);
+  await B.click(`${LAB} .remote-lab-device button.primary-button`);
+  await A.waitFor('Zustimmungsdialog', has('dialog.remote-consent-dialog[open]'));
+  const dialogText = await A.evaluate(`document.querySelector('dialog.remote-consent-dialog').textContent`);
+  if (!dialogText.includes(consentFingerprintOfB)) throw new Fail(`A: Zustimmung zeigt den Fingerabdruck von B nicht (${consentFingerprintOfB})`);
+  log('A: Zustimmung zeigt den vollen Fingerabdruck von B');
+}
+
+async function run() {
+  if (!hasNonLoopbackInterface()) throw new Fail('Keine Netzwerkschnittstelle außer Loopback: WebRTC braucht Host-Kandidaten (LAN-IP), sonst endet die Szene mit errors.peer.', 3);
+
+  // Sequential sign-in: the server answers a concurrent login with 429.
+  await signIn(A);
+  const fingerprintA = await goOnline(A, NAME_A);
+  await signIn(B);
+  const fingerprintB = await goOnline(B, NAME_B);
+  if (fingerprintA === fingerprintB) throw new Fail('A und B haben denselben Fingerabdruck (gleiche Geräteidentität?)');
+  await closeDialogs(A);
+
+  // Accept path.
+  await request(fingerprintB, fingerprintA);
+  await pause(1100); // accept is locked for 1 s after the dialog opens
+  shots.push(await A.shot('remote-consent'));
+  await A.click('dialog.remote-consent-dialog .primary-button');
+  await A.waitFor('Leiste „Bildschirm wird angesehen“', has('.remote-share-bar'));
+  shots.push(await A.shot('remote-bar'));
+  const protectedFlags = await A.main(`return electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected());`);
+  if (!protectedFlags.length || !protectedFlags.every(Boolean)) throw new Fail(`A: Fensterschutz nicht aktiv während der Freigabe (${JSON.stringify(protectedFlags)})`);
+  log('A: Leiste sichtbar, Fenster geschützt');
+
+  await B.waitFor('Video bei B (readyState >= 2, Breite > 0)', `(() => { const v = document.querySelector('${LAB} video'); return v && v.readyState >= 2 && v.videoWidth > 0; })()`, 20000);
+  const points = await B.evaluate(PIXEL_CHECK);
+  if (!points) throw new Fail('B: Video verschwand vor der Pixelprüfung');
+  for (const point of points) {
+    if (point.got.some((channel, i) => Math.abs(channel - point.rgb[i]) > TOLERANCE))
+      throw new Fail(`B: Testmuster falsch bei (${point.x * 100} %, ${point.y * 100} %): erwartet ${point.rgb}, erhalten ${point.got}`);
+  }
+  shots.push(await B.shot('remote-viewer'));
+  log('B: Testmuster im Video stimmt (4 Punkte)');
+
+  // End at A; B must notice within 8 s.
+  const stoppedAt = Date.now();
+  await A.click('.remote-share-bar button');
+  await B.waitFor(`Ende-Text bei B (≤ ${END_WITHIN_MS / 1000} s)`, `document.querySelector('${LAB} .remote-lab-ended')?.textContent.includes(${JSON.stringify(ENDED_REMOTE)})`, END_WITHIN_MS);
+  log(`B: Ende nach ${Date.now() - stoppedAt} ms`);
+  await A.waitFor('Leiste verschwunden', `!${has('.remote-share-bar')}`, 5000);
+  const after = await A.main(`return electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected());`);
+  if (after.some(Boolean)) throw new Fail(`A: Fensterschutz nach dem Beenden noch aktiv (${JSON.stringify(after)})`);
+  log('A: Leiste weg, Fensterschutz aufgehoben');
+
+  // Decline path.
+  await request(fingerprintB, fingerprintA);
+  await pause(300);
+  await A.click('dialog.remote-consent-dialog .secondary-button');
+  await B.waitFor(`Ablehnen-Text bei B (≤ ${END_WITHIN_MS / 1000} s)`, `document.querySelector('${LAB} .remote-lab-ended')?.textContent.includes(${JSON.stringify(ENDED_DECLINED)}) || document.querySelector('${LAB} [role=alert]')?.textContent.includes(${JSON.stringify(ENDED_DECLINED)})`, END_WITHIN_MS);
+  log('B: Ablehnung angezeigt');
+}
+
+// Both devices go offline again, whatever happened.
+async function cleanup() {
+  for (const side of [A, B]) {
+    try {
+      if (await side.evaluate(has(`${LAB}[open]`)) === false) {
+        if (await side.evaluate(has('.remote-share-bar'))) await side.click('.remote-share-bar button');
+        if (await side.evaluate(has('dialog.remote-consent-dialog[open]'))) await side.click('dialog.remote-consent-dialog .secondary-button');
+        if (!await side.evaluate(has('dialog.settings-dialog[open]'))) await side.click('.settings-button');
+        await side.call('eval', `[...document.querySelectorAll('dialog.settings-dialog button')].find(b => b.textContent.includes('Fernzugriff einrichten'))?.click()`);
+        await side.waitFor('Fernzugriff-Dialog (Aufräumen)', has(`${LAB}[open]`), 5000);
+      }
+      await side.call('eval', `[...document.querySelectorAll('${LAB} button')].find(b => b.textContent.trim() === 'Offline gehen')?.click()`);
+    } catch (error) { console.warn(`${side.label}: Offline gehen fehlgeschlagen: ${error.message}`); }
+  }
+}
+
+let code = 0;
+try { await run(); log(`OK. Screenshots:\n${shots.join('\n')}`); }
+catch (error) {
+  code = error instanceof Fail ? error.code : 1;
+  console.error(`FEHLER: ${error.message}`);
+  if (shots.length) console.error(`Screenshots bis dahin:\n${shots.join('\n')}`);
+  if (code === 1) for (const side of [A, B]) { try { console.error(`${side.label} Fehlerbild: ${await side.shot(`remote-failed-${side.label.toLowerCase()}`)}`); } catch { /* driver gone */ } }
+} finally {
+  if (code !== 2 && code !== 3) await cleanup();
+}
+process.exit(code);
