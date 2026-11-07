@@ -4,6 +4,13 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.32.0] – 2026-11-07
+
+- New: Kubernetes clusters can be set up without SSH: access "Direct" with a pasted kubeconfig (stored encrypted in the vault) or a file on this computer, with a context list and visible consent for login programs (`exec`) from pasted kubeconfigs. Older versions do not open a vault containing a direct cluster entry.
+- Security: `token-file` in kubeconfigs is now refused for every access type, including SSH. Direct access also refuses `auth-provider`, `proxy-url`, `insecure-skip-tls-verify` and UNC or device paths; the AI assistant masks tokens, passwords and client keys of pasted kubeconfigs.
+- New (development): Self-hosted storage and rendezvous server as a hardened Docker container (unprivileged, read-only root filesystem) with setup, password rotation, backup and restore. It stores only a password hash and encrypted vault versions; sign-ins can be extended for up to 12 hours. See server/README.md.
+- New (development): First remote-access milestone: view the screen of another Shellherd device on the same network, directly and encrypted over WebRTC, only after a fingerprint comparison and consent on the target device, with a persistent sharing bar. Only in unpacked development builds with SHELLHERD_REMOTE_LAB=1, separate from the sync lab; no remote control and no independent security review. Packaged releases do not include these screens.
+
 ## [0.31.0] – 2026-10-30
 
 - New: Linux x86_64 with a DEB for Ubuntu/Debian and a portable AppImage. Windows continues to receive setup and portable EXEs. Packages are built and tested on Windows and Linux; Linux packages include Electron and native modules.

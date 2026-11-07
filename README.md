@@ -21,11 +21,11 @@
 
 Shellherd keeps all your servers, desktops and clusters in one window. Connections and their credentials live in a single encrypted vault file (`.term`) that you can carry around, back up or keep in sync – no account and no cloud service required.
 
-## New in 0.31.0
+## New in 0.32.0
 
-Windows and Linux now share the same release: Windows setup and portable EXEs, an Ubuntu/Debian DEB and a portable Linux AppImage, with installation scripts and SHA-256 checksums. On Linux, open local Bash, Zsh or Fish sessions alongside your SSH connections.
+**Kubernetes without SSH:** add a cluster with access "Direct" from a pasted kubeconfig (stored encrypted in the vault) or a local file such as `~/.kube/config`. Login programs from pasted kubeconfigs run only after you confirm their exact command line, and `token-file` is now refused on every path. Older versions cannot open a vault that contains a direct cluster entry.
 
-The new **SSH terminal toolbar** replaces the workflow palette. Pin commands, choose whether a click inserts or runs them, and add JSON-driven status displays for CPU, RAM or your own health checks. Previous workflow data stays in the vault; recreate the commands you need as toolbar buttons. [Set up CPU and RAM displays](#cpu-and-ram-toolbar-examples) or read the [full changelog](CHANGELOG.en.md#0310--2026-10-30).
+For developers, the [self-hosted storage and rendezvous server](server/README.md) now ships as a hardened Docker setup, and a first view-only remote-access milestone runs in unpacked development builds. See the [full changelog](CHANGELOG.en.md#0320--2026-11-07).
 
 ## Features
 
@@ -345,9 +345,12 @@ explicit approval. Build and initialize it with the commands in the server guide
 `node scripts/check-server-container.mjs` checks container restart, backup/restore
 and account rotation using disposable volumes (requires Docker access).
 
-Desktop capture, remote input, Windows/Linux agents and a media relay remain
-planned. The reference session protocol requires independent review before
-production use. Packaged Shellherd releases do not enable the sync development UI.
+A first remote-access milestone (view only) runs in unpacked development builds
+with `SHELLHERD_REMOTE_LAB=1`: after a fingerprint comparison and consent on the
+target, the screen is streamed directly over WebRTC between devices on the same
+network; the server only relays signaling. Remote input, a TURN relay, a system
+service and an independent review of the session protocol remain open. Packaged
+Shellherd releases enable neither the sync nor the remote-access development UI.
 
 ### Branches
 
