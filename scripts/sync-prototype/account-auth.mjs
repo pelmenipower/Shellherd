@@ -37,6 +37,7 @@ export function accountAuth(account, clock = Date.now) {
       expire(); check(typeof header === 'string' && /^Bearer [a-f0-9]{64}$/.test(header), 401);
       const key = digest(header.slice(7)); check(sessions.has(key), 401); return key;
     },
+    refresh(header) { const key = this.authorize(header); const session = sessions.get(key); session.expiresAt = Math.min(clock() + 900000, session.created + 43200000); return { expiresAt: session.expiresAt }; },
     logout(header) { const key = this.authorize(header); sessions.delete(key); return { signedOut: true }; },
   };
 }

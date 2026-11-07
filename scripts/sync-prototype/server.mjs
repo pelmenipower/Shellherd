@@ -92,6 +92,10 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         check(request.method === 'POST' && Number(request.headers['content-length'] ?? 0) === 0);
         send(200, login.logout(request.headers.authorization)); return;
       }
+      if (login && path === '/v1/refresh') {
+        check(request.method === 'POST' && Number(request.headers['content-length'] ?? 0) === 0);
+        send(200, login.refresh(request.headers.authorization)); return;
+      }
       if (broker && path.startsWith('/v1/rendezvous/')) {
         await broker.handle(request, path, send); return;
       }

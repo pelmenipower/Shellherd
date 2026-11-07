@@ -16,7 +16,7 @@ export class AccountStore {
     check(typeof username === 'string' && /^[a-zA-Z0-9_.-]{1,64}$/.test(username) && typeof password === 'string' && password.length > 0 && password.length <= 1024);
     const result = await boundedJson(new URL('v1/login', this.info.serverUrl), { method: 'POST', signal: this.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) }, 4096);
     check(!this.#closed && !this.signal?.aborted && typeof result.token === 'string' && /^[a-f0-9]{64}$/.test(result.token) && Number.isSafeInteger(result.expiresAt));
-    this.#token = result.token; return { signedIn: true };
+    this.#token = result.token; return { signedIn: true, expiresAt: result.expiresAt };
   }
   async request(method, path, body) {
     check(!this.#closed && this.#token && !this.signal?.aborted);
@@ -36,6 +36,7 @@ export class AccountStore {
     const result = await this.request('GET', `/v1/vaults/${this.info.namespace}/objects/${id}`);
     check(result.id === id && typeof result.wire === 'string' && sha(result.wire) === id); validateVaultFile(result.wire); return result.wire;
   }
+  async refresh() { const result = await this.request('POST', '/v1/refresh'); check(Number.isSafeInteger(result.expiresAt)); return { expiresAt: result.expiresAt }; }
   async logout() { try { if (this.#token && !this.#closed) await this.request('POST', '/v1/logout'); } finally { this.close(); } }
   close() { this.#closed = true; this.#token = undefined; }
 }

@@ -18,5 +18,5 @@ export async function probeSyncServer(serverUrl, { allowLoopbackHttp = false, si
   const info = await boundedJson(new URL('v1/info', url), { signal }, 4096);
   check(info.service === 'shellherd-sync-prototype' && info.protocol === 1 && /^[a-f0-9]{64}$/.test(info.serverId)
     && typeof info.namespace === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(info.namespace) && info.maxObjectBytes === 1048576);
-  return { serverUrl: url, serverId: info.serverId, namespace: info.namespace, enrollmentAvailable: info.deviceEnrollment === true, authentication: info.authentication === 'password' ? 'password' : 'device' };
+  return { serverUrl: url, serverId: info.serverId, namespace: info.namespace, enrollmentAvailable: info.deviceEnrollment === true, authentication: info.authentication === 'password' ? 'password' : 'device', rendezvous: info.rendezvous === true };
 }

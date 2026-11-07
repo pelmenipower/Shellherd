@@ -130,6 +130,7 @@ meldet zusätzlich `rendezvous: true`. Alle folgenden Endpunkte verlangen
 
 | Methode und Pfad | Funktion |
 | --- | --- |
+| `POST /v1/refresh` | Leerer Body; verlängert die Anmeldung um 15 Minuten, höchstens 12 Stunden ab Login. Token bleibt gleich. |
 | `PUT /v1/rendezvous/devices` | `{name, publicKey}` registrieren/Präsenz erneuern |
 | `GET /v1/rendezvous/devices` | Aktive Geräte des gemeinsamen Serverkontos |
 | `DELETE /v1/rendezvous/devices` | Eigenes Gerät und dessen Sitzungen entfernen |
@@ -143,7 +144,7 @@ meldet zusätzlich `rendezvous: true`. Alle folgenden Endpunkte verlangen
 | `POST /v1/rendezvous/sessions/:id/ack` | `{through: N}` quittieren |
 
 Ein Gerät pro Anmeldung, maximal 32 Geräte. Präsenz spätestens alle 30 Sekunden
-erneuern, Lease 60 Sekunden. Ausloggen, Ablauf des Tokens (15 Minuten) oder der
+erneuern, Lease 60 Sekunden. Ausloggen, Ablauf des Tokens (15 Minuten, ohne `POST /v1/refresh`) oder der
 Präsenz entfernen auch die betreffenden Sitzungen beim nächsten Request.
 Anfragen laufen nach 60 Sekunden ab, angenommene Sitzungen nach fünf Minuten.
 Danach neu anfragen und lokal freigeben. Maximal vier Sitzungen pro Gerät und

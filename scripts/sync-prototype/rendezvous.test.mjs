@@ -197,3 +197,41 @@ it('rotates persisted account credentials without changing the server identity o
   await expect(store.login('testuser', password)).rejects.toMatchObject({ status: 401 });
   await store.login('replacement-user', 'ONLY_TEST_REPLACEMENT_PASSWORD'); expect(await store.list()).toEqual([]);
 });
+it('exposes rendezvous in the probe and the session expiry from login', async () => {
+  const ctx = await setup(); expect(ctx.info.rendezvous).toBe(true);
+  const off = await setup({ enabled: false }); expect(off.info.rendezvous).toBe(false);
+  const store = new AccountStore(ctx.info); cleanup.push(() => store.close());
+  const before = Date.now(); const result = await store.login('testuser', password);
+  expect(result.signedIn).toBe(true); expect(result.expiresAt).toBeGreaterThanOrEqual(before + 899000);
+});
+it('refresh extends the session by 15 minutes and keeps the token', async () => {
+  const ctx = await setup(); const alice = await ctx.peer('Alice');
+  ctx.advance(600000);
+  const result = await alice.store.refresh(); expect(result.expiresAt - Date.now()).toBeGreaterThan(800000);
+  ctx.advance(600000); await alice.register('Alice'); expect(await alice.devices()).toHaveLength(1);
+});
+it('refresh stops at the 12 hour limit', async () => {
+  const ctx = await setup(); const alice = await ctx.peer('Alice');
+  for (let elapsed = 0; elapsed < 43200000 - 300000; elapsed += 300000) {
+    ctx.advance(300000); await alice.store.refresh(); await alice.register('Alice');
+  }
+  ctx.advance(300000);
+  await expect(alice.store.refresh()).rejects.toMatchObject({ status: 401 });
+});
+it('expires after 15 minutes without refresh', async () => {
+  const ctx = await setup(); const alice = await ctx.peer('Alice');
+  ctx.advance(900000); await expect(alice.devices()).rejects.toMatchObject({ status: 401 });
+});
+it('keeps presence alive across the 15 minute mark only with refresh', async () => {
+  const ctx = await setup(); const alice = await ctx.peer('Alice'); const bob = await ctx.peer('Bob');
+  for (let t = 30000; t <= 1200000; t += 30000) {
+    ctx.advance(30000); await alice.register('Alice'); await alice.store.refresh();
+    await bob.register('Bob').catch(error => { expect(error.status).toBe(401); });
+  }
+  const names = (await alice.devices()).map(d => d.name); expect(names).toEqual(['Alice']);
+});
+it('rejects refresh without token or with a body', async () => {
+  const ctx = await setup(); const alice = await ctx.peer('Alice');
+  await expect(boundedJson(new URL('v1/refresh', ctx.url), { method: 'POST' })).rejects.toMatchObject({ status: 401 });
+  await expect(alice.store.request('POST', '/v1/refresh', '{}')).rejects.toMatchObject({ status: 400 });
+});
