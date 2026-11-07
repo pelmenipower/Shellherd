@@ -27,6 +27,7 @@ export interface SettingsDialogProps {
   onManageAi: () => void;
   onManageHostKeys: () => void;
   onSyncLab?: () => void;
+  onRemoteLab?: () => void;
   onSaveSettings: (settings: VaultSettings) => Promise<boolean>;
 }
 
@@ -112,7 +113,7 @@ function FontSetting({ id, value, busy, hintId, onCommit }: FontSettingProps) {
 }
 
 /** Language, colour scheme, file association, vault, terminal and AI provider entry points; every value applies immediately. */
-export function SettingsDialog({ vault, vaultPath, busy, instant, initialFocus = 'close', onClose, onManageAi, onManageHostKeys, onSaveSettings, onSyncLab }: SettingsDialogProps) {
+export function SettingsDialog({ vault, vaultPath, busy, instant, initialFocus = 'close', onClose, onManageAi, onManageHostKeys, onSaveSettings, onSyncLab, onRemoteLab }: SettingsDialogProps) {
   const { t } = useT();
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -138,6 +139,7 @@ export function SettingsDialog({ vault, vaultPath, busy, instant, initialFocus =
           <div className="settings-stack"><LanguageSetting /><ThemeSetting /><FileTypeSetting /></div>
           <UpdateSetting />
           {onSyncLab && <button type="button" className="secondary-button" onClick={onSyncLab} disabled={busy}>{t('syncLab:entry')}</button>}
+          {onRemoteLab && <button type="button" className="secondary-button" onClick={onRemoteLab} disabled={busy}>{t('remoteLab:entry')}</button>}
           {!vault && <p className="settings-hint">{t('app:settings.locked')}</p>}
         </>}
         {section === 'vault' && vault && <>
