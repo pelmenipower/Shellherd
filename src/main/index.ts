@@ -44,6 +44,8 @@ import { UPDATE_URL, UpdateChecker } from './update-check';
 import { RecentVaults } from './vault/recent-vaults';
 import { registerSyncLabIpc } from './sync-prototype/lab-ipc';
 import type { SyncLabHost } from './sync-prototype/lab-host';
+import { registerRemoteLabIpc } from './remote/lab-ipc';
+import type { RemoteLabHost } from './remote/lab-host';
 
 import { IPC_CHANNELS } from '../shared/ipc';
 import type { VaultLockedInfo } from '../shared/ipc';
@@ -64,9 +66,16 @@ let assistant: AssistantService | undefined;
 let autoLock: AutoLock | undefined;
 let authPrompts: AuthPrompts | undefined;
 let syncLabHost: SyncLabHost | undefined;
+let remoteLabHost: RemoteLabHost | undefined;
 let lastFocusedId: number | undefined;
 /** True while the vault is locked: windows created meanwhile start excluded from screen capture too. */
 let captureBlocked = false;
+/** True while a remote viewer sees this screen: windows stay excluded from capture so only the chosen screen content is shared. */
+let remoteSharing = false;
+const mainWindowTitle = (): string => mainT(remoteSharing ? 'window.mainSharing' : 'window.main');
+const applyProtection = (): void => {
+  for (const target of [windowRegistry.main(), ...windowRegistry.secondaries()]) if (target && !target.isDestroyed()) target.setContentProtection(captureBlocked || remoteSharing);
+};
 
 /** Target of an auth prompt: the owner's window, else the last focused one, else the main window. */
 function resolvePromptTarget(ownerId?: number): PromptTarget | undefined {
@@ -84,12 +93,13 @@ function resolvePromptTarget(ownerId?: number): PromptTarget | undefined {
 // SSH, local shells, RDP and SFTP share every lifecycle path: crash, navigation, close, lock and quit.
 const closeOwnerSessions = (ownerId: number): void => {
   syncLabHost?.closeOwner(ownerId);
+  remoteLabHost?.closeOwner(ownerId);
   authPrompts?.cancelOwner(ownerId);
   sshSessionManager.closeOwner(ownerId); rdpSessionManager.closeOwner(ownerId); sftpSessionManager.closeOwner(ownerId);
   kubeSessions?.closeOwner(ownerId);
   assistant?.cancelOwner(ownerId);
 };
-const closeAllSessions = (): void => { syncLabHost?.reset(); authPrompts?.cancelAll(); sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); assistant?.cancelAll(); containerDiscovery?.closeAll(); kubeSessions?.closeAll(); };
+const closeAllSessions = (): void => { syncLabHost?.reset(); remoteLabHost?.reset('locked'); authPrompts?.cancelAll(); sshSessionManager?.closeAll(); rdpSessionManager?.closeAll(); sftpSessionManager?.closeAll(); assistant?.cancelAll(); containerDiscovery?.closeAll(); kubeSessions?.closeAll(); };
 const hasOwnerSessions = (ownerId: number): boolean =>
   sshSessionManager.hasOwner(ownerId) || rdpSessionManager.hasOwner(ownerId) || sftpSessionManager.hasOwner(ownerId) || (kubeSessions?.hasOwner(ownerId) ?? false);
 const hasAnySessions = (): boolean => BrowserWindow.getAllWindows().some(window => !window.isDestroyed() && hasOwnerSessions(window.webContents.id));
@@ -112,7 +122,7 @@ function createWindow(role: WindowRole, bounds?: Rectangle, maximized = false): 
     ...(bounds ?? { width: 1280, height: 800 }),
     minWidth: role === 'main' ? 900 : 480,
     minHeight: role === 'main' ? 600 : 320,
-    title: mainT(role === 'main' ? 'window.main' : 'window.secondary'),
+    title: role === 'main' ? mainWindowTitle() : mainT('window.secondary'),
     ...(icon ? { icon } : {}),
     backgroundColor: windowBackground(),
     show: false,
@@ -122,11 +132,13 @@ function createWindow(role: WindowRole, bounds?: Rectangle, maximized = false): 
       nodeIntegration: false,
       sandbox: true,
       devTools: false,
-      additionalArguments: [`${LOCALE_ARG}${localeStore.get().effective}`, `--shellherd-capabilities=${JSON.stringify(capabilities)}`, `--shellherd-sync-lab=${syncLabHost?.enabled ? '1' : '0'}`],
+      additionalArguments: [`${LOCALE_ARG}${localeStore.get().effective}`, `--shellherd-capabilities=${JSON.stringify(capabilities)}`, `--shellherd-sync-lab=${syncLabHost?.enabled ? '1' : '0'}`,
+        `--shellherd-remote-lab=${remoteLabHost?.enabled ? '1' : '0'}`,
+        `--shellherd-remote-capture-fake=${remoteLabHost?.enabled && process.env.SHELLHERD_REMOTE_CAPTURE_FAKE === '1' ? '1' : '0'}`],
     },
   });
   windowRegistry.register(window, role);
-  if (captureBlocked) window.setContentProtection(true);
+  if (captureBlocked || remoteSharing) window.setContentProtection(true);
   window.on('focus', () => { lastFocusedId = window.webContents.id; });
   // index.html has its own <title>; keep the localized window title.
   window.on('page-title-updated', event => event.preventDefault());
@@ -239,10 +251,22 @@ app.on('second-instance', (_event, argv) => {
 // Experimental variant A only: child windows from the helper are invisible under DirectComposition.
 if (rdpSurfaceMode() === 'child') app.commandLine.appendSwitch('disable-direct-composition');
 
+// WebRTC would hide LAN addresses behind mDNS names; the lab needs plain host candidates.
+if (!app.isPackaged && process.env.SHELLHERD_SYNC_LAB === '1') {
+  const disabled = app.commandLine.getSwitchValue('disable-features');
+  app.commandLine.appendSwitch('disable-features', [disabled, 'WebRtcHideLocalIpsWithMdns'].filter(Boolean).join(','));
+}
+
 app.whenReady().then(async () => {
   if (!singleInstance) return;
   let syncVaultChanged: (snapshot: import('./vault/session').VaultSessionSnapshot) => void = () => {};
   syncLabHost = await registerSyncLabIpc({ sessions: vaultSessionManager, onSynced: snapshot => syncVaultChanged(snapshot) });
+  remoteLabHost = await registerRemoteLabIpc({ isUnlocked: () => vaultSessionManager.isUnlocked() });
+  remoteLabHost.onSharingChange(sharing => {
+    remoteSharing = sharing; applyProtection();
+    const main = windowRegistry.main();
+    if (main && !main.isDestroyed()) { main.webContents.setBackgroundThrottling(!sharing); main.setTitle(mainWindowTitle()); }
+  });
   // Before anything reads userData (known hosts, last vault): take over the legacy profile files once.
   migrateUserData(join(app.getPath('appData'), 'Terminus'), app.getPath('userData'));
   const settingsFile = join(app.getPath('userData'), 'settings.json');
@@ -302,7 +326,7 @@ app.whenReady().then(async () => {
     const targets = [windowRegistry.main(), ...windowRegistry.secondaries()];
     for (const target of targets) {
       if (!target || target.isDestroyed()) continue;
-      target.setTitle(mainT(target === windowRegistry.main() ? 'window.main' : 'window.secondary'));
+      target.setTitle(target === windowRegistry.main() ? mainWindowTitle() : mainT('window.secondary'));
       if (!target.webContents.isDestroyed()) target.webContents.send(IPC_CHANNELS.appLocaleChanged, state);
     }
   });
@@ -368,7 +392,7 @@ app.whenReady().then(async () => {
   // While locked, every Shellherd window is left out of screen capture and sharing (Windows: WDA_EXCLUDEFROMCAPTURE).
   const protectWindows = (on: boolean): void => {
     captureBlocked = on;
-    for (const target of [windowRegistry.main(), ...windowRegistry.secondaries()]) if (target && !target.isDestroyed()) target.setContentProtection(on);
+    applyProtection();
   };
   syncVaultChanged = snapshot => {
     // Synced configuration never silently keeps sessions created with the previous configuration.
@@ -380,14 +404,14 @@ app.whenReady().then(async () => {
   };
   registerVaultIpcHandlers({
     onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); protectWindows(false); },
-    onLock: () => { syncLabHost?.reset(); sshSessionManager?.stopToolbars(); protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo); },
+    onLock: () => { syncLabHost?.reset(); remoteLabHost?.reset('locked'); sshSessionManager?.stopToolbars(); protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo); },
     onUnlock: () => { protectWindows(false); autoLock?.touch(); announce(IPC_CHANNELS.vaultUnlocked); },
     onVaultChange: () => { broadcastCatalog(); ai.broadcast(); rdpSessionManager.prewarm(); kubeSessions?.refreshStatus(); },
     guard: event => windowRegistry.requireMain(event),
   });
   autoLock = new AutoLock({
     minutes: () => vaultSessionManager.isUnlocked() ? vaultSessionManager.getSnapshot().vault.settings.autoLockMinutes : 0,
-    lock: minutes => { try { vaultSessionManager.lock(); } finally { syncLabHost?.reset(); sshSessionManager?.stopToolbars(); protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
+    lock: minutes => { try { vaultSessionManager.lock(); } finally { syncLabHost?.reset(); remoteLabHost?.reset('locked'); sshSessionManager?.stopToolbars(); protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
     systemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
     rdpConnected: () => rdpSessionManager.hasConnected(),
   });
