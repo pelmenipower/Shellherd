@@ -712,7 +712,7 @@ Settings → Connections → `Manage server keys` shows all confirmed and import
 
 ## Remote access (development)
 
-Only in an unpacked development build with `SHELLHERD_SYNC_LAB=1`, explicitly without security sign-off: the feature has no independent security review. Do not use it for real devices or real credentials.
+Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent of the sync lab flag `SHELLHERD_SYNC_LAB`), explicitly without security sign-off: the feature has no independent security review. Do not use it for real devices or real credentials.
 
 **Flow:**
 

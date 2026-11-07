@@ -733,7 +733,7 @@ Einstellungen → Verbindungen → `Server-Schlüssel verwalten` zeigt alle best
 
 ## Fernzugriff (Entwicklung)
 
-Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_SYNC_LAB=1`, ausdrücklich ohne Sicherheitsfreigabe: Die Funktion hat keinen unabhängigen Sicherheitsreview. Nicht für echte Geräte oder echte Zugangsdaten einsetzen.
+Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_REMOTE_LAB=1` (unabhängig vom Sync-Lab-Flag `SHELLHERD_SYNC_LAB`), ausdrücklich ohne Sicherheitsfreigabe: Die Funktion hat keinen unabhängigen Sicherheitsreview. Nicht für echte Geräte oder echte Zugangsdaten einsetzen.
 
 **Ablauf:**
 

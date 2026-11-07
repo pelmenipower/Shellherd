@@ -10,7 +10,7 @@ vi.mock('electron', () => ({
 }));
 vi.mock('../windows', () => ({ windowRegistry: {} }));
 
-const { createDisplayMediaHandler } = await import('./lab-ipc');
+const { createDisplayMediaHandler, remoteLabRequested } = await import('./lab-ipc');
 const flush = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0));
 
 describe('display media gate', () => {
@@ -60,5 +60,17 @@ describe('display media gate', () => {
     expect(callback.mock.calls).toEqual([[{}], [{}]]);
     callback.mockImplementation(() => { throw Error('destroyed'); });
     expect(() => handler({ frame: null, videoRequested: true } as never, callback)).not.toThrow();
+  });
+});
+
+describe('remote lab flag', () => {
+  it('needs its own flag in an unpacked build', () => {
+    expect(remoteLabRequested({ SHELLHERD_REMOTE_LAB: '1' }, false)).toBe(true);
+  });
+  it('is not enabled by the sync lab flag', () => {
+    expect(remoteLabRequested({ SHELLHERD_SYNC_LAB: '1' }, false)).toBe(false);
+  });
+  it('stays off in a packaged build', () => {
+    expect(remoteLabRequested({ SHELLHERD_REMOTE_LAB: '1' }, true)).toBe(false);
   });
 });

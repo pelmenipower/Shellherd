@@ -44,7 +44,7 @@ import { UPDATE_URL, UpdateChecker } from './update-check';
 import { RecentVaults } from './vault/recent-vaults';
 import { registerSyncLabIpc } from './sync-prototype/lab-ipc';
 import type { SyncLabHost } from './sync-prototype/lab-host';
-import { registerRemoteLabIpc } from './remote/lab-ipc';
+import { registerRemoteLabIpc, remoteLabRequested } from './remote/lab-ipc';
 import type { RemoteLabHost } from './remote/lab-host';
 
 import { IPC_CHANNELS } from '../shared/ipc';
@@ -253,7 +253,7 @@ app.on('second-instance', (_event, argv) => {
 if (rdpSurfaceMode() === 'child') app.commandLine.appendSwitch('disable-direct-composition');
 
 // WebRTC would hide LAN addresses behind mDNS names; the lab needs plain host candidates.
-if (!app.isPackaged && process.env.SHELLHERD_SYNC_LAB === '1') {
+if (remoteLabRequested()) {
   const disabled = app.commandLine.getSwitchValue('disable-features');
   app.commandLine.appendSwitch('disable-features', [disabled, 'WebRtcHideLocalIpsWithMdns'].filter(Boolean).join(','));
 }

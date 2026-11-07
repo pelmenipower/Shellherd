@@ -67,9 +67,9 @@ Prüft den Fernzugriff (Entwicklung) mit zwei App-Instanzen: A gibt den Bildschi
 npx electron-vite build
 npm run drive:sshd                                   # Hintergrund; meldet auch "rendezvous-fake ready on 8788"
 # Instanz A (Port 9333, Profil <tmp>/shellherd-run)
-SHELLHERD_SYNC_LAB=1 SHELLHERD_REMOTE_CAPTURE_FAKE=1 npm run drive
+SHELLHERD_REMOTE_LAB=1 SHELLHERD_REMOTE_CAPTURE_FAKE=1 npm run drive
 # Instanz B (Port 9336, eigenes Profil, sonst greift die Einzelinstanz-Sperre)
-SHELLHERD_SYNC_LAB=1 SHELLHERD_REMOTE_CAPTURE_FAKE=1 SHELLHERD_RUN_DIR="${TMPDIR:-/tmp}/shellherd-run-b" DRIVER_PORT=9336 npm run drive
+SHELLHERD_REMOTE_LAB=1 SHELLHERD_REMOTE_CAPTURE_FAKE=1 SHELLHERD_RUN_DIR="${TMPDIR:-/tmp}/shellherd-run-b" DRIVER_PORT=9336 npm run drive
 # je Instanz den Demo-Vault entsperren (Fernzugriff verlangt einen entsperrten Vault)
 node .claude/skills/run-app/demo-setup.mjs
 SHELLHERD_RUN_DIR="${TMPDIR:-/tmp}/shellherd-run-b" DRIVER_PORT=9336 node .claude/skills/run-app/demo-setup.mjs

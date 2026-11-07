@@ -39,10 +39,15 @@ export function createDisplayMediaHandler(host: CaptureHost): (request: DisplayM
   };
 }
 
+/** Remote access has its own dev flag, independent of the sync lab; never in packaged builds. */
+export function remoteLabRequested(env: NodeJS.ProcessEnv = process.env, packaged = app.isPackaged): boolean {
+  return !packaged && env.SHELLHERD_REMOTE_LAB === '1';
+}
+
 /** Rendezvous scripts are loaded only in an explicitly enabled dev checkout; anything missing leaves the host without deps. */
 export async function registerRemoteLabIpc(options: { isUnlocked(): boolean }): Promise<RemoteLabHost> {
   let host = new RemoteLabHost();
-  if (!app.isPackaged && process.env.SHELLHERD_SYNC_LAB === '1') {
+  if (remoteLabRequested()) {
     try {
       const transport = await import(/* @vite-ignore */ script('http-common.mjs')) as {
         probeSyncServer(url: string, options: { allowLoopbackHttp: boolean; signal: AbortSignal }): Promise<RemoteServerInfo>;

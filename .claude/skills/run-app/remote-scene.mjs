@@ -1,7 +1,7 @@
 // Remote-view scene: drives two running app instances (A = shared device, B = viewer) against the rendezvous fake.
 // Usage: node .claude/skills/run-app/remote-scene.mjs
 // Needs (see SKILL.md, "Fernzugriff-Szene"): `npm run drive:sshd` (rendezvous fake on 8788), two drivers started with
-// SHELLHERD_SYNC_LAB=1 SHELLHERD_REMOTE_CAPTURE_FAKE=1 (A on 9333, B on 9336 with its own SHELLHERD_RUN_DIR), an unlocked
+// SHELLHERD_REMOTE_LAB=1 SHELLHERD_REMOTE_CAPTURE_FAKE=1 (A on 9333, B on 9336 with its own SHELLHERD_RUN_DIR), an unlocked
 // demo vault in each (`demo-setup.mjs`), and a non-loopback network interface (WebRTC uses host candidates only).
 // Env: A_RUN_DIR/A_PORT (default <tmp>/shellherd-run, 9333), B_RUN_DIR/B_PORT (default <tmp>/shellherd-run-b, 9336),
 // REMOTE_SERVER_URL (default http://127.0.0.1:8788). Synthetic data only; no real vault or profile is touched.
