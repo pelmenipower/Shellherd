@@ -433,6 +433,30 @@ describe('RemoteLabHost: ending (R5, R6, K8)', () => {
     expect(await c.act({ kind: 'status' })).toMatchObject({ ok: true, state: { phase: 'signedIn' } });
   });
 
+  it('M3: a 401 in goOnline drops the account so the user can sign in again', async () => {
+    const t = setup();
+    await t.act({ kind: 'connect', serverUrl: URL });
+    await t.act({ kind: 'signIn', username: 'demo', password: 'pw' });
+    t.setStart(async () => { throw Object.assign(new Error('x'), { status: 401 }); });
+    expect(await t.act({ kind: 'goOnline', deviceName: 'L' })).toEqual({ ok: false, code: 'authentication' });
+    const status = await t.act({ kind: 'status' });
+    expect(status).toMatchObject({ ok: true, state: { phase: 'serverReady' } });
+    expect((status as { state: { account?: unknown } }).state.account).toBeUndefined();
+    expect(t.account.close).toHaveBeenCalled();
+    expect((await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).ok).toBe(true);
+  });
+
+  it('M3: a 401 in request drops the account and stops presence', async () => {
+    const t = setup();
+    await t.goOnline();
+    t.handlers().onDevices([device(B, 'Büro')]);
+    t.peer.request.mockRejectedValueOnce(Object.assign(new Error('x'), { status: 401 }));
+    expect(await t.act({ kind: 'request', target: B, compared: true })).toEqual({ ok: false, code: 'authentication' });
+    expect(await t.act({ kind: 'status' })).toMatchObject({ ok: true, state: { phase: 'serverReady' } });
+    expect(t.presenceStop).toHaveBeenCalled();
+    expect((await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).ok).toBe(true);
+  });
+
   it('K10: unchanged state is not re-sent, a changed device list is', async () => {
     const t = setup();
     await t.goOnline();
@@ -525,6 +549,16 @@ describe('RemoteLabHost: viewer (B1)', () => {
     c3.receiveError = Object.assign(new Error('x'), { status: 404 });
     await gone.clock.advance(1000);
     expect(gone.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'remote' }]);
+    const limited = setup();
+    const c5 = await limited.viewing();
+    c5.receiveError = Object.assign(new Error('x'), { status: 429 });
+    await limited.clock.advance(1000);
+    expect(limited.kinds('ended')).toEqual([]);
+    c5.receiveError = undefined;
+    c5.inbox.push([{ part: part('offer') }]);
+    await limited.clock.advance(1000);
+    expect(limited.kinds('ended')).toEqual([]);
+    expect(limited.kinds('signal')).toHaveLength(1);
     const broken = setup();
     const c4 = await broken.viewing();
     c4.receiveError = new Error('x');

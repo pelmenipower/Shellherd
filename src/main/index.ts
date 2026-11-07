@@ -48,6 +48,7 @@ import { registerRemoteLabIpc } from './remote/lab-ipc';
 import type { RemoteLabHost } from './remote/lab-host';
 
 import { IPC_CHANNELS } from '../shared/ipc';
+import { REMOTE_LAB_LIMITS } from '../shared/remote-lab';
 import type { VaultLockedInfo } from '../shared/ipc';
 import { AutoLock } from './vault/auto-lock';
 import { vaultPathGrants } from './vault/path-grants';
@@ -262,10 +263,26 @@ app.whenReady().then(async () => {
   let syncVaultChanged: (snapshot: import('./vault/session').VaultSessionSnapshot) => void = () => {};
   syncLabHost = await registerSyncLabIpc({ sessions: vaultSessionManager, onSynced: snapshot => syncVaultChanged(snapshot) });
   remoteLabHost = await registerRemoteLabIpc({ isUnlocked: () => vaultSessionManager.isUnlocked() });
-  remoteLabHost.onSharingChange(sharing => {
-    remoteSharing = sharing; applyProtection();
+  // Protection goes on at once but comes off only after the renderer had time to stop its tracks (R11).
+  let unprotectTimer: ReturnType<typeof setTimeout> | undefined;
+  const applySharingWindow = (sharing: boolean): void => {
     const main = windowRegistry.main();
-    if (main && !main.isDestroyed()) { main.webContents.setBackgroundThrottling(!sharing); main.setTitle(mainWindowTitle()); }
+    if (main && !main.isDestroyed()) main.webContents.setBackgroundThrottling(!sharing);
+  };
+  remoteLabHost.onSharingChange(sharing => {
+    if (unprotectTimer) { clearTimeout(unprotectTimer); unprotectTimer = undefined; }
+    const main = windowRegistry.main();
+    if (sharing) {
+      remoteSharing = true; applyProtection(); applySharingWindow(true);
+      if (main && !main.isDestroyed()) main.setTitle(mainWindowTitle());
+      return;
+    }
+    if (main && !main.isDestroyed()) main.setTitle(mainT('window.main'));
+    unprotectTimer = setTimeout(() => {
+      unprotectTimer = undefined;
+      if (remoteLabHost?.sharing) return;
+      remoteSharing = false; applyProtection(); applySharingWindow(false);
+    }, REMOTE_LAB_LIMITS.byeMs);
   });
   // Before anything reads userData (known hosts, last vault): take over the legacy profile files once.
   migrateUserData(join(app.getPath('appData'), 'Terminus'), app.getPath('userData'));
@@ -404,14 +421,14 @@ app.whenReady().then(async () => {
   };
   registerVaultIpcHandlers({
     onSessionChange: () => { closeAllSessions(); closeSecondaryWindows(); protectWindows(false); },
-    onLock: () => { syncLabHost?.reset(); remoteLabHost?.reset('locked'); sshSessionManager?.stopToolbars(); protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo); },
+    onLock: () => { protectWindows(true); syncLabHost?.reset(); remoteLabHost?.reset('locked'); sshSessionManager?.stopToolbars(); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, {} satisfies VaultLockedInfo); },
     onUnlock: () => { protectWindows(false); autoLock?.touch(); announce(IPC_CHANNELS.vaultUnlocked); },
     onVaultChange: () => { broadcastCatalog(); ai.broadcast(); rdpSessionManager.prewarm(); kubeSessions?.refreshStatus(); },
     guard: event => windowRegistry.requireMain(event),
   });
   autoLock = new AutoLock({
     minutes: () => vaultSessionManager.isUnlocked() ? vaultSessionManager.getSnapshot().vault.settings.autoLockMinutes : 0,
-    lock: minutes => { try { vaultSessionManager.lock(); } finally { syncLabHost?.reset(); remoteLabHost?.reset('locked'); sshSessionManager?.stopToolbars(); protectWindows(true); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
+    lock: minutes => { try { vaultSessionManager.lock(); } finally { protectWindows(true); syncLabHost?.reset(); remoteLabHost?.reset('locked'); sshSessionManager?.stopToolbars(); authPrompts?.cancelAll(); announce(IPC_CHANNELS.vaultLocked, { minutes } satisfies VaultLockedInfo); } },
     systemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
     rdpConnected: () => rdpSessionManager.hasConnected(),
   });

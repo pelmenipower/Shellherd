@@ -175,7 +175,10 @@ async function run() {
   await B.waitFor(`Ende-Text bei B (≤ ${END_WITHIN_MS / 1000} s)`, `document.querySelector('${LAB} .remote-lab-ended')?.textContent.includes(${JSON.stringify(ENDED_REMOTE)})`, END_WITHIN_MS);
   log(`B: Ende nach ${Date.now() - stoppedAt} ms`);
   await A.waitFor('Leiste verschwunden', `!${has('.remote-share-bar')}`, 5000);
-  const after = await A.main(`return { flags: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected()), titles: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.getTitle()) };`);
+  // Protection is lifted with a delay (up to 2 s) so the renderer can stop its tracks first; wait up to 4 s.
+  const readAfter = () => A.main(`return { flags: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected()), titles: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.getTitle()) };`);
+  let after = await readAfter();
+  for (const give = Date.now() + 4000; after.flags.some(Boolean) && Date.now() < give;) { await pause(200); after = await readAfter(); }
   if (after.flags.some(Boolean)) throw new Fail(`A: Fensterschutz nach dem Beenden noch aktiv (${JSON.stringify(after.flags)})`);
   if (after.titles.some(title => title !== 'Shellherd')) throw new Fail(`A: Fenstertitel nach dem Beenden noch mit Freigabe (${JSON.stringify(after.titles)})`);
   log('A: Leiste weg, Fensterschutz und Titel zurückgesetzt');

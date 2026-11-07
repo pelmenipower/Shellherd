@@ -211,6 +211,7 @@ export class RemoteLabHost {
       if (this.#gen !== gen) return { ok: false, code: 'stale' };
       if (this.#online === ctx) { this.#online = undefined; this.#phase = 'signedIn'; }
       void ctx.presence.stop().catch(() => undefined);
+      if (statusOf(error) === 401) this.#dropAccount();
       this.#publish();
       return { ok: false, code: wireError(error) };
     }
@@ -236,7 +237,17 @@ export class RemoteLabHost {
     const gen = this.#gen;
     let wire: RemoteSessionWire;
     try { wire = await ctx.peer.request(target, 'view'); }
-    catch (error) { return this.#gen !== gen ? { ok: false, code: 'stale' } : { ok: false, code: statusOf(error) === 429 ? 'limit' : 'connection' }; }
+    catch (error) {
+      if (this.#gen !== gen) return { ok: false, code: 'stale' };
+      if (statusOf(error) === 401) {
+        // Expired sign-in: back to serverReady so the user can sign in again (no dead account).
+        if (this.#online === ctx) { this.#online = undefined; void ctx.presence.stop().catch(() => undefined); }
+        this.#dropAccount();
+        this.#publish();
+        return { ok: false, code: 'authentication' };
+      }
+      return { ok: false, code: statusOf(error) === 429 ? 'limit' : 'connection' };
+    }
     if (this.#gen !== gen || this.#online !== ctx || this.#session) {
       void this.#delete(wire.id);
       return { ok: false, code: 'stale' };
@@ -359,13 +370,17 @@ export class RemoteLabHost {
     const s = this.#session;
     if (s) this.#end(s, 'failed');
     this.#online = undefined;
-    if (code === 'authentication') {
-      const account = this.#account;
-      this.#account = undefined; this.#user = undefined; this.#phase = 'serverReady';
-      if (account) void account.logout().catch(() => undefined).finally(() => account.close());
-    } else this.#phase = 'signedIn';
+    if (code === 'authentication') this.#dropAccount();
+    else this.#phase = 'signedIn';
     this.#publish();
     this.#emit({ kind: 'error', code });
+  }
+
+  /** Discards the account after an expired sign-in (logout best effort, then close) and returns to serverReady. */
+  #dropAccount(): void {
+    const account = this.#account;
+    this.#account = undefined; this.#user = undefined; this.#phase = 'serverReady';
+    if (account) void account.logout().catch(() => undefined).finally(() => account.close());
   }
 
   // --- session plumbing ------------------------------------------------------------------------
@@ -428,6 +443,7 @@ export class RemoteLabHost {
     catch (error) {
       if (s.ended) return;
       if (statusOf(error) === 404) this.#end(s, 'remote', 'remote');
+      else if (statusOf(error) === 429 && this.deps!.timers.now() < s.deadline) this.#startLoop(s); // Shared server limit: retry next tick.
       else this.#end(s, this.deps!.timers.now() >= s.deadline ? 'expired' : 'failed');
       return;
     }
