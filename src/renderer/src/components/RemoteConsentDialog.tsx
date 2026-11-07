@@ -21,11 +21,14 @@ export function RemoteConsentDialog({ controller, session }: { controller: Remot
   const [now, setNow] = useState(() => Date.now());
   useNativeSurfaceBlock(true);
   useEffect(() => {
-    dialog.current?.showModal(); decline.current?.focus();
+    // Re-arm for every session: the lock and the focus on "decline" restart with a new request.
+    setArmed(false); setNow(Date.now());
+    if (!dialog.current?.open) dialog.current?.showModal();
+    decline.current?.focus();
     const unlock = setTimeout(() => setArmed(true), ACCEPT_DELAY_MS);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => { clearTimeout(unlock); clearInterval(tick); };
-  }, []);
+  }, [session.id]);
   const declineRequest = (): void => { void controller.act({ kind: 'decline', sessionId: session.id }); };
   const known = session.peer.known;
   return <dialog ref={dialog} className="confirm-dialog remote-consent-dialog" data-instant="" aria-labelledby={`${id}-title`}

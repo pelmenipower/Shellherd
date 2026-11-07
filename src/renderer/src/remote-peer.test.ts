@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RemoteLabEvent, RemoteLabReply, RemoteLabRequest, RemoteLabState } from '../../shared/remote-lab';
 import { splitSignal } from '../../shared/remote-signal';
-import { RemoteSessionController, type CaptureSource, type PeerFactory } from './remote-peer';
+import { RemoteSessionController, type CaptureSource, type PeerFactory, type RemoteView } from './remote-peer';
 
 const FP = Array.from({ length: 32 }, () => 'ab').join(':');
 const sdp = (extra = ''): string => `v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=fingerprint:sha-256 ${FP}\r\n${extra}`;
@@ -298,5 +298,44 @@ describe('RemoteSessionController teardown', () => {
     expect(t.unsubscribe).toHaveBeenCalled();
     expect(t.pcs[0]!.closed).toBe(true);
     expect(t.tracks[0]!.stopped).toBe(true);
+  });
+  it('dispose is final: a rebuilt controller (StrictMode remount) receives events and updates', async () => {
+    let listener: (e: RemoteLabEvent) => void = () => {};
+    const api = {
+      remoteLabAction: vi.fn(async (): Promise<RemoteLabReply> => ({ ok: true, state: idle })),
+      onRemoteLabEvent: (l: (e: RemoteLabEvent) => void) => { listener = l; return () => {}; }
+    };
+    const build = () => new RemoteSessionController(api, 'c', { create: () => { throw new Error('unused'); } }, { capture: async () => streamOf([]) });
+    const first = build();
+    first.dispose();
+    const second = build();
+    const seen: RemoteView[] = [];
+    second.subscribe(v => seen.push(v));
+    listener({ kind: 'state', state: { phase: 'signedIn' } });
+    expect(seen.at(-1)?.state.phase).toBe('signedIn');
+    await second.act({ kind: 'goOffline' });
+    expect(seen.at(-1)?.state.phase).toBe('online');
+    first.dispose();
+  });
+
+  it('dispose during capture stops the tracks and declines instead of accepting', async () => {
+    let resolve: (s: MediaStream) => void = () => {};
+    const t = setup({ capture: () => new Promise<MediaStream>(r => { resolve = r; }) });
+    const done = t.controller.share('s1');
+    await flush();
+    t.controller.dispose();
+    resolve(streamOf(t.tracks));
+    await done;
+    expect(t.tracks[0]!.stopped).toBe(true);
+    expect(t.log).toContain('decline');
+    expect(t.log).not.toContain('accept');
+    expect(t.pcs).toHaveLength(0);
+  });
+
+  it('remembers the device name of the last successful goOnline', async () => {
+    const t = setup();
+    expect(t.controller.deviceName).toBeUndefined();
+    await t.controller.act({ kind: 'goOnline', deviceName: 'Laptop' });
+    expect(t.controller.deviceName).toBe('Laptop');
   });
 });

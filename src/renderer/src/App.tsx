@@ -6,7 +6,6 @@ import {
   useEffect,
   useState,
   useRef,
-  useMemo,
 } from 'react';
 import { onDiagnosis } from './kube-diagnose';
 
@@ -148,16 +147,16 @@ export default function App() {
   const [appDialog, setAppDialog] = useState<AppDialog | null>(null);
   const [syncLabOpen, setSyncLabOpen] = useState(false);
   const [remoteLabOpen, setRemoteLabOpen] = useState(false);
-  // One controller per window, only when the remote lab is enabled; the main process binds it by clientId.
-  const remote = useMemo(() => window.desktopApi.remoteLabEnabled
-    ? new RemoteSessionController(window.desktopApi, crypto.randomUUID(), browserPeers, window.desktopApi.remoteCaptureFake ? fakeCapture() : displayCapture)
-    : null, []);
+  // One controller per mount, created and disposed in the effect (dispose is final; StrictMode remounts).
+  const [remote, setRemote] = useState<RemoteSessionController | null>(null);
   const [remoteView, setRemoteView] = useState<RemoteView | null>(null);
   useEffect(() => {
-    if (!remote) return undefined;
-    const unsubscribe = remote.subscribe(setRemoteView);
-    return () => { unsubscribe(); remote.dispose(); };
-  }, [remote]);
+    if (!window.desktopApi.remoteLabEnabled) return undefined;
+    const controller = new RemoteSessionController(window.desktopApi, crypto.randomUUID(), browserPeers, window.desktopApi.remoteCaptureFake ? fakeCapture() : displayCapture);
+    setRemote(controller);
+    const unsubscribe = controller.subscribe(setRemoteView);
+    return () => { unsubscribe(); controller.dispose(); setRemote(null); setRemoteView(null); };
+  }, []);
   const settingsReturnFocus = useRef<HTMLElement | null>(null);
 
   const [vault, setVault] = useState<Vault | null>(null);
@@ -906,7 +905,7 @@ export default function App() {
       {remote && remoteSession?.role === 'agent' && (remoteSession.state === 'connecting' || remoteSession.state === 'active')
         && <RemoteShareBar session={remoteSession} onStop={() => remote.stop()} />}
       {remote && remoteSession?.role === 'agent' && remoteSession.state === 'consent'
-        && <RemoteConsentDialog controller={remote} session={remoteSession} />}
+        && <RemoteConsentDialog key={remoteSession.id} controller={remote} session={remoteSession} />}
       {vaultFileDialog}{fileDropHint}
       <header className="app-header">
         <button className="icon-button sidebar-toggle" type="button" aria-label={sidebarCollapsed ? t('app:header.sidebarShow') : t('app:header.sidebarHide')}

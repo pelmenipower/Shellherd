@@ -729,7 +729,8 @@ Only in an unpacked development build with `SHELLHERD_SYNC_LAB=1`, explicitly wi
 - A session lasts five minutes at most; after that a new request is needed.
 - Lock screen, UAC prompts and the sign-in screen are not transmitted.
 - On Linux there is no window protection: the Shellherd window is visible in the picture, too. On Wayland the system shows its own picker for what is shared.
-- The device identity is only persistent with an operating system key store. Without one it is temporary and the fingerprint changes on the next start.
+- The device identity is only persistent with an operating system key store. Without one it is temporary and the fingerprint changes on the next start. This also applies when the identity file cannot be written.
+- So far only a test picture has been transmitted (scene with fake capture). Real capture (Wayland portal, Windows) has not been checked manually, and neither has the window protection on Windows and macOS during sharing.
 - The `remote-scene.mjs` scene and real tests need a network interface with a LAN address on each device; loopback alone is not enough for WebRTC.
 
 ## Process boundaries and lifecycle

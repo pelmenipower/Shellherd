@@ -750,7 +750,8 @@ Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_SYNC_LAB=1`, ausdrüc
 - Eine Sitzung dauert höchstens fünf Minuten, danach ist eine neue Anfrage nötig.
 - Sperrbildschirm, UAC-Abfragen und Anmeldemaske werden nicht übertragen.
 - Unter Linux gibt es keinen Fensterschutz: Auch das Shellherd-Fenster ist im Bild sichtbar. Unter Wayland zeigt das System eine eigene Auswahl, was freigegeben wird.
-- Die Geräteidentität bleibt nur mit Schlüsselablage des Betriebssystems erhalten. Ohne sie ist sie temporär, und der Fingerabdruck ändert sich beim nächsten Start.
+- Die Geräteidentität bleibt nur mit Schlüsselablage des Betriebssystems erhalten. Ohne sie ist sie temporär, und der Fingerabdruck ändert sich beim nächsten Start. Das gilt auch, wenn die Identitätsdatei nicht geschrieben werden kann.
+- Bisher wurde nur ein Testbild übertragen (Szene mit Fake-Capture). Echtes Capture (Wayland-Portal, Windows) ist nicht manuell geprüft, ebenso nicht der Fensterschutz unter Windows und macOS während der Freigabe.
 - Für die Szene `remote-scene.mjs` und echte Tests braucht jedes Gerät eine Netzwerkschnittstelle mit LAN-Adresse; Loopback allein reicht für WebRTC nicht.
 
 ## Prozessgrenzen und Lebenszyklus

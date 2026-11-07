@@ -33,6 +33,8 @@ export class RemoteSessionController {
   private local: Local | null = null;
   private readonly unsubscribe: () => void;
   private disposed = false;
+  /** Device name of the last successful goOnline, so a reopened dialog can show it. */
+  deviceName?: string;
 
   constructor(
     private readonly api: Pick<DesktopApi, 'remoteLabAction' | 'onRemoteLabEvent'>,
@@ -54,6 +56,7 @@ export class RemoteSessionController {
 
   async act(command: RemoteLabCommand): Promise<RemoteLabReply> {
     const reply = await this.send(command);
+    if (reply.ok && command.kind === 'goOnline') this.deviceName = command.deviceName;
     if (reply.ok) this.update({ state: reply.state, error: undefined });
     else this.update({ error: reply.code });
     return reply;
@@ -72,6 +75,7 @@ export class RemoteSessionController {
       return;
     }
     const stopStream = (): void => { for (const track of stream.getTracks()) track.stop(); };
+    if (this.disposed) { stopStream(); await this.act({ kind: 'decline', sessionId }); return; }
     const accepted = await this.act({ kind: 'accept', sessionId });
     if (!accepted.ok || this.disposed) { stopStream(); return; }
     const local: Local = { sessionId, role: 'agent', stream, collector: new SignalCollector() };

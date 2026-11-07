@@ -23,7 +23,7 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
   const [view, setView] = useState<RemoteView>(controller.view);
   const [busy, setBusy] = useState(false);
   const [serverUrl, setServerUrl] = useState(''); const [username, setUsername] = useState('');
-  const [password, setPassword] = useState(''); const [deviceName, setDeviceName] = useState('');
+  const [password, setPassword] = useState(''); const [deviceName, setDeviceName] = useState(controller.deviceName ?? '');
   const [selected, setSelected] = useState<{ target: string; compared: boolean } | null>(null);
   const [waiting, setWaiting] = useState(false);
   const normalized = normalizeSyncServerUrl(serverUrl, true);
@@ -90,8 +90,8 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
         onChange={event => { setPassword(event.target.value); controller.clearError(); }} />
       <button className="primary-button" type="submit" disabled={busy || !/^[a-zA-Z0-9_.-]{1,64}$/.test(username) || !password}>{t('remoteLab:signIn')}</button>
     </form>}
-    {(state.phase === 'signedIn' || state.phase === 'online') && <section className="remote-lab-account" role="status">
-      {state.account && <p>{t('remoteLab:signedInAs', { username: state.account.username })}</p>}
+    {(state.phase === 'signedIn' || state.phase === 'online') && <section className="remote-lab-account">
+      {state.account && <p role="status">{t('remoteLab:signedInAs', { username: state.account.username })}</p>}
       {state.phase === 'signedIn' && <form className="remote-lab-form" onSubmit={event => { event.preventDefault(); void goOnline(); }}>
         <label htmlFor={`${id}-device-name`}>{t('remoteLab:deviceName')}</label>
         <input id={`${id}-device-name`} value={deviceName} maxLength={80} autoComplete="off" spellCheck={false} disabled={busy}
@@ -99,7 +99,7 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
         <button className="primary-button" type="submit" disabled={busy || !nameValid}>{t('remoteLab:goOnline')}</button>
       </form>}
       {state.phase === 'online' && <>
-        {state.account && <p>{t('remoteLab:online', { name: deviceName.trim(), time: formatDateTime(state.account.validUntil, 'time') })}</p>}
+        {state.account && <p role="status">{t('remoteLab:online', { name: deviceName.trim(), time: formatDateTime(state.account.validUntil, 'time') })}</p>}
         <h3>{t('remoteLab:fingerprintOwn')}</h3>
         <code className="remote-lab-fingerprint">{ownFingerprint}</code>
         {state.identity && !state.identity.persistent && <p className="remote-lab-warning">{t('remoteLab:identityTemporary')}</p>}
