@@ -4,6 +4,13 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.32.0] – 2026-11-07
+
+- Neu: Kubernetes-Cluster lassen sich ohne SSH einrichten: Zugang „Direkt“ mit eingefügter kubeconfig (verschlüsselt im Vault) oder einer Datei auf diesem Rechner, mit Context-Liste und sichtbarer Freigabe für Login-Programme (`exec`) aus eingefügten kubeconfigs. Ältere Versionen öffnen einen Vault mit direktem Cluster-Eintrag nicht.
+- Sicherheit: `token-file` in kubeconfigs wird jetzt für jeden Zugang abgelehnt, auch über SSH. Für den direkten Zugang werden außerdem `auth-provider`, `proxy-url`, `insecure-skip-tls-verify` sowie UNC- und Gerätepfade abgelehnt; der KI-Assistent maskiert Token, Passwörter und Client-Schlüssel eingefügter kubeconfigs.
+- Neu (Entwicklung): Selbst betreibbarer Storage- und Rendezvous-Server als gehärteter Docker-Container (nicht privilegiert, schreibgeschütztes Root-Dateisystem) mit Einrichtung, Passwortwechsel, Backup und Wiederherstellung. Er speichert nur einen Passwort-Hash und verschlüsselte Vault-Versionen; Anmeldungen lassen sich bis zu 12 Stunden verlängern. Anleitung in server/README.md.
+- Neu (Entwicklung): Erster Meilenstein des Fernzugriffs: Bildschirm eines anderen Shellherd-Geräts im selben Netz ansehen, direkt und verschlüsselt per WebRTC, nur nach Fingerabdruck-Vergleich und Zustimmung am Zielgerät, mit dauerhafter Freigabeleiste. Nur in ungepackten Entwicklungs-Builds mit SHELLHERD_REMOTE_LAB=1, getrennt vom Sync-Lab; ohne Steuerung und ohne unabhängigen Sicherheitsreview. Gepackte Releases enthalten diese Oberflächen nicht.
+
 ## [0.31.0] – 2026-10-30
 
 - Neu: Linux x86_64 mit DEB für Ubuntu/Debian und portablem AppImage. Windows erhält weiterhin Setup und portable EXE. Die Pakete werden auf Windows und Linux gebaut und getestet; Linux-Pakete enthalten Electron und die nativen Module.

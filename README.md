@@ -21,11 +21,11 @@
 
 Shellherd keeps all your servers, desktops and clusters in one window. Connections and their credentials live in a single encrypted vault file (`.term`) that you can carry around, back up or keep in sync – no account and no cloud service required.
 
-## New in 0.31.0
+## New in 0.32.0
 
-Windows and Linux now share the same release: Windows setup and portable EXEs, an Ubuntu/Debian DEB and a portable Linux AppImage, with installation scripts and SHA-256 checksums. On Linux, open local Bash, Zsh or Fish sessions alongside your SSH connections.
+**Kubernetes without SSH:** add a cluster with access "Direct" from a pasted kubeconfig (stored encrypted in the vault) or a local file such as `~/.kube/config`. Login programs from pasted kubeconfigs run only after you confirm their exact command line, and `token-file` is now refused on every path. Older versions cannot open a vault that contains a direct cluster entry.
 
-The new **SSH terminal toolbar** replaces the workflow palette. Pin commands, choose whether a click inserts or runs them, and add JSON-driven status displays for CPU, RAM or your own health checks. Previous workflow data stays in the vault; recreate the commands you need as toolbar buttons. [Set up CPU and RAM displays](#cpu-and-ram-toolbar-examples) or read the [full changelog](CHANGELOG.en.md#0310--2026-10-30).
+For developers, the [self-hosted storage and rendezvous server](server/README.md) now ships as a hardened Docker setup, and a first view-only remote-access milestone runs in unpacked development builds. See the [full changelog](CHANGELOG.en.md#0320--2026-11-07).
 
 ## Features
 
@@ -37,7 +37,7 @@ The new **SSH terminal toolbar** replaces the workflow palette. Pin commands, ch
 - **SFTP file browser** – two-pane, WinSCP style (go to path, filter, hide dotfiles), with a transfer queue, edit-and-upload for remote files and Auto-Upload that mirrors a local folder to the server while the view is open. Transfers keep many requests in flight, resume where they stopped and can be verified by SHA-256 checksum. Edit remote files in a local text editor; remote scripts are opened as text.
 - **Docker and Podman** – a container view per SSH host or for the local machine: containers, images, volumes and networks with filters, logs, shell and inspect.
 - **Proxmox** – LXC containers and VMs under their host, with shell, serial console and power actions.
-- **Kubernetes** – live nodes, workloads, pods and events through an existing SSH connection. Inspect YAML, describe resources, open shells, stream merged workload logs and forward pod or service ports to 127.0.0.1. RBAC pre-checks disable forbidden actions; production changes require typing the resource name.
+- **Kubernetes** – live nodes, workloads, pods and events through an existing SSH connection or directly from a pasted or local kubeconfig. Inspect YAML, describe resources, open shells, stream merged workload logs and forward pod or service ports to 127.0.0.1. RBAC pre-checks disable forbidden actions; production changes require typing the resource name.
 - **Cluster diagnosis and GitOps links** – preview a read-only AI analysis of failing resources with masking always enabled and no Secrets read. Open matching resources in Argo CD or Harbor, and see a self-heal warning before changing an Argo CD managed resource.
 - **German and English UI** – follows the system language by default; switch any time without a restart. Dates, numbers and sorting follow the language too.
 - **Lock screen** – lock by hand or automatically after a set time without input; sessions keep running behind it and are back after unlocking. Idle disconnect, keepalive and connection timeout are set per vault and can be overridden per connection.
@@ -152,7 +152,7 @@ chmod +x Shellherd-x.y.z-x86_64.AppImage
 
 The AppImage requires FUSE 2 (`libfuse2` on Ubuntu 22.04, `libfuse2t64` on newer Ubuntu), or it can be extracted with `--appimage-extract` and started using `squashfs-root/AppRun`. It requires working unprivileged user namespaces for Chromium's sandbox. Ubuntu installations that restrict these through AppArmor may refuse startup; use the DEB, whose fixed installation path supports the application-specific profile. Extraction alone does not solve a sandbox restriction. The launcher never falls back to disabling the sandbox.
 
-Linux runtime libraries include GTK 3, NSS, ALSA, X11/Wayland support and a glibc-based x86_64 system. A desktop session is required. Bash, Zsh and Fish are offered only when executable on `PATH`. SSH agents use `SSH_AUTH_SOCK`; load keys into your session's agent before starting Shellherd. Docker/Podman must be installed and accessible to the current user for local integration. Kubernetes and Proxmox access continue through the configured SSH host.
+Linux runtime libraries include GTK 3, NSS, ALSA, X11/Wayland support and a glibc-based x86_64 system. A desktop session is required. Bash, Zsh and Fish are offered only when executable on `PATH`. SSH agents use `SSH_AUTH_SOCK`; load keys into your session's agent before starting Shellherd. Docker/Podman must be installed and accessible to the current user for local integration. Proxmox access continues through the configured SSH host; Kubernetes also works directly.
 
 ### Updating Shellherd
 
@@ -334,6 +334,23 @@ curl.exe -H "x-driver-token: $token" "http://127.0.0.1:9333/ss?name=start&crop=s
 The skill file lists every driver command and the known pitfalls. Claude Code loads it as the `run-app` skill; the README screenshots were taken this way.
 
 Built with Electron, TypeScript, React, xterm.js, ssh2 and the Kubernetes JavaScript client. UI rules are documented in [`docs/design-system.md`](docs/design-system.md).
+
+### Selfhosted server (development)
+
+The optional [storage and rendezvous server](server/README.md) has a separate
+Docker Compose setup. It stores a password hash and encrypted vault versions,
+tracks online devices and forwards bounded encrypted signaling messages after
+explicit approval. Build and initialize it with the commands in the server guide.
+`node server/smoke.mjs` demonstrates two synthetic peers; after building the image,
+`node scripts/check-server-container.mjs` checks container restart, backup/restore
+and account rotation using disposable volumes (requires Docker access).
+
+A first remote-access milestone (view only) runs in unpacked development builds
+with `SHELLHERD_REMOTE_LAB=1`: after a fingerprint comparison and consent on the
+target, the screen is streamed directly over WebRTC between devices on the same
+network; the server only relays signaling. Remote input, a TURN relay, a system
+service and an independent review of the session protocol remain open. Packaged
+Shellherd releases enable neither the sync nor the remote-access development UI.
 
 ### Branches
 

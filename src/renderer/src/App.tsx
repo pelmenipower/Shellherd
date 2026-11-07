@@ -81,6 +81,13 @@ import { ImportDialog } from './components/ImportDialog';
 import { UpdateBadge } from './components/UpdateBadge';
 import { RecentVaults } from './components/RecentVaults';
 import { helloReady, isHelloCancel, useHelloStatus } from './hello';
+import { SyncLabDialog } from './components/SyncLabDialog';
+import { RemoteLabDialog } from './components/RemoteLabDialog';
+import { RemoteConsentDialog } from './components/RemoteConsentDialog';
+import { RemoteShareBar } from './components/RemoteShareBar';
+import { RemoteSessionController, browserPeers, displayCapture } from './remote-peer';
+import type { RemoteView } from './remote-peer';
+import { fakeCapture } from './remote-capture-fake';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
 type LockState = { minutes?: number; vaultId: string };
@@ -138,9 +145,22 @@ export default function App() {
   // "Mit KI analysieren" in a cluster tab opens the panel; the panel takes the request itself.
   useEffect(() => onDiagnosis(() => assistant.setOpen(true)), [assistant.setOpen]);
   const [appDialog, setAppDialog] = useState<AppDialog | null>(null);
+  const [syncLabOpen, setSyncLabOpen] = useState(false);
+  const [remoteLabOpen, setRemoteLabOpen] = useState(false);
+  // One controller per mount, created and disposed in the effect (dispose is final; StrictMode remounts).
+  const [remote, setRemote] = useState<RemoteSessionController | null>(null);
+  const [remoteView, setRemoteView] = useState<RemoteView | null>(null);
+  useEffect(() => {
+    if (!window.desktopApi.remoteLabEnabled) return undefined;
+    const controller = new RemoteSessionController(window.desktopApi, crypto.randomUUID(), browserPeers, window.desktopApi.remoteCaptureFake ? fakeCapture() : displayCapture);
+    setRemote(controller);
+    const unsubscribe = controller.subscribe(setRemoteView);
+    return () => { unsubscribe(); controller.dispose(); setRemote(null); setRemoteView(null); };
+  }, []);
   const settingsReturnFocus = useRef<HTMLElement | null>(null);
 
   const [vault, setVault] = useState<Vault | null>(null);
+  useEffect(() => { setSyncLabOpen(false); setRemoteLabOpen(false); }, [screen, vault?.id]);
   const [vaultPath, setVaultPath] = useState<string | null>(
     null,
   );
@@ -232,6 +252,7 @@ export default function App() {
   screenRef.current = screen;
 
   function openSettings(instant: boolean): void {
+    setSyncLabOpen(false);
     settingsReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setAppDialog({ kind: 'settings', instant, focus: 'close' });
   }
@@ -653,7 +674,7 @@ export default function App() {
     lockReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setLocked({ minutes, vaultId: vault.id });
     setVault(current => current && redactVault(current));
-    setAppDialog(null); settingsReturnFocus.current = null;
+    setAppDialog(null); setSyncLabOpen(false); setRemoteLabOpen(false); settingsReturnFocus.current = null;
     // A clean editor holds the connection's stored secret in its draft; a dirty one is the user's unsaved input and stays.
     if (!editorDirty) setEditorOpen(false);
   }
@@ -859,10 +880,15 @@ export default function App() {
     mremoteng: t('vault:import.mremoteng'),
   };
   const settingsVault = screen === 'vault' ? vault : null;
+  const syncLabDialog = syncLabOpen && <SyncLabDialog vaultName={screen === 'vault' && !locked ? vault?.name : undefined} onVaultChanged={result => { openFresh(result); setSyncLabOpen(false); notify.ok(t('syncLab:synced')); }} onClose={() => { setSyncLabOpen(false); setAppDialog({ kind: 'settings', instant: true, focus: 'close' }); }} />;
+  const remoteLabDialog = remote && remoteLabOpen && <RemoteLabDialog controller={remote} onClose={() => { setRemoteLabOpen(false); setAppDialog({ kind: 'settings', instant: true, focus: 'close' }); }} />;
+  const remoteSession = remoteView?.state.session;
   const settingsDialog = appDialog?.kind === 'settings' && <SettingsDialog vault={settingsVault} vaultPath={settingsVault ? vaultPath : null} busy={busy}
     instant={appDialog.instant} initialFocus={appDialog.focus} onClose={closeDialogs}
     onManageAi={() => { if (settingsVault) setAppDialog({ kind: 'ai', backToSettings: true }); }}
     onManageHostKeys={() => { if (settingsVault) setAppDialog({ kind: 'hostKeys' }); }}
+    onSyncLab={window.desktopApi.syncLabEnabled ? () => { setAppDialog(null); setSyncLabOpen(true); } : undefined}
+    onRemoteLab={remote ? () => { setAppDialog(null); setRemoteLabOpen(true); } : undefined}
     onSaveSettings={settings => settingsVault ? persistVault({ ...settingsVault, settings }) : Promise.resolve(false)} />;
 
   if (screen === 'vault' && vault) {
@@ -876,6 +902,10 @@ export default function App() {
     const closeEditor = () => navigateEditor(() => { setEditorOpen(false); setEditorDirty(false); });
     return <ToolbarContext.Provider value={{ config: vault.toolbar ?? DEFAULT_TOOLBAR, active: !locked, saving: busy, save: locked ? undefined : toolbar => persistVault({ ...vault, toolbar }) }}>
     <main className="vault-shell" inert={locked !== null}>
+      {remote && remoteSession?.role === 'agent' && (remoteSession.state === 'connecting' || remoteSession.state === 'active')
+        && <RemoteShareBar session={remoteSession} onStop={() => remote.stop()} />}
+      {remote && remoteSession?.role === 'agent' && remoteSession.state === 'consent'
+        && <RemoteConsentDialog key={remoteSession.id} controller={remote} session={remoteSession} />}
       {vaultFileDialog}{fileDropHint}
       <header className="app-header">
         <button className="icon-button sidebar-toggle" type="button" aria-label={sidebarCollapsed ? t('app:header.sidebarShow') : t('app:header.sidebarHide')}
@@ -994,6 +1024,8 @@ export default function App() {
           return persistVault({ ...vault, nodes: next });
         }} />}
       {settingsDialog}
+      {syncLabDialog}
+      {remoteLabDialog}
       <ToastStack />
       <footer className="app-status"><span role="status">{busy ? t('common:status.saving') : saved ? t('app:status.saved') : t('app:status.open')}</span>
         <span>{t('app:status.activeSessions', { count: runningCount })}</span><span className="status-path" title={vaultPath ?? undefined}>{vaultPath}</span>
@@ -1016,6 +1048,8 @@ export default function App() {
       {fileDropHint}
       <ToastStack />
       {settingsDialog}
+      {syncLabDialog}
+      {remoteLabDialog}
       <AuthPromptDialog locked={locked !== null} />
       <section className="welcome-card">
         <div className="brand large-brand">

@@ -1,0 +1,25 @@
+// Interactive setup: password is not accepted through argv or environment variables.
+import { createInterface } from 'node:readline/promises';
+import { Writable } from 'node:stream';
+import { randomBytes } from 'node:crypto';
+import { open, unlink } from 'node:fs/promises';
+import { createAccount } from './account-auth.mjs';
+let terminal; let muted = false; let created = false; let success = false;
+const target = process.argv[2];
+try {
+  if (!target || process.argv.length !== 3 || !process.stdin.isTTY || !process.stdout.isTTY) throw Error('Interactive terminal required');
+  const output = new Writable({ write(chunk, _encoding, done) { if (!muted) process.stdout.write(chunk); done(); } });
+  terminal = createInterface({ input: process.stdin, output, terminal: true });
+  terminal.on('SIGINT', () => { terminal.close(); });
+  const username = await terminal.question('Server-Benutzername: ');
+  muted = true; process.stdout.write('Serverpasswort (mindestens 12 Zeichen, NICHT das Vault-Passwort): ');
+  const password = await terminal.question(''); process.stdout.write('\nServerpasswort wiederholen: ');
+  const repeat = await terminal.question(''); process.stdout.write('\n');
+  if (password !== repeat) throw Error('Mismatch');
+  const account = await createAccount(username, password);
+  const handle = await open(target, 'wx', 0o600); created = true;
+  try { await handle.writeFile(JSON.stringify({ serverId: randomBytes(32).toString('hex'), namespace: randomBytes(16).toString('hex'), account })); await handle.sync(); }
+  finally { await handle.close(); }
+  success = true; console.log('Serverkonfiguration mit Passwort-Hash erstellt. Keine Vault-Schlüssel gespeichert.');
+} catch { console.error('Einrichtung fehlgeschlagen. Interaktives Terminal, Benutzernamen, Passwörter und neuen Dateipfad prüfen.'); process.exitCode = 1; }
+finally { terminal?.close(); if (created && !success) await unlink(target).catch(() => {}); }

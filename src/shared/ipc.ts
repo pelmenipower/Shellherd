@@ -24,6 +24,8 @@ export interface LockVaultRequest { disconnect?: boolean }
 
 export const IPC_CHANNELS = {
   getVersion: 'app:get-version',
+  remoteLabAction: 'remote-lab:action',
+  remoteLabEvent: 'remote-lab:event',
   readClipboardText: 'clipboard:read-text',
   writeClipboardText: 'clipboard:write-text',
   saveVault: 'vault:save',
@@ -145,6 +147,7 @@ export const IPC_CHANNELS = {
   kubeAction: 'k8s:action',
   kubeClose: 'k8s:close',
   kubeProbe: 'k8s:probe',
+  kubeSelectConfigFile: 'k8s:select-config-file',
   kubeForwardStart: 'k8s:forward-start',
   kubeForwardStop: 'k8s:forward-stop',
   kubeLogsStart: 'k8s:logs-start',
@@ -211,6 +214,14 @@ export interface HelloStatus { available: boolean; enrolled: boolean }
 export interface HelloUnlockRequest { filePath: string }
 
 export interface DesktopApi {
+  /** Fixture-only lab, available exclusively in an explicitly enabled development checkout. */
+  syncLabEnabled: boolean;
+  syncLabAction: (request: import('./sync-lab').SyncLabRequest) => Promise<import('./sync-lab').SyncLabReply>;
+  /** Development-only remote view lab, enabled together with the sync lab. */
+  remoteLabEnabled: boolean;
+  remoteCaptureFake: boolean;
+  remoteLabAction: (request: import('./remote-lab').RemoteLabRequest) => Promise<import('./remote-lab').RemoteLabReply>;
+  onRemoteLabEvent: (listener: (event: import('./remote-lab').RemoteLabEvent) => void) => () => void;
   sshRemotePath: (request: import('./remote-path').RemotePathRequest) => Promise<import('./remote-path').RemotePathReply>;
   sshToolbar: (request: { sessionId: string; action: 'start' | 'stop' | 'check'; itemId?: string }) => Promise<void>;
   readClipboardText: () => Promise<string>;
@@ -252,6 +263,8 @@ export interface DesktopApi {
   kubeClose: (request: KubeViewRequest) => Promise<void>;
   /** Reads contexts of the kubeconfig on an SSH host; never returns the config itself. */
   kubeProbe: (request: KubeProbeRequest) => Promise<KubeProbeResult>;
+  /** Native file dialog for a local kubeconfig; returns only the path. */
+  kubeSelectConfigFile: () => Promise<SelectVaultFileResult>;
   /** Listens on 127.0.0.1 only and forwards to a pod or service port of the view's cluster; resolves with the running forward. */
   kubeForwardStart: (request: KubeForwardStartRequest) => Promise<KubeForwardStatus>;
   kubeForwardStop: (request: KubeForwardStopRequest) => Promise<void>;

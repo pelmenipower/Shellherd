@@ -529,9 +529,44 @@ Die kubeconfig wird in dieser Reihenfolge gesucht: `$KUBECONFIG` der Login-Shell
 (erste Datei), `~/.kube/config`, dann `/etc/kubernetes/admin.conf`. Die Datei unter
 `/etc/kubernetes` liest Shellherd per sudo mit der Anmeldung der SSH-Verbindung:
 Ist ein Passwort gespeichert, beantwortet Shellherd die sudo-Abfrage damit, sonst
-nutzt es `sudo -n` (dafür braucht der Benutzer NOPASSWD). Kubeconfigs mit `exec`- oder
-`auth-provider`-Abschnitten lehnt Shellherd ab, weil deren Plugins auf diesem Rechner
+nutzt es `sudo -n` (dafür braucht der Benutzer NOPASSWD). Über SSH lehnt Shellherd
+Kubeconfigs mit `exec`- oder `auth-provider`-Abschnitten ab, weil deren Plugins auf diesem Rechner
 statt auf dem Server laufen würden.
+
+### Direkter Zugang
+
+Ein Cluster-Eintrag braucht keine SSH-Verbindung. Neue Cluster-Einträge starten unter „Zugang“ auf „Direkt“;
+Einträge über SSH stellst du dort auf „Direkt“ um. Dann spricht Shellherd den API-Server von diesem Rechner
+aus an. Die kubeconfig kommt aus einer von zwei Quellen:
+
+- „Eingefügt (im Vault gespeichert)“: Du fügst den Text ein. Er liegt verschlüsselt im
+  Vault und wandert mit ihm. Ein gespeicherter Text zeigt „Kubeconfig gespeichert · … Zeichen“;
+  mit „Ersetzen“ tauschst du ihn aus.
+- „Datei auf diesem Rechner“: Du gibst einen absoluten Pfad oder `~/…` an oder wählst
+  die Datei mit „Datei wählen …“. Die Datei wird bei jedem Verbinden neu gelesen. Nach
+  einer Änderung schließt du den Cluster-Tab und öffnest ihn wieder. UNC-Pfade werden
+  nicht unterstützt.
+
+Aus der kubeconfig wählst du den Context aus der Liste. Shellherd verbindet beim direkten
+Zugang nicht automatisch neu; bei einem Abbruch öffnest du den Tab erneut.
+
+Enthält der gewählte Context ein Login-Programm (`exec`), läuft es auf diesem Rechner mit
+deinen Rechten, ohne Terminal (kein TTY) und mit höchstens 60 s Laufzeit. Bei einer
+eingefügten kubeconfig startet es nur, wenn du unter Context „Login-Programm beim
+Verbinden ausführen: …“ bestätigst; ändert sich Text oder Context, verfällt die
+Bestätigung. Die Bestätigung erscheint, nachdem du „Contexts lesen“ geklickt hast. Bei einer Datei auf diesem Rechner ist keine Bestätigung nötig. Relative
+Programmpfade gelten relativ zum Ordner der Datei (bei eingefügtem Text sind sie nicht
+erlaubt). Unter Windows startet Shellherd keine `.cmd`- oder `.bat`-Dateien; nutze eine
+`.exe` (Programmname oder voller Pfad).
+
+Nicht unterstützt sind `token-file`, `auth-provider`, `proxy-url` und
+`insecure-skip-tls-verify`; `token-file` gilt jetzt auch für Cluster über SSH. Verweist die
+kubeconfig auf Zertifikatsdateien, nutze eingebettete Zertifikate (`…-data`) oder
+„Datei auf diesem Rechner“.
+
+Ältere Shellherd-Versionen öffnen einen Vault mit direktem Cluster-Eintrag nicht.
+
+### Einrichtung und Bedienung
 
 Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
 Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, `Logs aller Pods`, YAML,
@@ -730,6 +765,29 @@ Beim ersten Kontakt den angezeigten SHA-256-Fingerprint mit einer vertrauenswür
 Einstellungen → Verbindungen → `Server-Schlüssel verwalten` zeigt alle bestätigten und importierten Schlüssel mit Host und Port (gehashte Einträge: „Gehashter Hostname“), Typ bei importierten Einträgen und SHA-256-Fingerprint. Das Suchfeld filtert nach Host, Typ oder Fingerprint. `Entfernen` löscht einen Eintrag sofort; beim nächsten Verbinden fragt Shellherd wieder nach. So nimmst du einen gewollten Schlüsselwechsel an: alten Eintrag entfernen, neu verbinden, den neuen Fingerprint prüfen und bestätigen. Einen gehashten Eintrag findest du über den Fingerprint, den die Fehlerkarte als `expected` nennt.
 
 `Aus known_hosts importieren …` liest eine OpenSSH-Datei, die du im Dialog wählst (vorgeschlagen: `%USERPROFILE%\.ssh\known_hosts`, höchstens 4 MiB). Übernommen werden Hostnamen, `[host]:port` und gehashte Namen (`|1|…`) mit Ed25519-, ECDSA- und RSA-Schlüsseln, auch mehrere je Server. Gehashte Einträge zeigt die Liste als „Gehashter Hostname“. `@revoked`-Zeilen gelten für alle Hosts: Einen so markierten Schlüssel nimmt Shellherd nie an, auch nicht nach Rückfrage. Übersprungen werden `@cert-authority`, Muster wie `*.example.com` oder `!host`, Zertifikate und Sicherheitsschlüssel (`sk-…`). Der Import ändert keinen Schlüssel, den du in Shellherd bestätigt hast: Für solche Server gilt weiter Shellherds Eintrag, und weicht die Datei davon ab, nennt das Ergebnis den Server. Shellherd liest `known_hosts` nur nach diesem Klick und schreibt sie nie.
+
+## Fernzugriff (Entwicklung)
+
+Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_REMOTE_LAB=1` (unabhängig vom Sync-Lab-Flag `SHELLHERD_SYNC_LAB`), ausdrücklich ohne Sicherheitsfreigabe: Die Funktion hat keinen unabhängigen Sicherheitsreview. Nicht für echte Geräte oder echte Zugangsdaten einsetzen.
+
+**Ablauf:**
+
+1. Beide Geräte: Einstellungen → `Fernzugriff einrichten (Entwicklung)`, Server-Adresse eintragen, `Verbinden`, mit Benutzername und Serverpasswort anmelden. Der Vault muss entsperrt sein.
+2. Ein Gerätename vergeben und `Dieses Gerät online melden`. Der Dialog zeigt den Fingerabdruck dieses Geräts.
+3. Am ansehenden Gerät erscheint das andere Gerät unter `Online-Geräte`. Fingerabdruck auf beiden Geräten unabhängig vergleichen, `Ich habe den Fingerabdruck auf dem anderen Gerät verglichen` ankreuzen, `Bildschirm ansehen`.
+4. Am anderen Gerät fragt `Bildschirm freigeben?` mit dem Fingerabdruck des Anfragenden. `Bildschirm freigeben` ist in der ersten Sekunde gesperrt. Solange das Bild läuft, zeigt eine Leiste, wer zusieht, mit `Beenden`.
+5. Beide Seiten können jederzeit beenden (`Verbindung beenden` bzw. `Beenden`). Sperren des Vaults beendet die Verbindung ebenfalls.
+
+**Grenzen:**
+
+- Nur Ansehen. Maus und Tastatur werden nicht übertragen.
+- Nur im selben Netz (LAN), ohne TURN-Relay. Es gibt nur direkte Verbindungen über Host-Kandidaten; hinter NAT oder über getrennte Netze scheitert der Aufbau mit „Keine direkte Verbindung möglich“.
+- Eine Sitzung dauert höchstens fünf Minuten, danach ist eine neue Anfrage nötig.
+- Sperrbildschirm, UAC-Abfragen und Anmeldemaske werden nicht übertragen.
+- Unter Linux gibt es keinen Fensterschutz: Auch das Shellherd-Fenster ist im Bild sichtbar. Unter Wayland zeigt das System eine eigene Auswahl, was freigegeben wird.
+- Die Geräteidentität bleibt nur mit Schlüsselablage des Betriebssystems erhalten. Ohne sie ist sie temporär, und der Fingerabdruck ändert sich beim nächsten Start. Das gilt auch, wenn die Identitätsdatei nicht geschrieben werden kann.
+- Bisher wurde nur ein Testbild übertragen (Szene mit Fake-Capture). Echtes Capture (Wayland-Portal, Windows) ist nicht manuell geprüft, ebenso nicht der Fensterschutz unter Windows und macOS während der Freigabe.
+- Für die Szene `remote-scene.mjs` und echte Tests braucht jedes Gerät eine Netzwerkschnittstelle mit LAN-Adresse; Loopback allein reicht für WebRTC nicht.
 
 ## Prozessgrenzen und Lebenszyklus
 

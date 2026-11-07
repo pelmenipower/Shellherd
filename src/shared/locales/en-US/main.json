@@ -1,7 +1,8 @@
 {
   "window": {
     "main": "Shellherd",
-    "secondary": "Shellherd – Sessions"
+    "secondary": "Shellherd – Sessions",
+    "mainSharing": "Shellherd – Screen is being viewed"
   },
   "dialogs": {
     "cancel": "Cancel",
@@ -21,6 +22,9 @@
       "message": "Check the server key for {{host}}:{{port}}",
       "detail": "SHA-256 fingerprint:\n{{fingerprint}}\n\nCompare this fingerprint with a trusted source. If you confirm, this server key is saved for future connections.",
       "confirm": "Trust and save key"
+    },
+    "kubeconfig": {
+      "title": "Choose kubeconfig"
     },
     "privateKey": {
       "title": "Select private SSH key"

@@ -1,7 +1,7 @@
 {
   "name": "shellherd",
   "productName": "Shellherd",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "private": true,
   "description": "Shellherd – a local, encrypted connection manager for SSH, RDP, containers and Kubernetes.",
   "author": "Alexander Schmidt",
@@ -41,6 +41,7 @@
     "@xterm/addon-web-links": "0.12.0",
     "hash-wasm": "4.12.0",
     "i18next": "26.5.2",
+    "js-yaml": "5.5.0",
     "node-pty": "1.1.0",
     "ssh2": "^1.17.0",
     "zod": "4.6.5"
@@ -58,6 +59,8 @@
     "electron": "^44.4.2",
     "electron-builder": "26.17.0",
     "electron-vite": "^4.0.0",
+    "libsodium-wrappers": "0.8.4",
+    "noise-handshake": "4.2.0",
     "playwright-core": "1.55.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

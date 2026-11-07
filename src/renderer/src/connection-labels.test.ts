@@ -30,11 +30,18 @@ describe('connection labels', () => {
   });
 
   it('pluralises cluster access hosts', async () => {
-    const cluster = (count: number) => ({ ...base, protocol: 'kubernetes', accessHosts: Array.from({ length: count }, (_, index) => ({ connectionId: `c${index}` })) }) as unknown as ConnectionNode;
+    const cluster = (count: number) => ({ ...base, protocol: 'kubernetes', kubeconfig: { source: 'auto' }, accessHosts: Array.from({ length: count }, (_, index) => ({ connectionId: `c${index}` })) }) as unknown as ConnectionNode;
     expect(connectionAddress(cluster(1))).toBe('Cluster · 1 Zugang');
     expect(connectionAddress(cluster(3))).toBe('Cluster · 3 Zugänge');
     await i18n.changeLanguage('en-US');
     expect(connectionAddress(cluster(1))).toBe('Cluster · 1 access host');
     expect(connectionAddress(cluster(2))).toBe('Cluster · 2 access hosts');
+  });
+
+  it('labels direct clusters without a count', async () => {
+    const direct = { ...base, protocol: 'kubernetes', accessHosts: [], kubeconfig: { source: 'file', path: '~/.kube/config' } } as unknown as ConnectionNode;
+    expect(connectionAddress(direct)).toBe('Cluster · direkt');
+    await i18n.changeLanguage('en-US');
+    expect(connectionAddress(direct)).toBe('Cluster · direct');
   });
 });

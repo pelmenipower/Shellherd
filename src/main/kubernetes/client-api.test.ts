@@ -102,6 +102,19 @@ describe('toApiError', () => {
     expect(error.code).toBe(403);
   });
 
+  it('maps unreadable files and unstartable login plugins without raw messages', () => {
+    const open = Object.assign(new Error('ENOENT: no such file or directory, open /k/ca.crt'), { code: 'ENOENT', syscall: 'open', path: '/k/ca.crt' });
+    expect(toApiError(open).coded).toEqual({ code: 'kubernetes.kubeconfigFileUnreadable', params: { path: '/k/ca.crt' } });
+    expect(toApiError(new TypeError('fetch failed', { cause: open })).coded.code).toBe('kubernetes.kubeconfigFileUnreadable');
+    const spawnError = Object.assign(new Error('spawn kubelogin ENOENT'), { code: 'ENOENT', syscall: 'spawn kubelogin', path: 'kubelogin' });
+    expect(toApiError(spawnError).coded).toEqual({ code: 'kubernetes.loginPluginNotStarted', params: { command: 'kubelogin' } });
+    expect(toApiError(new Error('x', { cause: spawnError })).coded.code).toBe('kubernetes.loginPluginNotStarted');
+    expect(toApiError(spawnError).message).not.toContain('kubelogin ENOENT');
+    const cmd = Object.assign(new Error('spawn EINVAL'), { code: 'EINVAL', syscall: 'spawn', path: 'C:/x/az.cmd' });
+    expect(toApiError(cmd).coded).toEqual({ code: 'kubernetes.loginPluginNotStarted', params: { command: 'C:/x/az.cmd' } });
+    expect(toApiError(Object.assign(new Error('x'), { code: 'EINVAL', syscall: 'open', path: '/k' })).coded.code).toBe('kubernetes.apiError');
+  });
+
   it('maps undici TLS failures through the cause code and reason', () => {
     const tls = new TypeError('fetch failed', {
       cause: { code: 'ERR_TLS_CERT_ALTNAME_INVALID', reason: "Host: 10.0.0.5. is not in the cert's altnames: DNS:kubernetes" },

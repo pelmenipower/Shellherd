@@ -1,7 +1,8 @@
 {
   "window": {
     "main": "Shellherd",
-    "secondary": "Shellherd – Sitzungen"
+    "secondary": "Shellherd – Sitzungen",
+    "mainSharing": "Shellherd – Bildschirm wird angesehen"
   },
   "dialogs": {
     "cancel": "Abbrechen",
@@ -21,6 +22,9 @@
       "message": "Server-Schlüssel für {{host}}:{{port}} prüfen",
       "detail": "SHA-256-Fingerprint:\n{{fingerprint}}\n\nVergleiche diesen Fingerprint mit einer vertrauenswürdigen Quelle. Bei Bestätigung wird dieser Server-Schlüssel für künftige Verbindungen gespeichert.",
       "confirm": "Schlüssel vertrauen und speichern"
+    },
+    "kubeconfig": {
+      "title": "Kubeconfig wählen"
     },
     "privateKey": {
       "title": "Privaten SSH-Schlüssel auswählen"

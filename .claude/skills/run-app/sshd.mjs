@@ -287,10 +287,16 @@ if (isMain) {
     const { startKubeFake } = await import('./kube-fake.mjs');
     kube = await startKubeFake({ port: Number(process.env.KUBE_FAKE_PORT ?? 9334), dir: path.join(RUN_DIR, 'kube') });
   } catch (error) { console.warn(`Kubernetes-Fake übersprungen: ${error.message}`); }
+  let rendezvous;
+  try {
+    const { startRendezvousFake } = await import('./rendezvous.mjs');
+    rendezvous = await startRendezvousFake({ port: Number(process.env.RENDEZVOUS_FAKE_PORT ?? 8788), dir: path.join(RUN_DIR, 'rendezvous') });
+  } catch { /* the 0700 check fails on Windows; the scene needs the fake, nothing else does */ }
   const { startAiFake } = await import('./ai-fake.mjs');
   const ai = await startAiFake({ port: Number(process.env.AI_FAKE_PORT ?? 9335) });
   const sshd = await startSshd({ port: Number(process.env.SSHD_PORT ?? 2222), dir: RUN_DIR, kubeconfig: kube?.kubeconfig, kubePort: kube?.port });
   console.log(`sshd ready on ${sshd.port} (demo / synthetic-demo; mfa: Passwort und Code)`);
   if (kube) console.log(`kube-fake ready on ${kube.port}`);
   console.log(`ai-fake ready on ${ai.port}`);
+  console.log(rendezvous ? `rendezvous-fake ready on ${rendezvous.port} (demo / synthetic-rendezvous-demo)` : 'rendezvous-fake skipped');
 }

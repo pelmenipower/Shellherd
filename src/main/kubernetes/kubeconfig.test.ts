@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { KubeInputError, listContexts, parseKubeconfig } from './kubeconfig';
+import { afterAll, describe, expect, it } from 'vitest';
+import { createRequire } from 'node:module';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { KubeConfig } from '@kubernetes/client-node';
+import type { User } from '@kubernetes/client-node';
+import { KubeInputError, execCommandLine, kubeconfigSecrets, listContexts, parseKubeconfig } from './kubeconfig';
+import type { KubeconfigPolicy } from './kubeconfig';
 
 const config = (server: string, user = 'client-certificate-data: Y2VydA==\n    client-key-data: a2V5') => `
 apiVersion: v1
@@ -79,6 +86,177 @@ users:
 
 describe('listContexts', () => {
   it('lists context names without credentials', () => {
-    expect(listContexts(config('https://h:6443'))).toEqual({ contexts: ['admin@k8s', 'other'], currentContext: 'admin@k8s', clusterName: 'k8s' });
+    expect(listContexts(config('https://h:6443'))).toEqual({ contexts: ['admin@k8s', 'other'], currentContext: 'admin@k8s', clusterName: 'k8s', execCommands: {} });
+  });
+});
+
+const INLINE: KubeconfigPolicy = { source: 'inline' };
+const code = (c: string, params?: Record<string, unknown>) => expect.objectContaining({ code: c, ...(params ? { params } : {}) });
+const full = (opts: { cluster?: string; user?: string } = {}) => `
+apiVersion: v1
+kind: Config
+clusters:
+- name: k8s
+  cluster:
+    server: https://h:6443
+    certificate-authority-data: Y2E=
+    ${opts.cluster ?? ''}
+contexts:
+- name: c1
+  context: { cluster: k8s, user: u1 }
+current-context: c1
+users:
+- name: u1
+  user:
+    ${opts.user ?? 'token: tok'}
+`;
+const EXEC = 'exec:\n      apiVersion: client.authentication.k8s.io/v1\n      command: /usr/bin/login\n      args: [a, b]\n      env:\n      - { name: K, value: SECRET-ENV }';
+const execUser = (exec: unknown) => ({ name: 'u', exec }) as unknown as User;
+
+describe('token-file (B-1)', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'kube-tf-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const secretFile = path.join(dir, 'secret.txt').replace(/\\/g, '/');
+  writeFileSync(secretFile, 'LOCAL-FILE-CONTENT');
+  const withTokenFile = (key: string) => `
+apiVersion: v1
+kind: Config
+clusters:
+- { name: k8s, cluster: { server: 'https://h:6443' } }
+contexts:
+- { name: c1, context: { cluster: k8s, user: good } }
+current-context: c1
+users:
+- { name: good, user: { token: t } }
+- name: other
+  user:
+    ${key}: ${secretFile}
+`;
+  it('refuses token-file for every policy, entry point and escaped key', () => {
+    for (const key of ['token-file', '"token\\x2dfile"']) {
+      const text = withTokenFile(key);
+      for (const policy of [{ source: 'ssh' }, INLINE, { source: 'file', dir }] as KubeconfigPolicy[]) {
+        expect(() => parseKubeconfig(text, undefined, policy)).toThrowError(code('kubernetes.tokenFileUnsupported'));
+      }
+      expect(() => listContexts(text)).toThrowError(code('kubernetes.tokenFileUnsupported'));
+      expect(kubeconfigSecrets(text)).toEqual(['t']); // other users stay masked
+    }
+  });
+  it('resolves js-yaml to the same file for us and for client-node', () => {
+    const here = createRequire(import.meta.url).resolve('js-yaml');
+    const clientNode = createRequire(createRequire(import.meta.url).resolve('@kubernetes/client-node')).resolve('js-yaml');
+    expect(clientNode).toBe(here);
+  });
+});
+
+describe('parseKubeconfig policies', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'kube-pol-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const consent = 'K=SECRET-ENV /usr/bin/login a b';
+
+  it('exec: refused over ssh, needs consent inline, allowed for file', () => {
+    const text = full({ user: EXEC });
+    expect(() => parseKubeconfig(text)).toThrowError(code('kubernetes.loginPluginUnsupported'));
+    expect(() => parseKubeconfig(text, undefined, INLINE)).toThrowError(code('kubernetes.loginPluginNeedsConsent', { command: '/usr/bin/login' }));
+    expect(() => parseKubeconfig(text, undefined, { source: 'inline', execConsent: 'other' })).toThrowError(code('kubernetes.loginPluginNeedsConsent'));
+    expect(parseKubeconfig(text, undefined, { source: 'inline', execConsent: consent }).contextName).toBe('c1');
+    expect(parseKubeconfig(text, undefined, { source: 'file', dir }).contextName).toBe('c1');
+  });
+  it('never puts env values into the consent error', () => {
+    let seen = '';
+    try { parseKubeconfig(full({ user: EXEC }), undefined, INLINE); } catch (error) { seen = JSON.stringify(error) + String(error); }
+    expect(seen).toContain('loginPluginNeedsConsent');
+    expect(seen).not.toContain('SECRET-ENV');
+  });
+  it('auth-provider (also name: exec) is refused everywhere', () => {
+    const text = full({ user: 'auth-provider: { name: exec, config: { exec: { command: x } } }' });
+    expect(() => parseKubeconfig(text)).toThrowError(code('kubernetes.loginPluginUnsupported'));
+    expect(() => parseKubeconfig(text, undefined, INLINE)).toThrowError(code('kubernetes.authProviderUnsupported'));
+    expect(() => parseKubeconfig(text, undefined, { source: 'file', dir })).toThrowError(code('kubernetes.authProviderUnsupported'));
+  });
+  it('rejects malformed exec blocks', () => {
+    for (const user of ['exec: { command: "" }', 'exec: { command: x, args: nope }', 'exec: { command: x, env: nope }', 'exec: { args: [a] }']) {
+      expect(() => parseKubeconfig(full({ user }), undefined, INLINE)).toThrowError(code('kubernetes.loginPluginUnsupported'));
+    }
+  });
+  it('relative exec commands: refused inline, resolved against dir for file', () => {
+    const text = full({ user: 'exec: { apiVersion: client.authentication.k8s.io/v1, command: ./bin/login }' });
+    expect(() => parseKubeconfig(text, undefined, INLINE)).toThrowError(code('kubernetes.loginPluginNotStarted', { command: './bin/login' }));
+    const built = parseKubeconfig(text, undefined, { source: 'file', dir }).build(null);
+    expect(built.getCurrentUser()?.exec.command).toBe(path.resolve(dir, './bin/login'));
+  });
+  it('replaces execFn so plugins run without a console window', () => {
+    const find = (config: unknown) => (config as { authenticators: object[] }).authenticators.find(item => 'execFn' in item) as { execFn: unknown };
+    const built = parseKubeconfig(full({ user: EXEC }), undefined, { source: 'file', dir }).build(null);
+    const untouched = new KubeConfig();
+    untouched.loadFromOptions({ clusters: [], users: [], contexts: [] });
+    expect(find(built).execFn).not.toBe(find(untouched).execFn);
+  });
+  it('certificate files: refused inline, absolute for file, dropped when -data is there', () => {
+    const files = full({ cluster: 'certificate-authority: ca.crt', user: 'client-certificate-data: Y2VydA==\n    client-key: keys/k.key' });
+    expect(() => parseKubeconfig(files, undefined, INLINE)).toThrowError(code('kubernetes.certFilesUnsupported'));
+    const built = parseKubeconfig(files, undefined, { source: 'file', dir }).build(null);
+    expect(built.getCurrentUser()?.keyFile).toBe(path.resolve(dir, 'keys/k.key'));
+    expect(built.getCurrentCluster()?.caFile).toBe(path.resolve(dir, 'ca.crt'));
+    const both = full({ cluster: 'certificate-authority: /x/ca.crt', user: 'client-certificate-data: Y2VydA==\n    client-key-data: a2V5\n    client-key: /x/k.key' });
+    for (const policy of [{ source: 'ssh' }, INLINE] as KubeconfigPolicy[]) {
+      const built2 = parseKubeconfig(both, undefined, policy).build(1);
+      expect(built2.getCurrentUser()?.keyFile).toBeUndefined();
+      expect(built2.getCurrentCluster()?.caFile).toBeUndefined();
+      expect(built2.getCurrentCluster()?.caData).toBe('Y2E=');
+    }
+  });
+  it('skip-tls and proxy-url: passed through for ssh, refused otherwise', () => {
+    const skip = full({ cluster: 'insecure-skip-tls-verify: true' });
+    const proxy = full({ cluster: 'proxy-url: http://p:3128' });
+    expect(parseKubeconfig(skip).build(1).getCurrentCluster()?.skipTLSVerify).toBe(true);
+    expect(parseKubeconfig(proxy).build(1).getCurrentCluster()?.proxyUrl).toBe('http://p:3128');
+    for (const policy of [INLINE, { source: 'file', dir }] as KubeconfigPolicy[]) {
+      expect(() => parseKubeconfig(skip, undefined, policy)).toThrowError(code('kubernetes.tlsVerifyRequired'));
+      expect(() => parseKubeconfig(proxy, undefined, policy)).toThrowError(code('kubernetes.proxyUnsupported'));
+    }
+  });
+  it('build(null) keeps the server and only sets a TLS name that was given', () => {
+    const plain = parseKubeconfig(full(), undefined, INLINE).build(null).getCurrentCluster()!;
+    expect(plain.server).toBe('https://h:6443');
+    expect(plain.tlsServerName).toBeUndefined();
+    expect(parseKubeconfig(full({ cluster: 'tls-server-name: named' }), undefined, INLINE).build(null).getCurrentCluster()!.tlsServerName).toBe('named');
+    expect(parseKubeconfig(full(), undefined, INLINE).build(null, 'kubernetes').getCurrentCluster()!.tlsServerName).toBe('kubernetes');
+  });
+});
+
+describe('execCommandLine', () => {
+  it('is unambiguous', () => {
+    const line = (command: string, args?: string[], env?: { name: string; value: string }[]) => execCommandLine(execUser({ command, args, env }));
+    expect(line('c', ['a b'])).not.toBe(line('c', ['a', 'b']));
+    expect(line('c', [], [{ name: 'A', value: '1' }, { name: 'B', value: '2' }])).not.toBe(line('c', [], [{ name: 'B', value: '2' }, { name: 'A', value: '1' }]));
+    expect(line('c', [], [{ name: 'A', value: 'x=y' }])).not.toBe(line('c', ['A=x=y']));
+    expect(line('A=c')).not.toBe(line('c', [], [{ name: 'A', value: '' }]));
+    expect(line('/usr/bin/x', ['--n=1'])).toBe('/usr/bin/x "--n=1"');
+  });
+  it('is undefined without a usable command', () => {
+    expect(execCommandLine(execUser(undefined))).toBeUndefined();
+    expect(execCommandLine(execUser({ command: '' }))).toBeUndefined();
+  });
+});
+
+describe('listContexts secrets and exec', () => {
+  it('lists the exec line per context and leaks no credentials otherwise', () => {
+    const json = JSON.stringify(listContexts(full({ user: 'token: TOP-SECRET\n    client-key-data: KEYDATA-SECRET' })));
+    expect(json).not.toMatch(/TOP-SECRET|KEYDATA-SECRET|Y2E=/);
+    expect(listContexts(full({ user: EXEC })).execCommands).toEqual({ c1: 'K=SECRET-ENV /usr/bin/login a b' });
+  });
+});
+
+describe('kubeconfigSecrets', () => {
+  it('collects token, password, key data and auth-provider tokens; [] on errors', () => {
+    expect(kubeconfigSecrets(full({ user: 'token: T1\n    password: P1\n    client-key-data: K1' })).sort()).toEqual(['K1', 'P1', 'T1']);
+    expect(kubeconfigSecrets(full({ user: 'auth-provider: { name: oidc, config: { id-token: I1, refresh-token: R1, other: O } }' })).sort()).toEqual(['I1', 'R1']);
+    expect(kubeconfigSecrets(': : :')).toEqual([]);
+  });
+  it('still masks when client-node would refuse the file (token-file user, no contexts)', () => {
+    const users = 'users:\n- name: a\n  user: { token-file: /x }\n- name: b\n  user: { token: T2 }\n';
+    expect(kubeconfigSecrets(users)).toEqual(['T2']);
+    expect(kubeconfigSecrets(full({ user: 'token: T3' }).replace(/contexts:[\s\S]*?(?=\n\w|$)/, ''))).toContain('T3');
   });
 });

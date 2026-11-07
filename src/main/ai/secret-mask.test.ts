@@ -338,6 +338,18 @@ describe('vaultLiterals', () => {
     expect(vaultLiterals(vault)).toEqual(['p%40ss%20word!', 'sk-key-123456', 'p@ss word!', 'phrase-123', 'rdp-pass-1']);
   });
 
+  it('collects tokens of an inline kubeconfig but nothing from file kubeconfigs or unreadable text', () => {
+    const text = ['apiVersion: v1', 'kind: Config', 'clusters:', '- name: c', '  cluster: { server: "https://h" }', 'contexts:', '- name: x',
+      '  context: { cluster: c, user: u }', 'current-context: x', 'users:', '- name: u', '  user:', '    token: tok-abcdef-123', '- name: v', '  user:',
+      '    auth-provider: { name: oidc, config: { id-token: id-token-12345 } }'].join('\n');
+    const vault = vaultOf([
+      { id: 'a', protocol: 'kubernetes', kubeconfig: { source: 'inline', text } },
+      { id: 'b', protocol: 'kubernetes', kubeconfig: { source: 'file', path: '/x/config' } },
+      { id: 'c', protocol: 'kubernetes', kubeconfig: { source: 'inline', text: ': : :' } },
+    ]);
+    expect(vaultLiterals(vault).sort()).toEqual(['id-token-12345', 'tok-abcdef-123']);
+  });
+
   it('returns nothing without AI settings and without passwords', () => {
     expect(vaultLiterals(vaultOf([{ id: 'a', protocol: 'ssh', authentication: { method: 'agent' } }] as VaultNode[]))).toEqual([]);
   });

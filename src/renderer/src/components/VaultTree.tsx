@@ -6,7 +6,7 @@ import type { ConnectionProtocol, VaultNode } from '../../../shared/vault/types'
 import { searchVaultNodes } from '../vault-search';
 import './navigation-ui.css';
 import { ConnectionIcon } from './ConnectionIcon';
-import { NEW_CONNECTION_KINDS } from '../../../shared/vault/connections';
+import { NEW_CONNECTION_KINDS, isDirectKubeconfig } from '../../../shared/vault/connections';
 import { connectionAddress, protocolLabel } from '../connection-labels';
 import { useT } from '../i18n';
 import { ContextMenu } from './ContextMenu';
@@ -156,7 +156,7 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
     const off = Boolean(node.disabled);
     return [{ kind: 'item', label: t('common:actions.connect'), hint: off ? t('vault:disabled') : 'Enter', disabled: !onConnect || off, onSelect: () => onConnect?.(node.id) },
       ...(node.protocol === 'ssh' && onOpenFiles ? [{ kind: 'item' as const, label: t('vault:tree.openFiles'), disabled: off, onSelect: () => onOpenFiles(node.id) }] : []),
-      ...(node.protocol === 'kubernetes' ? [(() => {
+      ...(node.protocol === 'kubernetes' && !isDirectKubeconfig(node.kubeconfig) ? [(() => {
         const access = firstActiveAccessHost(nodes, node);
         return { kind: 'item' as const, label: t('vault:tree.openAccessHost'), hint: access ? access.name : t('vault:tree.noAccessHost'), disabled: !access || !onConnect, onSelect: () => { if (access) onConnect?.(access.id); } };
       })()] : []),

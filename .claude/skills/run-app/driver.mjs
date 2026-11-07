@@ -35,7 +35,12 @@ const app = await electron.launch({
   executablePath: path.join(REPO, 'node_modules/electron/dist', exe),
   // Explicit opt-in for synthetic screenshots on Linux hosts without a usable
   // Chromium sandbox. Never used by the packaged app or package smoke tests.
-  args: [...(process.platform === 'linux' && process.env.SHELLHERD_RUN_NO_SANDBOX === '1' ? ['--no-sandbox'] : []), APP_DIR],
+  args: [
+    ...(process.platform === 'linux' && process.env.SHELLHERD_RUN_NO_SANDBOX === '1' ? ['--no-sandbox'] : []),
+    // Keeps the remote identity out of the developer's real keychain: it stays RAM-only (identityTemporary).
+    ...(process.platform === 'linux' ? ['--password-store=basic'] : []),
+    APP_DIR,
+  ],
   cwd: REPO,
   // No emulated colour scheme: Playwright defaults to light, the app follows nativeTheme instead.
   colorScheme: null,

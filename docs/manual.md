@@ -508,9 +508,42 @@ The kubeconfig is searched in this order: `$KUBECONFIG` of the login shell
 (first file), `~/.kube/config`, then `/etc/kubernetes/admin.conf`. Shellherd reads the file under
 `/etc/kubernetes` via sudo with the SSH connection's login:
 if a password is saved, Shellherd answers the sudo prompt with it, otherwise
-it uses `sudo -n` (the user needs NOPASSWD for that). Shellherd rejects kubeconfigs with `exec` or
+it uses `sudo -n` (the user needs NOPASSWD for that). Through SSH, Shellherd rejects kubeconfigs with `exec` or
 `auth-provider` sections, because their plugins would run on this machine
 instead of on the server.
+
+### Direct access
+
+A cluster entry does not need an SSH connection. New cluster entries start with “Access” set to “Direct”;
+switch entries that go through SSH there. Shellherd then talks to the API server from this computer.
+The kubeconfig comes from one of two sources:
+
+- “Pasted (stored in the vault)”: you paste the text. It is stored encrypted in the
+  vault and travels with it. A stored text shows “Kubeconfig stored · … characters”;
+  “Replace” swaps it.
+- “File on this computer”: enter an absolute path or `~/…`, or pick the file with
+  “Choose file…”. The file is read again at every connect. After changing it, close the
+  cluster tab and open it again. UNC paths are not supported.
+
+You pick the context from the list read from the kubeconfig. Direct access does not
+reconnect automatically; if the connection drops, open the tab again.
+
+If the chosen context contains a login program (`exec`), it runs on this computer with
+your permissions, without a terminal (no TTY) and for at most 60 s. For a pasted
+kubeconfig it only starts after you confirm “Run login program when connecting: …” under
+Context; changing the text or the context voids the confirmation. The confirmation appears after you click “Read contexts”. A file on this computer
+needs no confirmation. Relative program paths are resolved against the file's folder
+(they are not allowed for pasted text). On Windows, Shellherd does not start `.cmd` or
+`.bat` files; use an `.exe` (program name or full path).
+
+Not supported are `token-file`, `auth-provider`, `proxy-url` and
+`insecure-skip-tls-verify`; `token-file` is now also refused for clusters through SSH. If the
+kubeconfig refers to certificate files, use embedded certificates (`…-data`) or
+“File on this computer”.
+
+Older Shellherd versions do not open a vault that contains a direct cluster entry.
+
+### Setup and use
 
 In the setup form, “Production” is preselected; deselecting it is a deliberate
 decision. “Read-only” blocks restart, scale, delete and the shell; logs, `Logs of all pods`, YAML,
@@ -709,6 +742,29 @@ On first contact, compare the displayed SHA-256 fingerprint with a trusted sourc
 Settings → Connections → `Manage server keys` shows all confirmed and imported keys with host and port (hashed entries: “Hashed host name”), type for imported entries and SHA-256 fingerprint. The search field filters by host, type or fingerprint. `Remove` deletes an entry immediately; on the next connection Shellherd asks again. To accept an intended key change: remove the old entry, connect again, check the new fingerprint and confirm it. You find a hashed entry by the fingerprint that the error card names as `expected`.
 
 `Import from known_hosts…` reads an OpenSSH file that you choose in the dialog (suggested: `%USERPROFILE%\.ssh\known_hosts`, at most 4 MiB). Taken over are host names, `[host]:port` and hashed names (`|1|…`) with Ed25519, ECDSA and RSA keys, also several per server. The list shows hashed entries as “Hashed host name”. `@revoked` lines apply to all hosts: a key marked this way is never accepted by Shellherd, not even after a prompt. Skipped are `@cert-authority`, patterns such as `*.example.com` or `!host`, certificates and security keys (`sk-…`). The import does not change any key you have confirmed in Shellherd: for such servers Shellherd's entry continues to apply, and if the file deviates from it, the result names the server. Shellherd reads `known_hosts` only after this click and never writes it.
+
+## Remote access (development)
+
+Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent of the sync lab flag `SHELLHERD_SYNC_LAB`), explicitly without security sign-off: the feature has no independent security review. Do not use it for real devices or real credentials.
+
+**Flow:**
+
+1. Both devices: Settings → `Set up remote access (development)`, enter the server address, `Connect`, sign in with username and server password. The vault must be unlocked.
+2. Choose a device name and `Announce this device online`. The dialog shows this device's fingerprint.
+3. On the viewing device, the other device appears under `Online devices`. Compare the fingerprint independently on both devices, tick `I compared the fingerprint on the other device`, then `View screen`.
+4. The other device asks `Share your screen?` with the requester's fingerprint. `Share screen` is locked for the first second. While the picture is running, a bar shows who is watching, with `End`.
+5. Either side can end at any time (`End connection` or `End`). Locking the vault also ends the connection.
+
+**Limits:**
+
+- View only. Mouse and keyboard are not transmitted.
+- Same network (LAN) only, no TURN relay. Only direct connections over host candidates exist; behind NAT or across separate networks setup fails with “No direct connection possible”.
+- A session lasts five minutes at most; after that a new request is needed.
+- Lock screen, UAC prompts and the sign-in screen are not transmitted.
+- On Linux there is no window protection: the Shellherd window is visible in the picture, too. On Wayland the system shows its own picker for what is shared.
+- The device identity is only persistent with an operating system key store. Without one it is temporary and the fingerprint changes on the next start. This also applies when the identity file cannot be written.
+- So far only a test picture has been transmitted (scene with fake capture). Real capture (Wayland portal, Windows) has not been checked manually, and neither has the window protection on Windows and macOS during sharing.
+- The `remote-scene.mjs` scene and real tests need a network interface with a LAN address on each device; loopback alone is not enough for WebRTC.
 
 ## Process boundaries and lifecycle
 

@@ -116,7 +116,7 @@ describe('openAccess', () => {
       return cp2;
     });
     const access = await openAccess(cluster(['cp1', 'cp2']), deps);
-    expect(access.connection.id).toBe('cp2');
+    expect(access.connection?.id).toBe('cp2');
     expect(access.kubeconfig).toBe(CONFIG_YAML);
     expect(access.source).toBe('/x');
     expect(cp1.run).not.toHaveBeenCalled();
@@ -153,7 +153,7 @@ describe('openAccess', () => {
     const deps = dependencies({ cp1: ssh('cp1'), cp2: ssh('cp2') }, async connection => connection.id === 'cp1' ? cp1 : cp2);
     const access = await openAccess(cluster(['cp1', 'cp2']), deps);
     expect(cp1.close).toHaveBeenCalledTimes(1);
-    expect(access.connection.id).toBe('cp2');
+    expect(access.connection?.id).toBe('cp2');
   });
 
   it('reports each tried host in order through onTry and skips the ones it does not try', async () => {
