@@ -11,6 +11,7 @@ import { normalizeSyncServerUrl } from '../../src/shared/sync-server-url.mjs';
 import { createAccessRegistry } from './server-access.mjs';
 import { accountAuth } from './account-auth.mjs';
 import { validateVaultFile } from './vault-file-wire.mjs';
+import { createRendezvous } from './rendezvous.mjs';
 const MAX = 1024 * 1024;
 const sha = data => createHash('sha256').update(data).digest('hex');
 const ascii = s => typeof s === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(s);
@@ -19,10 +20,12 @@ function base64(s, length) {
   check(typeof s === 'string' && s.length < MAX * 2); const bytes = Buffer.from(s, 'base64');
   check(bytes.toString('base64') === s && (length === undefined || bytes.length === length)); return bytes;
 }
-export async function createSyncServer({ directory, serverId, namespace, devices = [], account = null, publicUrl = null, clock = () => Date.now(), adminPublicKey = null, adminDevices = [], accessFault }) {
+export async function createSyncServer({ directory, serverId, namespace, devices = [], account = null, publicUrl = null, clock = () => Date.now(), adminPublicKey = null, adminDevices = [], accessFault, rendezvous = false }) {
   check(typeof serverId === 'string' && /^[a-f0-9]{64}$/.test(serverId) && ascii(namespace));
   check(Array.isArray(devices) && devices.length <= 16 && (account !== null ? devices.length === 0 && adminPublicKey === null && adminDevices.length === 0 : devices.length > 0));
   const login = account === null ? null : accountAuth(account, clock);
+  check(typeof rendezvous === 'boolean' && (!rendezvous || login !== null));
+  const broker = rendezvous ? createRendezvous({ authorize: header => login.authorize(header), isActive: key => login.isActive(key), clock }) : null;
   check(publicUrl === null || normalizeSyncServerUrl(publicUrl) === publicUrl);
   const keys = new Map();
   for (const device of devices) {
@@ -76,7 +79,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       const path = request.url; check(typeof path === 'string' && path.length < 512);
       if (request.method === 'GET' && path === '/v1/info') {
         check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
-        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'password' : 'device', objectFormat: login ? 'encrypted-vault' : 'device-snapshot' }); return;
+        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'password' : 'device', objectFormat: login ? 'encrypted-vault' : 'device-snapshot', rendezvous: Boolean(broker) }); return;
       }
       if (login && path === '/v1/login') {
         check(request.method === 'POST', 405); check(request.headers['content-type'] === 'application/json');
@@ -88,6 +91,9 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       if (login && path === '/v1/logout') {
         check(request.method === 'POST' && Number(request.headers['content-length'] ?? 0) === 0);
         send(200, login.logout(request.headers.authorization)); return;
+      }
+      if (broker && path.startsWith('/v1/rendezvous/')) {
+        await broker.handle(request, path, send); return;
       }
       if (!login && request.method === 'GET' && path === '/v1/challenge') {
         for (const [nonce, since] of nonces) if (now - since >= 30_000 || now < since) nonces.delete(nonce);
@@ -170,10 +176,11 @@ export async function createSyncServer({ directory, serverId, namespace, devices
   });
   server.requestTimeout = 15_000; server.headersTimeout = 10_000; server.keepAliveTimeout = 2000; server.maxConnections = 32; server.maxHeadersCount = 32;
   server.on('clientError', (_error, socket) => socket.destroy());
-  return { server, info: { serverId, namespace }, async listen(port = 0) {
-    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
+  return { server, info: { serverId, namespace }, async listen(port = 0, host = '127.0.0.1') {
+    check(host === '127.0.0.1' || host === '0.0.0.0');
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); });
     return `http://127.0.0.1:${server.address().port}/`;
-  }, async close() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
+  }, async close() { broker?.clear(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

@@ -1,0 +1,8 @@
+# Run Caddy on the same host. Replace this domain and provide DNS to this host.
+shellherd.example.org {
+    request_body {
+        max_size 1MB
+    }
+    reverse_proxy 127.0.0.1:8787
+    # Access logging is deliberately not enabled.
+}

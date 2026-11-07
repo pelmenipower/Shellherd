@@ -19,6 +19,7 @@ export function accountAuth(account, clock = Date.now) {
   const digest = token => createHash('sha256').update(token).digest('hex');
   const expire = () => { const now = clock(); for (const [key, session] of sessions) if (now < session.created || now >= session.expiresAt) sessions.delete(key); };
   return {
+    isActive(key) { expire(); return sessions.has(key); },
     async login(body) {
       const now = clock(); if (now < start || now - start >= 60000) { start = now; attempts = 0; }
       check(++attempts <= 10 && !active, 429);

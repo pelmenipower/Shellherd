@@ -2,6 +2,15 @@
 
 Status: Plan mit isolierten Entwicklungsprototypen. Keine produktive Integration oder Sicherheitsfreigabe.
 
+Stand 2026-11-06: Ein [separater Storage-/Rendezvous-Server](../../server/README.md)
+mit Dockerfile und Compose ist implementiert und im Container geprüft. Er nutzt
+den bestehenden Kontozugang und Ciphertext-Speicher und ergänzt Gerätepräsenz,
+explizite Sitzungsannahme und begrenzte verschlüsselte Signalisierung. Containerwechsel,
+Backup/Restore in ein frisches Volume und Kontopasswortwechsel sind geprüft.
+Der Referenzclient ist noch kein Fernsteuerungsagent: Windows-/Linux-Dienste,
+Bildschirm-/Eingabeübertragung, Medienrelay und unabhängiger Protokollreview
+stehen aus. Podman und Kubernetes wurden damit nicht freigegeben.
+
 Block 0 ist im [Bedrohungsmodell](selfhosted-threat-model.md) ausgearbeitet. Block 1 liegt als [Protokoll- und Offline-Sync-Entwurf](selfhosted-protocol.md) vor; technische Nachweise und Review stehen aus.
 
 Aktuelle Entscheidung: Der normale Sync-Einstieg verwendet Server-URL, Benutzername und Serverpasswort. Keine manuelle Fingerprintprüfung oder Gerätefreigabe. Das gesonderte Vault-Passwort bleibt lokal. Der Server speichert ausschließlich verschlüsselte Versionen und einen Hash des Serverpassworts; die Anmeldung verarbeitet dieses kurzzeitig über den geschützten Transport. Der Linux-Entwicklungsprototyp unterstützt Anmeldung, begrenzte RAM-Sitzungen, manuellen Abgleich des geöffneten `.term`-Vaults, Import auf einem neuen Gerät und Offline-Merge mit verschlüsseltem lokalem Sync-Zustand. Es gibt noch keine Produktivfreigabe, keinen automatischen Hintergrund-Sync und keinen Windows-Dateisync. Frühere Noise-/Geräte-ACL-Experimente sind davon getrennt. Testablauf, Wiederanlauf und Grenzen stehen in der [Prototyp-Anleitung](../../scripts/sync-prototype/README.md).
