@@ -48,14 +48,39 @@ Alle lauschen nur auf `127.0.0.1`.
 | 2222 | SSH/SFTP-Testserver (`demo` / `synthetic-demo`) | `sshd.mjs` (Daten in `fixtures.mjs`) |
 | 9334 | Kubernetes-API-Fake (HTTPS; die App erreicht ihn nur per SSH-Tunnel `k8s-cp1:6443` über 2222; beantwortet auch `pods/<name>/portforward` per WebSocket (Port 8080 laufender Pods liefert eine synthetische Textseite); `pods/<name>/log` mit `timestamps=true` und `tailLines`; `selfsubjectrulesreviews` für `shop`, `monitoring` und sonst 403) | `kube-fake.mjs` |
 | 9335 | OpenAI-kompatibler KI-Fake (Schlüssel `sk-synthetic-demo`) | `ai-fake.mjs` |
+| 8788 | Rendezvous-Fake für den Fernzugriff (Konto `demo` / `synthetic-rendezvous-demo`; nur Linux, die Datenverzeichnis-Prüfung scheitert unter Windows) | `rendezvous.mjs` |
+| 9336 | zweiter HTTP-Treiber (nur Fernzugriff-Szene) | `driver.mjs` mit `DRIVER_PORT=9336` |
 
-Ports per `SSHD_PORT`, `KUBE_FAKE_PORT`, `AI_FAKE_PORT` änderbar.
+Ports per `SSHD_PORT`, `KUBE_FAKE_PORT`, `AI_FAKE_PORT`, `RENDEZVOUS_FAKE_PORT` änderbar.
 
 Der KI-Fake protokolliert jeden Chat-Request-Body (ohne Header) nach `RUN_DIR\ai-requests.jsonl`; der Block `masking` löscht die Datei vorher und hinterher.
 
 Der Testserver hat außerdem das Konto `mfa` (nur `keyboard-interactive`: erst das Passwort `synthetic-demo`, dann der Einmalcode `246810` aus `fixtures.mjs`) und die Ziele für Sprunghost und Weiterleitungen: `internal-01:22` (derselbe sshd), `db-internal:5432` (TCP-Echo) und `intranet.demo:80` (HTTP-Seite für SOCKS).
 
 **Nachher-Messung (Übertragungstempo):** `SSHD_LATENCY_MS=10 npm run drive:sshd` verzögert jede READ-, WRITE- und CLOSE-Antwort des Testservers um 10 ms. Der sftp-Block gibt dann `Rate: …` im Protokoll aus (vor und nach dem Fortsetzen). Er bricht eine 512-MiB-Zufallsdatei ab, setzt sie fort, vergleicht SHA-256 lokal gegen `RUN_DIR/sftp/home/demo/big.bin` und klickt „Prüfen“. Wird das Abbruchfenster zu knapp, die Datei in `screens.mjs` auf 1 GiB setzen.
+
+## Fernzugriff-Szene (`remote-scene.mjs`)
+
+Prüft den Fernzugriff (Entwicklung) mit zwei App-Instanzen: A gibt den Bildschirm frei (Fake-Testmuster statt echter Aufnahme), B sieht ihn an. Nur Linux. Die Flags setzt der Aufrufer, der Treiber setzt sie nie selbst.
+
+```bash
+npx electron-vite build
+npm run drive:sshd                                   # Hintergrund; meldet auch "rendezvous-fake ready on 8788"
+# Instanz A (Port 9333, Profil <tmp>/shellherd-run)
+SHELLHERD_REMOTE_LAB=1 SHELLHERD_REMOTE_CAPTURE_FAKE=1 npm run drive
+# Instanz B (Port 9336, eigenes Profil, sonst greift die Einzelinstanz-Sperre)
+SHELLHERD_REMOTE_LAB=1 SHELLHERD_REMOTE_CAPTURE_FAKE=1 SHELLHERD_RUN_DIR="${TMPDIR:-/tmp}/shellherd-run-b" DRIVER_PORT=9336 npm run drive
+# je Instanz den Demo-Vault entsperren (Fernzugriff verlangt einen entsperrten Vault)
+node .claude/skills/run-app/demo-setup.mjs
+SHELLHERD_RUN_DIR="${TMPDIR:-/tmp}/shellherd-run-b" DRIVER_PORT=9336 node .claude/skills/run-app/demo-setup.mjs
+node .claude/skills/run-app/remote-scene.mjs
+```
+
+- **Ablauf:** nacheinander anmelden (der Server lehnt gleichzeitige Logins mit 429 ab), beide online, B sieht A und vergleicht den Fingerabdruck, Anfrage, Zustimmung an A (nach mehr als 1 s, vorher ist „Bildschirm freigeben“ gesperrt), Pixelprüfung des Testmusters im `<video>` von B, Beenden an A (B zeigt das Ende innerhalb von 8 s), dann der Ablehnen-Pfad. Screenshots `remote-consent.png` und `remote-bar.png` (Instanz A) sowie `remote-viewer.png` (Instanz B) liegen im jeweiligen `shots`-Ordner.
+- **Umgebung der Szene:** `A_RUN_DIR`/`A_PORT` (Vorgabe `<tmp>/shellherd-run`, 9333), `B_RUN_DIR`/`B_PORT` (Vorgabe `<tmp>/shellherd-run-b`, 9336), `REMOTE_SERVER_URL` (Vorgabe `http://127.0.0.1:8788`). Exit-Code 0 ok, 1 Schritt fehlgeschlagen (mit Fehlerbildern), 2 Treiber nicht erreichbar, 3 keine Netzwerkschnittstelle außer Loopback.
+- **Voraussetzung LAN-IP:** WebRTC nutzt nur Host-Kandidaten (`iceServers: []`), Chromium lässt Loopback-Kandidaten weg. Ohne Nicht-Loopback-Schnittstelle (LAN-IP) scheitert die Verbindung mit `errors.peer`, etwa unter `xvfb-run` ohne Netz. Der Rendezvous-Server selbst darf auf `127.0.0.1` bleiben.
+- **`--password-store=basic`:** Der Treiber startet Electron unter Linux damit, die Geräteidentität bleibt dadurch im RAM (Hinweis „Temporäre Geräteidentität“) und landet nie im echten Schlüsselbund. Bei jedem Start der Instanz ändert sich der Fingerabdruck.
+- **Beenden:** beide Instanzen mit `/quit` (B mit `DRIVER_PORT`-Port 9336 und eigenem Token unter `shellherd-run-b/token`), danach den Testserver-Prozess.
 
 ## Demo-Vault (`demo-setup.mjs`)
 

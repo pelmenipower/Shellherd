@@ -34,6 +34,9 @@ import { findOpenssl, KUBE_REQUEST_LOG, KUBE_TOKEN, startKubeFake } from './kube
 import { HARBOR_DIGEST, HARBOR_HOST, KUBE_SECRETS } from './kube-fixtures.mjs';
 import { AI_KEY, AI_REQUEST_LOG, DEMO_ENV, DEMO_KEPT, DEMO_SECRETS, startAiFake } from './ai-fake.mjs';
 import { writeImportFixtures } from './import-fixtures.mjs';
+import { startRendezvousFake } from './rendezvous.mjs';
+import { probeSyncServer } from '../../../scripts/sync-prototype/http-common.mjs';
+import { AccountStore } from '../../../scripts/sync-prototype/account-transport.mjs';
 
 // Windows only: ssh2 server tests are flaky on Linux CI (see sftp-loopback.test.ts).
 describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real app code', { timeout: 20_000 }, () => {
@@ -540,5 +543,27 @@ describe('masking fixture of the demo server', () => {
     expect(Object.entries(DEMO_SECRETS).filter(([, value]) => text.includes(value)).map(([name]) => name)).toEqual([]);
     for (const value of DEMO_KEPT) expect(text).toContain(value);
     expect(numbers.size).toBe(Object.keys(DEMO_SECRETS).length);
+  });
+});
+
+// The fake relies on Linux permissions of the sync server (0700 directory), like rendezvous.test.mjs.
+describe.runIf(process.platform === 'linux')('rendezvous fake of the run-app scene', { timeout: 30_000 }, () => {
+  it('announces rendezvous and accepts the synthetic demo account', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shellherd-rendezvous-fake-'));
+    const fake = await startRendezvousFake({ port: 0, dir: join(dir, 'rendezvous') });
+    try {
+      expect(fake.url).toBe(`http://127.0.0.1:${fake.port}/`);
+      const raw = await (await fetch(`${fake.url}v1/info`)).json();
+      expect(raw).toMatchObject({ authentication: 'password', rendezvous: true, namespace: 'demo' });
+      const info = await probeSyncServer(fake.url, { allowLoopbackHttp: true });
+      expect(info).toMatchObject({ authentication: 'password', rendezvous: true, namespace: 'demo' });
+      const account = new AccountStore(info);
+      try {
+        await expect(account.login('demo', 'synthetic-rendezvous-demo')).resolves.toMatchObject({ signedIn: true });
+      } finally { account.close(); }
+    } finally {
+      await fake.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

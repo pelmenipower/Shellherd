@@ -100,6 +100,18 @@ describe('vault storage', () => {
     expect(calls).toEqual(['sync', 'rename']);
   });
 
+  it.runIf(process.platform === 'linux')('flushes the containing directory after rename for durable sync transactions', async () => {
+    const directory = await createTemporaryDirectory();
+    const encrypted = await encryptVault(exampleVault, 'pw');
+    const onCommitted = vi.fn();
+    calls.length = 0;
+    await writeEncryptedVaultFile(join(directory, 'durable-sync.term'), encrypted, async () => {
+      calls.push('guard');
+    }, { durable: true, onCommitted: wire => { calls.push('committed'); onCommitted(wire); } });
+    expect(calls).toEqual(['sync', 'guard', 'rename', 'committed', 'sync']);
+    expect(JSON.parse(onCommitted.mock.calls[0][0])).toEqual(encrypted);
+  });
+
   it('does not store connection details as plaintext', async () => {
     const directory = await createTemporaryDirectory();
     const savedPath = await saveVault(

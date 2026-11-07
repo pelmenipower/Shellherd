@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { hashWire, ensure, stable } from '../sync-prototype/vault-sync-crypto';
 import { AppError } from '../../shared/errors';
 import { encryptVaultWithKey, unlockVault, unlockVaultWithKey } from './crypto';
 import type { UnlockedVault } from './crypto';
@@ -26,6 +28,14 @@ export interface VaultSessionSnapshot {
   vault: Vault;
 }
 
+export interface SyncLease {
+  snapshot: VaultSessionSnapshot;
+  key: Buffer;
+  kdf: EncryptedVaultFile['kdf'];
+  assertCurrent(): void;
+  commit(vault: Vault, check?: () => void): Promise<VaultSessionSnapshot>;
+}
+
 export interface LockedVault { filePath: string; vaultId: string }
 
 /** Only the same vault in the same file keeps its sessions; a replaced file counts as a switch. */
@@ -39,6 +49,8 @@ export class VaultSessionManager {
     | undefined;
 
   private locked: LockedVault | undefined;
+  private saving = 0;
+  private syncing = false;
 
   /** File and vault ID locked last, until the next successful unlock; only the same vault resumes its sessions. */
   public lockedVault(): LockedVault | undefined {
@@ -102,35 +114,87 @@ export class VaultSessionManager {
   public async save(
     vault: Vault,
   ): Promise<VaultSessionSnapshot> {
+    ensure(!this.syncing, 'changed');
     const session = this.requireSession();
+    this.saving++;
+    try {
+      const updatedVault: Vault = {
+        ...VaultSchema.parse(vault),
+        updatedAt: new Date().toISOString(),
+      };
 
-    const updatedVault: Vault = {
-      ...VaultSchema.parse(vault),
-      updatedAt: new Date().toISOString(),
-    };
+      const encryptedVault = encryptVaultWithKey(
+        updatedVault,
+        session.key,
+        session.kdf,
+      );
 
-    const encryptedVault = encryptVaultWithKey(
-      updatedVault,
-      session.key,
-      session.kdf,
-    );
+      // A failed backup aborts the save; the original file stays untouched.
+      if (session.migratedFrom !== undefined) {
+        await backupVaultFile(session.filePath, `v${session.migratedFrom}`);
+        session.migratedFrom = undefined;
+      }
 
-    // A failed backup aborts the save; the original file stays untouched.
-    if (session.migratedFrom !== undefined) {
-      await backupVaultFile(session.filePath, `v${session.migratedFrom}`);
-      session.migratedFrom = undefined;
+      const filePath = await writeEncryptedVaultFile(
+        session.filePath,
+        encryptedVault,
+      );
+
+      session.filePath = filePath;
+      session.vault = updatedVault;
+
+      // Built from local values: the session may have been locked or replaced during the awaits.
+      return { filePath, vault: structuredClone(updatedVault) };
+    } finally {
+      this.saving--;
     }
+  }
 
-    const filePath = await writeEncryptedVaultFile(
-      session.filePath,
-      encryptedVault,
-    );
-
-    session.filePath = filePath;
-    session.vault = updatedVault;
-
-    // Built from local values: the session may have been locked or replaced during the awaits.
-    return { filePath, vault: structuredClone(updatedVault) };
+  /** Main-process-only lease. Never send key/closures over IPC. */
+  public async captureForSync(): Promise<SyncLease> {
+    ensure(this.isUnlocked(), 'locked'); ensure(!this.saving && !this.syncing, 'changed');
+    const session = this.requireSession(); const snapshot = this.getSnapshot();
+    let expected = stable(snapshot.vault); let disk = hashWire(await readFile(session.filePath, 'utf8'));
+    const assertCurrent = (): void => {
+      ensure(this.activeSession === session, 'locked'); ensure(!this.saving && stable(session.vault) === expected, 'changed');
+    };
+    assertCurrent();
+    // Detect externally changed content even if it happened before the lease was taken.
+    const file = await readEncryptedVaultFile(session.filePath);
+    const opened = unlockVaultWithKey(file, Buffer.from(session.key));
+    try { ensure(stable(opened.vault) === expected && stable(file.kdf) === stable(session.kdf), 'changed'); }
+    finally { opened.key.fill(0); }
+    assertCurrent();
+    const assertDisk = async (): Promise<void> => { const current = hashWire(await readFile(session.filePath, 'utf8')); assertCurrent(); ensure(current === disk, 'changed'); };
+    await assertDisk();
+    return {
+      snapshot, key: Buffer.from(session.key), kdf: { ...session.kdf }, assertCurrent,
+      commit: async (vault, check = () => {}) => {
+        assertCurrent(); ensure(!this.syncing, 'changed'); this.syncing = true;
+        try {
+          const beforeCommit = async (): Promise<void> => { check(); await assertDisk(); check(); };
+          const updatedVault = VaultSchema.parse({ ...vault, updatedAt: new Date().toISOString() });
+          const encrypted = encryptVaultWithKey(updatedVault, session.key, session.kdf);
+          await beforeCommit(); await backupVaultFile(session.filePath, 'sync'); await beforeCommit();
+          let committed = false;
+          try {
+            await writeEncryptedVaultFile(session.filePath, encrypted, beforeCommit, {
+              durable: true,
+              onCommitted: wire => {
+                committed = true;
+                session.vault = updatedVault; session.migratedFrom = undefined;
+                expected = stable(updatedVault); disk = hashWire(wire);
+              },
+            });
+          } catch (error) {
+            if (committed) ensure(false, 'recovery');
+            throw error;
+          }
+          assertCurrent();
+          return { filePath: session.filePath, vault: structuredClone(updatedVault) };
+        } finally { this.syncing = false; }
+      },
+    };
   }
 
   public getSnapshot(): VaultSessionSnapshot {

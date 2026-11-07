@@ -335,6 +335,20 @@ The skill file lists every driver command and the known pitfalls. Claude Code lo
 
 Built with Electron, TypeScript, React, xterm.js, ssh2 and the Kubernetes JavaScript client. UI rules are documented in [`docs/design-system.md`](docs/design-system.md).
 
+### Selfhosted server (development)
+
+The optional [storage and rendezvous server](server/README.md) has a separate
+Docker Compose setup. It stores a password hash and encrypted vault versions,
+tracks online devices and forwards bounded encrypted signaling messages after
+explicit approval. Build and initialize it with the commands in the server guide.
+`node server/smoke.mjs` demonstrates two synthetic peers; after building the image,
+`node scripts/check-server-container.mjs` checks container restart, backup/restore
+and account rotation using disposable volumes (requires Docker access).
+
+Desktop capture, remote input, Windows/Linux agents and a media relay remain
+planned. The reference session protocol requires independent review before
+production use. Packaged Shellherd releases do not enable the sync development UI.
+
 ### Branches
 
 Feature branches merge into `staging` by pull request. `main` only receives pull requests from `staging`. It is protected: no direct pushes (admins included), CI must pass on an up-to-date branch, and force pushes and deletion are blocked. `staging` blocks force pushes and deletion.

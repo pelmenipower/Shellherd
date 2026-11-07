@@ -1,7 +1,8 @@
 {
   "window": {
     "main": "Shellherd",
-    "secondary": "Shellherd – Sessions"
+    "secondary": "Shellherd – Sessions",
+    "mainSharing": "Shellherd – Screen is being viewed"
   },
   "dialogs": {
     "cancel": "Cancel",

@@ -24,6 +24,8 @@ export interface LockVaultRequest { disconnect?: boolean }
 
 export const IPC_CHANNELS = {
   getVersion: 'app:get-version',
+  remoteLabAction: 'remote-lab:action',
+  remoteLabEvent: 'remote-lab:event',
   readClipboardText: 'clipboard:read-text',
   writeClipboardText: 'clipboard:write-text',
   saveVault: 'vault:save',
@@ -212,6 +214,14 @@ export interface HelloStatus { available: boolean; enrolled: boolean }
 export interface HelloUnlockRequest { filePath: string }
 
 export interface DesktopApi {
+  /** Fixture-only lab, available exclusively in an explicitly enabled development checkout. */
+  syncLabEnabled: boolean;
+  syncLabAction: (request: import('./sync-lab').SyncLabRequest) => Promise<import('./sync-lab').SyncLabReply>;
+  /** Development-only remote view lab, enabled together with the sync lab. */
+  remoteLabEnabled: boolean;
+  remoteCaptureFake: boolean;
+  remoteLabAction: (request: import('./remote-lab').RemoteLabRequest) => Promise<import('./remote-lab').RemoteLabReply>;
+  onRemoteLabEvent: (listener: (event: import('./remote-lab').RemoteLabEvent) => void) => () => void;
   sshRemotePath: (request: import('./remote-path').RemotePathRequest) => Promise<import('./remote-path').RemotePathReply>;
   sshToolbar: (request: { sessionId: string; action: 'start' | 'stop' | 'check'; itemId?: string }) => Promise<void>;
   readClipboardText: () => Promise<string>;

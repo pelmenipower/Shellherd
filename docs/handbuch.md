@@ -766,6 +766,29 @@ Einstellungen → Verbindungen → `Server-Schlüssel verwalten` zeigt alle best
 
 `Aus known_hosts importieren …` liest eine OpenSSH-Datei, die du im Dialog wählst (vorgeschlagen: `%USERPROFILE%\.ssh\known_hosts`, höchstens 4 MiB). Übernommen werden Hostnamen, `[host]:port` und gehashte Namen (`|1|…`) mit Ed25519-, ECDSA- und RSA-Schlüsseln, auch mehrere je Server. Gehashte Einträge zeigt die Liste als „Gehashter Hostname“. `@revoked`-Zeilen gelten für alle Hosts: Einen so markierten Schlüssel nimmt Shellherd nie an, auch nicht nach Rückfrage. Übersprungen werden `@cert-authority`, Muster wie `*.example.com` oder `!host`, Zertifikate und Sicherheitsschlüssel (`sk-…`). Der Import ändert keinen Schlüssel, den du in Shellherd bestätigt hast: Für solche Server gilt weiter Shellherds Eintrag, und weicht die Datei davon ab, nennt das Ergebnis den Server. Shellherd liest `known_hosts` nur nach diesem Klick und schreibt sie nie.
 
+## Fernzugriff (Entwicklung)
+
+Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_REMOTE_LAB=1` (unabhängig vom Sync-Lab-Flag `SHELLHERD_SYNC_LAB`), ausdrücklich ohne Sicherheitsfreigabe: Die Funktion hat keinen unabhängigen Sicherheitsreview. Nicht für echte Geräte oder echte Zugangsdaten einsetzen.
+
+**Ablauf:**
+
+1. Beide Geräte: Einstellungen → `Fernzugriff einrichten (Entwicklung)`, Server-Adresse eintragen, `Verbinden`, mit Benutzername und Serverpasswort anmelden. Der Vault muss entsperrt sein.
+2. Ein Gerätename vergeben und `Dieses Gerät online melden`. Der Dialog zeigt den Fingerabdruck dieses Geräts.
+3. Am ansehenden Gerät erscheint das andere Gerät unter `Online-Geräte`. Fingerabdruck auf beiden Geräten unabhängig vergleichen, `Ich habe den Fingerabdruck auf dem anderen Gerät verglichen` ankreuzen, `Bildschirm ansehen`.
+4. Am anderen Gerät fragt `Bildschirm freigeben?` mit dem Fingerabdruck des Anfragenden. `Bildschirm freigeben` ist in der ersten Sekunde gesperrt. Solange das Bild läuft, zeigt eine Leiste, wer zusieht, mit `Beenden`.
+5. Beide Seiten können jederzeit beenden (`Verbindung beenden` bzw. `Beenden`). Sperren des Vaults beendet die Verbindung ebenfalls.
+
+**Grenzen:**
+
+- Nur Ansehen. Maus und Tastatur werden nicht übertragen.
+- Nur im selben Netz (LAN), ohne TURN-Relay. Es gibt nur direkte Verbindungen über Host-Kandidaten; hinter NAT oder über getrennte Netze scheitert der Aufbau mit „Keine direkte Verbindung möglich“.
+- Eine Sitzung dauert höchstens fünf Minuten, danach ist eine neue Anfrage nötig.
+- Sperrbildschirm, UAC-Abfragen und Anmeldemaske werden nicht übertragen.
+- Unter Linux gibt es keinen Fensterschutz: Auch das Shellherd-Fenster ist im Bild sichtbar. Unter Wayland zeigt das System eine eigene Auswahl, was freigegeben wird.
+- Die Geräteidentität bleibt nur mit Schlüsselablage des Betriebssystems erhalten. Ohne sie ist sie temporär, und der Fingerabdruck ändert sich beim nächsten Start. Das gilt auch, wenn die Identitätsdatei nicht geschrieben werden kann.
+- Bisher wurde nur ein Testbild übertragen (Szene mit Fake-Capture). Echtes Capture (Wayland-Portal, Windows) ist nicht manuell geprüft, ebenso nicht der Fensterschutz unter Windows und macOS während der Freigabe.
+- Für die Szene `remote-scene.mjs` und echte Tests braucht jedes Gerät eine Netzwerkschnittstelle mit LAN-Adresse; Loopback allein reicht für WebRTC nicht.
+
 ## Prozessgrenzen und Lebenszyklus
 
 - Main: verschlüsselte Dateien, Vault-Session-Key, `ssh2`, Host-Key-Prüfung.
