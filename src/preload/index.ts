@@ -20,6 +20,10 @@ const localeArg = process.argv.find(arg => arg.startsWith(LOCALE_ARG))?.slice(LO
 const desktopApi: DesktopApi = {
   syncLabEnabled: process.argv.includes('--shellherd-sync-lab=1'),
   syncLabAction: request => ipcRenderer.invoke('sync-lab:action', request),
+  remoteLabEnabled: process.argv.includes('--shellherd-remote-lab=1'),
+  remoteCaptureFake: process.argv.includes('--shellherd-remote-capture-fake=1'),
+  remoteLabAction: request => ipcRenderer.invoke('remote-lab:action', request),
+  onRemoteLabEvent: listener => subscribe('remote-lab:event', listener),
   sshRemotePath: request => ipcRenderer.invoke('ssh:remote-path', request),
   sshToolbar: request => ipcRenderer.invoke('ssh:toolbar', request),
   capabilities: JSON.parse(process.argv.find(arg => arg.startsWith('--shellherd-capabilities='))?.slice('--shellherd-capabilities='.length) ?? '{"platform":"unknown","rdp":false,"windowsHello":false,"fileAssociation":false,"registryImport":false,"localShells":[]}'),
