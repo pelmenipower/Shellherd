@@ -1,7 +1,8 @@
 {
   "window": {
     "main": "Shellherd",
-    "secondary": "Shellherd – Sitzungen"
+    "secondary": "Shellherd – Sitzungen",
+    "mainSharing": "Shellherd – Bildschirm wird angesehen"
   },
   "dialogs": {
     "cancel": "Abbrechen",

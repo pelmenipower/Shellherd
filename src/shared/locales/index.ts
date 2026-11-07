@@ -1,6 +1,8 @@
 import toolbarDe from './de-DE/toolbar.json';
 import syncLabDe from './de-DE/syncLab.json';
 import syncLabEn from './en-US/syncLab.json';
+import remoteLabDe from './de-DE/remoteLab.json';
+import remoteLabEn from './en-US/remoteLab.json';
 import toolbarEn from './en-US/toolbar.json';
 import commonDe from './de-DE/common.json';
 import appDe from './de-DE/app.json';
@@ -38,12 +40,13 @@ import errorsAiEn from './en-US/errors/ai.json';
 import errorsCoreEn from './en-US/errors/core.json';
 
 export const NAMESPACES = ['common', 'app', 'vault', 'connection', 'terminal', 'kubernetes', 'kubeActions',
-  'containers', 'files', 'assistant', 'toolbar', 'errors', 'main', 'syncLab'] as const;
+  'containers', 'files', 'assistant', 'toolbar', 'errors', 'main', 'syncLab', 'remoteLab'] as const;
 export type Namespace = typeof NAMESPACES[number];
 
 export const resources = {
   'de-DE': {
     syncLab: syncLabDe,
+    remoteLab: remoteLabDe,
     toolbar: toolbarDe, common: commonDe, app: appDe, vault: vaultDe, connection: connectionDe, terminal: terminalDe,
     kubernetes: kubernetesDe, kubeActions: kubeActionsDe, containers: containersDe, files: filesDe, assistant: assistantDe,
     errors: { ...errorsSshDe, ...errorsContainersDe, ...errorsKubernetesDe, ...errorsFilesDe, ...errorsAiDe, ...errorsCoreDe },
@@ -51,6 +54,7 @@ export const resources = {
   },
   'en-US': {
     syncLab: syncLabEn,
+    remoteLab: remoteLabEn,
     toolbar: toolbarEn, common: commonEn, app: appEn, vault: vaultEn, connection: connectionEn, terminal: terminalEn,
     kubernetes: kubernetesEn, kubeActions: kubeActionsEn, containers: containersEn, files: filesEn, assistant: assistantEn,
     errors: { ...errorsSshEn, ...errorsContainersEn, ...errorsKubernetesEn, ...errorsFilesEn, ...errorsAiEn, ...errorsCoreEn },
