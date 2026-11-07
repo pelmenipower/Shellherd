@@ -148,9 +148,16 @@ async function run() {
   await A.click('dialog.remote-consent-dialog .primary-button');
   await A.waitFor('Leiste „Bildschirm wird angesehen“', has('.remote-share-bar'));
   shots.push(await A.shot('remote-bar'));
-  const protectedFlags = await A.main(`return electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected());`);
-  if (!protectedFlags.length || !protectedFlags.every(Boolean)) throw new Fail(`A: Fensterschutz nicht aktiv während der Freigabe (${JSON.stringify(protectedFlags)})`);
-  log('A: Leiste sichtbar, Fenster geschützt');
+  // setContentProtection is a no-op on Linux (isContentProtected() stays false), so
+  // there the scene checks the sharing window title; elsewhere the protection flag.
+  const sharingState = await A.main(`return { platform: process.platform, flags: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected()), titles: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.getTitle()) };`);
+  if (sharingState.platform === 'linux') {
+    if (!sharingState.titles.some(title => title !== 'Shellherd' && title.startsWith('Shellherd'))) throw new Fail(`A: Fenstertitel zeigt die Freigabe nicht (${JSON.stringify(sharingState.titles)})`);
+    log(`A: Leiste sichtbar, Titel „${sharingState.titles[0]}“ (Fensterschutz unter Linux nicht verfügbar)`);
+  } else {
+    if (!sharingState.flags.length || !sharingState.flags.every(Boolean)) throw new Fail(`A: Fensterschutz nicht aktiv während der Freigabe (${JSON.stringify(sharingState.flags)})`);
+    log('A: Leiste sichtbar, Fenster geschützt');
+  }
 
   await B.waitFor('Video bei B (readyState >= 2, Breite > 0)', `(() => { const v = document.querySelector('${LAB} video'); return v && v.readyState >= 2 && v.videoWidth > 0; })()`, 20000);
   const points = await B.evaluate(PIXEL_CHECK);
@@ -168,9 +175,10 @@ async function run() {
   await B.waitFor(`Ende-Text bei B (≤ ${END_WITHIN_MS / 1000} s)`, `document.querySelector('${LAB} .remote-lab-ended')?.textContent.includes(${JSON.stringify(ENDED_REMOTE)})`, END_WITHIN_MS);
   log(`B: Ende nach ${Date.now() - stoppedAt} ms`);
   await A.waitFor('Leiste verschwunden', `!${has('.remote-share-bar')}`, 5000);
-  const after = await A.main(`return electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected());`);
-  if (after.some(Boolean)) throw new Fail(`A: Fensterschutz nach dem Beenden noch aktiv (${JSON.stringify(after)})`);
-  log('A: Leiste weg, Fensterschutz aufgehoben');
+  const after = await A.main(`return { flags: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected()), titles: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.getTitle()) };`);
+  if (after.flags.some(Boolean)) throw new Fail(`A: Fensterschutz nach dem Beenden noch aktiv (${JSON.stringify(after.flags)})`);
+  if (after.titles.some(title => title !== 'Shellherd')) throw new Fail(`A: Fenstertitel nach dem Beenden noch mit Freigabe (${JSON.stringify(after.titles)})`);
+  log('A: Leiste weg, Fensterschutz und Titel zurückgesetzt');
 
   // Decline path.
   await request(fingerprintB, fingerprintA);
