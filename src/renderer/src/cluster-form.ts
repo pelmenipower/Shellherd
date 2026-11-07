@@ -1,5 +1,5 @@
 import type { KubeProbeResult } from '../../shared/kubernetes';
-import { PROTOCOLS } from '../../shared/vault/connections';
+import { PROTOCOLS, isDirectKubeconfig } from '../../shared/vault/connections';
 import type { ConnectionNode, KubernetesConnectionNode, SshConnectionNode, VaultNode } from '../../shared/vault/types';
 import { t } from './i18n';
 
@@ -54,9 +54,10 @@ export function kubeconfigPathError(path: string): string | null {
 
 /** Localized message for the first problem with the cluster, or null. */
 export function validateCluster(node: KubernetesConnectionNode, nodes: VaultNode[]): string | null {
-  if (node.accessHosts.length === 0) return noAccessMessage();
+  const direct = isDirectKubeconfig(node.kubeconfig);
+  if (!direct && node.accessHosts.length === 0) return noAccessMessage();
   const connections = flattenConnections(nodes);
-  for (const id of node.accessHosts) {
+  for (const id of direct ? [] : node.accessHosts) {
     const access = connections.find(candidate => candidate.id === id);
     if (!access) return t('connection:cluster.validation.accessGone', { id });
     if (access.protocol !== 'ssh') return t('connection:cluster.validation.accessNotSsh', { name: access.name });

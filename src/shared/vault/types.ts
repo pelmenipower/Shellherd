@@ -138,12 +138,20 @@ export interface AiCliConnectionNode extends ConnectionBase {
 
 export type LocalConnectionNode = LocalShellConnectionNode | AiCliConnectionNode;
 
-/** Kubernetes cluster reached through SSH connections; see docs/superpowers/specs/2026-10-16-kubernetes-integration-design.md. */
+export type KubeconfigSource =
+  | { source: 'auto' }
+  | { source: 'path'; path: string }
+  /** Pasted text inside the encrypted vault; execConsent: the approved command line (execCommandLine). */
+  | { source: 'inline'; text: string; execConsent?: string }
+  /** File on this computer, read again at every connect; `~/` means the home directory. */
+  | { source: 'file'; path: string };
+
+/** Kubernetes cluster reached through SSH connections or directly; see docs/superpowers/specs/2026-10-16-kubernetes-integration-design.md. */
 export interface KubernetesConnectionNode extends ConnectionBase {
   protocol: 'kubernetes';
-  /** Ordered SSH connection ids; the first reachable one carries the tunnel. */
+  /** SSH ids for 'auto'/'path'; empty for 'inline'/'file'. The first reachable one carries the tunnel. */
   accessHosts: string[];
-  kubeconfig: { source: 'auto' } | { source: 'path'; path: string };
+  kubeconfig: KubeconfigSource;
   /** Context in the kubeconfig; default is current-context. */
   context?: string;
   /** Namespace the tab opens with; default is "default". */

@@ -1,9 +1,12 @@
-import { ipcMain, shell, webContents } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell, webContents } from 'electron';
 import { AppError } from '../../shared/errors';
-import type { IpcMainInvokeEvent } from 'electron';
+import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeArgoRequestSchema, KubeDetailRequestSchema, KubeDiagnoseRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeOpenLinkRequestSchema, KubeOpenRequestSchema, KubeProbeRequestSchema, KubeSubscribeRequestSchema, KubeViewRequestSchema } from '../../shared/kubernetes-schema';
 import type { KubeProbeResult } from '../../shared/kubernetes';
+import type { SelectVaultFileResult } from '../../shared/ipc';
+import { isDirectKubeconfig } from '../../shared/vault/connections';
+import { mainT } from '../i18n';
 import type { ConnectionNode, SshConnectionNode } from '../../shared/vault/types';
 import { openRemoteWithJump } from '../containers/ipc';
 import type { SudoRejections } from '../containers/sudo-rejections';
@@ -18,6 +21,7 @@ import { createKubeApi } from './client-api';
 import { KubeSessions, openableHref, userError } from './session';
 import { openTunnel } from './tunnel';
 import { listContexts } from './kubeconfig';
+import { openDirect, readLocalKubeconfig } from './direct';
 
 type Handler = (event: IpcMainInvokeEvent, request: unknown) => unknown;
 
@@ -42,8 +46,12 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, prompts: A
       if (node?.protocol !== 'kubernetes') throw new AppError('kubernetes.clusterNotFound');
       return node;
     },
-    openAccess: (cluster, onTry) => openAccess(cluster, { getConnection, openRemote, sudoRejections }, onTry),
-    openTunnel: (access, target) => openTunnel((host, port) => access.host.forward(host, port), target),
+    openAccess: (cluster, onTry) => isDirectKubeconfig(cluster.kubeconfig) ? openDirect(cluster) : openAccess(cluster, { getConnection, openRemote, sudoRejections }, onTry),
+    openTunnel: (access, target) => {
+      const host = access.host;
+      if (!host) throw new AppError('kubernetes.tunnelFailed');
+      return openTunnel((hostName, port) => host.forward(hostName, port), target);
+    },
     createApi: createKubeApi,
     emit: (ownerId, event) => {
       const owner = webContents.fromId(ownerId);
@@ -116,19 +124,37 @@ export function registerKubernetesIpcHandlers(knownHosts: KnownHosts, prompts: A
     const parsed = parseRequest(KubeArgoRequestSchema, request);
     return sessions.argoApp(ownerId, parsed.viewId, parsed.app);
   });
-  // Reads the contexts of a kubeconfig on an SSH host; the config text itself never leaves the main process.
+  // Reads the contexts of a kubeconfig (SSH host, pasted text or local file); a probe never builds an API client, so no plugin runs.
+  // Only pasted text, already vault content in the renderer, comes back with its login commands.
   handle(IPC_CHANNELS.kubeProbe, async (event, request): Promise<KubeProbeResult> => {
     requireSshSender(event);
-    const connection = getConnection(parseRequest(KubeProbeRequestSchema, request).connectionId);
+    vaultSessionManager.getSnapshot();
+    const parsed = parseRequest(KubeProbeRequestSchema, request);
+    if ('text' in parsed) return { source: 'inline', ...listContexts(parsed.text) };
+    if ('path' in parsed) {
+      const { text, path } = await readLocalKubeconfig(parsed.path);
+      const { execCommands: _omit, ...contexts } = listContexts(text);
+      return { source: path, ...contexts };
+    }
+    const connection = getConnection(parsed.connectionId);
     if (connection?.protocol !== 'ssh') throw new AppError('kubernetes.sshConnectionRequired');
     if (connection.disabled) throw new AppError('kubernetes.disabled');
     const host = await openRemote(connection);
     try {
       const { text, source } = await readKubeconfig(host, connection, { source: 'auto' }, sudoRejections);
-      return { source, ...listContexts(text) };
+      const { execCommands: _omit, ...contexts } = listContexts(text);
+      return { source, ...contexts };
     } finally {
       host.close();
     }
+  });
+  handle(IPC_CHANNELS.kubeSelectConfigFile, async (event): Promise<SelectVaultFileResult> => {
+    requireSshSender(event);
+    vaultSessionManager.getSnapshot();
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options: OpenDialogOptions = { title: mainT('dialogs.kubeconfig.title'), properties: ['openFile', 'showHiddenFiles'] };
+    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+    return result.canceled || !result.filePaths[0] ? { canceled: true } : { canceled: false, filePath: result.filePaths[0] };
   });
   return sessions;
 }

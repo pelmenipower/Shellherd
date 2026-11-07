@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { GROUP_BY_IDS, KUBE_NAME, manualJobName, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH } from './kubernetes';
-import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeArgoRequestSchema, KubeOpenLinkRequestSchema, KubeDiagnoseRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
+import { GROUP_BY_IDS, KUBE_NAME, manualJobName, MAX_COLLAPSED, MAX_COLUMN_FILTER_LENGTH, MAX_COLUMN_FILTERS, MAX_GROUP_KEY_LENGTH, KUBECONFIG_TEXT_MAX } from './kubernetes';
+import { KubeAccessRequestSchema, KubeActionRequestSchema, KubeArgoRequestSchema, KubeOpenLinkRequestSchema, KubeDiagnoseRequestSchema, KubeLogsStartRequestSchema, KubeLogsStopRequestSchema, KubeForwardStartRequestSchema, KubeForwardStopRequestSchema, KubeProbeRequestSchema, KubeQuerySchema, KubeRefSchema, KubeTerminalTargetSchema, KubeViewSnapshotSchema } from './kubernetes-schema';
 
 describe('kubernetes schemas', () => {
   it('accepts a namespaced ref and rejects bad names', () => {
@@ -207,5 +207,16 @@ describe('KubeOpenLinkRequestSchema and KubeArgoRequestSchema', () => {
     expect(KubeOpenLinkRequestSchema.safeParse({ viewId, link: { type: 'argo', app: 'shop' }, url: 'https://evil.example.test' }).success).toBe(false);
     expect(KubeArgoRequestSchema.safeParse({ viewId, app: 'shop', namespace: 'argocd' }).success).toBe(false);
     expect(KubeArgoRequestSchema.safeParse({ viewId: 'v', app: 'shop' }).success).toBe(false);
+  });
+  it('accepts the three probe forms and rejects extras, UNC and device paths, oversized text', () => {
+    const ok = (value: unknown) => KubeProbeRequestSchema.safeParse(value).success;
+    expect(ok({ connectionId: 'c1' })).toBe(true);
+    expect(ok({ text: 'apiVersion: v1' })).toBe(true);
+    expect(ok({ path: '~/.kube/config' })).toBe(true);
+    expect(ok({ path: 'C:\\u\\.kube\\config' })).toBe(true);
+    expect(ok({ connectionId: 'c1', text: 'x' })).toBe(false);
+    expect(ok({ text: 'x'.repeat(KUBECONFIG_TEXT_MAX + 1) })).toBe(false);
+    expect(ok({ text: '' })).toBe(false);
+    for (const path of ['\\\\server\\share\\c', '\\\\?\\C:\\x', '//server/c', '/\\server\\share\\c', 'rel/c', '/a\nb', '/a\0b']) expect(ok({ path })).toBe(false);
   });
 });

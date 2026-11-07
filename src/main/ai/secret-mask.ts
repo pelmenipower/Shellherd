@@ -1,4 +1,5 @@
 import type { Vault, VaultNode } from '../../shared/vault/types';
+import { kubeconfigSecrets } from '../kubernetes/kubeconfig';
 
 /** Vault values and earlier finds shorter than this are not searched for: they would hit ordinary words and numbers. */
 export const MIN_LITERAL_LENGTH = 6;
@@ -301,6 +302,7 @@ export function vaultLiterals(vault: Vault): string[] {
         if (node.authentication.method === 'privateKey') add(node.authentication.passphrase);
       }
       if (node.protocol === 'rdp') add(node.password);
+      if (node.protocol === 'kubernetes' && node.kubeconfig.source === 'inline') for (const value of kubeconfigSecrets(node.kubeconfig.text)) add(value);
     }
   };
   walk(vault.nodes);

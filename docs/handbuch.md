@@ -529,9 +529,44 @@ Die kubeconfig wird in dieser Reihenfolge gesucht: `$KUBECONFIG` der Login-Shell
 (erste Datei), `~/.kube/config`, dann `/etc/kubernetes/admin.conf`. Die Datei unter
 `/etc/kubernetes` liest Shellherd per sudo mit der Anmeldung der SSH-Verbindung:
 Ist ein Passwort gespeichert, beantwortet Shellherd die sudo-Abfrage damit, sonst
-nutzt es `sudo -n` (dafür braucht der Benutzer NOPASSWD). Kubeconfigs mit `exec`- oder
-`auth-provider`-Abschnitten lehnt Shellherd ab, weil deren Plugins auf diesem Rechner
+nutzt es `sudo -n` (dafür braucht der Benutzer NOPASSWD). Über SSH lehnt Shellherd
+Kubeconfigs mit `exec`- oder `auth-provider`-Abschnitten ab, weil deren Plugins auf diesem Rechner
 statt auf dem Server laufen würden.
+
+### Direkter Zugang
+
+Ein Cluster-Eintrag braucht keine SSH-Verbindung. Neue Cluster-Einträge starten unter „Zugang“ auf „Direkt“;
+Einträge über SSH stellst du dort auf „Direkt“ um. Dann spricht Shellherd den API-Server von diesem Rechner
+aus an. Die kubeconfig kommt aus einer von zwei Quellen:
+
+- „Eingefügt (im Vault gespeichert)“: Du fügst den Text ein. Er liegt verschlüsselt im
+  Vault und wandert mit ihm. Ein gespeicherter Text zeigt „Kubeconfig gespeichert · … Zeichen“;
+  mit „Ersetzen“ tauschst du ihn aus.
+- „Datei auf diesem Rechner“: Du gibst einen absoluten Pfad oder `~/…` an oder wählst
+  die Datei mit „Datei wählen …“. Die Datei wird bei jedem Verbinden neu gelesen. Nach
+  einer Änderung schließt du den Cluster-Tab und öffnest ihn wieder. UNC-Pfade werden
+  nicht unterstützt.
+
+Aus der kubeconfig wählst du den Context aus der Liste. Shellherd verbindet beim direkten
+Zugang nicht automatisch neu; bei einem Abbruch öffnest du den Tab erneut.
+
+Enthält der gewählte Context ein Login-Programm (`exec`), läuft es auf diesem Rechner mit
+deinen Rechten, ohne Terminal (kein TTY) und mit höchstens 60 s Laufzeit. Bei einer
+eingefügten kubeconfig startet es nur, wenn du unter Context „Login-Programm beim
+Verbinden ausführen: …“ bestätigst; ändert sich Text oder Context, verfällt die
+Bestätigung. Die Bestätigung erscheint, nachdem du „Contexts lesen“ geklickt hast. Bei einer Datei auf diesem Rechner ist keine Bestätigung nötig. Relative
+Programmpfade gelten relativ zum Ordner der Datei (bei eingefügtem Text sind sie nicht
+erlaubt). Unter Windows startet Shellherd keine `.cmd`- oder `.bat`-Dateien; nutze eine
+`.exe` (Programmname oder voller Pfad).
+
+Nicht unterstützt sind `token-file`, `auth-provider`, `proxy-url` und
+`insecure-skip-tls-verify`; `token-file` gilt jetzt auch für Cluster über SSH. Verweist die
+kubeconfig auf Zertifikatsdateien, nutze eingebettete Zertifikate (`…-data`) oder
+„Datei auf diesem Rechner“.
+
+Ältere Shellherd-Versionen öffnen einen Vault mit direktem Cluster-Eintrag nicht.
+
+### Einrichtung und Bedienung
 
 Im Einrichtungsformular ist „Produktion“ vorausgewählt; abwählen ist eine bewusste
 Entscheidung. „Nur lesen“ sperrt Restart, Scale, Löschen und die Shell; Logs, `Logs aller Pods`, YAML,

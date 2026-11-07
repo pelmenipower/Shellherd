@@ -10,6 +10,7 @@ import { runWithSudo } from '../containers/sudo-run';
 import type { SudoRejections } from '../containers/sudo-rejections';
 import { publicError } from '../ssh/session';
 import { KubeInputError } from './kubeconfig';
+import type { KubeconfigPolicy } from './kubeconfig';
 
 /** Prints `src:<path>` then the file, or `src:sudo` when only admin.conf exists, or `src:none`. */
 export const AUTO_SCRIPT = [
@@ -28,7 +29,8 @@ export interface AccessDependencies {
   sudoRejections: SudoRejections;
 }
 
-export interface ClusterAccess { host: RemoteHost; connection: SshConnectionNode; kubeconfig: string; source: string }
+/** Direct access has no host and connection; its policy comes from `openDirect`, a missing one means the strictest (ssh). */
+export interface ClusterAccess { kubeconfig: string; source: string; host?: RemoteHost; connection?: SshConnectionNode; policy?: KubeconfigPolicy }
 
 /** Why a command failed, for the user; the sudo cases match the container tabs. The last stderr line is only a detail. */
 function runFailure(result: RunResult): HostAccessError {

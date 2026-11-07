@@ -1,5 +1,5 @@
 import type { ConnectionIconName } from './appearance';
-import type { ConnectionNode, ConnectionProtocol, RemoteConnectionNode, Vault, VaultNode } from './types';
+import type { ConnectionNode, KubeconfigSource, ConnectionProtocol, RemoteConnectionNode, Vault, VaultNode } from './types';
 
 /** Protocol data only; display texts live in the `vault` catalog (see `connection-labels.ts`). */
 export interface ProtocolInfo {
@@ -42,8 +42,13 @@ export function redactSecrets(nodes: VaultNode[]): VaultNode[] {
     if (node.protocol === 'ssh') { const { login: _login, ...rest } = node; return { ...rest, authentication: { method: 'agent' } }; }
     if (node.protocol === 'sftp') return { ...node, authentication: { method: 'agent' } };
     if (node.protocol === 'rdp') { const { password: _password, ...rest } = node; return rest; }
+    if (node.protocol === 'kubernetes' && node.kubeconfig.source === 'inline') return { ...node, kubeconfig: { source: 'inline', text: '' } };
     return node;
   });
+}
+
+export function isDirectKubeconfig(source: KubeconfigSource): source is Extract<KubeconfigSource, { source: 'inline' | 'file' }> {
+  return source.source === 'inline' || source.source === 'file';
 }
 
 /** Copy without secrets for the locked renderer: SSH/SFTP auth → agent, RDP password and AI settings removed. */

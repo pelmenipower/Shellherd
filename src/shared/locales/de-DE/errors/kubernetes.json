@@ -27,8 +27,8 @@
     "kubeconfigNoContext": "Die kubeconfig enthält keinen Context.",
     "contextMissing": "Context „{{name}}“ gibt es in der kubeconfig nicht (vorhanden: {{available}}).",
     "contextIncomplete": "Der Context verweist auf einen fehlenden Cluster oder Benutzer.",
-    "loginPluginUnsupported": "Diese kubeconfig nutzt ein Login-Plugin. Das wird noch nicht unterstützt.",
-    "certFilesUnsupported": "Die kubeconfig verweist auf Zertifikatsdateien. Nutze eine kubeconfig mit eingebetteten Zertifikaten (z. B. /etc/kubernetes/admin.conf).",
+    "loginPluginUnsupported": "Diese kubeconfig nutzt ein Login-Plugin, das hier nicht unterstützt wird. Login-Plugins laufen nur beim direkten Zugang.",
+    "certFilesUnsupported": "Die kubeconfig verweist auf Zertifikatsdateien. Nutze eine kubeconfig mit eingebetteten Zertifikaten (…-data) oder „Datei auf diesem Rechner“.",
     "serverUrlInvalid": "Die Server-Adresse in der kubeconfig ist ungültig.",
     "httpsRequired": "Der API-Server muss per HTTPS erreichbar sein.",
     "unauthorized": "Nicht angemeldet. Die Zugangsdaten der kubeconfig wurden abgelehnt.",
@@ -63,6 +63,13 @@
     "problemNodePressure": "{{name}}: {{pressure}}",
     "noArgoUrl": "Im Cluster-Eintrag ist keine Argo-CD-Adresse hinterlegt.",
     "noHarborUrl": "Im Cluster-Eintrag ist keine Harbor-Adresse hinterlegt.",
-    "linkRefused": "Dieser Link wird nicht geöffnet: Er passt nicht zur Adresse im Cluster-Eintrag."
+    "linkRefused": "Dieser Link wird nicht geöffnet: Er passt nicht zur Adresse im Cluster-Eintrag.",
+    "kubeconfigFileUnreadable": "Die Datei „{{path}}“ konnte nicht gelesen werden.",
+    "loginPluginNeedsConsent": "Diese kubeconfig startet das Programm „{{command}}“. Bestätige es im Cluster-Eintrag unter Context.",
+    "loginPluginNotStarted": "Das Login-Programm „{{command}}“ konnte nicht gestartet werden. Prüfe den Pfad in der kubeconfig.",
+    "authProviderUnsupported": "Diese kubeconfig nutzt einen auth-provider. Nutze stattdessen ein exec-Plugin oder ein Token.",
+    "tlsVerifyRequired": "Diese kubeconfig schaltet die TLS-Prüfung ab (insecure-skip-tls-verify). Beim direkten Zugang wird das nicht unterstützt.",
+    "proxyUnsupported": "Diese kubeconfig nutzt proxy-url. Das wird nicht unterstützt.",
+    "tokenFileUnsupported": "Diese kubeconfig liest ein Token aus einer Datei (token-file). Das wird nicht unterstützt. Trage das Token ein oder nutze ein exec-Plugin."
   }
 }

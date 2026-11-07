@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import ssh2 from 'ssh2';
+import { KubeConfig } from '@kubernetes/client-node';
 import { openRemoteHost } from '../../../src/main/containers/runner';
 import { PROBE_COMMAND, shellJoin } from '../../../src/main/containers/commands';
 import { parseProbe } from '../../../src/main/containers/parsers';
@@ -13,7 +14,8 @@ import { createSudoMarker } from '../../../src/main/containers/sudo';
 import { SudoRejections } from '../../../src/main/containers/sudo-rejections';
 import { SshSessionManager } from '../../../src/main/ssh/session';
 import { readKubeconfig } from '../../../src/main/kubernetes/access';
-import { parseKubeconfig } from '../../../src/main/kubernetes/kubeconfig';
+import { execCommandLine, parseKubeconfig } from '../../../src/main/kubernetes/kubeconfig';
+import { openDirect } from '../../../src/main/kubernetes/direct';
 import { openTunnel } from '../../../src/main/kubernetes/tunnel';
 import { createKubeApi } from '../../../src/main/kubernetes/client-api';
 import { KubeForwards } from '../../../src/main/kubernetes/forwards';
@@ -28,7 +30,7 @@ import { streamChat } from '../../../src/main/ai/providers';
 import { SecretMasker } from '../../../src/main/ai/secret-mask';
 import { startSshd } from './sshd.mjs';
 import { DEMO_TOTP, seedSftp } from './fixtures.mjs';
-import { findOpenssl, KUBE_REQUEST_LOG, startKubeFake } from './kube-fake.mjs';
+import { findOpenssl, KUBE_REQUEST_LOG, KUBE_TOKEN, startKubeFake } from './kube-fake.mjs';
 import { HARBOR_DIGEST, HARBOR_HOST, KUBE_SECRETS } from './kube-fixtures.mjs';
 import { AI_KEY, AI_REQUEST_LOG, DEMO_ENV, DEMO_KEPT, DEMO_SECRETS, startAiFake } from './ai-fake.mjs';
 import { writeImportFixtures } from './import-fixtures.mjs';
@@ -127,6 +129,37 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
 
     await expect(host.forward('k8s-cp1', 22)).rejects.toBeDefined();
     await expect(host.forward('127.0.0.1', 6443)).rejects.toBeDefined();
+  });
+
+  it.skipIf(!findOpenssl())('reaches the Kubernetes API directly: inline, file and a login plugin with consent', async () => {
+    const kube = await startKubeFake({ port: 0, dir: join(base, 'kube-direct') });
+    cleanup.push(() => kube.close());
+    const nodesOf = async (cluster, mutate = access => access) => {
+      const access = mutate(await openDirect({ kubeconfig: cluster }));
+      return createKubeApi(parseKubeconfig(access.kubeconfig, undefined, access.policy).build(null)).list('nodes', null);
+    };
+    expect((await nodesOf({ source: 'inline', text: kube.directKubeconfig })).items).toHaveLength(3);
+    expect((await nodesOf({ source: 'file', path: kube.directFile })).items).toHaveLength(3);
+
+    // The node path has a space on purpose: the consent line must quote it.
+    const execDir = join(base, 'exec dir');
+    mkdirSync(execDir);
+    const script = `process.stdout.write(JSON.stringify({apiVersion:'client.authentication.k8s.io/v1',kind:'ExecCredential',status:{token:'${KUBE_TOKEN}'}}))`;
+    const node = join(execDir, 'node.exe');
+    copyFileSync(process.execPath, node);
+    const text = JSON.stringify({ apiVersion: 'v1', kind: 'Config', 'current-context': 'direct',
+      clusters: [{ name: 'direct', cluster: { server: `https://127.0.0.1:${kube.port}`, 'tls-server-name': 'k8s-cp1', 'certificate-authority-data': kube.directKubeconfig.match(/certificate-authority-data: (\S+)/)[1] } }],
+      contexts: [{ name: 'direct', context: { cluster: 'direct', user: 'exec' } }],
+      users: [{ name: 'exec', user: { exec: { apiVersion: 'client.authentication.k8s.io/v1', command: node, args: ['-e', script], interactiveMode: 'Never' } } }] });
+    await expect(nodesOf({ source: 'inline', text })).rejects.toMatchObject({ code: 'kubernetes.loginPluginNeedsConsent' });
+    const user = new KubeConfig();
+    user.loadFromString(text);
+    const consent = execCommandLine(user.getUsers()[0]);
+    expect(consent).toContain(JSON.stringify(node));
+    expect((await nodesOf({ source: 'inline', text, execConsent: consent })).items).toHaveLength(3);
+
+    expect(kube.requests.length).toBeGreaterThan(0);
+    for (const line of kube.requests) expect(line).toMatch(/^GET /);
   });
 
   it.skipIf(!findOpenssl())('forwards a pod and a service port through the SSH tunnel to the pod page', async () => {

@@ -34,6 +34,10 @@ describe('connbar', () => {
     expect(bar({ updatedAt: NOW + 500 }).age).toBe('gerade aktualisiert');
   });
 
+  it('is live without a host (direct access)', () => {
+    expect(bar({ s: { host: undefined } })).toEqual({ tone: 'live', text: 'Live', age: '' });
+  });
+
   it('is ok for 3 s after recovery', () => {
     expect(bar({ recoveredAt: NOW - 2999, updatedAt: NOW })).toEqual({ tone: 'ok', text: 'Wieder verbunden über node-a', age: 'gerade aktualisiert' });
     expect(bar({ recoveredAt: NOW - 3000 }).tone).toBe('live');

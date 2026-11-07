@@ -1,5 +1,5 @@
 // Creates the synthetic demo vault through the running driver (`npm run drive`), or unlocks it if it exists.
-// Entries: web-01 (SSH), ops-01 (SSH, root shell and start commands), files-01 (SFTP), prod-k8s (cluster via web-01), db-main (wrong password), legacy-app (closed port), mfa-01 (SSH, password + code), app-intern (SSH via jump host web-01, port forwards), folder Staging, AI provider Demo-KI.
+// Entries: web-01 (SSH), ops-01 (SSH, root shell and start commands), files-01 (SFTP), prod-k8s (cluster via web-01), lokal-k8s (direct cluster, kubeconfig file), db-main (wrong password), legacy-app (closed port), mfa-01 (SSH, password + code), app-intern (SSH via jump host web-01, port forwards), folder Staging, AI provider Demo-KI.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -107,6 +107,25 @@ async function addCluster() {
   return true;
 }
 
+// lokal-k8s: direct cluster, kubeconfig file in the run dir (absolute path; never ~/ or the file dialog, K-21). Skipped without the fake's file.
+async function addDirectCluster() {
+  const file = path.join(RUN_DIR, 'kube', 'kubeconfig-direct.yaml');
+  await allConnections();
+  if (!fs.existsSync(file) || await call('eval', `return document.body.innerText.includes('lokal-k8s')`)) return false;
+  await click('button:text-is("Neu")');
+  await menuItem('Kubernetes-Cluster');
+  await waitFor(`document.querySelector('input[type=radio][value=direct]')`);
+  await click('input[type=radio][value=direct]');
+  await click('input[type=radio][value=file]');
+  await fill('input[id$="-kubeconfigPath"]', file);
+  await fill('input[id$="-name"]', 'lokal-k8s');
+  await click('button:has-text("Contexts lesen")');
+  if (!await waitFor(`document.querySelector('input[id$="-context"]')?.value === 'direct'`)) throw new Error('lokal-k8s: Context direct wurde nicht gelesen.');
+  await click('button:has-text("Verbindung speichern")');
+  await pause(800);
+  return true;
+}
+
 // Provider form fields have no ids, so they are addressed by position: name, model, base URL, API key.
 async function addAiProvider() {
   const dialog = 'dialog.ai-settings-dialog';
@@ -138,6 +157,7 @@ if (!vaultOpen) {
     await pause(3000);
     console.log('Demo-Vault entsperrt.');
     if (await ensureOps()) console.log('ops-01 nachgetragen.');
+    if (await addDirectCluster()) console.log('lokal-k8s nachgetragen.');
   } else {
     // A remembered file shows the open form; go back to the start card first.
     if (!await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.includes('Neuen Vault erstellen'))`, 2000)) {
@@ -160,6 +180,7 @@ if (!vaultOpen) {
     await addConnection('SSH', 'mfa-01', 2222, 'synthetic-demo', undefined, { username: 'mfa' });
     await addConnection('SSH', 'app-intern', 22, 'synthetic-demo', appInternAdvanced, { host: 'internal-01' });
     await ensureOps();
+    const direct = await addDirectCluster();
     await allConnections();
     await click('button:text-is("Neu")');
     await menuItem('Neuer Ordner');
@@ -168,7 +189,7 @@ if (!vaultOpen) {
     await pause(800);
     await addAiProvider();
     await call('eval', `[...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? '').startsWith('Editor schlie'))?.click()`);
-    console.log(`Demo-Vault angelegt: web-01, files-01, ${cluster ? 'prod-k8s, ' : ''}db-main, legacy-app, ops-01, mfa-01, app-intern (Sprunghost web-01, Weiterleitungen 15432 und SOCKS 1080), Ordner Staging, KI-Anbieter Demo-KI.`);
+    console.log(`Demo-Vault angelegt: web-01, files-01, ${cluster ? 'prod-k8s, ' : ''}${direct ? 'lokal-k8s (direkt), ' : ''}db-main, legacy-app, ops-01, mfa-01, app-intern (Sprunghost web-01, Weiterleitungen 15432 und SOCKS 1080), Ordner Staging, KI-Anbieter Demo-KI.`);
   }
 } else {
   console.log('Kein Startbildschirm sichtbar – Vault ist vermutlich schon offen.');

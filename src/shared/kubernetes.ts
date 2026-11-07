@@ -7,6 +7,11 @@ export const KUBE_NAME = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/;
 export const LABEL_KEY = /^([a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?\/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/;
 export const LABEL_VALUE = /^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$/;
 export const MAX_REPLICAS = 1000;
+/** Direct kubeconfig limits; here (not vault/schema) so kubernetes-schema and vault/schema share them without an import cycle. */
+export const KUBECONFIG_TEXT_MAX = 65_536;
+export const EXEC_CONSENT_MAX = 4096;
+/** Drive path, POSIX root or `~/` / `~\`; never UNC or device paths. */
+export const KUBECONFIG_LOCAL_PATH = /^(?:~[\\/]|\/(?![\\/])|[A-Za-z]:[\\/])/;
 
 export const KUBE_KINDS = ['pods', 'deployments', 'statefulsets', 'daemonsets', 'jobs', 'cronjobs', 'services', 'ingresses', 'nodes', 'events'] as const;
 export type KubeKind = typeof KUBE_KINDS[number];
@@ -176,8 +181,9 @@ export interface KubeViewRequest { viewId: string }
 export interface KubeSubscribeRequest { viewId: string; query: KubeQuery }
 export interface KubeDetailRequest { viewId: string; ref: KubeRef; mode: KubeDetailMode }
 export interface KubeActionRequest { viewId: string; ref: KubeRef; action: KubeAction; replicas?: number }
-export interface KubeProbeRequest { connectionId: string }
-export interface KubeProbeResult { source: string; contexts: string[]; currentContext?: string; clusterName?: string }
+export type KubeProbeRequest = { connectionId: string } | { text: string } | { path: string };
+/** execCommands (context → approved command line) only for pasted text; source is "inline" or the expanded file path. */
+export interface KubeProbeResult { source: string; contexts: string[]; currentContext?: string; clusterName?: string; execCommands?: Record<string, string> }
 /** Port-forward target: a pod port, or a service port that main resolves to a ready pod. */
 export interface KubeForwardTarget { kind: 'pods' | 'services'; namespace: string; name: string; port: number }
 /** localPort 0 = any free port; the listener is always 127.0.0.1. */

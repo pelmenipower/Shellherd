@@ -16,6 +16,8 @@ import type {
 } from './types';
 import { ContainerTargetSchema } from '../containers-schema';
 import { KubeNameSchema, KubeViewSnapshotSchema } from '../kubernetes-schema';
+import { EXEC_CONSENT_MAX, KUBECONFIG_LOCAL_PATH, KUBECONFIG_TEXT_MAX } from '../kubernetes';
+import { isDirectKubeconfig } from './connections';
 import { MAX_BASE_URL, httpsBase } from '../kube-links';
 import type { EncryptedVaultFile } from './file-format';
 
@@ -151,10 +153,13 @@ const WebAddressSchema = z.string().max(MAX_BASE_URL).refine(value => httpsBase(
 export const KubernetesConnectionNodeSchema = z.object({
     ...connectionBase,
     protocol: z.literal('kubernetes'),
-    accessHosts: z.array(z.string().min(1).max(256)).min(1).max(8),
+    accessHosts: z.array(z.string().min(1).max(256)).max(8),
     kubeconfig: z.discriminatedUnion('source', [
         z.object({ source: z.literal('auto') }),
         z.object({ source: z.literal('path'), path: z.string().min(1).max(1024).refine(path => !/[\r\n\0]/.test(path)) }),
+        z.object({ source: z.literal('inline'), text: z.string().min(1).max(KUBECONFIG_TEXT_MAX).refine(text => !text.includes('\0')),
+            execConsent: z.string().min(1).max(EXEC_CONSENT_MAX).refine(noLineBreak).optional() }),
+        z.object({ source: z.literal('file'), path: z.string().min(1).max(32_767).regex(KUBECONFIG_LOCAL_PATH).refine(noLineBreak) }),
     ]),
     context: z.string().min(1).max(253).optional(),
     namespace: KubeNameSchema.optional(),
@@ -162,7 +167,8 @@ export const KubernetesConnectionNodeSchema = z.object({
     readOnly: z.boolean(),
     argoUrl: WebAddressSchema.optional(),
     harborUrl: WebAddressSchema.optional(),
-});
+}).refine(node => isDirectKubeconfig(node.kubeconfig) ? node.accessHosts.length === 0 : node.accessHosts.length >= 1,
+    { message: 'accessHosts', path: ['accessHosts'] });
 
 export const ConnectionNodeSchema = z.discriminatedUnion('protocol', [
     SshConnectionNodeSchema,

@@ -200,19 +200,38 @@
       "remove": "Remove {{label}}",
       "add": "Add SSH connection",
       "choose": "Choose…",
-      "noneLeft": "No other SSH connections"
+      "noneLeft": "No other SSH connections",
+      "mode": {
+        "legend": "Access",
+        "ssh": "Through SSH",
+        "direct": "Direct",
+        "directHint": "Shellherd talks to the API server from this computer. No SSH connection is needed."
+      }
     },
     "kubeconfig": {
       "legend": "Kubeconfig",
       "auto": "Automatic (KUBECONFIG, ~/.kube/config, /etc/kubernetes/admin.conf)",
       "path": "Path on the host",
-      "pathLabel": "Kubeconfig path on the host"
+      "pathLabel": "Kubeconfig path on the host",
+      "inline": "Pasted (stored in the vault)",
+      "file": "File on this computer",
+      "textLabel": "Kubeconfig",
+      "textHint": "Stored encrypted in the vault and travels with it.",
+      "stored_one": "Kubeconfig stored · {{count}} character",
+      "stored_other": "Kubeconfig stored · {{count}} characters",
+      "replace": "Replace",
+      "fileLabel": "Path on this computer",
+      "fileHint": "Read again at every connect.",
+      "pickFile": "Choose file…",
+      "pickFailed": "The file could not be chosen."
     },
     "context": {
       "label": "Context",
       "read": "Read contexts",
       "reading": "Reading…",
-      "readFailed": "The contexts could not be read."
+      "readFailed": "The contexts could not be read.",
+      "execConsent": "Run login program when connecting: {{command}}",
+      "execHint": "This program runs on this computer with your permissions. Only confirm if the kubeconfig comes from a trusted source."
     },
     "namespace": {
       "label": "Namespace",
@@ -236,7 +255,10 @@
       "accessNotSsh": "The access host “{{name}}” is not an SSH connection.",
       "accessDisabled": "The access host “{{name}}” is disabled.",
       "nameMissing": "Enter a name.",
-      "linkUrl": "Enter an https address without user name, query or fragment."
+      "linkUrl": "Enter an https address without user name, query or fragment.",
+      "kubeconfigTextEmpty": "Paste a kubeconfig.",
+      "kubeconfigTextTooLong": "The kubeconfig is too large (at most {{max}} characters).",
+      "kubeconfigLocalPath": "Enter an absolute path or ~/."
     }
   }
 }
