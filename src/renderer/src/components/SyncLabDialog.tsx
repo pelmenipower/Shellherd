@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { VaultSessionResult } from '../../../shared/ipc';
 import type { SyncLabReply, SyncLabState } from '../../../shared/sync-lab';
-import { normalizeSyncServerUrl } from '../../../shared/sync-server-url.mjs';
+import { needsPrivateNetwork, normalizeSyncServerUrl } from '../../../shared/sync-server-url.mjs';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { useT } from '../i18n';
 import '../sync-lab.css';
@@ -16,7 +16,10 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
   const [vaultPassword, setVaultPassword] = useState('');
   const [state, setState] = useState<SyncLabState>({ phase: 'idle' });
   const [error, setError] = useState<Extract<SyncLabReply, { ok: false }>['code'] | null>(null);
-  const normalized = normalizeSyncServerUrl(serverUrl, true);
+  const [privateChecked, setPrivateChecked] = useState(false);
+  const privateCandidate = needsPrivateNetwork(serverUrl);
+  const privateNetwork = privateCandidate && privateChecked;
+  const normalized = normalizeSyncServerUrl(serverUrl, { loopback: true, private: privateNetwork });
   useNativeSurfaceBlock(true);
   useEffect(() => {
     mounted.current = true; dialog.current?.showModal(); close.current?.focus();
@@ -29,7 +32,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
     try {
       await window.desktopApi.syncLabAction({ kind: 'close', clientId });
       if (!mounted.current) return;
-      const discovery = await window.desktopApi.syncLabAction({ kind: 'connect', clientId, serverUrl: normalized });
+      const discovery = await window.desktopApi.syncLabAction(privateNetwork ? { kind: 'connect', clientId, serverUrl: normalized, privateNetwork: true } : { kind: 'connect', clientId, serverUrl: normalized });
       if (!mounted.current) return;
       if (!discovery.ok) { setError(discovery.code); return; }
       if (discovery.state.server?.authentication !== 'password') { setError('unavailable'); return; }
@@ -48,7 +51,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
     } catch { if (mounted.current) setError('failed'); }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
-  async function sync(kind: 'synchronize' | 'keepLocal' | 'importVault'): Promise<void> {
+  async function sync(kind: 'synchronize' | 'keepLocal' | 'importVault' | 'removeForeign'): Promise<void> {
     if (pending.current || (kind === 'importVault' && !vaultPassword) || (kind === 'keepLocal' && !state.sync?.conflictRevision)) return;
     const localPassword = vaultPassword; setVaultPassword(''); pending.current = true; setBusy(true); setError(null);
     try {
@@ -65,7 +68,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
     mismatch: t('syncLab:errors.mismatch'), expired: t('syncLab:errors.expired'), failed: t('syncLab:errors.failed'), connection: t('syncLab:errors.connection'), authentication: t('syncLab:errors.authentication'),
     syncLocked: t('syncLab:errors.syncLocked'), syncChanged: t('syncLab:errors.syncChanged'), syncHistory: t('syncLab:errors.syncHistory'),
     syncWrongVault: t('syncLab:errors.syncWrongVault'), syncRecovery: t('syncLab:errors.syncRecovery'), syncLimit: t('syncLab:errors.syncLimit'),
-    syncConflict: t('syncLab:errors.syncConflict'), syncBindings: t('syncLab:errors.syncBindings'), samePassword: t('syncLab:errors.samePassword'),
+    samePasswordImport: t('syncLab:errors.samePasswordImport'), syncConflict: t('syncLab:errors.syncConflict'), syncBindings: t('syncLab:errors.syncBindings'), samePassword: t('syncLab:errors.samePassword'),
   })[error];
   return <dialog ref={dialog} className="confirm-dialog sync-lab-dialog" aria-labelledby={`${id}-title`}
     aria-describedby={`${id}-notice`} onCancel={event => { event.preventDefault(); onClose(); }}>
@@ -84,8 +87,12 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
       <label htmlFor={`${id}-server-url`}>{t('syncLab:serverUrl')}</label>
       <input id={`${id}-server-url`} type="url" value={serverUrl} placeholder={t('syncLab:serverPlaceholder')} maxLength={2048}
         autoComplete="off" spellCheck={false} disabled={busy} aria-invalid={serverUrl.trim() !== '' && !normalized || undefined}
-        aria-describedby={`${id}-server-hint`} onChange={event => { setServerUrl(event.target.value); setError(null); }} />
+        aria-describedby={`${id}-server-hint`} onChange={event => { setServerUrl(event.target.value); setPrivateChecked(false); setError(null); }} />
       <p className="settings-hint" id={`${id}-server-hint`}>{t('syncLab:serverHint')}</p>
+      {privateCandidate && <>
+        <label className="sync-lab-check"><input type="checkbox" checked={privateChecked} disabled={busy} onChange={event => setPrivateChecked(event.target.checked)} />{t('syncLab:privateNetwork.label')}</label>
+        <p className="sync-lab-notice">{t('syncLab:privateNetwork.hint')}</p>
+      </>}
       <label htmlFor={`${id}-username`}>{t('syncLab:username')}</label>
       <input id={`${id}-username`} value={username} maxLength={64} autoComplete="username" spellCheck={false} disabled={busy}
         onChange={event => { setUsername(event.target.value); setError(null); }} />
@@ -111,7 +118,10 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
       </form>}
       {state.sync && <section className="sync-result" role="status">
         <p>{state.sync.status === 'synced' ? t('syncLab:synced') : state.sync.status === 'bindings' ? t('syncLab:bindingsNeeded', { count: state.sync.conflicts }) : t('syncLab:conflictsKept', { count: state.sync.conflicts })}</p>
+        {(state.sync.compacted ?? 0) > 0 && <p>{t('syncLab:compacted', { count: state.sync.compacted })}</p>}
         {(state.sync.skipped ?? 0) > 0 && <p>{t('syncLab:skipped', { count: state.sync.skipped })}</p>}
+        {(state.sync.skipped ?? 0) > 0 && <><p>{t('syncLab:removeForeignHint')}</p><button type="button" className="secondary-button" disabled={busy} onClick={() => void sync('removeForeign')}>{t('syncLab:removeForeign')}</button></>}
+        {state.sync.removedForeign !== undefined && state.sync.removedForeign >= 0 && <p>{t('syncLab:removedForeign', { count: state.sync.removedForeign })}</p>}
         {state.sync.approvals > 0 && <p>{t('syncLab:approvalsNeeded', { count: state.sync.approvals })}</p>}
         {state.sync.canKeepLocal && <><p>{t('syncLab:keepLocalHint')}</p><button type="button" className="secondary-button" disabled={busy} onClick={() => void sync('keepLocal')}>{t('syncLab:keepLocal')}</button></>}
       </section>}

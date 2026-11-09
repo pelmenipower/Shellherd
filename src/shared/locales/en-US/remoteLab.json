@@ -64,11 +64,16 @@
     "samePassword": "The server password must not be your vault password. Nothing was sent to the server."
   },
   "verify": {
-    "label": "First 12 characters of the fingerprint from the other device",
+    "label": "First 16 characters of the fingerprint from the other device (the first two groups)",
     "hint": "Read them on the other device under “Fingerprint of this device”.",
     "verified": "Verified on {{date}}",
     "changed": "The fingerprint of {{name}} has changed. Verify it again."
   },
   "muted_one": "{{count}} request muted",
-  "muted_other": "{{count}} requests muted"
+  "muted_other": "{{count}} requests muted",
+  "connecting": "Establishing the encrypted connection…",
+  "privateNetwork": {
+    "label": "Private network (WireGuard/Tailscale): allow HTTP",
+    "hint": "Only for a WireGuard or Tailscale address of this server. Outside such a tunnel the network could read the server password and data. Your vault password stays local."
+  }
 }

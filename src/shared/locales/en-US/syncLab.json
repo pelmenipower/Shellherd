@@ -13,7 +13,7 @@
   "stepSync": "3 · Synchronize encrypted",
   "serverUrl": "Server URL",
   "serverPlaceholder": "https://sync.example.net",
-  "serverHint": "Enter your server using HTTPS. In this development prototype, HTTP is only allowed for 127.0.0.1 or ::1. Never put vault passwords or keys in the URL.",
+  "serverHint": "Enter your server with HTTPS. HTTP is allowed only for 127.0.0.1, ::1 or, after confirmation, for a WireGuard/Tailscale address. Never put vault passwords or keys into the URL.",
   "connect": "Sign in",
   "connecting": "Checking sign-in…",
   "readyTitle": "Signed in to sync server",
@@ -36,7 +36,8 @@
     "syncLimit": "The supported size, history or encryption profile limit was exceeded. The local vault is preserved.",
     "syncConflict": "The versions require explicit conflict resolution. Existing variants are preserved.",
     "syncBindings": "Configure device-specific key and file paths locally.",
-    "samePassword": "The server password must not be your vault password. Nothing was sent to the server."
+    "samePassword": "The server password must not be your vault password. Nothing was sent to the server.",
+    "samePasswordImport": "The vault password is also your server password, and that one was already sent to the server. The import was cancelled. Change the vault password on the source device and rotate the server password."
   },
   "username": "Username",
   "serverPassword": "Server password",
@@ -56,5 +57,15 @@
   "keepLocalHint": "This choice keeps local connection settings for all reported connection conflicts. Independent server changes are still applied. Other versions remain in encrypted history.",
   "keepLocal": "Keep my connection settings for conflicts",
   "skipped_one": "{{count}} foreign or unreadable object was skipped.",
-  "skipped_other": "{{count}} foreign or unreadable objects were skipped."
+  "skipped_other": "{{count}} foreign or unreadable objects were skipped.",
+  "privateNetwork": {
+    "label": "Private network (WireGuard/Tailscale): allow HTTP",
+    "hint": "Only for a WireGuard or Tailscale address of this server. Outside such a tunnel the network could read the server password and data. Your vault password stays local."
+  },
+  "compacted_one": "{{count}} older version was compacted and removed from the server.",
+  "compacted_other": "{{count}} older versions were compacted and removed from the server.",
+  "removeForeign": "Remove foreign objects",
+  "removeForeignHint": "Removes only objects that cannot be read with your vault password. A server account holds exactly one vault.",
+  "removedForeign_one": "{{count}} foreign object was removed.",
+  "removedForeign_other": "{{count}} foreign objects were removed."
 }

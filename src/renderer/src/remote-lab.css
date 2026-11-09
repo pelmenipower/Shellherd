@@ -8,6 +8,8 @@
 .remote-lab-warning { padding: var(--space-12); border: 1px solid var(--color-warn-border); border-radius: var(--radius-md); background: var(--color-warn-bg); color: var(--color-text); }
 .remote-lab-form { display: grid; gap: var(--space-12); padding: var(--space-16) 0; }
 .remote-lab-form input { width: 100%; }
+.remote-lab-check { display: flex; align-items: center; gap: var(--space-8); }
+.remote-lab-form .remote-lab-check input { width: auto; flex: 0 0 auto; }
 .remote-lab-form button { justify-self: start; }
 .remote-lab-account { display: grid; gap: var(--space-12); padding: var(--space-16) 0; }
 .remote-lab-account h3, .remote-consent-dialog h3 { margin: 0; font-size: var(--fs-md); font-weight: 600; }

@@ -64,11 +64,16 @@
     "samePassword": "Das Serverpasswort darf nicht dein Vault-Passwort sein. Es wurde nichts an den Server gesendet."
   },
   "verify": {
-    "label": "Erste 12 Zeichen des Fingerabdrucks vom anderen Gerät",
+    "label": "Erste 16 Zeichen des Fingerabdrucks vom anderen Gerät (die ersten zwei Gruppen)",
     "hint": "Lies sie auf dem anderen Gerät unter „Fingerabdruck dieses Geräts“ ab.",
     "verified": "Geprüft am {{date}}",
     "changed": "Der Fingerabdruck von {{name}} hat sich geändert. Prüfe ihn erneut."
   },
   "muted_one": "{{count}} Anfrage stummgeschaltet",
-  "muted_other": "{{count}} Anfragen stummgeschaltet"
+  "muted_other": "{{count}} Anfragen stummgeschaltet",
+  "connecting": "Verschlüsselte Verbindung wird aufgebaut …",
+  "privateNetwork": {
+    "label": "Privates Netz (WireGuard/Tailscale): HTTP erlauben",
+    "hint": "Nur für eine WireGuard- oder Tailscale-Adresse dieses Servers. Außerhalb eines solchen Tunnels könnte das Netz Serverpasswort und Daten mitlesen. Dein Vault-Passwort bleibt lokal."
+  }
 }
