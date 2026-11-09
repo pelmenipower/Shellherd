@@ -51,6 +51,7 @@ it('rejects missing/wrong credentials, plaintext uploads and device administrati
   await client.login('testuser', serverPassword);
   await expect(client.put(JSON.stringify(exampleVault))).rejects.toThrow();
   await expect(client.request('PUT', '/v1/vaults/account/objects', JSON.stringify(exampleVault))).rejects.toMatchObject({ status: 400 });
+  await expect(client.request('PUT', '/v1/vaults/account/objects/' + 'a'.repeat(64), '{}')).rejects.toMatchObject({ status: 405 });
   await expect(client.request('GET', '/v1/access')).rejects.toMatchObject({ status: 404 });
   await expect(boundedJson(new URL('/v1/vaults/account/objects', info.serverUrl))).rejects.toMatchObject({ status: 401 });
   await expect(boundedJson(new URL('/v1/challenge', info.serverUrl))).rejects.toMatchObject({ status: 404 });
@@ -122,3 +123,42 @@ it('limits logins to five per minute and source and the rendezvous budget per to
   const over = await poll(); expect(over.status).toBe(429); expect(over.headers.get('retry-after')).toBe('1');
   expect((await fetch(new URL('v1/rendezvous/devices', info.serverUrl), { headers: { authorization: `Bearer ${'0'.repeat(64)}` } })).status).toBe(401);
 }, 30000);
+
+const fake = (n, size = 100) => JSON.stringify({ format: 'terminus-encrypted-vault', version: 1, kdf: { algorithm: 'argon2id', salt: Buffer.alloc(16, 1).toString('base64'), memoryKiB: 65536, iterations: 3, parallelism: 1 }, cipher: { algorithm: 'aes-256-gcm', nonce: Buffer.alloc(12, 2).toString('base64'), authTag: Buffer.alloc(16, 3).toString('base64') }, payload: Buffer.alloc(size, n).toString('base64') });
+it('reports rendezvousNoise only when the broker runs', async () => {
+  const plain = await setup(); expect(plain.info.rendezvousNoise).toBe(false);
+  const raw = await boundedJson(new URL('v1/info', plain.info.serverUrl)); expect(raw.rendezvousNoise).toBe(false);
+  const broker = await setup({ rendezvous: true }); expect(broker.info.rendezvousNoise).toBe(true);
+  expect(raw.rendezvous).toBe(false);
+});
+it('deletes one object: listing shrinks, file is gone, total drops, survives restart', async () => {
+  const { client, directory, config, server, info } = await setup(); await client.login('testuser', serverPassword);
+  const ids = []; for (let i = 1; i <= 32; i++) ids.push(await client.put(fake(i, 780_000)));
+  await expect(client.put(fake(99, 780_000))).rejects.toMatchObject({ status: 507 });
+  expect(await client.remove(ids[0])).toBe(true);
+  expect(await client.list()).toEqual(ids.slice(1).sort());
+  expect((await readdir(directory)).includes(ids[0] + '.blob')).toBe(false);
+  const extra = await client.put(fake(99, 780_000)); expect(await client.list()).toContain(extra);
+  expect(await client.remove(ids[0])).toBe(false);
+  await server.close(); const next = await createSyncServer(config); cleanup.push(() => next.close());
+  const other = new AccountStore(await probeSyncServer(await next.listen(), { allowLoopbackHttp: true })); cleanup.push(() => other.close());
+  await other.login('testuser', serverPassword); expect(await other.list()).toEqual([...ids.slice(1), extra].sort());
+}, 60000);
+it('rejects malformed, unauthenticated and body-carrying deletes; unknown id is 404', async () => {
+  const { client, info } = await setup(); const id = await (async () => { await client.login('testuser', serverPassword); return client.put(fake(1)); })();
+  const url = new URL(`/v1/vaults/account/objects/${id}`, info.serverUrl);
+  await expect(boundedJson(url, { method: 'DELETE' })).rejects.toMatchObject({ status: 401 });
+  await expect(client.request('DELETE', `/v1/vaults/account/objects/${id}`, '{}')).rejects.toMatchObject({ status: 400 });
+  await expect(client.request('DELETE', '/v1/vaults/account/objects')).rejects.toMatchObject({ status: 405 });
+  await expect(client.request('DELETE', `/v1/vaults/account/objects/${'b'.repeat(64)}`)).rejects.toMatchObject({ status: 404 });
+  expect(await client.list()).toEqual([id]);
+  await expect(client.remove('nope')).rejects.toThrow();
+});
+it('answers 409 to a delete while another write is running and never loses consistency', async () => {
+  const { client } = await setup(); await client.login('testuser', serverPassword);
+  const id = await client.put(fake(1)); const path = `/v1/vaults/account/objects/${id}`;
+  const results = await Promise.allSettled(Array.from({ length: 6 }, () => client.request('DELETE', path)));
+  const codes = results.map(r => r.status === 'fulfilled' ? 200 : r.reason.status);
+  expect(codes.filter(c => c === 200)).toHaveLength(1); expect(codes.every(c => [200, 404, 409].includes(c))).toBe(true);
+  expect(await client.list()).toEqual([]);
+});

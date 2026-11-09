@@ -117,3 +117,26 @@ it('closes the ninth connection of one source unless a trusted proxy is configur
   expect(await open(false)).toBeGreaterThanOrEqual(1);
   expect(await open(true)).toBe(0);
 });
+
+it('refuses DELETE in device mode and validates listen hosts', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shellherd-del-')); cleanup.push(() => rm(directory, { recursive: true, force: true }));
+  const a = device('alice'); cleanup.push(() => a.destroy());
+  const service = await createSyncServer({ directory, serverId: randomBytes(32).toString('hex'), namespace: 'central-vault', devices: [{ id: a.id, signingKey: a.public[1] }] });
+  cleanup.push(() => service.close());
+  await expect(service.listen(0, 'nicht-ip')).rejects.toMatchObject({ status: 400 });
+  await expect(service.listen(0, 42)).rejects.toMatchObject({ status: 400 });
+  const url = await service.listen(); const res = await fetch(url + 'v1/vaults/central-vault/objects/' + 'a'.repeat(64), { method: 'DELETE' });
+  expect(res.status).toBe(405);
+});
+it('accepts private and IPv6 listen hosts past the check and formats the returned URL', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shellherd-host-')); cleanup.push(() => rm(directory, { recursive: true, force: true }));
+  const a = device('alice'); cleanup.push(() => a.destroy());
+  const make = () => createSyncServer({ directory, serverId: randomBytes(32).toString('hex'), namespace: 'central-vault', devices: [{ id: a.id, signingKey: a.public[1] }] });
+  const bind = await make(); cleanup.push(() => bind.close());
+  await bind.listen(0, '10.9.8.7').catch(error => expect(error.status).not.toBe(400)); // bind may fail on this host; the check must pass
+  const v6 = await make(); cleanup.push(() => v6.close());
+  const url = await v6.listen(0, '::1').catch(error => { expect(error.status).not.toBe(400); return null; });
+  if (url) expect(url).toMatch(/^http:\/\/\[::1\]:\d+\/$/);
+  const any = await make(); cleanup.push(() => any.close());
+  expect(await any.listen(0, '0.0.0.0')).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
+});

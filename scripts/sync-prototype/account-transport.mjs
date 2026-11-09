@@ -8,7 +8,7 @@ const sha = wire => createHash('sha256').update(wire).digest('hex');
 export class AccountStore {
   #token; #closed = false;
   constructor(info, { signal } = {}) {
-    check(normalizeSyncServerUrl(info.serverUrl, true) === info.serverUrl && info.authentication === 'password' && /^[a-zA-Z0-9_-]{1,100}$/.test(info.namespace));
+    check(normalizeSyncServerUrl(info.serverUrl, { loopback: true, private: true }) === info.serverUrl && info.authentication === 'password' && /^[a-zA-Z0-9_-]{1,100}$/.test(info.namespace));
     this.info = info; this.signal = signal;
   }
   async login(username, password) {
@@ -35,6 +35,13 @@ export class AccountStore {
     check(typeof id === 'string' && /^[a-f0-9]{64}$/.test(id));
     const result = await this.request('GET', `/v1/vaults/${this.info.namespace}/objects/${id}`);
     check(result.id === id && typeof result.wire === 'string' && sha(result.wire) === id); validateVaultFile(result.wire); return result.wire;
+  }
+  async remove(id) {
+    check(typeof id === 'string' && /^[a-f0-9]{64}$/.test(id));
+    try {
+      const result = await this.request('DELETE', `/v1/vaults/${this.info.namespace}/objects/${id}`);
+      check(result.removed === true); return true;
+    } catch (error) { if (error.status === 404) return false; throw error; }
   }
   async refresh() { const result = await this.request('POST', '/v1/refresh'); check(Number.isSafeInteger(result.expiresAt)); return { expiresAt: result.expiresAt }; }
   async logout() { try { if (this.#token && !this.#closed) await this.request('POST', '/v1/logout'); } finally { this.close(); } }
