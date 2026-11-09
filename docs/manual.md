@@ -749,11 +749,20 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 
 **Flow:**
 
-1. Both devices: Settings → `Set up remote access (development)`, enter the server address, `Connect`, sign in with username and server password. The vault must be unlocked.
-2. Choose a device name and `Announce this device online`. The dialog shows this device's fingerprint.
-3. On the viewing device, the other device appears under `Online devices`. Compare the fingerprint independently on both devices, tick `I compared the fingerprint on the other device`, then `View screen`.
-4. The other device asks `Share your screen?` with the requester's fingerprint. `Share screen` is locked for the first second. While the picture is running, a bar shows who is watching, with `End`.
-5. Either side can end at any time (`End connection` or `End`). Locking the vault also ends the connection.
+1. Both devices: Settings → `Set up remote access (development)`, enter the server address, `Connect`, sign in with username and server password. The vault must be unlocked. The server password must not be the vault password: Shellherd checks this before sending and reports “The server password must not be your vault password. Nothing was sent to the server.”
+2. Choose a device name and `Announce this device online`. Under `Fingerprint of this device` the dialog shows this device's fingerprint.
+3. On the viewing device, the other device appears under `Online devices`, at first without a fingerprint. On the other device read its `Fingerprint of this device` and type the first 12 characters into the field `First 12 characters of the fingerprint from the other device` (case and spaces do not matter). Only then is `View screen` active. Read the fingerprint only from the other device's screen, never from the server or your own dialog.
+4. The other device asks `Share your screen?` in the Shellherd window. On first contact you type there the first 12 characters of the requester's fingerprint, read from the requester's screen. The fingerprint is not shown in this window. `Share screen` is locked for the first second and active only with 12 valid characters.
+5. After the click Shellherd asks once more in a system dialog, with the requester's full fingerprint in groups of eight, the buttons `Decline` and `Share screen` and the note that the entire primary screen is shared. Only this click releases the capture. While the picture is running, a bar shows who is watching, with `End`.
+6. Either side can end at any time (`End connection` or `End`). Locking the vault also ends the connection.
+
+**Verification and pins:**
+
+- A device counts as verified only after the typed check succeeded. Shellherd then remembers name and fingerprint, shows `Verified on …` and asks for no field again. Verified devices are listed with their full fingerprint.
+- If the fingerprint of a known name changes, Shellherd reports “The fingerprint of … has changed. Verify it again.” and asks for the field again.
+- Three wrong entries per session decline the request (`Verification failed three times. The request was declined.`).
+- Whoever declines a request or misses the check three times mutes that device for 10 minutes. Further requests are deleted without a dialog; the dialog counts them as `… requests muted`. After a decline the server additionally refuses a new request from the same pair for 30 s.
+- The pins are stored in the identity file, authenticated with a key from the operating system key store. A modified file is rejected (device identity error), not replaced. An older file from before this version is taken over; all devices then count as unverified.
 
 **Limits:**
 
@@ -762,9 +771,18 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 - A session lasts five minutes at most; after that a new request is needed.
 - Lock screen, UAC prompts and the sign-in screen are not transmitted.
 - On Linux there is no window protection: the Shellherd window is visible in the picture, too. On Wayland the system shows its own picker for what is shared.
+- Emergency brake: if the window does not end a share cleanly within two seconds, Shellherd reloads the window. That ends any running capture but also resets the state of that window.
 - The device identity is only persistent with an operating system key store. Without one it is temporary and the fingerprint changes on the next start. This also applies when the identity file cannot be written.
+- Restoring an older valid identity file brings back old pins. A file in the old format resets all pins to unverified. The pins cannot be forged that way.
+- Foreign objects in the account that are not a vault of this account are skipped by the sync and reported. They still use the server quota (100 objects, 32 MiB) until a later compaction (H2) removes them.
 - So far only a test picture has been transmitted (scene with fake capture). Real capture (Wayland portal, Windows) has not been checked manually, and neither has the window protection on Windows and macOS during sharing.
 - The `remote-scene.mjs` scene and real tests need a network interface with a LAN address on each device; loopback alone is not enough for WebRTC.
+
+**What the check protects, and what it does not:**
+
+- The typed check protects against a malicious server with an honest renderer: if the server substitutes a foreign key for a device, that device's fingerprint does not match the typed input and the request fails.
+- It does not protect against a compromised renderer. The renderer knows the fingerprint and can fill the field itself. Only the native dialog with the full fingerprint protects against that, because only there a click outside the renderer decides about the capture.
+- The check compares 12 hex characters, that is 48 bits. Whoever runs the server knows the fingerprints of all devices and can precompute a key with the same start for one device. That takes 2^48 key generations and is feasible with large computing power. Against such an operator the prefix is not enough. If in doubt, compare the full fingerprint. A solution is planned for H2 (pinning the Noise static key).
 
 ## Process boundaries and lifecycle
 

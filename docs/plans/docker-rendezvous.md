@@ -15,6 +15,8 @@ Sicherheitsreview wird dadurch behauptet.
 
 Stand 2026-11-07: Der Server hat zusätzlich `POST /v1/refresh` (leerer Body, verlängert die Anmeldung um 15 Minuten, höchstens 12 Stunden ab Login, Token bleibt gleich; die Rendezvous-Bindung der Geräte bleibt erhalten). Der Rendezvous-Pfad wird vom Desktop-Meilenstein 1 „Fernzugriff (Ansehen)“ genutzt; `rendezvous.mjs` in `.claude/skills/run-app/` stellt dafür einen synthetischen Fake bereit. Verbleibende Lücken: Eingabeinjektion, TURN/Medienrelay, Betriebssystemdienst und unabhängiger Sicherheitsreview.
 
+Stand 2026-11-09: Härtung H1 am Server. Je Quelladresse (IPv6 je /64) gelten Budgets für Anfragen, Anmeldungen und Verbindungen. Fehlgeschlagene Anmeldungen bremst ein wachsender Backoff (429 mit `retry-after`), ein globales Aussperren des Besitzers gibt es nicht mehr. Hinter dem Caddy-Proxy sieht der Server nur `127.0.0.1`; dann setzt `SHELLHERD_SERVER_TRUSTED_PROXY=1` (nur bei Bindung des Ports an `127.0.0.1`) das letzte Element von `X-Forwarded-For` als Quelle. `PUT /v1/rendezvous/devices` verlangt jedes Mal einen Besitznachweis des Geräteschlüssels (Challenge, X25519-DH, HMAC), `/v1/info` meldet `rendezvousProof`. Je Paar ist nur eine offene Anfrage erlaubt, nach einem Ablehnen gilt 30 s Sperre. Dockerfile: Basisimage per Digest, `rate-limit.mjs` im Image. Caddyfile: `1MiB`, Timeouts. Gegen verteilte Floods hilft nur ein privates Netz (WireGuard/Tailscale, H2). Weiter kein unabhängiger Sicherheitsreview; Betriebshinweise in `server/README.md`.
+
 ## Umsetzung
 
 1. Bestehenden Sync-Transport kompatibel weiterverwenden; Container-Listener nur

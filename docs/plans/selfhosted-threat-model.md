@@ -5,6 +5,25 @@ Stand: 2026-10-29. Arbeitsentwurf; Anforderungen, keine bereits implementierten 
 
 Ergänzung aus Block 1: [Protokoll- und Offline-Sync-Entwurf](selfhosted-protocol.md). Die lokale Datei bleibt offline führend; Clients konsolidieren konkurrierende Änderungen nach Wiederverbindung. Prototypbeschränkungen zu Recovery, Verwaltungsautorität und Publikationsfreigaben stehen im Block-1-Entwurf.
 
+## Stand der Befunde aus dem Review vom 2026-11-09
+
+Härtung H1 setzt diese Befunde um (Spec `docs/superpowers/specs/2026-11-09-security-hardening-design.md`). Das ist keine Sicherheitsfreigabe und ersetzt keinen unabhängigen Review.
+
+| Befund | Gegenstand | Stand |
+| --- | --- | --- |
+| M1 | Rate-Limits | Behoben im Server: Limits pro Quelle (`SHELLHERD_SERVER_TRUSTED_PROXY=1` hinter dem Proxy), Backoff bei Anmeldefehlern, Verbindungslimit je Adresse. Gegen verteilte Floods hilft nur ein privates Netz (WireGuard/Tailscale, H2). |
+| M2 | Fingerabdruck-Vergleich per Checkbox | Behoben: getippte Prüfung beidseitig (12 Hex-Zeichen), Pinning geprüfter Geräte, genau ein DTLS-Fingerabdruck. Das 48-Bit-Präfix ist gegen einen rechenstarken Betreiber schwach (H2: Pinning der Noise-Statik). Die Prüfung schützt gegen einen bösartigen Server bei ehrlichem Renderer, nicht gegen einen kompromittierten Renderer. |
+| M3 | Serverpasswort gleich Vault-Passwort | Behoben: Die Anmeldung prüft per Argon2id, dass beide verschieden sind, bevor etwas gesendet wird (Ausnahme: gesperrter Vault im Sync-Lab, Importfall). |
+| M4 | Aufnahme ohne native Zustimmung, keine Permission-Handler, keine CSP, Tracks nicht erzwingbar beendbar | Behoben: Grant nur aus dem nativen Dialog im Main, Permission-Handler deny-by-default, CSP, Notbremse per Fensterneuladen nach 2 s. Wayland-Portal und Windows-Capture sind nicht manuell geprüft. |
+| N1 | Fremdes Objekt blockiert den Sync | Behoben: übersprungen und gezählt; Client-Limits 100/32 MiB wie der Server. Fremde Objekte belegen weiter das Kontingent bis zur Kompaktierung (H2). |
+| N2 | Registrierung ohne Besitznachweis | Behoben: Challenge mit statisch-ephemerem X25519-DH bei jeder Registrierung. |
+| N4 | Schwache Passwörter, Aussperren des Besitzers | Behoben: Init schlägt generiertes Passwort vor, eigene Passwörter mindestens 16 Zeichen; Backoff statt globaler Sperre; konstantzeitiger Namensvergleich. Bestehende Konten behalten die Untergrenze 12. |
+| N5 | Pins im Klartext | Behoben: Identitätsdatei v2 mit MAC. Rollback auf eine ältere gültige Datei bringt alte Pins zurück, eine v1-Datei stuft alle Pins auf ungeprüft zurück. |
+| N6 | Image ohne Digest | Behoben: Basisimage per Digest (Tag und Datum im Dockerfile). Der Digest wird manuell erneuert (README, „Image aktualisieren“). |
+| N7 | Consent-Spam | Behoben: 10 min Stummschaltung am Agent, eine offene Anfrage je Paar und 30 s Sperre nach Ablehnen am Server. |
+| I4 | Rollenbindung im Kanal | Behoben (folgenlos). |
+| I5 | Caddy `1MB` | Behoben: `1MiB`. |
+
 ## Umfang der ersten Ausbaustufe
 
 Aktueller Sync-MVP: Eigene Geräte verwenden dieselbe Server-URL, Benutzername und Serverpasswort sowie das davon getrennte, ausschließlich lokale Vault-Passwort. Geräte-Fingerprintvergleich und Verwaltungsgeräte sind für diesen Kontomodus keine Voraussetzung. Der Linux-Entwicklungsprototyp bietet manuellen Datei-Sync; eine Produktivfreigabe liegt nicht vor. Die nachfolgenden Regeln für individuelle Geräteidentitäten, Kopplung und Widerruf gelten für die getrennten Geräteprotokoll-Experimente und späteren Fernzugriff. Anschließend folgen beaufsichtigter Fernzugriff und ausgewählte geteilte Sitzungen. Ein Herstellerkonto ist nicht erforderlich. Der lokale Betrieb ohne Server bleibt möglich.
