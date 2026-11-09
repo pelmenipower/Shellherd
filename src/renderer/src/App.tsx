@@ -904,7 +904,7 @@ export default function App() {
     <main className="vault-shell" inert={locked !== null}>
       {remote && remoteSession?.role === 'agent' && (remoteSession.state === 'connecting' || remoteSession.state === 'active')
         && <RemoteShareBar session={remoteSession} onStop={() => remote.stop()} />}
-      {remote && remoteSession?.role === 'agent' && remoteSession.state === 'consent'
+      {remote && remoteSession?.role === 'agent' && (remoteSession.state === 'consent' || remoteSession.state === 'granted')
         && <RemoteConsentDialog key={remoteSession.id} controller={remote} session={remoteSession} />}
       {vaultFileDialog}{fileDropHint}
       <header className="app-header">

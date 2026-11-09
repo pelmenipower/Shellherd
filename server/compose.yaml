@@ -14,6 +14,9 @@ services:
     pids_limit: 64
     mem_limit: 512m
     cpus: 1.0
+    environment:
+      # Behind the host reverse proxy; remove for direct operation without a proxy.
+      SHELLHERD_SERVER_TRUSTED_PROXY: "1"
     ports:
       - "127.0.0.1:8787:8787"
     volumes:

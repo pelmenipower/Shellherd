@@ -17,21 +17,19 @@
   "identityTemporary": "Temporäre Geräteidentität: Dieser Rechner hat keine Schlüsselablage des Betriebssystems. Der Fingerabdruck ändert sich beim nächsten Start.",
   "devices": "Online-Geräte",
   "noDevices": "Kein anderes Gerät ist online.",
-  "compared": "Ich habe den Fingerabdruck auf dem anderen Gerät verglichen",
   "requestView": "Bildschirm ansehen",
   "waiting": "Warten auf Zustimmung am anderen Gerät …",
   "viewing": "Bildschirm von {{name}} · Sitzung endet {{time}}",
   "stop": "Verbindung beenden",
   "consent": {
     "title": "Bildschirm freigeben?",
-    "body": "{{name}} möchte den Bildschirm dieses Geräts ansehen. Vergleiche den Fingerabdruck auf dem anderen Gerät.",
+    "body": "{{name}} möchte den Bildschirm dieses Geräts ansehen.",
     "fingerprint": "Fingerabdruck des anfragenden Geräts",
-    "known": "Bekannt seit {{date}}",
-    "unknown": "Noch nicht bekanntes Gerät",
     "expires": "Anfrage verfällt in {{seconds}} s",
     "linuxHint": "Unter Linux bleibt auch das Shellherd-Fenster im übertragenen Bild sichtbar.",
     "accept": "Bildschirm freigeben",
-    "decline": "Ablehnen"
+    "decline": "Ablehnen",
+    "nativeHint": "Nach dem Klick fragt Shellherd in einem Systemdialog noch einmal nach."
   },
   "bar": {
     "viewing": "Bildschirm wird angesehen von {{name}} · seit {{time}}",
@@ -44,7 +42,8 @@
     "locked": "Die Verbindung wurde beendet, weil der Vault gesperrt wurde.",
     "declined": "Das andere Gerät hat die Anfrage abgelehnt.",
     "failed": "Die Verbindung ist fehlgeschlagen.",
-    "scope": "Steuerung wird noch nicht unterstützt. Nur Ansehen ist möglich."
+    "scope": "Steuerung wird noch nicht unterstützt. Nur Ansehen ist möglich.",
+    "mismatch": "Die Prüfung ist dreimal fehlgeschlagen. Die Anfrage wurde abgelehnt."
   },
   "errors": {
     "unavailable": "Der Fernzugriff ist in diesem Build nicht verfügbar.",
@@ -61,6 +60,15 @@
     "media": "Die Bildschirmaufnahme wurde abgebrochen oder ist nicht verfügbar.",
     "peer": "Keine direkte Verbindung möglich. Beide Geräte müssen im selben Netz sein.",
     "scope": "Steuerung wird noch nicht unterstützt. Nur Ansehen ist möglich.",
-    "limit": "Zu viele Anfragen oder Geräte. Warte kurz und versuche es erneut."
-  }
+    "limit": "Zu viele Anfragen oder Geräte. Warte kurz und versuche es erneut.",
+    "samePassword": "Das Serverpasswort darf nicht dein Vault-Passwort sein. Es wurde nichts an den Server gesendet."
+  },
+  "verify": {
+    "label": "Erste 12 Zeichen des Fingerabdrucks vom anderen Gerät",
+    "hint": "Lies sie auf dem anderen Gerät unter „Fingerabdruck dieses Geräts“ ab.",
+    "verified": "Geprüft am {{date}}",
+    "changed": "Der Fingerabdruck von {{name}} hat sich geändert. Prüfe ihn erneut."
+  },
+  "muted_one": "{{count}} Anfrage stummgeschaltet",
+  "muted_other": "{{count}} Anfragen stummgeschaltet"
 }

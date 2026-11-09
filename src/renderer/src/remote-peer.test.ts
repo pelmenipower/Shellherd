@@ -4,7 +4,7 @@ import { splitSignal } from '../../shared/remote-signal';
 import { RemoteSessionController, type CaptureSource, type PeerFactory, type RemoteView } from './remote-peer';
 
 const FP = Array.from({ length: 32 }, () => 'ab').join(':');
-const sdp = (extra = ''): string => `v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=fingerprint:sha-256 ${FP}\r\n${extra}`;
+const sdp = (extra = ''): string => `v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=fingerprint:sha-256 ${FP}\r\na=setup:actpass\r\n${extra}`;
 const idle: RemoteLabState = { phase: 'online' };
 
 class FakePc {
@@ -100,7 +100,7 @@ describe('RemoteSessionController act', () => {
 describe('RemoteSessionController share (agent)', () => {
   it('runs armCapture, capture, accept, then sends the offer parts', async () => {
     const t = setup();
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     t.pcs[0]!.complete();
     await done;
@@ -113,7 +113,7 @@ describe('RemoteSessionController share (agent)', () => {
 
   it('calls capture after exactly one awaited roundtrip', async () => {
     const t = setup({ capture: () => { t.log.push('capture'); return new Promise<MediaStream>(() => {}); } });
-    void t.controller.share('s1');
+    void t.controller.share('s1', null);
     expect(t.log).toEqual(['armCapture']);
     // act wraps the IPC call; capture must run within a few microtasks of its reply, not after extra roundtrips.
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
@@ -122,29 +122,30 @@ describe('RemoteSessionController share (agent)', () => {
 
   it('stops when armCapture is refused and never captures', async () => {
     const t = setup({ reply: () => ({ ok: false, code: 'stale' }) });
-    await t.controller.share('s1');
+    await t.controller.share('s1', null);
     expect(t.log).toEqual(['armCapture']);
     expect(t.controller.view.error).toBe('stale');
   });
 
   it('declines with media when the capture fails', async () => {
     const t = setup({ capture: async () => { throw new Error('denied'); } });
-    await t.controller.share('s1');
-    expect(t.log).toEqual(['armCapture', 'decline']);
+    await t.controller.share('s1', null);
+    expect(t.log).toEqual(['armCapture', 'decline', 'stopped']);
     expect(t.controller.view.error).toBe('media');
   });
 
   it('stops the tracks when accept fails', async () => {
     const t = setup({ reply: r => (r.kind === 'accept' ? { ok: false, code: 'expired' } : { ok: true, state: idle }) });
-    await t.controller.share('s1');
+    await t.controller.share('s1', null);
     expect(t.tracks[0]!.stopped).toBe(true);
     expect(t.controller.view.error).toBe('expired');
     expect(t.pcs).toHaveLength(0);
+    expect(t.log.filter(k => k === 'stopped')).toHaveLength(1);
   });
 
   it('sends the offer after the 2 s gathering timeout', async () => {
     const t = setup();
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     const gather = [...t.timers.values()].find(x => x.ms === 2000);
     expect(gather).toBeDefined();
@@ -156,7 +157,7 @@ describe('RemoteSessionController share (agent)', () => {
 
   it('reports signal and stops when the local SDP is invalid', async () => {
     const t = setup();
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     t.pcs[0]!.localSdp = 'v=0\r\n';
     t.pcs[0]!.localDescription = { type: 'offer', sdp: 'v=0\r\n' };
@@ -165,13 +166,14 @@ describe('RemoteSessionController share (agent)', () => {
     await flush();
     expect(t.controller.view.error).toBe('signal');
     expect(t.log).toContain('stop');
+    expect(t.log.filter(k => k === 'stopped')).toHaveLength(1);
     expect(t.pcs[0]!.closed).toBe(true);
     expect(t.tracks[0]!.stopped).toBe(true);
   });
 
   it('applies a complete answer as remote description', async () => {
     const t = setup();
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     t.pcs[0]!.complete();
     await done;
@@ -182,19 +184,19 @@ describe('RemoteSessionController share (agent)', () => {
 
   it('rejects an offer arriving at the agent with signal', async () => {
     const t = setup();
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     t.pcs[0]!.complete();
     await done;
     t.emit({ kind: 'signal', sessionId: 's1', part: splitSignal('offer', sdp())[0]! });
     await flush();
     expect(t.controller.view.error).toBe('signal');
-    expect(t.log.at(-1)).toBe('stop');
+    expect(t.log.slice(-2)).toEqual(['stop', 'stopped']);
   });
 
   it('reports peer and stops when the connection fails', async () => {
     const t = setup();
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     t.pcs[0]!.complete();
     await done;
@@ -202,9 +204,74 @@ describe('RemoteSessionController share (agent)', () => {
     t.pcs[0]!.onconnectionstatechange?.();
     await flush();
     expect(t.controller.view.error).toBe('peer');
-    expect(t.log.at(-1)).toBe('stop');
+    expect(t.log.slice(-2)).toEqual(['stop', 'stopped']);
     expect(t.tracks[0]!.stopped).toBe(true);
     expect(t.pcs[0]!.closed).toBe(true);
+  });
+});
+
+describe('RemoteSessionController capture receipt (K12)', () => {
+  it('sends armCapture with the verification', async () => {
+    const t = setup({ capture: () => new Promise<MediaStream>(() => {}) });
+    void t.controller.share('s1', 'abcdef012345');
+    await flush();
+    expect(t.requests[0]).toMatchObject({ kind: 'armCapture', sessionId: 's1', verification: 'abcdef012345' });
+  });
+
+  it('acknowledges once after the tracks are stopped and the connection is closed', async () => {
+    const t = setup();
+    const order: string[] = [];
+    const done = t.controller.share('s1', null);
+    await flush();
+    t.pcs[0]!.complete();
+    await done;
+    const pc = t.pcs[0]!;
+    const originalClose = pc.close.bind(pc);
+    pc.close = () => { order.push('close'); originalClose(); };
+    const originalStop = t.tracks[0]!.stop.bind(t.tracks[0]!);
+    t.tracks[0]!.stop = () => { order.push('track'); originalStop(); };
+    t.api.remoteLabAction.mockImplementation(async (r: RemoteLabRequest) => { order.push(r.kind); return { ok: true, state: idle }; });
+    t.emit({ kind: 'ended', sessionId: 's1', reason: 'remote' });
+    t.emit({ kind: 'ended', sessionId: 's1', reason: 'remote' });
+    await flush();
+    expect(order).toEqual(['track', 'close', 'stopped']);
+  });
+
+  it('stops a late stream and then acknowledges when ended arrives during capture', async () => {
+    let resolve: (s: MediaStream) => void = () => {};
+    const t = setup({ capture: () => new Promise<MediaStream>(r => { resolve = r; }) });
+    const done = t.controller.share('s1', null);
+    await flush();
+    t.emit({ kind: 'ended', sessionId: 's1', reason: 'remote' });
+    await flush();
+    expect(t.log).toEqual(['armCapture']);
+    resolve(streamOf(t.tracks));
+    await done;
+    expect(t.tracks[0]!.stopped).toBe(true);
+    expect(t.log).toEqual(['armCapture', 'stopped']);
+  });
+
+  it('acknowledges after the native dialog was declined (no stream)', async () => {
+    const t = setup({ capture: async () => { throw new Error('denied'); } });
+    await t.controller.share('s1', null);
+    expect(t.log.filter(k => k === 'stopped')).toHaveLength(1);
+    expect(t.log.at(-1)).toBe('stopped');
+  });
+
+  it('does not acknowledge without share()', async () => {
+    const t = setup();
+    t.emit({ kind: 'ended', sessionId: 's1', reason: 'remote' });
+    t.controller.stop();
+    await flush();
+    expect(t.log).not.toContain('stopped');
+  });
+
+  it('neither captures nor acknowledges after a mismatch reply', async () => {
+    const t = setup({ reply: () => ({ ok: false, code: 'mismatch' }) });
+    await t.controller.share('s1', 'abcdef012345');
+    t.emit({ kind: 'ended', sessionId: 's1', reason: 'mismatch' });
+    await flush();
+    expect(t.log).toEqual(['armCapture']);
   });
 });
 
@@ -251,13 +318,14 @@ describe('RemoteSessionController viewer', () => {
 describe('RemoteSessionController teardown', () => {
   it('closes everything on an ended event without sending stop', async () => {
     const t = setup();
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     t.pcs[0]!.complete();
     await done;
     t.log.length = 0;
     t.emit({ kind: 'ended', sessionId: 's1', reason: 'remote' });
-    expect(t.log).toEqual([]);
+    await flush();
+    expect(t.log).toEqual(['stopped']);
     expect(t.pcs[0]!.closed).toBe(true);
     expect(t.tracks[0]!.stopped).toBe(true);
     expect(t.controller.view.ended).toBe('remote');
@@ -266,31 +334,32 @@ describe('RemoteSessionController teardown', () => {
 
   it('stop closes locally first, then sends stop and sets stopped', async () => {
     const t = setup();
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     t.pcs[0]!.complete();
     await done;
     t.controller.stop();
     expect(t.pcs[0]!.closed).toBe(true);
     expect(t.tracks[0]!.stopped).toBe(true);
-    expect(t.log.at(-1)).toBe('stop');
+    await flush();
+    expect(t.log.slice(-2)).toEqual(['stop', 'stopped']);
     expect(t.controller.view.ended).toBe('stopped');
   });
 
   it('stops the tracks when the user ends the capture', async () => {
     const t = setup();
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     t.pcs[0]!.complete();
     await done;
     t.tracks[0]!.onended?.();
     await flush();
-    expect(t.log.at(-1)).toBe('stop');
+    expect(t.log.slice(-2)).toEqual(['stop', 'stopped']);
   });
 
   it('dispose unsubscribes and closes locally', async () => {
     const t = setup();
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     t.pcs[0]!.complete();
     await done;
@@ -321,7 +390,7 @@ describe('RemoteSessionController teardown', () => {
   it('dispose during capture stops the tracks and declines instead of accepting', async () => {
     let resolve: (s: MediaStream) => void = () => {};
     const t = setup({ capture: () => new Promise<MediaStream>(r => { resolve = r; }) });
-    const done = t.controller.share('s1');
+    const done = t.controller.share('s1', null);
     await flush();
     t.controller.dispose();
     resolve(streamOf(t.tracks));
@@ -329,6 +398,7 @@ describe('RemoteSessionController teardown', () => {
     expect(t.tracks[0]!.stopped).toBe(true);
     expect(t.log).toContain('decline');
     expect(t.log).not.toContain('accept');
+    expect(t.log.filter(k => k === 'stopped')).toHaveLength(1);
     expect(t.pcs).toHaveLength(0);
   });
 

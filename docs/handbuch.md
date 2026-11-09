@@ -772,11 +772,20 @@ Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_REMOTE_LAB=1` (unabh�
 
 **Ablauf:**
 
-1. Beide Geräte: Einstellungen → `Fernzugriff einrichten (Entwicklung)`, Server-Adresse eintragen, `Verbinden`, mit Benutzername und Serverpasswort anmelden. Der Vault muss entsperrt sein.
-2. Ein Gerätename vergeben und `Dieses Gerät online melden`. Der Dialog zeigt den Fingerabdruck dieses Geräts.
-3. Am ansehenden Gerät erscheint das andere Gerät unter `Online-Geräte`. Fingerabdruck auf beiden Geräten unabhängig vergleichen, `Ich habe den Fingerabdruck auf dem anderen Gerät verglichen` ankreuzen, `Bildschirm ansehen`.
-4. Am anderen Gerät fragt `Bildschirm freigeben?` mit dem Fingerabdruck des Anfragenden. `Bildschirm freigeben` ist in der ersten Sekunde gesperrt. Solange das Bild läuft, zeigt eine Leiste, wer zusieht, mit `Beenden`.
-5. Beide Seiten können jederzeit beenden (`Verbindung beenden` bzw. `Beenden`). Sperren des Vaults beendet die Verbindung ebenfalls.
+1. Beide Geräte: Einstellungen → `Fernzugriff einrichten (Entwicklung)`, Server-Adresse eintragen, `Verbinden`, mit Benutzername und Serverpasswort anmelden. Der Vault muss entsperrt sein. Das Serverpasswort darf nicht das Vault-Passwort sein: Shellherd prüft das vor dem Senden und meldet „Das Serverpasswort darf nicht dein Vault-Passwort sein. Es wurde nichts an den Server gesendet.“
+2. Einen Gerätenamen vergeben und `Dieses Gerät online melden`. Der Dialog zeigt unter `Fingerabdruck dieses Geräts` den Fingerabdruck dieses Geräts.
+3. Am ansehenden Gerät erscheint das andere Gerät unter `Online-Geräte`, zunächst ohne Fingerabdruck. Lies am anderen Gerät dessen `Fingerabdruck dieses Geräts` ab und tippe die ersten 12 Zeichen in das Feld `Erste 12 Zeichen des Fingerabdrucks vom anderen Gerät` (Groß- und Kleinschreibung und Leerzeichen sind egal). Erst dann ist `Bildschirm ansehen` aktiv. Den Fingerabdruck liest du nur vom Bildschirm des anderen Geräts ab, nie vom Server oder aus dem eigenen Dialog.
+4. Am anderen Gerät fragt `Bildschirm freigeben?` im Fenster von Shellherd. Beim ersten Kontakt tippst du dort die ersten 12 Zeichen des Fingerabdrucks des Anfragenden, abgelesen auf dessen Bildschirm. Der Fingerabdruck steht im Fenster nicht. `Bildschirm freigeben` ist in der ersten Sekunde gesperrt und erst mit 12 gültigen Zeichen aktiv.
+5. Nach dem Klick fragt Shellherd in einem Systemdialog noch einmal, mit dem vollen Fingerabdruck des Anfragenden in Achtergruppen, den Knöpfen `Ablehnen` und `Bildschirm freigeben` und dem Hinweis, dass der gesamte Hauptbildschirm übertragen wird. Erst dieser Klick gibt die Aufnahme frei. Solange das Bild läuft, zeigt eine Leiste, wer zusieht, mit `Beenden`.
+6. Beide Seiten können jederzeit beenden (`Verbindung beenden` bzw. `Beenden`). Sperren des Vaults beendet die Verbindung ebenfalls.
+
+**Prüfung und Pins:**
+
+- Ein Gerät gilt erst als geprüft, wenn die getippte Prüfung gelungen ist. Danach merkt sich Shellherd Name und Fingerabdruck, zeigt `Geprüft am …` und verlangt kein Feld mehr. Einmal geprüfte Geräte erscheinen mit vollem Fingerabdruck.
+- Ändert sich der Fingerabdruck eines bekannten Namens, meldet Shellherd „Der Fingerabdruck von … hat sich geändert. Prüfe ihn erneut.“ und verlangt das Feld wieder.
+- Drei falsche Eingaben je Sitzung lehnen die Anfrage ab (`Die Prüfung ist dreimal fehlgeschlagen. Die Anfrage wurde abgelehnt.`).
+- Wer eine Anfrage ablehnt oder die Prüfung dreimal verfehlt, schaltet dieses Gerät für 10 Minuten stumm. Weitere Anfragen löscht Shellherd ohne Dialog. Der Dialog zählt sie als `… Anfragen stummgeschaltet`. Der Server lässt nach einem Ablehnen zusätzlich 30 s lang keine neue Anfrage desselben Paars zu.
+- Die Pins liegen in der Identitätsdatei und sind mit einem Schlüssel aus der Schlüsselablage des Betriebssystems authentifiziert. Eine veränderte Datei wird abgelehnt (Fehler zur Geräteidentität), nicht ersetzt. Eine ältere Datei aus der Zeit vor diesem Stand wird übernommen, alle Geräte gelten danach als ungeprüft.
 
 **Grenzen:**
 
@@ -785,9 +794,18 @@ Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_REMOTE_LAB=1` (unabh�
 - Eine Sitzung dauert höchstens fünf Minuten, danach ist eine neue Anfrage nötig.
 - Sperrbildschirm, UAC-Abfragen und Anmeldemaske werden nicht übertragen.
 - Unter Linux gibt es keinen Fensterschutz: Auch das Shellherd-Fenster ist im Bild sichtbar. Unter Wayland zeigt das System eine eigene Auswahl, was freigegeben wird.
+- Notbremse: Beendet das Fenster eine Freigabe nicht innerhalb von zwei Sekunden sauber, lädt Shellherd das Fenster neu. Das beendet jede laufende Aufnahme, setzt aber auch den Zustand dieses Fensters zurück.
 - Die Geräteidentität bleibt nur mit Schlüsselablage des Betriebssystems erhalten. Ohne sie ist sie temporär, und der Fingerabdruck ändert sich beim nächsten Start. Das gilt auch, wenn die Identitätsdatei nicht geschrieben werden kann.
+- Ein Rückspielen einer älteren gültigen Identitätsdatei bringt alte Pins zurück. Eine Datei im alten Format stuft alle Pins auf ungeprüft zurück. Fälschen lassen sich die Pins damit nicht.
+- Fremde Objekte im Konto, die kein Vault dieses Kontos sind, überspringt der Sync und meldet sie. Sie belegen weiter das Serverkontingent (100 Objekte, 32 MiB), bis eine spätere Kompaktierung (H2) sie entfernt.
 - Bisher wurde nur ein Testbild übertragen (Szene mit Fake-Capture). Echtes Capture (Wayland-Portal, Windows) ist nicht manuell geprüft, ebenso nicht der Fensterschutz unter Windows und macOS während der Freigabe.
 - Für die Szene `remote-scene.mjs` und echte Tests braucht jedes Gerät eine Netzwerkschnittstelle mit LAN-Adresse; Loopback allein reicht für WebRTC nicht.
+
+**Was die Prüfung schützt, und was nicht:**
+
+- Die getippte Prüfung schützt gegen einen bösartigen Server bei ehrlichem Renderer: Schiebt er einem Gerät einen fremden Schlüssel unter, passt dessen Fingerabdruck nicht zur getippten Eingabe, und die Anfrage scheitert.
+- Gegen einen kompromittierten Renderer schützt sie nicht. Dieser kennt den Fingerabdruck und kann das Feld selbst füllen. Der native Dialog mit dem vollen Fingerabdruck sichert den regulären Ablauf ab: Die Bildschirmfreigabe läuft über Berechtigungs- und Bildschirmquellen-Handler im Hauptprozess, die ohne Zustimmung des Dialogs für die aktuelle Sitzung nichts freigeben. Verbleibendes Risiko: Ein vollständig kompromittierter Renderer kann den Dialog nicht anklicken, aber er kann die Aufnahme jederzeit auslösen und damit den Dialog selbst aufrufen. Ob freigegeben wird, entscheidet dann allein die Person vor dem Rechner im Dialog.
+- Die Prüfung vergleicht 12 Hex-Zeichen, also 48 Bit. Wer den Server betreibt, kennt die Fingerabdrücke aller Geräte und kann vorab rechnen, um für ein Gerät einen Schlüssel mit gleichem Anfang zu finden. Das erfordert 2^48 Schlüsselerzeugungen und ist mit großer Rechenleistung machbar. Gegen einen solchen Betreiber reicht das Präfix nicht. Bei Verdacht vergleiche den vollständigen Fingerabdruck. Eine Lösung ist für H2 vorgesehen (Pinning der Noise-Statik).
 
 ## Prozessgrenzen und Lebenszyklus
 

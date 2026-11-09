@@ -19,6 +19,9 @@ const defaultTimers: ControllerTimers = {
   clearTimeout: handle => clearTimeout(handle as ReturnType<typeof setTimeout>)
 };
 
+/** Agent session whose share() started; one 'stopped' receipt per entry (K12). */
+interface ShareEntry { stream?: MediaStream; capturing: boolean; ended: boolean }
+
 interface Local {
   sessionId: string;
   role: 'agent' | 'viewer';
@@ -31,6 +34,7 @@ export class RemoteSessionController {
   private current: RemoteView = { state: { phase: 'idle' } };
   private readonly listeners = new Set<(view: RemoteView) => void>();
   private local: Local | null = null;
+  private readonly shares = new Map<string, ShareEntry>();
   private readonly unsubscribe: () => void;
   private disposed = false;
   /** Device name of the last successful goOnline, so a reopened dialog can show it. */
@@ -62,25 +66,38 @@ export class RemoteSessionController {
     return reply;
   }
 
-  async share(sessionId: string): Promise<void> {
+  async share(sessionId: string, verification: string | null): Promise<void> {
+    const entry: ShareEntry = { capturing: true, ended: false };
+    this.shares.set(sessionId, entry);
     // Exactly one await before capture(): the user activation must survive until getDisplayMedia.
-    const armed = await this.act({ kind: 'armCapture', sessionId });
-    if (!armed.ok) return;
-    let stream: MediaStream;
-    try {
-      stream = await this.capture.capture();
-    } catch {
-      await this.act({ kind: 'decline', sessionId });
-      this.update({ error: 'media' });
+    const armed = await this.act({ kind: 'armCapture', sessionId, verification });
+    if (!armed.ok) { this.shares.delete(sessionId); return; }
+    let stream: MediaStream | undefined;
+    if (!entry.ended) {
+      try {
+        stream = await this.capture.capture();
+      } catch {
+        // No stream (e.g. declined in the native dialog): still acknowledge below.
+      }
+    }
+    if (stream) entry.stream = stream;
+    const stopStream = (): void => { if (stream) for (const track of stream.getTracks()) track.stop(); };
+    if (!stream) {
+      if (!entry.ended) {
+        await this.act({ kind: 'decline', sessionId });
+        this.update({ error: 'media' });
+      }
+      this.release(sessionId, entry);
       return;
     }
-    const stopStream = (): void => { for (const track of stream.getTracks()) track.stop(); };
-    if (this.disposed) { stopStream(); await this.act({ kind: 'decline', sessionId }); return; }
+    if (entry.ended) { stopStream(); this.release(sessionId, entry); return; }
+    if (this.disposed) { stopStream(); await this.act({ kind: 'decline', sessionId }); this.release(sessionId, entry); return; }
     const accepted = await this.act({ kind: 'accept', sessionId });
-    if (!accepted.ok || this.disposed) { stopStream(); return; }
+    if (!accepted.ok || this.disposed || entry.ended) { stopStream(); this.release(sessionId, entry); return; }
     const local: Local = { sessionId, role: 'agent', stream, collector: new SignalCollector() };
     this.closeLocal();
     this.local = local;
+    entry.capturing = false;
     try {
       const pc = this.peers.create({ iceServers: [] });
       local.pc = pc;
@@ -100,9 +117,9 @@ export class RemoteSessionController {
 
   stop(): void {
     const sessionId = this.local?.sessionId ?? this.current.state.session?.id;
-    this.closeLocal();
+    this.closeLocal(false);
     this.update({ stream: undefined });
-    if (sessionId) void this.stopRemote(sessionId);
+    if (sessionId) void this.stopRemote(sessionId).then(() => this.acknowledge(sessionId));
     this.update({ ended: 'stopped' });
   }
 
@@ -142,7 +159,8 @@ export class RemoteSessionController {
     for (const listener of [...this.listeners]) listener(next);
   }
 
-  private closeLocal(): void {
+  /** Stops tracks and the connection, then (unless the caller sends stop first) acknowledges to the host. */
+  private closeLocal(ack = true): void {
     const local = this.local;
     this.local = null;
     if (!local) return;
@@ -150,6 +168,22 @@ export class RemoteSessionController {
     if (local.stream) for (const track of local.stream.getTracks()) track.stop();
     local.pc?.close();
     if (this.current.stream) this.update({ stream: undefined });
+    if (ack) this.acknowledge(local.sessionId);
+  }
+
+  /** Sends the single 'stopped' receipt; while capture() is pending the share() flow does it later. */
+  private acknowledge(sessionId: string): void {
+    const entry = this.shares.get(sessionId);
+    if (!entry) return;
+    if (entry.capturing) { entry.ended = true; return; }
+    this.shares.delete(sessionId);
+    void this.send({ kind: 'stopped', sessionId });
+  }
+
+  /** share() finished without handing the stream to a connection. */
+  private release(sessionId: string, entry: ShareEntry): void {
+    entry.capturing = false;
+    this.acknowledge(sessionId);
   }
 
   private fail(local: Local, code: RemoteErrorCode): void {
@@ -170,6 +204,7 @@ export class RemoteSessionController {
     else if (event.kind === 'error') this.update({ error: event.code });
     else if (event.kind === 'ended') {
       this.closeLocal();
+      this.acknowledge(event.sessionId);
       this.update({ stream: undefined, ended: event.reason });
     } else void this.onSignal(event.sessionId, event.part);
   }

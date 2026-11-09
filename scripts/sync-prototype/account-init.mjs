@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { randomBytes } from 'node:crypto';
 import { open, unlink } from 'node:fs/promises';
-import { createAccount } from './account-auth.mjs';
+import { createAccount, generatePassword } from './account-auth.mjs';
 let terminal; let muted = false; let created = false; let success = false;
 const target = process.argv[2];
 try {
@@ -12,10 +12,17 @@ try {
   terminal = createInterface({ input: process.stdin, output, terminal: true });
   terminal.on('SIGINT', () => { terminal.close(); });
   const username = await terminal.question('Server-Benutzername: ');
-  muted = true; process.stdout.write('Serverpasswort (mindestens 12 Zeichen, NICHT das Vault-Passwort): ');
-  const password = await terminal.question(''); process.stdout.write('\nServerpasswort wiederholen: ');
-  const repeat = await terminal.question(''); process.stdout.write('\n');
-  if (password !== repeat) throw Error('Mismatch');
+  const useGenerated = !/^n/i.test((await terminal.question('Generiertes Passwort verwenden? [J/n] ')).trim());
+  let password;
+  if (useGenerated) {
+    password = generatePassword();
+    process.stdout.write('Serverpasswort (einmalig, jetzt notieren): ' + password + '\n');
+  } else {
+    muted = true; process.stdout.write('Serverpasswort (mindestens 16 Zeichen, NICHT das Vault-Passwort): ');
+    password = await terminal.question(''); process.stdout.write('\nServerpasswort wiederholen: ');
+    const repeat = await terminal.question(''); process.stdout.write('\n');
+    if (password !== repeat || password.length < 16) throw Error('Mismatch');
+  }
   const account = await createAccount(username, password);
   const handle = await open(target, 'wx', 0o600); created = true;
   try { await handle.writeFile(JSON.stringify({ serverId: randomBytes(32).toString('hex'), namespace: randomBytes(16).toString('hex'), account })); await handle.sync(); }

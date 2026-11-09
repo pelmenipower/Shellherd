@@ -5,6 +5,7 @@
 // demo vault in each (`demo-setup.mjs`), and a non-loopback network interface (WebRTC uses host candidates only).
 // Env: A_RUN_DIR/A_PORT (default <tmp>/shellherd-run, 9333), B_RUN_DIR/B_PORT (default <tmp>/shellherd-run-b, 9336),
 // REMOTE_SERVER_URL (default http://127.0.0.1:8788). Synthetic data only; no real vault or profile is touched.
+// A repeated run needs fresh instances: the decline mutes B at A for 10 minutes and blocks the pair at the server for 30 s.
 // Exit codes: 0 ok, 1 step failed, 2 driver unreachable, 3 no non-loopback interface.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -117,17 +118,51 @@ const PIXEL_CHECK = `(() => {
   return ${JSON.stringify(PATTERN)}.map(point => ({ ...point, got: [...context.getImageData(Math.floor(point.x * canvas.width), Math.floor(point.y * canvas.height), 1, 1).data].slice(0, 3) }));
 })()`;
 
-// Requests a view at B (after the fingerprint comparison) and waits for the consent dialog at A.
-async function request(consentFingerprintOfB, fingerprintOfA) {
-  await B.waitFor('A in der Geräteliste', `[...document.querySelectorAll('${LAB} .remote-lab-device code')].some(c => c.textContent.trim() === ${JSON.stringify(fingerprintOfA)})`);
-  log('B: sieht A, Fingerabdruck stimmt mit A überein');
-  const checkbox = `${LAB} .remote-lab-device input[type=checkbox]`;
-  if (!await B.evaluate(`document.querySelector(${JSON.stringify(checkbox)}).checked`)) await B.click(checkbox);
-  await B.click(`${LAB} .remote-lab-device button.primary-button`);
-  await A.waitFor('Zustimmungsdialog', has('dialog.remote-consent-dialog[open]'));
-  const dialogText = await A.evaluate(`document.querySelector('dialog.remote-consent-dialog').textContent`);
-  if (!dialogText.includes(consentFingerprintOfB)) throw new Fail(`A: Zustimmung zeigt den Fingerabdruck von B nicht (${consentFingerprintOfB})`);
-  log('A: Zustimmung zeigt den vollen Fingerabdruck von B');
+const FIRST_12 = fingerprint => fingerprint.replace(/\s+/g, '').slice(0, 12);
+const DEVICE_A = `li.remote-lab-device:has(strong:text-is(${JSON.stringify(NAME_A)}))`; // Playwright selector (driver routes)
+const ROW_A_JS = `[...document.querySelectorAll('li.remote-lab-device')].find(li => li.querySelector('strong')?.textContent === ${JSON.stringify(NAME_A)})`; // same row for page.evaluate
+const CONSENT = 'dialog.remote-consent-dialog';
+
+// Replaces the dialog stub from driver.mjs with one that records the options (without the AbortSignal) and still answers with the last button.
+async function recordNativeDialogs() {
+  await A.main(`globalThis.__shellherdDialogs = [];
+    electron.dialog.showMessageBox = async (first, second) => {
+      const options = second ?? first;
+      globalThis.__shellherdDialogs.push({ type: options.type, title: options.title, message: options.message, detail: options.detail, buttons: options.buttons });
+      return { response: Math.max(0, (options.buttons?.length ?? 1) - 1), checkboxChecked: false };
+    }; return true;`);
+}
+
+// B requests a view of A. With an unverified pin B types the first 12 characters of A's own display; with a verified pin there is no field.
+async function request(fingerprintOfA, { verified }) {
+  await B.waitFor('A in der Geräteliste', ROW_A_JS);
+  const rowText = await B.evaluate(`${ROW_A_JS}.textContent`);
+  // E6: only unverified peers must hide their fingerprint; verified pins may show it.
+  if (!verified && rowText.replace(/\s+/g, '').includes(FIRST_12(fingerprintOfA))) throw new Fail('B: die Geräteliste zeigt den Fingerabdruck von A vor der Prüfung (E6)');
+  if (verified) {
+    if (!rowText.includes('Geprüft am')) throw new Fail('B: „Geprüft am“ fehlt bei A trotz bestätigtem Pin');
+    if (await B.evaluate(`!!${ROW_A_JS}.querySelector('input.remote-lab-verify')`)) throw new Fail('B: Prüffeld bei A trotz bestätigtem Pin');
+    log('B: A ist geprüft („Geprüft am“), kein Feld');
+  } else {
+    await B.fill(`${DEVICE_A} input.remote-lab-verify`, FIRST_12(fingerprintOfA));
+    log('B: erste 12 Zeichen von A aus dessen Anzeige getippt');
+  }
+  await B.click(`${DEVICE_A} button.primary-button`);
+  await A.waitFor('Zustimmungsdialog', has(`${CONSENT}[open]`));
+}
+
+// A confirms B in the renderer dialog: typed prefix for an unverified pin, no field for a verified one.
+async function prepareConsent(fingerprintOfB, { verified }) {
+  const dialogText = await A.evaluate(`document.querySelector('${CONSENT}').textContent`);
+  if (!verified && dialogText.replace(/\s+/g, '').includes(FIRST_12(fingerprintOfB))) throw new Fail('A: der Renderer-Dialog zeigt den Fingerabdruck von B (E6)');
+  if (verified) {
+    if (!dialogText.includes('Geprüft am')) throw new Fail('A: „Geprüft am“ fehlt im Zustimmungsdialog trotz bestätigtem Pin');
+    if (await A.evaluate(has(`${CONSENT} input.remote-lab-verify`))) throw new Fail('A: Prüffeld im Zustimmungsdialog trotz bestätigtem Pin');
+    log('A: Zustimmung ohne Feld, B ist geprüft');
+  } else {
+    await A.fill(`${CONSENT} input.remote-lab-verify`, FIRST_12(fingerprintOfB));
+    log('A: erste 12 Zeichen von B aus dessen Anzeige getippt');
+  }
 }
 
 async function run() {
@@ -141,12 +176,19 @@ async function run() {
   if (fingerprintA === fingerprintB) throw new Fail('A und B haben denselben Fingerabdruck (gleiche Geräteidentität?)');
   await closeDialogs(A);
 
-  // Accept path.
-  await request(fingerprintB, fingerprintA);
+  // Accept path (first run: both pins unverified, both sides type the prefix).
+  await recordNativeDialogs();
+  await request(fingerprintA, { verified: false });
+  await prepareConsent(fingerprintB, { verified: false });
   await pause(1100); // accept is locked for 1 s after the dialog opens
   shots.push(await A.shot('remote-consent'));
-  await A.click('dialog.remote-consent-dialog .primary-button');
+  await A.click(`${CONSENT} .primary-button`);
   await A.waitFor('Leiste „Bildschirm wird angesehen“', has('.remote-share-bar'));
+  const dialogs = await A.main('return globalThis.__shellherdDialogs');
+  if (dialogs.length !== 1) throw new Fail(`A: erwartet genau einen nativen Dialog, aufgezeichnet ${dialogs.length}`);
+  if (!dialogs[0].detail?.includes(fingerprintB)) throw new Fail('A: der native Dialog nennt den gruppierten Fingerabdruck von B nicht');
+  if (JSON.stringify(dialogs[0].buttons) !== JSON.stringify(['Ablehnen', 'Bildschirm freigeben'])) throw new Fail(`A: Knöpfe des nativen Dialogs: ${JSON.stringify(dialogs[0].buttons)}`);
+  log('A: nativer Dialog mit vollem Fingerabdruck von B und den Knöpfen Ablehnen / Bildschirm freigeben');
   shots.push(await A.shot('remote-bar'));
   // setContentProtection is a no-op on Linux (isContentProtected() stays false), so
   // there the scene checks the sharing window title; elsewhere the protection flag.
@@ -183,12 +225,20 @@ async function run() {
   if (after.titles.some(title => title !== 'Shellherd')) throw new Fail(`A: Fenstertitel nach dem Beenden noch mit Freigabe (${JSON.stringify(after.titles)})`);
   log('A: Leiste weg, Fensterschutz und Titel zurückgesetzt');
 
-  // Decline path.
-  await request(fingerprintB, fingerprintA);
+  // Decline path (second run: both pins are verified now, so neither side sees a field).
+  await request(fingerprintA, { verified: true });
+  await prepareConsent(fingerprintB, { verified: true });
   await pause(300);
-  await A.click('dialog.remote-consent-dialog .secondary-button');
+  await A.click(`${CONSENT} .secondary-button`);
   await B.waitFor(`Ablehnen-Text bei B (≤ ${END_WITHIN_MS / 1000} s)`, `document.querySelector('${LAB} .remote-lab-ended')?.textContent.includes(${JSON.stringify(ENDED_DECLINED)}) || document.querySelector('${LAB} [role=alert]')?.textContent.includes(${JSON.stringify(ENDED_DECLINED)})`, END_WITHIN_MS);
   log('B: Ablehnung angezeigt');
+
+  // No Content-Security-Policy violation in either window since the start.
+  for (const side of [A, B]) {
+    const violations = (await side.call('console')).filter(message => message.text.includes('Content Security Policy'));
+    if (violations.length) throw new Fail(`${side.label}: CSP-Meldung in der Konsole: ${violations[0].text}`);
+  }
+  log('A und B: keine CSP-Meldung in der Konsole');
 }
 
 // Both devices go offline again, whatever happened.

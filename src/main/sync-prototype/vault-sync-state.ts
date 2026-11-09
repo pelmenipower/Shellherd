@@ -22,8 +22,8 @@ export async function lockSyncState(filePath: string, key: Buffer, kdf: Encrypte
     let file;
     try {
       file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); const stat = await file.stat();
-      ensure(stat.isFile() && stat.nlink === 1 && stat.size <= 24 * 1048576 && (stat.mode & 0o077) === 0, 'limit');
-      const data = await file.readFile('utf8'); ensure(Buffer.byteLength(data) <= 24 * 1048576, 'limit'); return data;
+      ensure(stat.isFile() && stat.nlink === 1 && stat.size <= 56 * 1048576 && (stat.mode & 0o077) === 0, 'limit');
+      const data = await file.readFile('utf8'); ensure(Buffer.byteLength(data) <= 56 * 1048576, 'limit'); return data;
     } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
     finally { await file?.close(); }
   }
@@ -40,7 +40,7 @@ export async function lockSyncState(filePath: string, key: Buffer, kdf: Encrypte
     async write(value) {
       ensure(!uncertain, 'recovery'); check();
       const raw = JSON.stringify(['shellherd-private-sync-state-v1', sealDocument(value, key, kdf, context, 'state')]);
-      ensure(Buffer.byteLength(raw) <= 24 * 1048576, 'limit'); const temp = `${path}.${randomBytes(16).toString('hex')}.tmp`; let renamed = false;
+      ensure(Buffer.byteLength(raw) <= 56 * 1048576, 'limit'); const temp = `${path}.${randomBytes(16).toString('hex')}.tmp`; let renamed = false;
       try {
         const file = await open(temp, 'wx', 0o600); try { await file.writeFile(raw); await file.sync(); } finally { await file.close(); }
         const old = await wire(); ensure((old === undefined ? undefined : hashWire(old)) === expected, 'changed'); check();

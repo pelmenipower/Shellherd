@@ -28,3 +28,10 @@ it('reports a held or stale lock as recovery required and never removes someone 
     expect(await readFile(`${path}.sync-state.lock`, 'utf8')).toBe('');
   } finally { await state.close(); key.fill(0); }
 });
+it('writes and reads a checkpoint with about 20 MiB of versions', async () => {
+  const { path, key } = await fixture(); const state = await lockSyncState(path, key, kdf, context, () => {});
+  try {
+    const value = { kind: 'shellherd-sync-state-v1', versions: Array.from({ length: 20 }, () => randomBytes(700 * 1024).toString('base64')) };
+    await state.write(value); expect(await state.read()).toEqual(value);
+  } finally { await state.close(); key.fill(0); }
+}, 30000);

@@ -1,3 +1,5 @@
+// Must stay the first import: zod's config has to be set before any module parses.
+import './zod-jitless';
 import { i18n } from './i18n';
 import '@fontsource-variable/inter';
 import React from 'react';

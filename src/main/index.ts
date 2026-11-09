@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, powerMonitor, shell, webContents } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, powerMonitor, session, shell, webContents } from 'electron';
 import type { Rectangle, WebContents } from 'electron';
 import { join } from 'node:path';
 
@@ -44,6 +44,7 @@ import { UPDATE_URL, UpdateChecker } from './update-check';
 import { RecentVaults } from './vault/recent-vaults';
 import { registerSyncLabIpc } from './sync-prototype/lab-ipc';
 import type { SyncLabHost } from './sync-prototype/lab-host';
+import { registerPermissionHandlers } from './permissions';
 import { registerRemoteLabIpc, remoteLabRequested } from './remote/lab-ipc';
 import type { RemoteLabHost } from './remote/lab-host';
 
@@ -262,7 +263,8 @@ app.whenReady().then(async () => {
   if (!singleInstance) return;
   let syncVaultChanged: (snapshot: import('./vault/session').VaultSessionSnapshot) => void = () => {};
   syncLabHost = await registerSyncLabIpc({ sessions: vaultSessionManager, onSynced: snapshot => syncVaultChanged(snapshot) });
-  remoteLabHost = await registerRemoteLabIpc({ isUnlocked: () => vaultSessionManager.isUnlocked() });
+  remoteLabHost = await registerRemoteLabIpc({ isUnlocked: () => vaultSessionManager.isUnlocked(), matchesVaultPassword: p => vaultSessionManager.matchesPassword(p) });
+  registerPermissionHandlers(session.defaultSession, { remoteLabEnabled: remoteLabHost.enabled, captureGranted: id => remoteLabHost?.captureGranted(id) ?? false, requestCapture: async id => (await remoteLabHost?.requestCapture(id)) != null });
   // Protection goes on at once but comes off only after the renderer had time to stop its tracks (R11).
   let unprotectTimer: ReturnType<typeof setTimeout> | undefined;
   const applySharingWindow = (sharing: boolean): void => {

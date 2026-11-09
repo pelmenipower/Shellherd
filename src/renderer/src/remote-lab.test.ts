@@ -3,8 +3,8 @@ import { REMOTE_END_KEYS, REMOTE_ERROR_KEYS, endKey, errorKey, groupFingerprint,
 
 describe('remote-lab helpers', () => {
   it('maps every error code and end reason to a remoteLab key', () => {
-    expect(Object.keys(REMOTE_ERROR_KEYS)).toHaveLength(15);
-    expect(Object.keys(REMOTE_END_KEYS)).toHaveLength(7);
+    expect(Object.keys(REMOTE_ERROR_KEYS)).toHaveLength(16);
+    expect(Object.keys(REMOTE_END_KEYS)).toHaveLength(8);
     for (const [code, key] of Object.entries(REMOTE_ERROR_KEYS)) expect(key).toBe(`remoteLab:errors.${code}`);
     for (const [reason, key] of Object.entries(REMOTE_END_KEYS)) expect(key).toBe(`remoteLab:ended.${reason}`);
     expect(errorKey('limit')).toBe('remoteLab:errors.limit');

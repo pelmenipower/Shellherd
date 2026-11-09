@@ -11,6 +11,7 @@ const SID = '1'.repeat(64);
 const SID2 = '2'.repeat(64);
 const CLIENT = '00000000-0000-4000-8000-000000000001';
 const OWNER = 7;
+const PREFIX = 'b'.repeat(12);
 const URL = 'http://127.0.0.1:8788/';
 
 class Clock {
@@ -63,9 +64,10 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
   let presenceStart: () => Promise<void> = async () => undefined;
   const presenceStop = vi.fn(async () => undefined);
   const remember = vi.fn();
-  const known = vi.fn((_id: string): { firstSeen: number } | undefined => undefined);
+  const known = vi.fn((_id: string): { firstSeen: number; verified: boolean; verifiedAt?: number } | undefined => undefined);
+  const renamed = vi.fn((_id: string, _name: string) => false);
   const load = vi.fn(() => ({ identity: { id: SELF, publicKey: 'pk-self', privateKey: {} } as unknown as RemoteIdentity, persistent: true }));
-  const store = { load, known, remember } as unknown as RemoteIdentityStore;
+  const store = { load, known, remember, renamed } as unknown as RemoteIdentityStore;
   const account: RemoteAccount & { getImpl?: () => Promise<unknown> } = {
     login: vi.fn(async () => ({ signedIn: true as const, expiresAt: 5_000_000 })),
     request: vi.fn(async (method: string, path: string) => { requests.push({ method, path }); if (method === 'GET') return account.getImpl ? account.getImpl() : wire({ from: SELF, to: B }); return {}; }),
@@ -76,17 +78,22 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     request: vi.fn(async (target: string) => wire({ from: SELF, to: target })),
     channel: vi.fn(() => { const c = new FakeChannel(); channels.push(c); return c; }),
   } as unknown as RemotePeer & { request: ReturnType<typeof vi.fn>; channel: ReturnType<typeof vi.fn> };
+  const unlocked = { value: true };
+  const emergency = vi.fn();
+  const confirmCapture = vi.fn(async (_owner: number, _prompt: unknown, _signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'> => 'accepted');
   const deps: RemoteDeps = {
-    probe: overrides.probe ?? (async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'demo', authentication: 'password', rendezvous: true })),
+    probe: overrides.probe ?? (async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'demo', authentication: 'password', rendezvous: true, rendezvousProof: true })),
     createAccount: () => account,
     createPeer: () => peer,
     identity: () => store,
     presence: (_t, _n, h) => { handlers = h; return { start: () => presenceStart(), stop: presenceStop }; },
     timers: clock,
     isUnlocked: () => unlocked.value,
+    matchesVaultPassword: async () => false,
+    confirmCapture,
+    emergency,
     ...overrides.deps,
   };
-  const unlocked = { value: true };
   const host = new RemoteLabHost(deps);
   const events: Array<{ owner: number; event: RemoteLabEvent }> = [];
   host.onEvent((owner, event) => events.push({ owner, event }));
@@ -104,13 +111,14 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     handlers.onSessions([wire()]);
     await flush();
   };
-  const armed = async (): Promise<void> => { await consent(); expect((await act({ kind: 'armCapture', sessionId: SID })).ok).toBe(true); };
-  const accepted = async (): Promise<FakeChannel> => { await armed(); expect((await act({ kind: 'accept', sessionId: SID })).ok).toBe(true); return channels[channels.length - 1]!; };
+  const armed = async (): Promise<void> => { await consent(); expect((await act({ kind: 'armCapture', sessionId: SID, verification: PREFIX })).ok).toBe(true); };
+  const granted = async (): Promise<void> => { await armed(); expect(await host.requestCapture(OWNER)).toBe(SID); };
+  const accepted = async (): Promise<FakeChannel> => { await granted(); expect((await act({ kind: 'accept', sessionId: SID })).ok).toBe(true); return channels[channels.length - 1]!; };
   /** Online viewer with a request to B in `requesting`. */
   const requesting = async (): Promise<void> => {
     await goOnline();
     handlers.onDevices([device(B, 'Büro')]);
-    expect((await act({ kind: 'request', target: B, compared: true })).ok).toBe(true);
+    expect((await act({ kind: 'request', target: B, verification: PREFIX })).ok).toBe(true);
   };
   const viewing = async (): Promise<FakeChannel> => {
     await requesting();
@@ -119,7 +127,7 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     return channels[channels.length - 1]!;
   };
   const deletes = (): string[] => requests.filter(r => r.method === 'DELETE').map(r => r.path);
-  return { host, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, accepted, requesting, viewing, presenceStop, remember, known, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
+  return { host, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, emergency, confirmCapture, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
 }
 
 describe('RemoteLabHost: setup', () => {
@@ -133,7 +141,7 @@ describe('RemoteLabHost: setup', () => {
     const { act } = setup();
     expect(await act({ kind: 'bogus' })).toEqual({ ok: false, code: 'invalid' });
     expect(await act({ kind: 'connect', serverUrl: 'http://example.com/' })).toEqual({ ok: false, code: 'invalid' });
-    expect(await act({ kind: 'request', target: B, compared: false })).toEqual({ ok: false, code: 'invalid' });
+    expect(await act({ kind: 'request', target: B, verification: 5 })).toEqual({ ok: false, code: 'invalid' });
     expect(await act({ kind: 'status', extra: 1 })).toEqual({ ok: false, code: 'invalid' });
   });
 
@@ -152,7 +160,7 @@ describe('RemoteLabHost: setup', () => {
   it('maps probe, login and presence errors to codes', async () => {
     const down = setup({ probe: async () => { throw new Error('x'); } });
     expect(await down.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'connection' });
-    const noRv = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: false }) });
+    const noRv = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: false, rendezvousProof: true }) });
     expect(await noRv.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'unavailable' });
     const a = setup();
     await a.act({ kind: 'connect', serverUrl: URL });
@@ -184,7 +192,7 @@ describe('RemoteLabHost: setup', () => {
 
   it('allows only one network action at a time', async () => {
     let release!: () => void;
-    const t = setup({ probe: () => new Promise(r => { release = () => r({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: true }); }) });
+    const t = setup({ probe: () => new Promise(r => { release = () => r({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: true, rendezvousProof: true }); }) });
     const first = t.act({ kind: 'connect', serverUrl: URL });
     expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'stale' });
     release();
@@ -218,10 +226,10 @@ describe('RemoteLabHost: owner binding (K2)', () => {
 describe('RemoteLabHost: incoming requests (K4, R3, busy)', () => {
   it('shows consent for a view request with name and known-since, and emits state', async () => {
     const t = setup();
-    t.known.mockReturnValue({ firstSeen: 42 });
+    t.known.mockReturnValue({ firstSeen: 42, verified: false });
     await t.consent();
     const reply = await t.act({ kind: 'status' });
-    expect(reply).toMatchObject({ ok: true, state: { session: { id: SID, role: 'agent', state: 'consent', scope: 'view', peer: { id: B, name: 'Büro', known: { firstSeen: 42 } } } } });
+    expect(reply).toMatchObject({ ok: true, state: { session: { id: SID, role: 'agent', state: 'consent', scope: 'view', peer: { id: B, name: 'Büro', known: { firstSeen: 42, verified: false } } } } });
     expect(t.kinds('state').length).toBeGreaterThan(0);
   });
 
@@ -270,7 +278,7 @@ describe('RemoteLabHost: incoming requests (K4, R3, busy)', () => {
 });
 
 describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
-  it('R1: accept without armCapture is stale and builds no channel', async () => {
+  it('R1: accept before granted is stale and builds no channel', async () => {
     const t = setup();
     await t.consent();
     expect(await t.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'stale' });
@@ -281,51 +289,232 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     const t = setup();
     await t.consent();
     t.unlocked.value = false;
-    expect(await t.act({ kind: 'armCapture', sessionId: SID })).toEqual({ ok: false, code: 'locked' });
+    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX })).toEqual({ ok: false, code: 'locked' });
     t.unlocked.value = true;
-    expect(await t.act({ kind: 'armCapture', sessionId: 'other' })).toEqual({ ok: false, code: 'stale' });
-    expect((await t.act({ kind: 'armCapture', sessionId: SID })).ok).toBe(true);
-    expect(await t.act({ kind: 'armCapture', sessionId: SID })).toEqual({ ok: false, code: 'stale' });
+    expect(await t.act({ kind: 'armCapture', sessionId: 'other', verification: PREFIX })).toEqual({ ok: false, code: 'stale' });
+    expect((await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX })).ok).toBe(true);
+    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX })).toEqual({ ok: false, code: 'stale' });
   });
 
-  it('R4: the grant is single use, owner bound and valid for 15 s', async () => {
+  it('requestCapture: needs armed, the bound owner and runs one dialog at a time', async () => {
+    const t = setup();
+    await t.consent();
+    expect(await t.host.requestCapture(OWNER)).toBeNull();
+    expect(t.confirmCapture).not.toHaveBeenCalled();
+    await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX });
+    expect(await t.host.requestCapture(OWNER + 1)).toBeNull();
+    let release!: (result: 'accepted' | 'declined') => void;
+    t.confirmCapture.mockImplementationOnce(() => new Promise<'accepted' | 'declined'>(r => { release = r; }));
+    const first = t.host.requestCapture(OWNER);
+    expect(await t.host.requestCapture(OWNER)).toBeNull();
+    expect(t.confirmCapture).toHaveBeenCalledTimes(1);
+    expect(t.confirmCapture).toHaveBeenCalledWith(OWNER, { name: 'Büro', fingerprint: B, verified: true }, expect.any(AbortSignal));
+    release('accepted');
+    expect(await first).toBe(SID);
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'granted' } } });
+    expect(await t.host.requestCapture(OWNER)).toBeNull();
+  });
+
+  it('requestCapture: false declines, mutes the device and ends the session', async () => {
     const t = setup();
     await t.armed();
-    expect(t.host.consumeCaptureGrant(OWNER + 1)).toBeNull();
-    expect(t.host.consumeCaptureGrant(OWNER)).toBe(SID);
-    expect(t.host.consumeCaptureGrant(OWNER)).toBeNull();
-    const late = setup();
-    await late.armed();
-    await late.clock.advance(15_000);
-    expect(late.host.consumeCaptureGrant(OWNER)).toBeNull();
-    const none = setup();
-    await none.consent();
-    expect(none.host.consumeCaptureGrant(OWNER)).toBeNull();
+    t.confirmCapture.mockResolvedValueOnce('declined');
+    expect(await t.host.requestCapture(OWNER)).toBeNull();
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
+    t.handlers().onSessions([wire({ id: SID2 })]);
+    await flush();
+    expect(t.deletes()).toContain(`/v1/rendezvous/sessions/${SID2}`);
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { muted: 1 } });
   });
 
-  it('R4: the grant dies on accept, decline, stop, reset and closeOwner', async () => {
-    const a = setup(); await a.armed();
-    await a.act({ kind: 'accept', sessionId: SID });
-    expect(a.host.consumeCaptureGrant(OWNER)).toBeNull();
-    const d = setup(); await d.armed();
-    await d.act({ kind: 'decline', sessionId: SID });
-    expect(d.host.consumeCaptureGrant(OWNER)).toBeNull();
-    const s = setup(); await s.armed();
-    await s.act({ kind: 'stop', sessionId: SID });
-    expect(s.host.consumeCaptureGrant(OWNER)).toBeNull();
-    const r = setup(); await r.armed();
-    r.host.reset('locked');
-    expect(r.host.consumeCaptureGrant(OWNER)).toBeNull();
-    const c = setup(); await c.armed();
+  it('requestCapture: a throwing dialog counts as declined; a lock during the dialog ends locked', async () => {
+    const t = setup();
+    await t.armed();
+    t.confirmCapture.mockRejectedValueOnce(new Error('x'));
+    expect(await t.host.requestCapture(OWNER)).toBeNull();
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
+    const l = setup();
+    await l.armed();
+    l.confirmCapture.mockImplementationOnce(async () => { l.unlocked.value = false; return 'accepted' as const; });
+    expect(await l.host.requestCapture(OWNER)).toBeNull();
+    expect(l.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'locked' }]);
+  });
+
+  it('requestCapture: the deadline aborts the dialog signal and yields null', async () => {
+    const t = setup();
+    await t.armed();
+    let signal!: AbortSignal;
+    t.confirmCapture.mockImplementationOnce((_o, _p, s) => new Promise<'declined'>(r => { signal = s; s.addEventListener('abort', () => r('declined')); }));
+    const pending = t.host.requestCapture(OWNER);
+    await t.clock.advance(55_000);
+    expect(signal.aborted).toBe(true);
+    expect(await pending).toBeNull();
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'expired' }]);
+  });
+
+  it('every end path aborts the dialog signal (stop, decline, vanishing request, reset, closeOwner, goOffline)', async () => {
+    const cases: Array<(t: ReturnType<typeof setup>) => unknown> = [
+      t => t.act({ kind: 'stop', sessionId: SID }),
+      t => t.act({ kind: 'decline', sessionId: SID }),
+      t => t.handlers().onSessions([]),
+      t => t.host.reset('locked'),
+      t => t.host.closeOwner(OWNER),
+      t => t.act({ kind: 'goOffline' }),
+    ];
+    for (const end of cases) {
+      const t = setup();
+      await t.armed();
+      let signal!: AbortSignal;
+      t.confirmCapture.mockImplementationOnce((_o, _p, s) => new Promise<'declined'>(r => { signal = s; s.addEventListener('abort', () => r('declined')); }));
+      const pending = t.host.requestCapture(OWNER);
+      await end(t);
+      await flush();
+      expect(signal.aborted).toBe(true);
+      expect(await pending).toBeNull();
+    }
+  });
+
+  it('captureGranted is false before the native consent, true after it, false for other owners and after the end', async () => {
+    const t = setup();
+    await t.consent();
+    expect(t.host.captureGranted(OWNER)).toBe(false);
+    await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX });
+    expect(t.host.captureGranted(OWNER)).toBe(false);
+    expect(t.host.isGranted(OWNER, SID)).toBe(false);
+    expect(await t.host.requestCapture(OWNER)).toBe(SID);
+    expect(t.host.captureGranted(OWNER)).toBe(true);
+    expect(t.host.grantedSession(OWNER)).toBe(SID);
+    expect(t.host.isGranted(OWNER, SID)).toBe(true);
+    expect(t.host.isGranted(OWNER, SID2)).toBe(false);
+    expect(t.host.captureGranted(OWNER + 1)).toBe(false);
+    await t.act({ kind: 'stop', sessionId: SID });
+    expect(t.host.captureGranted(OWNER)).toBe(false);
+  });
+
+  it('requestCapture: no dialog shown (unavailable) neither mutes nor ends the session', async () => {
+    const t = setup();
+    await t.armed();
+    t.confirmCapture.mockResolvedValueOnce('unavailable');
+    expect(await t.host.requestCapture(OWNER)).toBeNull();
+    expect(t.kinds('ended')).toEqual([]);
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'consent' } } });
+    expect(await t.host.requestCapture(OWNER)).toBe(SID);
+  });
+
+  it('decline works in granted; a vanishing request ends a granted session with remote', async () => {
+    const d = setup();
+    await d.granted();
+    expect((await d.act({ kind: 'decline', sessionId: SID })).ok).toBe(true);
+    expect(d.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
+    const v = setup();
+    await v.granted();
+    v.handlers().onSessions([]);
+    expect(v.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'remote' }]);
+  });
+
+  it('armCapture: null needs a verified pin; invalid input is no attempt; three misses end with mismatch and mute', async () => {
+    const t = setup();
+    await t.consent();
+    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: null })).toEqual({ ok: false, code: 'invalid' });
+    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'zz' })).toEqual({ ok: false, code: 'invalid' });
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { attemptsLeft: 3 } } });
+    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { attemptsLeft: 2 } } });
+    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
+    expect(t.kinds('ended')).toEqual([]);
+    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'mismatch' }]);
+    expect(t.host.captureGranted(OWNER)).toBe(false);
+    t.handlers().onSessions([wire({ id: SID2 })]);
+    await flush();
+    expect(t.deletes()).toContain(`/v1/rendezvous/sessions/${SID2}`);
+    const status = await t.act({ kind: 'status' });
+    expect(status).toMatchObject({ state: { muted: 1 } });
+    expect((status as { state: { session?: unknown } }).state.session).toBeUndefined();
+  });
+
+  it('armCapture: a verified pin accepts null and never exposes attemptsLeft', async () => {
+    const t = setup();
+    t.known.mockReturnValue({ firstSeen: 1, verified: true, verifiedAt: 2 });
+    await t.consent();
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { peer: { known: { verified: true } } } } });
+    expect((await t.act({ kind: 'status' }) as { state: { session: { attemptsLeft?: number } } }).state.session.attemptsLeft).toBeUndefined();
+    expect((await t.act({ kind: 'armCapture', sessionId: SID, verification: null })).ok).toBe(true);
+    expect(await t.host.requestCapture(OWNER)).toBe(SID);
+    expect(t.confirmCapture).toHaveBeenCalledWith(OWNER, expect.objectContaining({ verified: true }), expect.any(AbortSignal));
+  });
+
+  it('mute: entries are FIFO-capped at 64 and expire after muteMs', async () => {
+    const t = setup();
+    await t.goOnline();
+    t.handlers().onDevices([device(B, 'Büro')]);
+    t.handlers().onSessions([wire()]);
+    await flush();
+    await t.act({ kind: 'decline', sessionId: SID });
+    await t.clock.advance(600_000);
+    t.handlers().onSessions([wire({ id: SID2 })]);
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { id: SID2 } } });
+  });
+
+  it('emergency brake: captured session ending without stopped triggers emergency once after 2 s', async () => {
+    const t = setup();
+    await t.accepted();
+    await t.act({ kind: 'stop', sessionId: SID });
+    await t.clock.advance(1999);
+    expect(t.emergency).not.toHaveBeenCalled();
+    await t.clock.advance(1);
+    expect(t.emergency).toHaveBeenCalledTimes(1);
+    expect(t.emergency).toHaveBeenCalledWith(OWNER);
+    await t.clock.advance(10_000);
+    expect(t.emergency).toHaveBeenCalledTimes(1);
+  });
+
+  it('emergency brake: stopped cancels it', async () => {
+    const t = setup();
+    await t.accepted();
+    await t.act({ kind: 'stop', sessionId: SID });
+    expect((await t.act({ kind: 'stopped', sessionId: SID })).ok).toBe(true);
+    await t.clock.advance(5000);
+    expect(t.emergency).not.toHaveBeenCalled();
+  });
+
+  it('emergency brake: reset("locked") then stopped without a binding answers idle and cancels', async () => {
+    const t = setup();
+    await t.granted();
+    t.host.reset('locked');
+    expect(await t.act({ kind: 'stopped', sessionId: SID })).toEqual({ ok: true, state: { phase: 'idle' } });
+    await t.clock.advance(5000);
+    expect(t.emergency).not.toHaveBeenCalled();
+  });
+
+  it('emergency brake: closeOwner discards the brake; a non-captured session never arms it', async () => {
+    const c = setup();
+    await c.granted();
     c.host.closeOwner(OWNER);
-    expect(c.host.consumeCaptureGrant(OWNER)).toBeNull();
+    await c.clock.advance(5000);
+    expect(c.emergency).not.toHaveBeenCalled();
+    const n = setup();
+    await n.armed();
+    await n.act({ kind: 'decline', sessionId: SID });
+    await n.clock.advance(5000);
+    expect(n.emergency).not.toHaveBeenCalled();
+  });
+
+  it('emergency brake: stopped from a foreign owner is stale and the brake still fires', async () => {
+    const t = setup();
+    await t.granted();
+    await t.act({ kind: 'stop', sessionId: SID });
+    expect(await t.act({ kind: 'stopped', sessionId: SID }, OWNER + 1)).toEqual({ ok: false, code: 'stale' });
+    expect(await t.act({ kind: 'stopped', sessionId: 'unknown' })).toEqual({ ok: false, code: 'stale' });
+    await t.clock.advance(2000);
+    expect(t.emergency).toHaveBeenCalledWith(OWNER);
   });
 
   it('accept creates the channel with the verified peer, flips to connecting and starts sharing', async () => {
     const t = setup();
     const sharing: boolean[] = [];
     t.host.onSharingChange(s => sharing.push(s));
-    await t.armed();
+    await t.granted();
     expect(t.host.sharing).toBe(false);
     const reply = await t.act({ kind: 'accept', sessionId: SID });
     expect(reply).toMatchObject({ ok: true, state: { session: { state: 'connecting' } } });
@@ -335,14 +524,14 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
   });
 
   it('accept: locked vault, channel mismatch and channel failure', async () => {
-    const l = setup(); await l.armed();
+    const l = setup(); await l.granted();
     l.unlocked.value = false;
     expect(await l.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'locked' });
-    const m = setup(); await m.armed();
+    const m = setup(); await m.granted();
     (m.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { throw new Error('mismatch'); });
     expect(await m.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'mismatch' });
     expect(m.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
-    const f = setup(); await f.armed();
+    const f = setup(); await f.granted();
     (f.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { const c = new FakeChannel(); c.acceptError = new Error('x'); return c; });
     expect(await f.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'connection' });
     expect(f.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
@@ -451,7 +640,7 @@ describe('RemoteLabHost: ending (R5, R6, K8)', () => {
     await t.goOnline();
     t.handlers().onDevices([device(B, 'Büro')]);
     t.peer.request.mockRejectedValueOnce(Object.assign(new Error('x'), { status: 401 }));
-    expect(await t.act({ kind: 'request', target: B, compared: true })).toEqual({ ok: false, code: 'authentication' });
+    expect(await t.act({ kind: 'request', target: B, verification: PREFIX })).toEqual({ ok: false, code: 'authentication' });
     expect(await t.act({ kind: 'status' })).toMatchObject({ ok: true, state: { phase: 'serverReady' } });
     expect(t.presenceStop).toHaveBeenCalled();
     expect((await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).ok).toBe(true);
@@ -475,17 +664,17 @@ describe('RemoteLabHost: viewer (B1)', () => {
   it('request needs the target in the device list and builds no channel yet', async () => {
     const t = setup();
     await t.goOnline();
-    expect(await t.act({ kind: 'request', target: B, compared: true })).toEqual({ ok: false, code: 'stale' });
+    expect(await t.act({ kind: 'request', target: B, verification: PREFIX })).toEqual({ ok: false, code: 'stale' });
     t.handlers().onDevices([device(B, 'Büro')]);
     t.unlocked.value = false;
-    expect(await t.act({ kind: 'request', target: B, compared: true })).toEqual({ ok: false, code: 'locked' });
+    expect(await t.act({ kind: 'request', target: B, verification: PREFIX })).toEqual({ ok: false, code: 'locked' });
     t.unlocked.value = true;
     t.peer.request.mockRejectedValueOnce(Object.assign(new Error('x'), { status: 429 }));
-    expect(await t.act({ kind: 'request', target: B, compared: true })).toEqual({ ok: false, code: 'limit' });
-    const reply = await t.act({ kind: 'request', target: B, compared: true });
+    expect(await t.act({ kind: 'request', target: B, verification: PREFIX })).toEqual({ ok: false, code: 'limit' });
+    const reply = await t.act({ kind: 'request', target: B, verification: PREFIX });
     expect(reply).toMatchObject({ ok: true, state: { session: { role: 'viewer', state: 'requesting', peer: { id: B } } } });
     expect(t.channels).toHaveLength(0);
-    expect(await t.act({ kind: 'request', target: B, compared: true })).toEqual({ ok: false, code: 'stale' });
+    expect(await t.act({ kind: 'request', target: B, verification: PREFIX })).toEqual({ ok: false, code: 'stale' });
   });
 
   it('polls GET /sessions/:id until active, then builds the channel and connects', async () => {
@@ -521,7 +710,7 @@ describe('RemoteLabHost: viewer (B1)', () => {
     await t.clock.advance(1000);
     const status = await t.act({ kind: 'status' });
     expect(status).toMatchObject({ state: { session: { state: 'active', startedAt: t.clock.t } } });
-    expect(t.remember).toHaveBeenCalledWith(B, 'Büro', t.clock.t);
+    expect(t.remember).toHaveBeenCalledWith(B, 'Büro', t.clock.t, true);
   });
 
   it('bye from the peer ends with remote and closes without sending a bye back', async () => {
@@ -596,7 +785,7 @@ describe('RemoteLabHost: local deadlines (K3)', () => {
 
   it('accept after the deadline is expired; the viewer request expires after 60 s', async () => {
     const t = setup();
-    await t.armed();
+    await t.granted();
     t.clock.t += 55_000;
     expect(await t.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'expired' });
     const v = setup();
@@ -671,5 +860,121 @@ describe('RemoteLabHost: signal action', () => {
     channel.sendGate = async () => { throw new Error('x'); };
     expect(await t.act({ kind: 'signal', sessionId: SID, part: part('offer') })).toEqual({ ok: false, code: 'connection' });
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+  });
+});
+
+describe('RemoteLabHost: sign-in guard (M3) and server capability', () => {
+  const ready = async (deps: Partial<RemoteDeps> = {}) => {
+    const t = setup({ deps });
+    await t.act({ kind: 'connect', serverUrl: URL });
+    return t;
+  };
+
+  it('a locked vault yields locked and never touches the account', async () => {
+    const createAccount = vi.fn();
+    const t = await ready({ createAccount: createAccount as unknown as RemoteDeps['createAccount'] });
+    t.unlocked.value = false;
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'locked' });
+    expect(createAccount).not.toHaveBeenCalled();
+  });
+
+  it('the vault password is refused with samePassword before createAccount and login', async () => {
+    const createAccount = vi.fn();
+    const t = await ready({ matchesVaultPassword: async () => true, createAccount: createAccount as unknown as RemoteDeps['createAccount'] });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'samePassword' });
+    expect(createAccount).not.toHaveBeenCalled();
+    expect(t.account.login).not.toHaveBeenCalled();
+  });
+
+  it('a throwing check yields locked', async () => {
+    const createAccount = vi.fn();
+    const t = await ready({ matchesVaultPassword: async () => { throw new Error('locked'); }, createAccount: createAccount as unknown as RemoteDeps['createAccount'] });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'locked' });
+    expect(createAccount).not.toHaveBeenCalled();
+  });
+
+  it('a reset during the check yields stale', async () => {
+    let release!: (v: boolean) => void;
+    const createAccount = vi.fn();
+    const t = await ready({ matchesVaultPassword: () => new Promise<boolean>(r => { release = r; }), createAccount: createAccount as unknown as RemoteDeps['createAccount'] });
+    const pending = t.act({ kind: 'signIn', username: 'demo', password: 'pw' });
+    await flush();
+    t.host.reset();
+    release(false);
+    expect(await pending).toEqual({ ok: false, code: 'stale' });
+    expect(createAccount).not.toHaveBeenCalled();
+  });
+
+  it('connect without rendezvousProof is unavailable', async () => {
+    const t = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: true, rendezvousProof: false }) });
+    expect(await t.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'unavailable' });
+  });
+});
+
+describe('RemoteLabHost: viewer verification (B7, B10)', () => {
+  it('null without a verified pin is invalid, a malformed input is invalid and no attempt', async () => {
+    const t = setup();
+    await t.goOnline();
+    t.handlers().onDevices([device(B, 'Büro')]);
+    expect(await t.act({ kind: 'request', target: B, verification: null })).toEqual({ ok: false, code: 'invalid' });
+    t.known.mockReturnValue({ firstSeen: 1, verified: false });
+    expect(await t.act({ kind: 'request', target: B, verification: null })).toEqual({ ok: false, code: 'invalid' });
+    expect(await t.act({ kind: 'request', target: B, verification: 'zz' })).toEqual({ ok: false, code: 'invalid' });
+    for (let i = 0; i < 3; i++) expect(await t.act({ kind: 'request', target: B, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
+    expect(t.peer.request).not.toHaveBeenCalled();
+  });
+
+  it('three misses lock the device until goOnline; the fourth try is not even compared', async () => {
+    const t = setup();
+    await t.goOnline();
+    t.handlers().onDevices([device(B, 'Büro')]);
+    for (let i = 0; i < 3; i++) expect(await t.act({ kind: 'request', target: B, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
+    expect(await t.act({ kind: 'request', target: B, verification: PREFIX })).toEqual({ ok: false, code: 'mismatch' });
+    expect(t.peer.request).not.toHaveBeenCalled();
+    await t.act({ kind: 'goOffline' });
+    expect((await t.act({ kind: 'goOnline', deviceName: 'Laptop' })).ok).toBe(true);
+    t.handlers().onDevices([device(B, 'Büro')]);
+    expect((await t.act({ kind: 'request', target: B, verification: PREFIX })).ok).toBe(true);
+    expect(t.peer.request).toHaveBeenCalledTimes(1);
+  });
+
+  it('a verified pin with null sends the request', async () => {
+    const t = setup();
+    t.known.mockReturnValue({ firstSeen: 1, verified: true });
+    await t.goOnline();
+    t.handlers().onDevices([device(B, 'Büro')]);
+    expect((await t.act({ kind: 'request', target: B, verification: null })).ok).toBe(true);
+    expect(t.peer.request).toHaveBeenCalledWith(B, 'view');
+  });
+
+  it('a correct typed prefix remembers the peer as verified when the session goes active', async () => {
+    const t = setup();
+    const channel = await t.viewing();
+    channel.inbox.push([{ part: part('offer') }]);
+    await t.clock.advance(1000);
+    expect(t.remember).toHaveBeenCalledWith(B, 'Büro', t.clock.t, true);
+  });
+
+  it('a verified pin is passed on as verified even without a typed prefix', async () => {
+    const t = setup();
+    t.known.mockReturnValue({ firstSeen: 1, verified: true });
+    await t.goOnline();
+    t.handlers().onDevices([device(B, 'Büro')]);
+    await t.act({ kind: 'request', target: B, verification: null });
+    t.account.getImpl = async () => wire({ from: SELF, to: B, state: 'active' });
+    await t.clock.advance(1000);
+    t.channels[0]!.inbox.push([{ part: part('offer') }]);
+    await t.clock.advance(1000);
+    expect(t.remember).toHaveBeenCalledWith(B, 'Büro', t.clock.t, true);
+  });
+
+  it('state carries the full known pin and changed for a renamed device', async () => {
+    const t = setup();
+    t.known.mockReturnValue({ firstSeen: 5, verified: true, verifiedAt: 9 });
+    t.renamed.mockReturnValue(true);
+    await t.goOnline();
+    t.handlers().onDevices([device(B, 'Büro')]);
+    const reply = await t.act({ kind: 'status' });
+    expect(reply).toMatchObject({ ok: true, state: { devices: [{ id: B, name: 'Büro', known: { firstSeen: 5, verified: true, verifiedAt: 9 }, changed: true }] } });
   });
 });

@@ -36,6 +36,8 @@ Bereitschaft abwarten: `for i in $(seq 1 60); do curl -sf -m 2 -H "x-driver-toke
 
 `node .claude/skills/run-app/release-screens.mjs` ergänzt nach den Komponentenszenen die README-Bilder `screenshot-terminals.png`, `screenshot-terminals-light.png` und `screenshot-toolbar.png`. Es nutzt den festen Demo-Vault, einen temporären lokalen SSH-Fake mit synthetischen CPU-/RAM-Antworten und stellt die gespeicherte Vault-Konfiguration anschließend wieder her. Die vollständigen Befehle stehen in `docs/images/README.md`.
 
+**Pflichtprüfung CSP:** Nach `screens.mjs` (mindestens `terminal`, `sftp`, `settings`) und nach `remote-scene.mjs` muss `GET /console` frei von Meldungen mit `Content Security Policy` sein, zum Beispiel `curl -s -H "$T" http://127.0.0.1:9333/console | grep -c "Content Security Policy"` ergibt 0. Die Remote-Szene prüft das für A und B selbst. Der Treiber sammelt ab dem Start; nach einem Neustart beginnt die Liste leer.
+
 Screenshots landen in `%TEMP%\shellherd-run\shots` (Override: `SCREENSHOT_DIR`). **Screenshot immer ansehen** (Read auf die PNG) – ein leeres Fenster ist ein Startfehler.
 
 ## Gegenstellen
@@ -76,7 +78,11 @@ SHELLHERD_RUN_DIR="${TMPDIR:-/tmp}/shellherd-run-b" DRIVER_PORT=9336 node .claud
 node .claude/skills/run-app/remote-scene.mjs
 ```
 
-- **Ablauf:** nacheinander anmelden (der Server lehnt gleichzeitige Logins mit 429 ab), beide online, B sieht A und vergleicht den Fingerabdruck, Anfrage, Zustimmung an A (nach mehr als 1 s, vorher ist „Bildschirm freigeben“ gesperrt), Pixelprüfung des Testmusters im `<video>` von B, Beenden an A (B zeigt das Ende innerhalb von 8 s), dann der Ablehnen-Pfad. Screenshots `remote-consent.png` und `remote-bar.png` (Instanz A) sowie `remote-viewer.png` (Instanz B) liegen im jeweiligen `shots`-Ordner.
+- **Ablauf, erster Lauf (beide Pins unverifiziert):** nacheinander anmelden (der Server lehnt gleichzeitige Logins mit 429 ab), beide online. B liest den Fingerabdruck von A aus dessen eigener Anzeige (`.remote-lab-account > code.remote-lab-fingerprint`), tippt die ersten 12 Zeichen in `li.remote-lab-device` (`strong` = `Gerät A`) → `input.remote-lab-verify` und klickt `button.primary-button`. A tippt die ersten 12 Zeichen von B in `dialog.remote-consent-dialog input.remote-lab-verify` und klickt „Bildschirm freigeben“ (frühestens nach 1 s). Der Renderer-Dialog und die Geräteliste dürfen den Fingerabdruck der Gegenseite vor der Prüfung nicht zeigen (E6). Die Szene prüft den nativen Dialog (siehe unten), die Pixel des Testmusters im `<video>` von B und das Beenden an A (B zeigt das Ende innerhalb von 8 s).
+- **Zweiter Lauf (Ablehnung, beide Pins verifiziert):** B sieht bei A „Geprüft am“ und kein Feld, A sieht im Zustimmungsdialog ebenfalls kein Feld. A lehnt ab, B zeigt die Ablehnung. Screenshots `remote-consent.png` und `remote-bar.png` (Instanz A) sowie `remote-viewer.png` (Instanz B) liegen im jeweiligen `shots`-Ordner.
+- **Nativer Dialog, kein Consent-Hook (E1):** Es gibt kein `SHELLHERD_REMOTE_CONSENT_AUTO` und keinen Test-Hook im Produktivcode. Die Szene ersetzt über `/main` `electron.dialog.showMessageBox` durch eine Aufzeichnung (`globalThis.__shellherdDialogs`, je Aufruf `type`, `title`, `message`, `detail`, `buttons` ohne `signal`), die wie der Treiber mit dem letzten Knopf antwortet. Danach prüft sie genau einen Aufruf, dass `detail` den gruppierten Fingerabdruck von B enthält und dass `buttons` `['Ablehnen','Bildschirm freigeben']` lautet. Bleibt die Aufzeichnung leer oder endet die Freigabe mit `errors.media`, greift die Permission-Regel nicht wie vorgesehen (Restrisiko der Spec).
+- **Wiederholung:** Der Ablehnen-Pfad schaltet B bei A für 10 Minuten stumm und sperrt das Paar am Server für 30 s. Ein sofortiger zweiter Lauf zeigt deshalb keinen Zustimmungsdialog und endet mit Zeitüberschreitung. Beide Treiber neu starten: Die Geräteidentität liegt nur im RAM, Fingerabdrücke und Pins sind danach neu. Warten allein genügt nicht, weil die Pins verifiziert bleiben und der erste Lauf das Prüffeld erwartet.
+- **CSP-Prüfung:** Am Ende liest die Szene `/console` von A und B und schlägt bei jeder Meldung mit `Content Security Policy` fehl.
 - **Umgebung der Szene:** `A_RUN_DIR`/`A_PORT` (Vorgabe `<tmp>/shellherd-run`, 9333), `B_RUN_DIR`/`B_PORT` (Vorgabe `<tmp>/shellherd-run-b`, 9336), `REMOTE_SERVER_URL` (Vorgabe `http://127.0.0.1:8788`). Exit-Code 0 ok, 1 Schritt fehlgeschlagen (mit Fehlerbildern), 2 Treiber nicht erreichbar, 3 keine Netzwerkschnittstelle außer Loopback.
 - **Voraussetzung LAN-IP:** WebRTC nutzt nur Host-Kandidaten (`iceServers: []`), Chromium lässt Loopback-Kandidaten weg. Ohne Nicht-Loopback-Schnittstelle (LAN-IP) scheitert die Verbindung mit `errors.peer`, etwa unter `xvfb-run` ohne Netz. Der Rendezvous-Server selbst darf auf `127.0.0.1` bleiben.
 - **`--password-store=basic`:** Der Treiber startet Electron unter Linux damit, die Geräteidentität bleibt dadurch im RAM (Hinweis „Temporäre Geräteidentität“) und landet nie im echten Schlüsselbund. Bei jedem Start der Instanz ändert sich der Fingerabdruck.
@@ -117,6 +123,7 @@ Im Testserver beendet `exit` die Sitzung, `sudo reboot` simuliert einen Abbruch 
 | `POST /text` | Selektor (leer = `body`) | sichtbarer Text |
 | `GET /ss?name=x&crop=status` | – | Screenshot; `crop=status` schneidet die Statusleiste (Vault-Pfad) ab |
 | `GET /windows`, `GET /use?i=1` | – | Fenster auflisten / wechseln (Nebenfenster) |
+| `GET /console` | – | Konsolenmeldungen vom Typ `error` und `warning` aller Fenster seit dem Start, als JSON `[{type,text,url}]` |
 | `GET /quit` | – | App schließen, Treiber beenden |
 
 Häufige Wege:

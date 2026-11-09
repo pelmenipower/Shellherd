@@ -15,7 +15,7 @@ export interface SyncLabState {
   phase: 'idle' | 'serverReady' | 'compare' | 'conflict' | 'resolved' | 'failed' | 'expired';
   server?: { serverUrl: string; serverId: string; namespace: string; enrollmentAvailable?: boolean; authentication?: 'password' | 'device' };
   account?: { signedIn: true; username: string };
-  sync?: { status: 'synced' | 'conflict' | 'bindings'; versions: number; conflicts: number; canKeepLocal: boolean; conflictRevision?: string; approvals: number };
+  sync?: { status: 'synced' | 'conflict' | 'bindings'; versions: number; conflicts: number; canKeepLocal: boolean; conflictRevision?: string; approvals: number; skipped?: number };
   enrollment?: { status: 'pending' | 'authorized' | 'expired'; requestId: string; fingerprint: string; deviceId: string; expiresAt: number };
   sessionId?: string;
   revision?: string;
@@ -25,4 +25,4 @@ export interface SyncLabState {
   preservedIndependentChanges?: number;
 }
 export type SyncLabReply = { ok: true; state: SyncLabState; vaultChanged?: { filePath: string; vault: Vault } }
-  | { ok: false; code: 'unavailable' | 'invalid' | 'stale' | 'mismatch' | 'expired' | 'failed' | 'connection' | 'authentication' | 'syncLocked' | 'syncChanged' | 'syncHistory' | 'syncWrongVault' | 'syncRecovery' | 'syncLimit' | 'syncConflict' | 'syncBindings'; state?: SyncLabState };
+  | { ok: false; code: 'unavailable' | 'invalid' | 'stale' | 'mismatch' | 'expired' | 'failed' | 'connection' | 'authentication' | 'syncLocked' | 'syncChanged' | 'syncHistory' | 'syncWrongVault' | 'syncRecovery' | 'syncLimit' | 'syncConflict' | 'syncBindings' | 'samePassword'; state?: SyncLabState };

@@ -1,12 +1,14 @@
-import { app, desktopCapturer, ipcMain, session, webContents } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, session, webContents } from 'electron';
 import type { DisplayMediaRequestHandlerHandlerRequest, Streams, WebFrameMain } from 'electron';
 import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { windowRegistry } from '../windows';
 import { IPC_CHANNELS } from '../../shared/ipc';
+import { formatFingerprint } from '../../shared/remote-signal';
+import { mainT } from '../i18n';
 import { RemoteLabHost } from './lab-host';
-import type { RemoteAccount, RemoteDeps, RemotePeer, RemoteServerInfo } from './lab-host';
+import type { CapturePrompt, RemoteAccount, RemoteDeps, RemotePeer, RemoteServerInfo } from './lab-host';
 import { RemoteIdentityStore, safeStorageCipher } from './identity';
 import type { RemoteIdentity } from './identity';
 import { PresenceLoop } from './presence';
@@ -21,22 +23,52 @@ const timers: PresenceTimers = {
   now: () => Date.now(),
 };
 
-type CaptureHost = Pick<RemoteLabHost, 'consumeCaptureGrant'>;
+export interface CaptureHost { grantedSession(webContentsId: number): string | null; isGranted(webContentsId: number, sessionId: string): boolean; requestCapture(webContentsId: number): Promise<string | null> }
 type CaptureCallback = (streams: Streams) => void;
 
-/** Display-media gate: only a one-shot grant bound to the main frame of the owner window yields a screen source. */
-export function createDisplayMediaHandler(host: CaptureHost): (request: DisplayMediaRequestHandlerHandlerRequest, callback: CaptureCallback) => void {
+/** Display-media gate: native consent (once per session) in the main frame of its owner, then the primary screen. */
+export function createDisplayMediaHandler(host: CaptureHost, options: { fake: boolean }): (request: DisplayMediaRequestHandlerHandlerRequest, callback: CaptureCallback) => void {
   return (request, callback) => {
     const reply = (streams: Streams): void => { try { callback(streams); } catch { /* frame destroyed meanwhile */ } };
     const frame: WebFrameMain | null = request.frame;
     const contents = frame ? webContents.fromFrame(frame) : undefined;
     if (!contents || request.frame !== contents.mainFrame || !request.videoRequested) return reply({});
-    const sessionId = host.consumeCaptureGrant(contents.id);
-    if (!sessionId) return reply({});
-    desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
-      .then(sources => sources[0] ? reply({ video: sources[0] }) : reply({}))
-      .catch(() => reply({}));
+    const run = async (): Promise<void> => {
+      // Normally the permission request already ran the dialog; reaching this without it asks here, once per session.
+      const id = host.grantedSession(contents.id) ?? await host.requestCapture(contents.id);
+      if (id === null || options.fake) return reply({});
+      const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
+      reply(sources[0] && host.isGranted(contents.id, id) ? { video: sources[0] } : {});
+    };
+    run().catch(() => reply({}));
   };
+}
+
+/** Native consent; the renderer cannot click it. Aborts with the session; 'unavailable' only when no dialog could be shown. */
+export async function confirmCaptureDialog(owner: number, prompt: CapturePrompt, signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'> {
+  try {
+    const target = webContents.fromId(owner);
+    const parent = target ? BrowserWindow.fromWebContents(target) : null;
+    // Without a parent macOS would ignore the signal.
+    if (!parent || parent.isDestroyed() || signal.aborted) return 'unavailable';
+    const { response } = await dialog.showMessageBox(parent, {
+      type: 'warning',
+      title: mainT('dialogs.remoteConsent.title'),
+      message: mainT('dialogs.remoteConsent.message', { name: prompt.name }),
+      detail: mainT('dialogs.remoteConsent.detail', { fingerprint: formatFingerprint(prompt.fingerprint) }),
+      buttons: [mainT('dialogs.remoteConsent.decline'), mainT('dialogs.remoteConsent.confirm')],
+      defaultId: 0, cancelId: 0, noLink: true, signal,
+    });
+    return response === 1 && !signal.aborted ? 'accepted' : 'declined';
+  } catch {
+    return 'declined';
+  }
+}
+
+/** Renderer did not stop its tracks in time: the process ends with them, then the window reloads. */
+export function emergencyReload(owner: number): void {
+  const wc = webContents.fromId(owner);
+  if (wc && !wc.isDestroyed()) { wc.forcefullyCrashRenderer(); wc.reload(); }
 }
 
 /** Remote access has its own dev flag, independent of the sync lab; never in packaged builds. */
@@ -45,7 +77,7 @@ export function remoteLabRequested(env: NodeJS.ProcessEnv = process.env, package
 }
 
 /** Rendezvous scripts are loaded only in an explicitly enabled dev checkout; anything missing leaves the host without deps. */
-export async function registerRemoteLabIpc(options: { isUnlocked(): boolean }): Promise<RemoteLabHost> {
+export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; matchesVaultPassword(password: string): Promise<boolean> }): Promise<RemoteLabHost> {
   let host = new RemoteLabHost();
   if (remoteLabRequested()) {
     try {
@@ -75,11 +107,14 @@ export async function registerRemoteLabIpc(options: { isUnlocked(): boolean }): 
         presence: (transportLike, name, handlers) => new PresenceLoop(transportLike, name, timers, handlers),
         timers,
         isUnlocked: options.isUnlocked,
+        matchesVaultPassword: options.matchesVaultPassword,
+        confirmCapture: confirmCaptureDialog,
+        emergency: emergencyReload,
       };
       host = new RemoteLabHost(deps);
     } catch { /* Absent scripts: feature stays unavailable. */ }
   }
-  if (host.enabled) session.defaultSession.setDisplayMediaRequestHandler(createDisplayMediaHandler(host));
+  if (host.enabled) session.defaultSession.setDisplayMediaRequestHandler(createDisplayMediaHandler(host, { fake: process.env.SHELLHERD_REMOTE_CAPTURE_FAKE === '1' }));
   ipcMain.handle(IPC_CHANNELS.remoteLabAction, (event, raw: unknown) => {
     windowRegistry.requireMain(event); // Includes main-frame ownership.
     return host.action(event.sender.id, raw);

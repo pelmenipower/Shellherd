@@ -20,12 +20,12 @@ export async function readConfig(path) {
     check(config.account !== null && typeof config.account === 'object'); return config;
   } finally { await file.close(); }
 }
-export async function startServer({ dataDirectory, port = 8787, host = '127.0.0.1', publicUrl = null }) {
+export async function startServer({ dataDirectory, port = 8787, host = '127.0.0.1', publicUrl = null, trustedProxy = false }) {
   check(Number.isInteger(port) && port >= 0 && port <= 65535);
   await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
   const stat = await lstat(dataDirectory); check(stat.isDirectory() && !stat.isSymbolicLink() && (stat.mode & 0o077) === 0);
   const config = await readConfig(join(dataDirectory, 'server.json'));
-  const service = await createSyncServer({ ...config, directory: join(dataDirectory, 'objects'), publicUrl, rendezvous: true });
+  const service = await createSyncServer({ ...config, directory: join(dataDirectory, 'objects'), publicUrl, rendezvous: true, trustedProxy });
   try { await service.listen(port, host); return service; }
   catch (error) { await service.close(); throw error; }
 }
@@ -63,7 +63,7 @@ async function main() {
   check(mode === 'serve');
   const port = Number(process.env.SHELLHERD_SERVER_PORT ?? 8787); check(port > 0);
   const host = process.env.SHELLHERD_SERVER_HOST ?? '127.0.0.1';
-  const service = await startServer({ dataDirectory, port, host, publicUrl: process.env.SHELLHERD_SERVER_PUBLIC_URL ?? null });
+  const service = await startServer({ dataDirectory, port, host, publicUrl: process.env.SHELLHERD_SERVER_PUBLIC_URL ?? null, trustedProxy: process.env.SHELLHERD_SERVER_TRUSTED_PROXY === '1' });
   console.log(`Shellherd storage and rendezvous listening on ${host}:${port}`);
   let stopping = false;
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {

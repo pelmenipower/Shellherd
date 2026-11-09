@@ -6,7 +6,7 @@ import { ensureVaultFileExtension, writeEncryptedVaultFile } from '../vault/stor
 import type { VaultSessionManager, VaultSessionSnapshot } from '../vault/session';
 import { materializeVault, mergePortableVaults, resolveVaultConfigurationConflicts, splitVaultForSync, validatePortableVault } from './vault-merge';
 import type { PortableVault } from './vault-merge';
-import { encryptedFile, ensure, hashWire, keyFromPassword, openDocument, samePortable, sealDocument, stable, validateKdf } from './vault-sync-crypto';
+import { SyncFailure, encryptedFile, ensure, hashWire, keyFromPassword, openDocument, samePortable, sealDocument, stable, validateKdf } from './vault-sync-crypto';
 import type { SyncContext } from './vault-sync-crypto';
 import { lockSyncState } from './vault-sync-state';
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
@@ -19,27 +19,34 @@ export interface VaultSyncResult {
   canKeepLocal: boolean;
   conflictRevision?: string;
   approvals: number;
+  /** Foreign or unreadable account objects that were ignored; always set by the sync code. */
+  skipped?: number;
   snapshot?: VaultSessionSnapshot;
 }
 interface Version { kind: 'shellherd-sync-version-v1'; parents: string[]; portable: PortableVault }
-const ids = z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(64).refine(a => new Set(a).size === a.length);
+const ids = z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(100).refine(a => new Set(a).size === a.length);
 const versionSchema = z.object({ kind: z.literal('shellherd-sync-version-v1'), parents: ids.refine(a => a.length <= 16), portable: z.unknown() }).strict();
 const pendingSchema = z.object({ before: z.string(), after: z.string(), localHeads: ids, working: z.unknown(), projection: z.unknown() }).strict();
-const stateSchema = z.object({ kind: z.literal('shellherd-sync-state-v1'), versions: z.array(z.string().max(1048576)).max(64), acked: ids, localHeads: ids, working: z.unknown(), projection: z.unknown(), pending: pendingSchema.optional() }).strict();
+const stateSchema = z.object({ kind: z.literal('shellherd-sync-state-v1'), versions: z.array(z.string().max(1048576)).max(100), acked: ids, localHeads: ids, working: z.unknown(), projection: z.unknown(), pending: pendingSchema.optional() }).strict();
 type State = z.infer<typeof stateSchema>;
 const documentHash = (vault: Vault) => { const copy = structuredClone(vault); copy.updatedAt = ''; return hashWire(stable(copy)); };
 class Graph {
   readonly values = new Map<string, Version>(); readonly wires = new Map<string, string>(); private bytes = 0;
   constructor(readonly key: Buffer, readonly kdf: EncryptedVaultFile['kdf'], readonly context: SyncContext, private vaultId?: string) {}
-  add(wire: string): string {
+  /** `null` = unreadable or foreign object; capacity overruns throw `limit`. */
+  tryAdd(wire: string): string | null {
     const id = hashWire(wire); if (this.values.has(id)) return id;
-    ensure(this.values.size < 64 && this.bytes + Buffer.byteLength(wire) <= 12 * 1048576, 'limit');
-    const raw = versionSchema.parse(openDocument(encryptedFile(wire), this.key, this.kdf, this.context, 'version'));
-    const portable = validatePortableVault(raw.portable); ensure(typeof portable.document.id === 'string', 'wrongVault');
+    let raw: z.infer<typeof versionSchema>; let portable: PortableVault;
+    try {
+      raw = versionSchema.parse(openDocument(encryptedFile(wire), this.key, this.kdf, this.context, 'version'));
+      portable = validatePortableVault(raw.portable); ensure(typeof portable.document.id === 'string', 'wrongVault');
+      if (this.vaultId && portable.document.id !== this.vaultId) return null;
+    } catch (error) { if (error instanceof SyncFailure && error.code === 'limit') throw error; return null; }
+    ensure(this.values.size < 100 && this.bytes + Buffer.byteLength(wire) <= 32 * 1048576, 'limit');
     if (!this.vaultId) this.vaultId = portable.document.id;
-    ensure(portable.document.id === this.vaultId, 'wrongVault');
     this.values.set(id, { ...raw, portable }); this.wires.set(id, wire); this.bytes += Buffer.byteLength(wire); return id;
   }
+  add(wire: string): string { const id = this.tryAdd(wire); ensure(id !== null, 'wrongVault'); return id; }
   create(portable: PortableVault, parents: string[]): string {
     return this.add(JSON.stringify(sealDocument({ kind: 'shellherd-sync-version-v1', parents: [...parents].sort(), portable: validatePortableVault(portable) }, this.key, this.kdf, this.context, 'version')));
   }
@@ -60,7 +67,7 @@ class Graph {
     const maximal = common.filter(id => !common.some(other => other !== id && this.ancestors(other).has(id))); return maximal.length === 1 ? maximal[0] : undefined;
   }
 }
-const outcome = (status: VaultSyncResult['status'], graph: Graph, conflicts = 0, canKeepLocal = false, approvals = 0): VaultSyncResult => ({ status, versions: graph.values.size, conflicts, canKeepLocal, approvals });
+const baseOutcome = (status: VaultSyncResult['status'], graph: Graph, conflicts = 0, canKeepLocal = false, approvals = 0, skipped = 0): VaultSyncResult => ({ status, versions: graph.values.size, conflicts, canKeepLocal, approvals, skipped });
 function validateState(raw: unknown, graph: Graph): State {
   const state = stateSchema.parse(raw); state.working = validatePortableVault(state.working); state.projection = validatePortableVault(state.projection);
   for (const wire of state.versions) graph.add(wire); graph.validate();
@@ -68,11 +75,16 @@ function validateState(raw: unknown, graph: Graph): State {
   if (state.pending) { state.pending.working = validatePortableVault(state.pending.working); state.pending.projection = validatePortableVault(state.pending.projection); ensure(state.pending.localHeads.every(id => graph.values.has(id))); }
   return state;
 }
-/** Do not trust omissions of versions already received/acknowledged, even after restart. */
-async function pull(remote: VaultRemote, graph: Graph, acked: string[], check: () => void): Promise<string[]> {
+/** Do not trust omissions of versions already received/acknowledged, even after restart. Foreign objects outside `acked` are skipped and counted. */
+async function pull(remote: VaultRemote, graph: Graph, acked: string[], check: () => void): Promise<{ received: string[]; skipped: number }> {
   const listing = ids.parse(await remote.list()); check(); ensure(acked.every(id => listing.includes(id)), 'history');
-  for (const id of listing) { if (!graph.values.has(id)) { const wire = await remote.get(id); check(); ensure(hashWire(wire) === id); graph.add(wire); } }
-  graph.validate(); return listing;
+  let skipped = 0;
+  for (const id of listing) {
+    if (graph.values.has(id)) continue;
+    const wire = await remote.get(id); check(); ensure(hashWire(wire) === id);
+    if (graph.tryAdd(wire) === null) { ensure(!acked.includes(id), 'history'); skipped++; }
+  }
+  graph.validate(); return { received: listing.filter(id => graph.values.has(id)), skipped };
 }
 export async function synchronizeVault(sessions: VaultSessionManager, remote: VaultRemote, context: SyncContext, signal: AbortSignal, keepLocalRevision?: string): Promise<VaultSyncResult> {
   ensure(process.platform === 'linux', 'limit');
@@ -94,7 +106,8 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
       else ensure(current === state.pending.before, 'recovery');
       delete state.pending;
     }
-    const received = await pull(remote, graph, state.acked, check);
+    const { received, skipped } = await pull(remote, graph, state.acked, check);
+    const outcome = (status: VaultSyncResult['status'], g: Graph, conflicts = 0, canKeepLocal = false, approvals = 0): VaultSyncResult => baseOutcome(status, g, conflicts, canKeepLocal, approvals, skipped);
     const persist = async (): Promise<void> => { state.versions = [...graph.wires.values()]; await checkpoint!.write(state); check(); };
     if (!state.localHeads.length) {
       const equal = graph.heads().filter(id => samePortable(graph.value(id).portable, local.portable));
@@ -154,11 +167,32 @@ export async function importSyncedVault(sessions: VaultSessionManager, remote: V
   const check = (): void => { ensure(!signal.aborted && !sessions.isUnlocked(), 'locked'); };
   ensure(process.platform === 'linux', 'limit');
   check(); const listing = ids.parse(await remote.list()); check(); ensure(listing.length > 0, 'history');
-  const first = await remote.get(listing[0]); check(); ensure(hashWire(first) === listing[0]); const kdf = encryptedFile(first).kdf;
-  const key = await keyFromPassword(password, kdf); let checkpoint: Awaited<ReturnType<typeof lockSyncState>> | undefined; let reserved: string | undefined; let written = false;
+  // Group candidates by KDF parameter set; derive for the most frequent sets first (at most 8 derivations), so a few foreign objects cannot block the import.
+  let key: Buffer | undefined; let graph: Graph | undefined;
+  const groups = new Map<string, { kdf: EncryptedVaultFile['kdf']; wires: string[] }>();
+  for (const id of listing) {
+    const wire = await remote.get(id); check(); ensure(hashWire(wire) === id);
+    let kdf: EncryptedVaultFile['kdf'];
+    try { kdf = encryptedFile(wire).kdf; } catch (error) { if (error instanceof SyncFailure && error.code === 'limit') throw error; continue; }
+    const tag = stable(kdf); const group = groups.get(tag);
+    if (group) group.wires.push(wire); else groups.set(tag, { kdf, wires: [wire] });
+  }
+  for (const { kdf, wires } of [...groups.values()].sort((x, y) => y.wires.length - x.wires.length).slice(0, 8)) {
+    const candidate = await keyFromPassword(password, kdf);
+    try {
+      check();
+      for (const wire of wires) {
+        const attempt = new Graph(candidate, kdf, context);
+        if (attempt.tryAdd(wire) !== null) { graph = attempt; key = candidate; break; }
+      }
+    } finally { if (candidate !== key) candidate.fill(0); }
+    if (key) break;
+  }
+  ensure(graph && key, 'wrongVault');
+  const kdf = graph.kdf; let checkpoint: Awaited<ReturnType<typeof lockSyncState>> | undefined; let reserved: string | undefined; let written = false;
   try {
-    check(); const graph = new Graph(key, kdf, context); graph.add(first);
-    await pull(remote, graph, listing, check); ensure(graph.heads().length === 1, 'conflict');
+    check(); const { skipped } = await pull(remote, graph, [], check); ensure(graph.heads().length === 1, 'conflict');
+    const outcome = (status: VaultSyncResult['status'], g: Graph, conflicts = 0, canKeepLocal = false, approvals = 0): VaultSyncResult => baseOutcome(status, g, conflicts, canKeepLocal, approvals, skipped);
     const head = graph.heads()[0]; const target = graph.value(head).portable; const materialized = materializeVault(target);
     if (!materialized.vault) return outcome('bindings', graph, materialized.needsBindings.length);
     const vault = materialized.vault; const selected = await selectPath(); check(); if (!selected) return undefined;

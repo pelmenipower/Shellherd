@@ -58,6 +58,12 @@ const app = await electron.launch({
   timeout: 60_000,
 });
 
+// Errors and warnings of every window since the start (CSP violations show up here); read with the `console` route.
+const consoleMessages = [];
+app.context().on('console', message => {
+  if (message.type() === 'error' || message.type() === 'warning') consoleMessages.push({ type: message.type(), text: message.text(), url: message.location().url });
+});
+
 // Native dialogs would open on the real desktop and block the driver: file dialogs return the demo vault,
 // message boxes answer with their last button (for the host key prompt: "Schlüssel vertrauen und speichern").
 if (process.env.SHELLHERD_RUN_REAL_DIALOGS !== '1') {
@@ -109,6 +115,8 @@ const routes = {
   rclick: async request => { await page.locator(await body(request)).first().click({ button: 'right', timeout: 5000 }); return 'ok'; },
   dblclick: async request => { await page.locator(await body(request)).first().dblclick({ timeout: 5000 }); return 'ok'; },
   text: async request => page.locator((await body(request)) || 'body').first().innerText({ timeout: 5000 }),
+  // all console messages of type error/warning since the start, as JSON (all windows, also those chosen with `use`)
+  console: async () => consoleMessages,
   windows: async () => app.windows().map(window => window.url()),
   use: async (_request, url) => { page = app.windows()[Number(url.searchParams.get('i'))]; return page.url(); },
 };
