@@ -15,7 +15,7 @@ const requestSchema = z.discriminatedUnion('kind', [
 export interface LabDriver { action(request: SyncLabRequest): SyncLabReply; close(): void }
 export interface EnrollmentDriver { begin(): Promise<NonNullable<SyncLabState['enrollment']>>; refresh(): Promise<NonNullable<SyncLabState['enrollment']>>; close(): void }
 export interface AccountDriver { login(username: string, password: string): Promise<unknown>; list(): Promise<unknown>; get?(id: string): Promise<string>; put?(wire: string): Promise<string>; remove?(id: string): Promise<boolean>; close(): void }
-export type SyncVaultRequest = { kind: 'synchronize' } | { kind: 'keepLocal'; reviewed: true; revision: string } | { kind: 'importVault'; password: string } | { kind: 'removeForeign'; ids: string[] };
+export type SyncVaultRequest = { kind: 'synchronize'; recoveryCode?: string } | { kind: 'keepLocal'; reviewed: true; revision: string } | { kind: 'importVault'; password: string; recoveryCode?: string } | { kind: 'removeForeign'; ids: string[] };
 export type SyncVaultOutcome = VaultSyncResult | { removedForeign: number };
 /** Keyed digest of the sign-in password so the later import password can be compared without keeping the password itself. */
 const digestOf = (key: Buffer, password: string): Buffer => createHmac('sha256', key).update(password.normalize('NFKC')).digest();

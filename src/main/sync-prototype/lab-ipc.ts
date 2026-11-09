@@ -33,12 +33,15 @@ export function buildSyncLabHost(transport: TransportModule, account: AccountMod
       const vaultRemote: VaultRemote = { list: async () => await remote.list() as string[], get: (id: string) => remote.get!(id), put: (wire: string) => remote.put!(wire) };
       if (remote.remove) vaultRemote.remove = (id: string) => remote.remove!(id);
       if (request.kind === 'removeForeign') return { removedForeign: await removeForeignObjects(options.sessions, vaultRemote, info, request.ids, signal) };
-      if (request.kind === 'importVault') return importSyncedVault(options.sessions, vaultRemote, info, request.password, signal, async () => {
+      if (request.kind === 'importVault') return importSyncedVault(options.sessions, vaultRemote, info, request.recoveryCode ?? '', request.password, signal, async () => {
         const parent = windowRegistry.main(); if (!parent || signal.aborted) return undefined;
         const result = await dialog.showSaveDialog(parent, { title: mainT('dialogs.vaultSave.title'), defaultPath: 'synced-vault.term', filters: [{ name: mainT('dialogs.vaultFilter'), extensions: ['term'] }] });
         return result.canceled ? undefined : result.filePath;
       });
-      return synchronizeVault(options.sessions, vaultRemote, info, signal, request.kind === 'keepLocal' ? request.revision : undefined);
+      return synchronizeVault(options.sessions, vaultRemote, info, signal, {
+        keepLocalRevision: request.kind === 'keepLocal' ? request.revision : undefined,
+        recoveryCode: request.kind === 'synchronize' ? request.recoveryCode : undefined,
+      });
     }, vaultPasswordMatcher(options.sessions));
 }
 
