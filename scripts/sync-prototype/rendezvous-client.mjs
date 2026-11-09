@@ -1,6 +1,6 @@
 // Reference signaling client. OS capture/input and unattended access are not enabled.
 import { createCipheriv, createDecipheriv, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from 'node:crypto';
-import { deviceId } from './rendezvous.mjs';
+import { deviceId, registrationProof } from './rendezvous.mjs';
 import { performance } from 'node:perf_hooks';
 const check = ok => { if (!ok) throw Error('Rendezvous peer verification failed'); };
 const hex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -17,7 +17,11 @@ export class RendezvousPeer {
     this.store = store; this.identity = identity;
   }
   async register(name) {
-    const result = await this.store.request('PUT', '/v1/rendezvous/devices', JSON.stringify({ name, publicKey: this.identity.publicKey }));
+    // A fresh challenge per call: the ownership proof is required on every lease renewal.
+    const { challenge, serverKey } = await this.store.request('GET', '/v1/rendezvous/challenge');
+    check(hex(challenge) && typeof serverKey === 'string' && serverKey.length === 60);
+    const proof = registrationProof({ privateKey: this.identity.privateKey, peerKey: serverKey, serverId: this.store.info.serverId, challenge, publicKey: this.identity.publicKey, name });
+    const result = await this.store.request('PUT', '/v1/rendezvous/devices', JSON.stringify({ challenge, name, proof, publicKey: this.identity.publicKey }));
     check(result.id === this.identity.id); return result;
   }
   async devices() { return (await this.store.request('GET', '/v1/rendezvous/devices')).devices; }
@@ -52,7 +56,7 @@ class RendezvousChannel {
     check(hex(session.id) && hex(session.nonce) && hex(peer.store.info.serverId) && hex(session.from) && hex(session.to) && session.from !== session.to);
     check(['view', 'control'].includes(scope) && session.scope === scope && ['pending', 'active'].includes(session.state));
     check(deviceId(peerPublicKey) === fingerprint && fingerprint !== peer.identity.id);
-    check([session.from, session.to].includes(peer.identity.id) && [session.from, session.to].includes(fingerprint));
+    check([session.from, session.to].includes(peer.identity.id) && (session.from === peer.identity.id ? fingerprint === session.to : fingerprint === session.from));
     this.peer = peer; this.session = Object.freeze({ id: session.id, from: session.from, to: session.to, nonce: session.nonce, scope }); this.other = fingerprint;
     this.deadline = performance.now() + 300_000;
     const secret = diffieHellman({ privateKey: peer.identity.privateKey, publicKey: createPublicKey({ key: Buffer.from(peerPublicKey, 'base64'), type: 'spki', format: 'der' }) });

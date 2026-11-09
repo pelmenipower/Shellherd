@@ -8,6 +8,7 @@ import { createSyncServer } from './server.mjs';
 import { AccountStore } from './account-transport.mjs';
 import { boundedJson, probeSyncServer } from './http-common.mjs';
 import { createRendezvousIdentity, RendezvousPeer } from './rendezvous-client.mjs';
+import { registrationProof } from './rendezvous.mjs';
 import { readConfig, replaceAccount, startServer } from '../../server/main.mjs';
 const it = platformIt.runIf(process.platform === 'linux');
 const password = 'ONLY_TEST_RENDEZVOUS_PASSWORD';
@@ -18,7 +19,7 @@ async function setup({ enabled = true } = {}) {
   let now = Date.now();
   const directory = await mkdtemp(join(tmpdir(), 'shellherd-rendezvous-'));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
-  const config = { directory, serverId: randomBytes(32).toString('hex'), namespace: 'test', account, rendezvous: enabled, clock: () => now };
+  const config = { directory, serverId: randomBytes(32).toString('hex'), namespace: 'test', account, rendezvous: enabled, clock: () => now, limits: { login: 100 } }; // login override: tests create many peers per minute
   const server = await createSyncServer(config); cleanup.push(() => server.close());
   const url = await server.listen(); const info = await probeSyncServer(url, { allowLoopbackHttp: true });
   async function peer(name) {
@@ -34,6 +35,12 @@ async function pair(ctx, scope = 'view') {
   const b = bob.channel(session, alice.identity.publicKey, alice.identity.id, scope);
   cleanup.push(() => { a.dispose(); b.dispose(); });
   return { alice, bob, session, a, b };
+}
+// Raw registration with an explicit identity, so tests can tamper with single fields.
+async function rawPut(ctx, peer, identity, { name = 'Raw', mutate = body => body, challenge } = {}) {
+  const issued = challenge ?? await peer.store.request('GET', '/v1/rendezvous/challenge');
+  const proof = registrationProof({ privateKey: identity.privateKey, peerKey: issued.serverKey, serverId: ctx.info.serverId, challenge: issued.challenge, publicKey: identity.publicKey, name });
+  return request(peer, 'PUT', '/v1/rendezvous/devices', mutate({ challenge: issued.challenge, name, proof, publicKey: identity.publicKey }));
 }
 const request = (peer, method, path, body) => peer.store.request(method, path, body === undefined ? undefined : JSON.stringify(body));
 it('requires login, keeps the existing sync probe compatible, and is opt-in', async () => {
@@ -83,9 +90,11 @@ it('rejects server replacement of a locally generated request challenge and chan
   };
   await expect(alice.request(bob.identity.id)).rejects.toThrow();
   alice.store.request = original;
-  const session = await alice.request(bob.identity.id);
-  const channel = alice.channel(session, bob.identity.publicKey, bob.identity.id, 'view'); cleanup.push(() => channel.dispose());
-  expect(() => alice.channel(session, bob.identity.publicKey, bob.identity.id, 'view')).toThrow();
+  // The tampered request already holds the (alice,bob) pair on the server, so use a third device.
+  const carol = await ctx.peer('Carol');
+  const session = await alice.request(carol.identity.id);
+  const channel = alice.channel(session, carol.identity.publicKey, carol.identity.id, 'view'); cleanup.push(() => channel.dispose());
+  expect(() => alice.channel(session, carol.identity.publicKey, carol.identity.id, 'view')).toThrow();
 });
 it('handles a lost encrypted consent reply and data in the same receive batch as consent', async () => {
   const ctx = await setup(); const { bob, a, b } = await pair(ctx);
@@ -105,7 +114,8 @@ it('isolates session participants even when they share the server account', asyn
   for (const suffix of ['', '/messages', '/accept', '/ack']) {
     await expect(request(outsider, suffix === '/accept' || suffix === '/ack' ? 'POST' : 'GET', `/v1/rendezvous/sessions/${session.id}${suffix}`, suffix === '/accept' ? {} : suffix === '/ack' ? { through: 0 } : undefined)).rejects.toMatchObject({ status: 404 });
   }
-  await expect(request(outsider, 'PUT', '/v1/rendezvous/devices', { name: 'Bob', publicKey: bob.identity.publicKey })).rejects.toMatchObject({ status: 409 });
+  // Without Bob's private key the outsider cannot prove ownership of Bob's public key.
+  await expect(rawPut(ctx, outsider, createRendezvousIdentity(), { name: 'Bob', mutate: body => ({ ...body, publicKey: bob.identity.publicKey }) })).rejects.toMatchObject({ status: 400 });
   await expect(alice.request(alice.identity.id)).rejects.toMatchObject({ status: 404 });
   await expect(alice.request(randomBytes(32).toString('hex'))).rejects.toMatchObject({ status: 404 });
 });
@@ -126,8 +136,11 @@ it('enforces a five-minute active session limit even with fresh presence leases'
 });
 it('bounds pending requests, payloads, sequence order and unacknowledged messages', async () => {
   const ctx = await setup(); const { alice, bob, session, a, b } = await pair(ctx);
-  for (let i = 0; i < 3; i++) await alice.request(bob.identity.id);
+  // One session per (from,to) pair; the four-per-device cap is exercised with distinct targets.
   await expect(alice.request(bob.identity.id)).rejects.toMatchObject({ status: 429 });
+  const others = []; for (let i = 0; i < 4; i++) others.push(await ctx.peer(`Other${i}`));
+  for (let i = 0; i < 3; i++) await alice.request(others[i].identity.id);
+  await expect(alice.request(others[3].identity.id)).rejects.toMatchObject({ status: 429 });
   await b.accept(); await a.receive();
   await expect(a.send('x'.repeat(8192))).rejects.toThrow();
   const path = `/v1/rendezvous/sessions/${session.id}/messages`;
@@ -234,4 +247,74 @@ it('rejects refresh without token or with a body', async () => {
   const ctx = await setup(); const alice = await ctx.peer('Alice');
   await expect(boundedJson(new URL('v1/refresh', ctx.url), { method: 'POST' })).rejects.toMatchObject({ status: 401 });
   await expect(alice.store.request('POST', '/v1/refresh', '{}')).rejects.toMatchObject({ status: 400 });
+});
+it('requires a valid single-use ownership proof for every registration', async () => {
+  const ctx = await setup(); const peer = await ctx.peer('Alice'); const id = peer.identity; const fresh = createRendezvousIdentity();
+  const noProof = body => { const { proof, ...rest } = body; return rest; };
+  await expect(rawPut(ctx, peer, id, { mutate: noProof })).rejects.toMatchObject({ status: 400 });
+  await expect(rawPut(ctx, peer, id, { mutate: body => ({ ...body, proof: '0'.repeat(64) }) })).rejects.toMatchObject({ status: 400 });
+  await expect(rawPut(ctx, peer, id, { name: 'A', mutate: body => ({ ...body, name: 'B' }) })).rejects.toMatchObject({ status: 400 });
+  // Registering a key whose private half the caller does not hold fails even with the caller's own challenge.
+  const victim = createRendezvousIdentity();
+  await expect(rawPut(ctx, peer, fresh, { mutate: body => ({ ...body, publicKey: victim.publicKey }) })).rejects.toMatchObject({ status: 400 });
+  // Challenge reuse, also after a failed attempt.
+  const issued = await peer.store.request('GET', '/v1/rendezvous/challenge');
+  await rawPut(ctx, peer, id, { challenge: issued, name: 'Alice' });
+  await expect(rawPut(ctx, peer, id, { challenge: issued, name: 'Alice' })).rejects.toMatchObject({ status: 400 });
+  const burned = await peer.store.request('GET', '/v1/rendezvous/challenge');
+  await expect(rawPut(ctx, peer, id, { challenge: burned, mutate: body => ({ ...body, proof: '1'.repeat(64) }) })).rejects.toMatchObject({ status: 400 });
+  await expect(rawPut(ctx, peer, id, { challenge: burned })).rejects.toMatchObject({ status: 400 });
+  // Renewal needs a new proof as well, and register() fetches its own challenge.
+  await peer.register('Alice'); expect(await peer.devices()).toHaveLength(1);
+});
+it('expires challenges after 30 seconds and binds them to their owner', async () => {
+  const ctx = await setup(); const alice = await ctx.peer('Alice'); const other = await ctx.peer('Other');
+  const issued = await alice.store.request('GET', '/v1/rendezvous/challenge');
+  expect(issued.expiresAt).toBeGreaterThan(Date.now() - 1000); expect(issued.serverKey).toHaveLength(60);
+  ctx.advance(31_000); await expect(rawPut(ctx, alice, alice.identity, { challenge: issued, name: 'Alice' })).rejects.toMatchObject({ status: 400 });
+  const mine = await alice.store.request('GET', '/v1/rendezvous/challenge');
+  const identity = createRendezvousIdentity();
+  await expect(rawPut(ctx, other, identity, { challenge: mine, name: 'Other' })).rejects.toMatchObject({ status: 400 });
+  await expect(alice.store.request('GET', '/v1/rendezvous/challenge?x=1')).rejects.toMatchObject({ status: 400 });
+  await expect(request(alice, 'POST', '/v1/rendezvous/challenge', {})).rejects.toMatchObject({ status: 405 });
+});
+it('caps open challenges at four per owner', async () => {
+  const ctx = await setup(); const alice = await ctx.peer('Alice');
+  for (let i = 0; i < 4; i++) await alice.store.request('GET', '/v1/rendezvous/challenge');
+  await expect(alice.store.request('GET', '/v1/rendezvous/challenge')).rejects.toMatchObject({ status: 429 });
+  ctx.advance(31_000); await alice.store.request('GET', '/v1/rendezvous/challenge');
+});
+it('rejects a low-order device public key', async () => {
+  const ctx = await setup(); const peer = await ctx.peer('Alice');
+  const publicKey = Buffer.concat([Buffer.from('302a300506032b656e032100', 'hex'), Buffer.alloc(32)]).toString('base64');
+  const issued = await peer.store.request('GET', '/v1/rendezvous/challenge');
+  await expect(request(peer, 'PUT', '/v1/rendezvous/devices', { challenge: issued.challenge, name: 'Evil', proof: '0'.repeat(64), publicKey })).rejects.toMatchObject({ status: 400 });
+});
+it('blocks the pair for 30 s only when the target drops a pending request', async () => {
+  const ctx = await setup(); const alice = await ctx.peer('Alice'); const bob = await ctx.peer('Bob');
+  const first = await alice.request(bob.identity.id);
+  await expect(alice.request(bob.identity.id)).rejects.toMatchObject({ status: 429 });
+  await request(bob, 'DELETE', `/v1/rendezvous/sessions/${first.id}`);
+  await expect(alice.request(bob.identity.id)).rejects.toMatchObject({ status: 429 });
+  ctx.advance(29_000); await alice.register('Alice'); await bob.register('Bob');
+  await expect(alice.request(bob.identity.id)).rejects.toMatchObject({ status: 429 });
+  ctx.advance(1_000); await alice.register('Alice'); await bob.register('Bob');
+  const next = await alice.request(bob.identity.id);
+  // The requester withdrawing, or the target ending an active session, does not block.
+  await request(alice, 'DELETE', `/v1/rendezvous/sessions/${next.id}`);
+  const again = await alice.request(bob.identity.id);
+  await request(bob, 'POST', `/v1/rendezvous/sessions/${again.id}/accept`, {});
+  await request(bob, 'DELETE', `/v1/rendezvous/sessions/${again.id}`);
+  await alice.request(bob.identity.id);
+});
+it('binds channel roles to the session direction', async () => {
+  const ctx = await setup(); const { alice, bob, session } = await pair(ctx);
+  expect(() => alice.channel({ ...session }, alice.identity.publicKey, alice.identity.id, 'view')).toThrow();
+  expect(() => bob.channel({ ...session }, bob.identity.publicKey, bob.identity.id, 'view')).toThrow();
+  const third = createRendezvousIdentity();
+  expect(() => bob.channel({ ...session, to: third.id }, third.publicKey, third.id, 'view')).toThrow();
+});
+it('reports rendezvousProof in the probe', async () => {
+  const ctx = await setup(); expect(ctx.info.rendezvousProof).toBe(true);
+  const off = await setup({ enabled: false }); expect(off.info.rendezvousProof).toBe(false);
 });

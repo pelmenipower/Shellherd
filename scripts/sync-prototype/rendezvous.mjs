@@ -1,5 +1,5 @@
 // Ephemeral, account-authenticated signaling. No endpoint grants OS access.
-import { createHash, createPublicKey, randomBytes } from 'node:crypto';
+import { createHash, createHmac, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
 const fail = (ok, status = 400) => { if (!ok) { const error = Error('Rendezvous request rejected'); error.status = status; throw error; } };
 const hex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const exact = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === keys.split(',').sort().join(',');
@@ -10,14 +10,27 @@ export function deviceId(publicKey) {
   fail(createPublicKey({ key: der, type: 'spki', format: 'der' }).asymmetricKeyType === 'x25519');
   return createHash('sha256').update(der).digest('hex');
 }
-export function createRendezvous({ authorize, isActive, clock = Date.now }) {
-  const devices = new Map(); const sessions = new Map();
+const POP = 'shellherd-rendezvous-pop-v1';
+// Proof of private-key ownership: client uses (device private, serverKey), server uses (ephemeral private, device publicKey).
+export function registrationProof({ privateKey, peerKey, serverId, challenge, publicKey, name }) {
+  const secret = diffieHellman({ privateKey, publicKey: createPublicKey({ key: Buffer.from(peerKey, 'base64'), type: 'spki', format: 'der' }) });
+  let key;
+  try {
+    key = Buffer.from(hkdfSync('sha256', secret, Buffer.from(serverId, 'hex'), POP, 32));
+    return createHmac('sha256', key).update(JSON.stringify([POP, serverId, challenge, publicKey, name])).digest('hex');
+  } finally { secret.fill(0); key?.fill(0); }
+}
+export function createRendezvous({ authorize, isActive, clock = Date.now, serverId }) {
+  fail(hex(serverId), 500);
+  const devices = new Map(); const sessions = new Map(); const challenges = new Map(); const blocked = new Map();
   function expire() {
     const now = clock();
     for (const [id, device] of devices) {
       const valid = now >= device.created && now < device.expiresAt && isActive(device.owner);
       if (!valid) devices.delete(id);
     }
+    for (const [id, challenge] of challenges) if (now < challenge.created || now >= challenge.expiresAt) challenges.delete(id);
+    for (const [pair, until] of blocked) if (now >= until) blocked.delete(pair);
     for (const [id, session] of sessions) if (now < session.created || now >= session.expiresAt || !devices.has(session.from) || !devices.has(session.to)) sessions.delete(id);
   }
   const ownDevice = owner => {
@@ -29,8 +42,8 @@ export function createRendezvous({ authorize, isActive, clock = Date.now }) {
       expire(); const owner = authorize(request.headers.authorization);
       fail(['GET', 'POST', 'PUT', 'DELETE'].includes(request.method), 405);
       const url = new URL(path, 'http://localhost');
-      const route = /^\/v1\/rendezvous\/(devices|sessions)(?:\/([a-f0-9]{64})(?:\/(accept|messages|ack))?)?$/.exec(url.pathname);
-      fail(route, 404); const [, resource, id, action] = route;
+      const route = /^\/v1\/rendezvous\/(devices|sessions|challenge)(?:\/([a-f0-9]{64})(?:\/(accept|messages|ack))?)?$/.exec(url.pathname);
+      fail(route, 404); const [, resource, id, action] = route; fail(resource !== 'challenge' || (!id && !action), 404);
       fail(url.search === '' || (resource === 'sessions' && action === 'messages' && request.method === 'GET' && /^\?after=(0|[1-9][0-9]{0,9})$/.test(url.search)));
       const length = Number(request.headers['content-length'] ?? 0);
       fail(Number.isSafeInteger(length) && length >= 0 && length <= 32768, 413);
@@ -42,6 +55,14 @@ export function createRendezvous({ authorize, isActive, clock = Date.now }) {
       const body = writes ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null;
       // Body reads can outlive either authentication or a presence lease.
       expire(); fail(authorize(request.headers.authorization) === owner, 401);
+      if (resource === 'challenge') {
+        fail(request.method === 'GET', 405);
+        fail(challenges.size < 128 && [...challenges.values()].filter(item => item.owner === owner).length < 4, 429);
+        const pair = generateKeyPairSync('x25519'); const created = clock();
+        const item = { id: randomBytes(32).toString('hex'), privateKey: pair.privateKey, owner, created, expiresAt: created + 30_000 };
+        challenges.set(item.id, item);
+        send(200, { challenge: item.id, serverKey: pair.publicKey.export({ format: 'der', type: 'spki' }).toString('base64'), expiresAt: item.expiresAt }); return;
+      }
       if (resource === 'devices') {
         fail(!id && !action, 404);
         if (request.method === 'GET') { send(200, { devices: [...devices.values()].map(({ id, name, publicKey, expiresAt }) => ({ id, name, publicKey, expiresAt })) }); return; }
@@ -49,8 +70,15 @@ export function createRendezvous({ authorize, isActive, clock = Date.now }) {
           devices.delete(ownDevice(owner).id); expire(); send(200, { removed: true }); return;
         }
         fail(request.method === 'PUT', 405);
-        fail(exact(body, 'name,publicKey') && typeof body.name === 'string' && /^[^\x00-\x1f\x7f]{1,80}$/.test(body.name));
-        const key = deviceId(body.publicKey); const previous = devices.get(key);
+        fail(exact(body, 'challenge,name,proof,publicKey') && typeof body.name === 'string' && /^[^\x00-\x1f\x7f]{1,80}$/.test(body.name) && hex(body.challenge) && hex(body.proof));
+        const key = deviceId(body.publicKey);
+        // Every PUT naming a challenge consumes it, even when the proof is wrong.
+        const challenge = challenges.get(body.challenge); challenges.delete(body.challenge);
+        fail(challenge && challenge.owner === owner);
+        let expected;
+        try { expected = Buffer.from(registrationProof({ privateKey: challenge.privateKey, peerKey: body.publicKey, serverId, challenge: body.challenge, publicKey: body.publicKey, name: body.name }), 'hex'); } catch { fail(false); }
+        fail(timingSafeEqual(expected, Buffer.from(body.proof, 'hex')));
+        const previous = devices.get(key);
         fail(!previous || previous.owner === owner, 409);
         fail(![...devices.values()].some(device => device.owner === owner && device.id !== key), 409);
         fail(previous || devices.size < 32, 429);
@@ -63,6 +91,8 @@ export function createRendezvous({ authorize, isActive, clock = Date.now }) {
         fail(request.method === 'POST', 405);
         fail(exact(body, 'nonce,scope,target') && hex(body.target) && hex(body.nonce) && ['view', 'control'].includes(body.scope));
         fail(body.target !== own.id && devices.has(body.target), 404);
+        const pairKey = `${own.id}:${body.target}`;
+        fail(!blocked.has(pairKey) && ![...sessions.values()].some(session => session.from === own.id && session.to === body.target), 429);
         fail(sessions.size < 64 && [...sessions.values()].filter(session => session.from === own.id || session.to === own.id).length < 4, 429);
         const session = { id: randomBytes(32).toString('hex'), from: own.id, to: body.target, nonce: body.nonce, scope: body.scope, state: 'pending', created: clock(), expiresAt: clock() + 60_000, directions: new Map() };
         for (const peer of [session.from, session.to]) session.directions.set(peer, { sequence: 0, ack: 0, queue: [], receipts: new Map() });
@@ -71,7 +101,13 @@ export function createRendezvous({ authorize, isActive, clock = Date.now }) {
       const session = sessions.get(id); fail(session && [session.from, session.to].includes(own.id), 404);
       if (!action) {
         if (request.method === 'GET') { send(200, description(session)); return; }
-        fail(request.method === 'DELETE', 405); sessions.delete(id); send(200, { closed: true }); return;
+        fail(request.method === 'DELETE', 405);
+        // Only a target dropping a pending request (decline/mute) blocks the pair; ending an active session does not.
+        if (session.state === 'pending' && own.id === session.to) {
+          blocked.delete(`${session.from}:${session.to}`); blocked.set(`${session.from}:${session.to}`, clock() + 30_000);
+          if (blocked.size > 256) blocked.delete(blocked.keys().next().value);
+        }
+        sessions.delete(id); send(200, { closed: true }); return;
       }
       if (action === 'accept') {
         fail(request.method === 'POST', 405); fail(exact(body, ''), 400); fail(own.id === session.to, 403);
