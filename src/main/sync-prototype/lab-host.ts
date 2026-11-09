@@ -88,10 +88,10 @@ export class SyncLabHost {
     if (parsed.data.kind === 'keepLocal' && (!current.sync?.canKeepLocal || parsed.data.revision !== current.sync.conflictRevision)) return { ok: false, code: 'invalid' };
     if (parsed.data.kind === 'removeForeign' && !current.foreign?.length) return { ok: false, code: 'invalid' };
     if (parsed.data.kind === 'importVault') {
-      const held = current.passwordDigest; current.passwordDigest = undefined;
+      // The digest stays held across failed attempts; it is wiped only after a successful import or on close/reset.
+      const held = current.passwordDigest;
       if (held) {
         const same = timingSafeEqual(digestOf(held.key, parsed.data.password), held.digest);
-        held.key.fill(0); held.digest.fill(0);
         if (same) return { ok: false, code: 'samePasswordImport', state: { phase: 'serverReady', server: current.info, account: current.signedIn, sync: current.sync } };
       }
     }
@@ -100,6 +100,7 @@ export class SyncLabHost {
       const request: SyncVaultRequest = parsed.data.kind === 'removeForeign' ? { kind: 'removeForeign', ids: current.foreign! } : parsed.data;
       const result = await this.syncVault(current.account, current.info, current.controller.signal, request);
       if (this.#connection !== current) return { ok: false, code: 'stale' };
+      if (parsed.data.kind === 'importVault' && result && 'snapshot' in result && result.snapshot) this.#wipe(current);
       if (result && 'removedForeign' in result) {
         current.foreign = undefined; current.sync = { ...current.sync!, skipped: 0, removedForeign: result.removedForeign };
       } else if (result) {

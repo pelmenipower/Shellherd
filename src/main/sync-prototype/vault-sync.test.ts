@@ -317,6 +317,46 @@ it('repairs after an abort between the upload of the compaction version and the 
   await expect(sync(a, aborting, controller.signal)).rejects.toMatchObject({ code: 'locked' }); expect(data.size).toBe(34);
   expect(await sync(a, f.remote)).toMatchObject({ status: 'synced' }); expect(data.size).toBe(17);
 }, 60000);
+/** Forges a compaction version C0 on top of the current head whose `compacts` is a full synthetic list (hex ids that sort before every real hash). */
+async function forgeFullCompacts(data: Map<string, string>, remote: VaultRemote): Promise<string[]> {
+  const versions = new Map<string, { parents: string[]; portable: unknown }>(); for (const [id, wire] of data) versions.set(id, await readVersion(wire) as { parents: string[]; portable: unknown });
+  const parents = new Set([...versions.values()].flatMap(v => v.parents)); const head = [...versions.keys()].find(id => !parents.has(id))!;
+  const fake = Array.from({ length: SYNC_COMPACTS_MAX }, (_, n) => '0'.repeat(60) + n.toString(16).padStart(4, '0'));
+  const wire0 = encryptedFile([...data.values()][0]); const key = await keyFromPassword(password, wire0.kdf);
+  const c0 = JSON.stringify(sealDocument({ kind: 'shellherd-sync-version-v1', parents: [head], portable: versions.get(head)!.portable, compacts: fake }, key, wire0.kdf, context, 'version'));
+  await remote.put(c0); return fake;
+}
+it('keeps the age order of a full compacts list: the oldest ids drop out and a device that missed two cycles stays synced', async () => {
+  const f = await fixture(password, true); const { a, data } = f; await sync(a, f.remote);
+  expect(await importSyncedVault(f.b, f.remote, context, password, signal(), async () => join(f.directory, 'b.term'))).toMatchObject({ status: 'synced' });
+  f.b.lock(); await churn(a, f.remote, 31, 'A');
+  const fake = await forgeFullCompacts(data, f.remote); const before = new Set(data.keys());
+  await a.save({ ...a.getSnapshot().vault, name: 'Trigger' }); const first = await sync(a, f.remote); expect(first).toMatchObject({ status: 'synced' }); expect(first.compacted).toBeGreaterThan(0);
+  const created = [...data.entries()].filter(([id]) => !before.has(id)); let list: string[] = [];
+  for (const [, wire] of created) { const v = await readVersion(wire); if (v.compacts) list = v.compacts; }
+  const n = first.compacted!; expect(list).toHaveLength(SYNC_COMPACTS_MAX);
+  expect(list.slice(n)).toEqual(fake.slice(0, SYNC_COMPACTS_MAX - n)); // exactly the oldest fall off, order preserved
+  expect(list.slice(0, n).every(id => !fake.includes(id))).toBe(true);
+  await churn(a, f.remote, 17, 'A2'); // second cycle on top of the first
+  await f.b.unlock(join(f.directory, 'b.term'), password);
+  expect(await sync(f.b, f.remote)).toMatchObject({ status: 'synced' });
+}, 240000);
+it('survives a failing upload of the compaction version, keeps C in the checkpoint and compacts on the next run (E5)', async () => {
+  const f = await fixture(password, true); const { a, data } = f; await sync(a, f.remote); await churn(a, f.remote, 31);
+  const failing: VaultRemote = { ...f.remote, async put(wire) { if ((await readVersion(wire)).compacts) throw Error('network'); return f.remote.put(wire); } };
+  await a.save({ ...a.getSnapshot().vault, name: 'Trigger' });
+  const result = await sync(a, failing); expect(result).toMatchObject({ status: 'synced' }); expect(result.compacted).toBeUndefined(); expect(data.size).toBe(33);
+  expect(await sync(a, f.remote)).toMatchObject({ status: 'synced' });
+  expect(await sync(a, f.remote)).toMatchObject({ status: 'synced' }); expect(data.size).toBeLessThanOrEqual(18);
+}, 120000);
+it('does no compaction on a conflict although the graph is above the threshold', async () => {
+  const f = await fixture(password, true); await sync(f.a, f.remote);
+  expect(await importSyncedVault(f.b, f.remote, context, password, signal(), async () => join(f.directory, 'b.term'))).toMatchObject({ status: 'synced' });
+  await churn(f.a, f.remote, 32, 'A'); expect(f.data.size).toBeLessThanOrEqual(33);
+  await f.b.save({ ...f.b.getSnapshot().vault, name: 'B renamed' }); const ids = new Set(f.data.keys());
+  const result = await sync(f.b, f.remote); expect(result.status).toBe('conflict'); expect(result.compacted).toBeUndefined();
+  for (const id of ids) expect(f.data.has(id)).toBe(true); expect(f.data.size).toBeLessThanOrEqual(ids.size + 1); // only B's local version is uploaded, nothing is removed
+}, 120000);
 it('imports after compaction with a single head', async () => {
   const f = await fixture(password, true); await sync(f.a, f.remote); await churn(f.a, f.remote, 33);
   expect(await importSyncedVault(f.b, f.remote, context, password, signal(), async () => join(f.directory, 'b.term'))).toMatchObject({ status: 'synced', snapshot: { vault: { name: 'V 32' } } });

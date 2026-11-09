@@ -193,6 +193,16 @@ describe('development lab ownership boundary', () => {
       expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER' })).toMatchObject({ ok: true });
       expect(sync).toHaveBeenCalledOnce();
     });
+    it('keeps the digest across failed attempts and wipes it after a successful import', async () => {
+      const sync = vi.fn(async (_a: unknown, _i: unknown, _s: unknown, request: any) => request.password === 'OTHER' ? { status: 'synced' as const, versions: 1, conflicts: 0, canKeepLocal: false, approvals: 0, snapshot: {} } : undefined);
+      const host = setup(sync); await ready(host);
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'WRONG' })).toMatchObject({ ok: true });
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
+      expect(sync).toHaveBeenCalledOnce();
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER' })).toMatchObject({ ok: true });
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: true }); // digest wiped after success
+    });
     it('also rejects after a checked-different login, and compares NFKC-normalized', async () => {
       const sync = vi.fn(async () => undefined);
       const host = setup(sync, async () => false); await ready(host);

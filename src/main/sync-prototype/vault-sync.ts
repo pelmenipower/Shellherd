@@ -199,9 +199,17 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
       }
       const removeNow = [...graph.values.keys()].filter(id => !retain.has(id)).sort();
       if (removeNow.length) {
-        const compacts = [...new Set([...removeNow, ...[...graph.compacted].filter(id => !removeNow.includes(id)).sort()])].slice(0, SYNC_COMPACTS_MAX);
-        const c = graph.create(graph.value(head).portable, [head], compacts); await persist(); await upload();
-        state.localHeads = [c]; await persist();
+        // Age order is preserved (newest first): new ids, then the predecessors' lists in stored order, nearest compaction first. The cut drops the oldest.
+        const inherited: string[] = []; const seen = new Set<string>([head]); let frontier = [head];
+        while (frontier.length) {
+          for (const id of frontier) inherited.push(...(graph.value(id).compacts ?? []));
+          frontier = [...new Set(frontier.flatMap(id => graph.value(id).parents))].filter(id => graph.values.has(id) && !seen.has(id)); frontier.forEach(id => seen.add(id));
+        }
+        const compacts = [...new Set([...removeNow, ...inherited.filter(id => !retain.has(id))])].slice(0, SYNC_COMPACTS_MAX);
+        // Housekeeping: a failed upload/persist leaves C in the checkpoint for the next run (E5); abort and key-change signals still propagate.
+        let c: string;
+        try { c = graph.create(graph.value(head).portable, [head], compacts); await persist(); await upload(); state.localHeads = [c]; await persist(); }
+        catch (error) { if (error instanceof SyncFailure && (error.code === 'locked' || error.code === 'changed')) throw error; return { ...outcome('synced', graph, 0, false, materialized.needsApproval.length), ...(compactedCount > 0 ? { compacted: compactedCount } : {}), snapshot }; }
         await removeAll(removeNow);
         graph.prune(new Set([c])); state.acked = state.acked.filter(id => graph.values.has(id)); await persist();
       }
