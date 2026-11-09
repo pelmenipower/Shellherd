@@ -45,9 +45,12 @@ class FakeChannel implements RemoteChannel {
   sendGate?: () => Promise<void>;
   sendsStarted = 0;
   closeHangs = false;
-  async accept(): Promise<void> { if (this.acceptError) throw this.acceptError; this.ready = true; }
+  /** receive() calls until the Noise handshake is done (ready). */
+  rounds = 1;
+  receives = 0;
+  async accept(): Promise<void> { if (this.acceptError) throw this.acceptError; }
   async send(value: unknown): Promise<unknown> { this.sendsStarted++; await this.sendGate?.(); this.sent.push(value); return {}; }
-  async receive(): Promise<unknown[]> { if (this.receiveError) throw this.receiveError; this.ready = true; return this.inbox.shift() ?? []; }
+  async receive(): Promise<unknown[]> { if (this.receiveError) throw this.receiveError; if (++this.receives >= this.rounds) this.ready = true; return this.inbox.shift() ?? []; }
   close(): Promise<void> { this.closed++; return this.closeHangs ? new Promise(() => undefined) : Promise.resolve(); }
   dispose(): void { this.disposed++; }
 }
@@ -59,6 +62,7 @@ const part = (kind: RemoteSignalPart['kind'], n = 1, of = 1, data = 'x'): Remote
 function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['probe'] } = {}) {
   const clock = new Clock();
   const channels: FakeChannel[] = [];
+  const handshake = { rounds: 1 };
   const requests: Array<{ method: string; path: string }> = [];
   let handlers!: PresenceHandlers;
   let presenceStart: () => Promise<void> = async () => undefined;
@@ -76,13 +80,13 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
   const peer = {
     identity: { id: SELF, publicKey: 'pk-self', privateKey: {} },
     request: vi.fn(async (target: string) => wire({ from: SELF, to: target })),
-    channel: vi.fn(() => { const c = new FakeChannel(); channels.push(c); return c; }),
+    channel: vi.fn(() => { const c = new FakeChannel(); c.rounds = handshake.rounds; channels.push(c); return c; }),
   } as unknown as RemotePeer & { request: ReturnType<typeof vi.fn>; channel: ReturnType<typeof vi.fn> };
   const unlocked = { value: true };
   const emergency = vi.fn();
   const confirmCapture = vi.fn(async (_owner: number, _prompt: unknown, _signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'> => 'accepted');
   const deps: RemoteDeps = {
-    probe: overrides.probe ?? (async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'demo', authentication: 'password', rendezvous: true, rendezvousProof: true })),
+    probe: overrides.probe ?? (async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'demo', authentication: 'password', rendezvous: true, rendezvousProof: true, rendezvousNoise: true })),
     createAccount: () => account,
     createPeer: () => peer,
     identity: () => store,
@@ -127,7 +131,7 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     return channels[channels.length - 1]!;
   };
   const deletes = (): string[] => requests.filter(r => r.method === 'DELETE').map(r => r.path);
-  return { host, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, emergency, confirmCapture, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
+  return { host, handshake, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, emergency, confirmCapture, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
 }
 
 describe('RemoteLabHost: setup', () => {
@@ -160,7 +164,7 @@ describe('RemoteLabHost: setup', () => {
   it('maps probe, login and presence errors to codes', async () => {
     const down = setup({ probe: async () => { throw new Error('x'); } });
     expect(await down.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'connection' });
-    const noRv = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: false, rendezvousProof: true }) });
+    const noRv = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: false, rendezvousProof: true, rendezvousNoise: true }) });
     expect(await noRv.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'unavailable' });
     const a = setup();
     await a.act({ kind: 'connect', serverUrl: URL });
@@ -192,7 +196,7 @@ describe('RemoteLabHost: setup', () => {
 
   it('allows only one network action at a time', async () => {
     let release!: () => void;
-    const t = setup({ probe: () => new Promise(r => { release = () => r({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: true, rendezvousProof: true }); }) });
+    const t = setup({ probe: () => new Promise(r => { release = () => r({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: true, rendezvousProof: true, rendezvousNoise: true }); }) });
     const first = t.act({ kind: 'connect', serverUrl: URL });
     expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'stale' });
     release();
@@ -518,7 +522,7 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect(t.host.sharing).toBe(false);
     const reply = await t.act({ kind: 'accept', sessionId: SID });
     expect(reply).toMatchObject({ ok: true, state: { session: { state: 'connecting' } } });
-    expect(t.peer.channel).toHaveBeenCalledWith(expect.objectContaining({ id: SID }), 'pk-b', B, 'view');
+    expect(t.peer.channel).toHaveBeenCalledWith(expect.objectContaining({ id: SID }), B, 'view');
     expect(t.host.sharing).toBe(true);
     expect(sharing).toEqual([true]);
   });
@@ -687,7 +691,7 @@ describe('RemoteLabHost: viewer (B1)', () => {
     t.account.getImpl = async () => wire({ from: SELF, to: B, state: 'active' });
     await t.clock.advance(1000);
     expect(t.channels).toHaveLength(1);
-    expect(t.peer.channel).toHaveBeenCalledWith(expect.objectContaining({ state: 'active' }), 'pk-b', B, 'view');
+    expect(t.peer.channel).toHaveBeenCalledWith(expect.objectContaining({ state: 'active' }), B, 'view');
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'connecting' } } });
   });
 
@@ -835,7 +839,9 @@ describe('RemoteLabHost: signal action', () => {
     await t.consent();
     expect(await t.act({ kind: 'signal', sessionId: SID, part: part('offer') })).toEqual({ ok: false, code: 'stale' });
     const v = setup();
-    await v.viewing(); // channel exists but is not ready until accepted arrives
+    v.handshake.rounds = 2;
+    await v.viewing(); // channel exists but the handshake is not finished
+    expect(v.channels).toHaveLength(1);
     expect(await v.act({ kind: 'signal', sessionId: SID, part: part('answer') })).toEqual({ ok: false, code: 'stale' });
   });
 
@@ -906,7 +912,7 @@ describe('RemoteLabHost: sign-in guard (M3) and server capability', () => {
   });
 
   it('connect without rendezvousProof is unavailable', async () => {
-    const t = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: true, rendezvousProof: false }) });
+    const t = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: true, rendezvousProof: false, rendezvousNoise: true }) });
     expect(await t.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'unavailable' });
   });
 });
@@ -976,5 +982,124 @@ describe('RemoteLabHost: viewer verification (B7, B10)', () => {
     t.handlers().onDevices([device(B, 'Büro')]);
     const reply = await t.act({ kind: 'status' });
     expect(reply).toMatchObject({ ok: true, state: { devices: [{ id: B, name: 'Büro', known: { firstSeen: 5, verified: true, verifiedAt: 9 }, changed: true }] } });
+  });
+});
+
+describe('RemoteLabHost: Noise handshake (T8)', () => {
+  const PRIVATE = 'http://10.8.0.2:8787/';
+  const info = (over: Record<string, unknown> = {}) => ({ serverUrl: PRIVATE, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password' as const, rendezvous: true, rendezvousProof: true, rendezvousNoise: true, ...over });
+
+  it('connect without rendezvousNoise is unavailable (no downgrade)', async () => {
+    const t = setup({ probe: async () => info({ rendezvousNoise: false }) });
+    expect(await t.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'unavailable' });
+  });
+
+  it('privateNetwork opts a tunnel address in; without the flag it is invalid', async () => {
+    const probe = vi.fn(async (_u: string, _p: boolean, _s: AbortSignal) => info());
+    const t = setup({ probe });
+    expect(await t.act({ kind: 'connect', serverUrl: PRIVATE })).toEqual({ ok: false, code: 'invalid' });
+    expect(probe).not.toHaveBeenCalled();
+    expect((await t.act({ kind: 'connect', serverUrl: PRIVATE, privateNetwork: true })).ok).toBe(true);
+    expect(probe).toHaveBeenCalledWith(PRIVATE, true, expect.any(AbortSignal));
+    const loop = setup({ probe });
+    await loop.act({ kind: 'connect', serverUrl: URL });
+    expect(probe).toHaveBeenLastCalledWith(URL, false, expect.any(AbortSignal));
+  });
+
+  it('agent: connecting only after two receive() rounds, deadline = sessionMs, no peer key passed', async () => {
+    const t = setup();
+    t.handshake.rounds = 2;
+    await t.granted();
+    const accept = t.act({ kind: 'accept', sessionId: SID });
+    await flush();
+    expect(t.kinds('state').some(e => (e as { state: { session?: { state: string } } }).state.session?.state === 'connecting')).toBe(false);
+    expect(t.host.sharing).toBe(false);
+    await t.clock.advance(REMOTE_LAB_LIMITS.setupPollMs);
+    const reply = await accept;
+    expect(reply).toMatchObject({ ok: true, state: { session: { state: 'connecting', expiresAt: t.clock.now() + REMOTE_LAB_LIMITS.sessionMs } } });
+    expect(t.channels[0]!.receives).toBe(2);
+    expect(t.host.sharing).toBe(true);
+    expect(t.peer.channel).toHaveBeenCalledWith(expect.objectContaining({ id: SID }), B, 'view');
+  });
+
+  it('agent: a mismatch error ends failed and answers mismatch', async () => {
+    const t = setup();
+    await t.granted();
+    (t.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { const c = new FakeChannel(); c.receiveError = Object.assign(new Error('x'), { code: 'mismatch' }); return c; });
+    expect(await t.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'mismatch' });
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(t.host.sharing).toBe(false);
+  });
+
+  it('agent: the consent deadline during the handshake ends expired and frees the host', async () => {
+    const t = setup();
+    t.handshake.rounds = 1000;
+    await t.granted();
+    await t.clock.advance(REMOTE_LAB_LIMITS.consentMs - 3000);
+    const accept = t.act({ kind: 'accept', sessionId: SID });
+    await t.clock.advance(3000);
+    expect(await accept).toEqual({ ok: false, code: 'stale' });
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'expired' }]);
+    expect(t.host.sharing).toBe(false);
+  });
+
+  it('agent: exceeding handshakeMs fails with connection, not expired', async () => {
+    const t = setup();
+    t.handshake.rounds = 1000;
+    await t.granted();
+    const accept = t.act({ kind: 'accept', sessionId: SID });
+    await t.clock.advance(REMOTE_LAB_LIMITS.handshakeMs + REMOTE_LAB_LIMITS.setupPollMs);
+    expect(await accept).toEqual({ ok: false, code: 'connection' });
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+  });
+
+  it('agent: decline during the handshake ends declined, never connects and frees the host (B6)', async () => {
+    const t = setup();
+    t.handshake.rounds = 1000;
+    await t.granted();
+    const accept = t.act({ kind: 'accept', sessionId: SID });
+    await flush();
+    expect(await t.act({ kind: 'decline', sessionId: SID })).toMatchObject({ ok: true });
+    expect(await accept).toEqual({ ok: false, code: 'stale' });
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
+    expect(t.host.sharing).toBe(false);
+    expect(t.kinds('state').some(e => (e as { state: { session?: { state: string } } }).state.session?.state === 'connecting')).toBe(false);
+    // The busy flag is free: a follow-up network action is not stale.
+    expect(await t.act({ kind: 'goOffline' })).toMatchObject({ ok: true });
+  });
+
+  it('agent: 404 during the handshake ends remote', async () => {
+    const t = setup();
+    await t.granted();
+    (t.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { const c = new FakeChannel(); c.receiveError = { status: 404 }; return c; });
+    expect(await t.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'stale' });
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'remote' }]);
+  });
+
+  it('viewer: connecting only once the handshake is ready; offer values from the last receive are processed after it', async () => {
+    const t = setup();
+    t.handshake.rounds = 2;
+    await t.requesting();
+    t.account.getImpl = async () => wire({ from: SELF, to: B, state: 'active' });
+    await t.clock.advance(REMOTE_LAB_LIMITS.setupPollMs);
+    const channel = t.channels[0]!;
+    expect(channel.ready).toBe(false);
+    expect(t.kinds('state').some(e => (e as { state: { session?: { state: string } } }).state.session?.state === 'connecting')).toBe(false);
+    channel.inbox.push([{ part: part('offer', 1, 1, 'a') }]);
+    await t.clock.advance(REMOTE_LAB_LIMITS.setupPollMs);
+    expect(channel.ready).toBe(true);
+    expect(t.kinds('ended')).toEqual([]);
+    expect(t.kinds('signal')).toHaveLength(1);
+    expect(t.kinds('state').some(e => (e as { state: { session?: { state: string } } }).state.session?.state === 'active')).toBe(true);
+  });
+
+  it('viewer: a mismatch during the handshake emits error/mismatch', async () => {
+    const t = setup();
+    await t.requesting();
+    (t.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { const c = new FakeChannel(); c.receiveError = Object.assign(new Error('x'), { code: 'mismatch' }); return c; });
+    t.account.getImpl = async () => wire({ from: SELF, to: B, state: 'active' });
+    await t.clock.advance(REMOTE_LAB_LIMITS.setupPollMs);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'mismatch' }]);
   });
 });
