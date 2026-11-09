@@ -22,7 +22,8 @@ export class SyncLabHost {
     private readonly probe?: (serverUrl: string, signal: AbortSignal) => Promise<ServerInfo>,
     private readonly createEnrollment?: (info: ServerInfo) => EnrollmentDriver,
     private readonly createAccount?: (info: ServerInfo, signal: AbortSignal) => AccountDriver,
-    private readonly syncVault?: (account: AccountDriver, info: ServerInfo, signal: AbortSignal, request: { kind: 'synchronize' } | { kind: 'keepLocal'; reviewed: true; revision: string } | { kind: 'importVault'; password: string }) => Promise<VaultSyncResult | undefined>) {}
+    private readonly syncVault?: (account: AccountDriver, info: ServerInfo, signal: AbortSignal, request: { kind: 'synchronize' } | { kind: 'keepLocal'; reviewed: true; revision: string } | { kind: 'importVault'; password: string }) => Promise<VaultSyncResult | undefined>,
+    private readonly matchesVaultPassword?: (password: string) => Promise<boolean | undefined>) {}
   get enabled(): boolean { return this.createDriver !== undefined; }
   async connect(owner: number, raw: unknown): Promise<SyncLabReply> {
     if (!this.enabled || !this.probe) return { ok: false, code: 'unavailable' };
@@ -50,6 +51,10 @@ export class SyncLabHost {
     if (current.info.authentication !== 'password') return { ok: false, code: 'unavailable' };
     current.busy = true;
     try {
+      // Never send the vault password to the server; undefined means the vault is locked, so no check is possible.
+      const same = await this.matchesVaultPassword?.(parsed.data.password);
+      if (this.#connection !== current) return { ok: false, code: 'stale' };
+      if (same === true) return { ok: false, code: 'samePassword' };
       current.account = this.createAccount(current.info, current.controller.signal);
       await current.account.login(parsed.data.username, parsed.data.password);
       if (this.#connection !== current) return { ok: false, code: 'stale' };

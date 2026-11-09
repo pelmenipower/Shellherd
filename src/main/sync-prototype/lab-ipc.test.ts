@@ -5,7 +5,8 @@ const mock = vi.hoisted(() => ({
 }));
 vi.mock('electron', () => ({ app: mock.app, ipcMain: { handle: mock.handle } }));
 vi.mock('../windows', () => ({ windowRegistry: { requireMain: mock.guard } }));
-import { registerSyncLabIpc } from './lab-ipc';
+import { registerSyncLabIpc, vaultPasswordMatcher } from './lab-ipc';
+import { AppError } from '../../shared/errors';
 beforeEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); mock.app.isPackaged = true; });
 it('never loads the prototype backend in a packaged app, even with the environment flag', async () => {
   vi.stubEnv('SHELLHERD_SYNC_LAB', '1');
@@ -21,4 +22,11 @@ it('stays unavailable without opt-in and fails closed if the development backend
   expect((await registerSyncLabIpc()).enabled).toBe(false); expect(mock.app.getAppPath).not.toHaveBeenCalled();
   vi.stubEnv('SHELLHERD_SYNC_LAB', '1');
   expect((await registerSyncLabIpc()).enabled).toBe(false); expect(mock.app.getAppPath).toHaveBeenCalledOnce();
+});
+it('maps a locked vault to undefined and propagates other failures', async () => {
+  expect(vaultPasswordMatcher(undefined)).toBeUndefined();
+  const locked = vaultPasswordMatcher({ matchesPassword: async () => { throw new AppError('core.vaultLocked'); } });
+  expect(await locked!('x')).toBeUndefined();
+  expect(await vaultPasswordMatcher({ matchesPassword: async () => true })!('x')).toBe(true);
+  await expect(vaultPasswordMatcher({ matchesPassword: async () => { throw Error('boom'); } })!('x')).rejects.toThrow('boom');
 });

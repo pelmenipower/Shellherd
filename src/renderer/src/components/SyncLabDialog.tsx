@@ -65,7 +65,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
     mismatch: t('syncLab:errors.mismatch'), expired: t('syncLab:errors.expired'), failed: t('syncLab:errors.failed'), connection: t('syncLab:errors.connection'), authentication: t('syncLab:errors.authentication'),
     syncLocked: t('syncLab:errors.syncLocked'), syncChanged: t('syncLab:errors.syncChanged'), syncHistory: t('syncLab:errors.syncHistory'),
     syncWrongVault: t('syncLab:errors.syncWrongVault'), syncRecovery: t('syncLab:errors.syncRecovery'), syncLimit: t('syncLab:errors.syncLimit'),
-    syncConflict: t('syncLab:errors.syncConflict'), syncBindings: t('syncLab:errors.syncBindings'),
+    syncConflict: t('syncLab:errors.syncConflict'), syncBindings: t('syncLab:errors.syncBindings'), samePassword: t('syncLab:errors.samePassword'),
   })[error];
   return <dialog ref={dialog} className="confirm-dialog sync-lab-dialog" aria-labelledby={`${id}-title`}
     aria-describedby={`${id}-notice`} onCancel={event => { event.preventDefault(); onClose(); }}>
@@ -111,6 +111,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
       </form>}
       {state.sync && <section className="sync-result" role="status">
         <p>{state.sync.status === 'synced' ? t('syncLab:synced') : state.sync.status === 'bindings' ? t('syncLab:bindingsNeeded', { count: state.sync.conflicts }) : t('syncLab:conflictsKept', { count: state.sync.conflicts })}</p>
+        {(state.sync.skipped ?? 0) > 0 && <p>{t('syncLab:skipped', { count: state.sync.skipped })}</p>}
         {state.sync.approvals > 0 && <p>{t('syncLab:approvalsNeeded', { count: state.sync.approvals })}</p>}
         {state.sync.canKeepLocal && <><p>{t('syncLab:keepLocalHint')}</p><button type="button" className="secondary-button" disabled={busy} onClick={() => void sync('keepLocal')}>{t('syncLab:keepLocal')}</button></>}
       </section>}

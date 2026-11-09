@@ -35,7 +35,8 @@
     "syncRecovery": "Ein lokaler Schreibvorgang ist nicht eindeutig abgeschlossen. Vault und verschlüsselten Sync-Zustand sichern und die Wiederherstellung prüfen.",
     "syncLimit": "Das unterstützte Größen-, Versions- oder Verschlüsselungsprofil wurde überschritten. Der lokale Vault bleibt erhalten.",
     "syncConflict": "Die Versionen benötigen eine bewusste Konfliktauflösung. Die vorhandenen Varianten bleiben erhalten.",
-    "syncBindings": "Richte die gerätespezifischen Schlüssel- und Dateipfade lokal ein."
+    "syncBindings": "Richte die gerätespezifischen Schlüssel- und Dateipfade lokal ein.",
+    "samePassword": "Das Serverpasswort darf nicht dein Vault-Passwort sein. Es wurde nichts an den Server gesendet."
   },
   "username": "Benutzername",
   "serverPassword": "Serverpasswort",
@@ -53,5 +54,7 @@
   "conflictsKept": "Der Abgleich enthält Konflikte. Beide Varianten bleiben verschlüsselt erhalten; dein lokaler Vault wurde nicht überschrieben.",
   "approvalsNeeded": "Neue oder geänderte Verbindungen müssen vor Verwendung lokal freigegeben werden.",
   "keepLocalHint": "Diese Auswahl behält bei allen angezeigten Verbindungskonflikten die lokalen Verbindungsdaten. Unabhängige Serveränderungen werden trotzdem übernommen. Die anderen Varianten bleiben in der verschlüsselten Historie.",
-  "keepLocal": "Bei Konflikten meine Verbindungsdaten behalten"
+  "keepLocal": "Bei Konflikten meine Verbindungsdaten behalten",
+  "skipped_one": "{{count}} fremdes oder nicht lesbares Objekt wurde übersprungen.",
+  "skipped_other": "{{count}} fremde oder nicht lesbare Objekte wurden übersprungen."
 }

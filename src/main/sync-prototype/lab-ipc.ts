@@ -7,7 +7,17 @@ import type { AccountDriver } from './lab-host';
 import { synchronizeVault, importSyncedVault } from './vault-sync';
 import type { VaultSessionManager, VaultSessionSnapshot } from '../vault/session';
 import { mainT } from '../i18n';
+import { AppError } from '../../shared/errors';
 import type { SyncLabState } from '../../shared/sync-lab';
+
+/** Maps a locked vault to undefined (no check possible); other failures propagate and end sign-in as a connection error. */
+export function vaultPasswordMatcher(sessions?: Pick<VaultSessionManager, 'matchesPassword'>): ((password: string) => Promise<boolean | undefined>) | undefined {
+  if (!sessions) return undefined;
+  return async password => {
+    try { return await sessions.matchesPassword(password); }
+    catch (e) { if (e instanceof AppError && e.code === 'core.vaultLocked') return undefined; throw e; }
+  };
+}
 
 /** Account transport scripts are loaded only in an explicitly enabled dev checkout. */
 export async function registerSyncLabIpc(options: { sessions?: VaultSessionManager; onSynced?: (snapshot: VaultSessionSnapshot) => void } = {}): Promise<SyncLabHost> {
@@ -30,7 +40,7 @@ export async function registerSyncLabIpc(options: { sessions?: VaultSessionManag
             return result.canceled ? undefined : result.filePath;
           });
           return synchronizeVault(options.sessions, transport, info, signal, request.kind === 'keepLocal' ? request.revision : undefined);
-        });
+        }, vaultPasswordMatcher(options.sessions));
     } catch { /* Absent scripts: feature stays unavailable. */ }
   }
   ipcMain.handle('sync-lab:action', (event, request: unknown) => {

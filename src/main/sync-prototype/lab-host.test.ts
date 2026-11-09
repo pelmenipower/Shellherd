@@ -120,4 +120,48 @@ describe('development lab ownership boundary', () => {
     expect(host.request(1, { kind: 'status', clientId })).toEqual({ ok: false, code: 'stale' });
     expect(refresh).not.toHaveBeenCalled();
   });
+  describe('vault password separation', () => {
+    const make = (matches: (p: string) => Promise<boolean | undefined>, login = vi.fn(async () => {}), sync?: () => Promise<any>) => {
+      const host = new SyncLabHost(() => ({ action: () => ({ ok: false, code: 'unavailable' }), close() {} }),
+        async serverUrl => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space', authentication: 'password' }), undefined,
+        () => ({ login, list: async () => [], close() {} }), sync, matches);
+      return { host, login };
+    };
+    const command = { kind: 'signIn', clientId, username: 'alice', password: 'PRIVATE_PASSWORD' };
+    it('rejects the vault password before login', async () => {
+      const { host, login } = make(async () => true);
+      await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
+      expect(await host.signIn(1, command)).toEqual({ ok: false, code: 'samePassword' });
+      expect(login).not.toHaveBeenCalled();
+    });
+    it('signs in when the vault is locked (undefined) or the password differs', async () => {
+      for (const result of [undefined, false]) {
+        const { host, login } = make(async () => result);
+        await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
+        expect(await host.signIn(1, command)).toMatchObject({ ok: true });
+        expect(login).toHaveBeenCalledOnce();
+      }
+    });
+    it('ends with connection when the check throws', async () => {
+      const { host, login } = make(async () => { throw Error('boom'); });
+      await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
+      expect(await host.signIn(1, command)).toEqual({ ok: false, code: 'connection' });
+      expect(login).not.toHaveBeenCalled();
+    });
+    it('is stale when the connection changes during the check', async () => {
+      let release!: (v: boolean) => void;
+      const { host, login } = make(() => new Promise<boolean>(resolve => { release = resolve; }));
+      await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
+      const pending = host.signIn(1, command);
+      host.closeOwner(1); release(false);
+      expect(await pending).toEqual({ ok: false, code: 'stale' });
+      expect(login).not.toHaveBeenCalled();
+    });
+    it('reports skipped objects in the state', async () => {
+      const { host } = make(async () => false, undefined, async () => ({ status: 'synced' as const, versions: 1, conflicts: 0, canKeepLocal: false, approvals: 0, skipped: 2 }));
+      await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
+      await host.signIn(1, command);
+      expect(await host.performSync(1, { kind: 'synchronize', clientId })).toMatchObject({ ok: true, state: { sync: { skipped: 2 } } });
+    });
+  });
 });

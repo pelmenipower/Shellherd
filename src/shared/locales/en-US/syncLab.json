@@ -35,7 +35,8 @@
     "syncRecovery": "A local write did not complete unambiguously. Back up the vault and encrypted sync state and inspect recovery.",
     "syncLimit": "The supported size, history or encryption profile limit was exceeded. The local vault is preserved.",
     "syncConflict": "The versions require explicit conflict resolution. Existing variants are preserved.",
-    "syncBindings": "Configure device-specific key and file paths locally."
+    "syncBindings": "Configure device-specific key and file paths locally.",
+    "samePassword": "The server password must not be your vault password. Nothing was sent to the server."
   },
   "username": "Username",
   "serverPassword": "Server password",
@@ -53,5 +54,7 @@
   "conflictsKept": "Synchronization has conflicts. Both versions remain encrypted; your local vault has not been overwritten.",
   "approvalsNeeded": "New or changed connections need local approval before use.",
   "keepLocalHint": "This choice keeps local connection settings for all reported connection conflicts. Independent server changes are still applied. Other versions remain in encrypted history.",
-  "keepLocal": "Keep my connection settings for conflicts"
+  "keepLocal": "Keep my connection settings for conflicts",
+  "skipped_one": "{{count}} foreign or unreadable object was skipped.",
+  "skipped_other": "{{count}} foreign or unreadable objects were skipped."
 }
