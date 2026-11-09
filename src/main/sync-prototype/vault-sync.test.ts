@@ -34,14 +34,14 @@ function store() {
     async put(wire) { const id = hashWire(wire); data.set(id, wire); return id; },
   }; return { remote, data };
 }
-async function fixture() {
+async function fixture(pw = password) {
   const directory = await mkdtemp(join(tmpdir(), 'shellherd-real-sync-')); cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const a = new VaultSessionManager(); const b = new VaultSessionManager(); cleanup.push(() => { a.lock(); b.lock(); });
   const vault: Vault = structuredClone(exampleVault); vault.workspaces = []; const api = vault.nodes[0];
   if (api.type !== 'folder') throw Error('Fixture');
   api.children = [0, 1].map(n => ({ ...structuredClone(api.children[0]), id: `password-${n}`, protocol: 'ssh', authentication: { method: 'password', password: `NEVER_PLAIN_${n}` } } as typeof api.children[0]));
-  const file = await encryptVault(vault, password);
-  const path = await writeEncryptedVaultFile(join(directory, 'a.term'), file); await a.unlock(path, password);
+  const file = await encryptVault(vault, pw);
+  const path = await writeEncryptedVaultFile(join(directory, 'a.term'), file); await a.unlock(path, pw);
   return { directory, a, b, ...store() };
 }
 it('publishes a real vault, imports it on another device, merges offline edits and resumes after restart', async () => {
@@ -181,3 +181,36 @@ it('returns a refreshed snapshot when recovering a committed vault after the fin
   expect(a.getSnapshot().vault.name).toBe('Recovered remote update');
   expect(await synchronizeVault(a, remote, context, signal())).toMatchObject({ status: 'synced', snapshot: { vault: { name: 'Recovered remote update' } } });
 }, 15000);
+
+it('skips foreign objects in the account, keeps syncing afterwards and counts them', async () => {
+  const { a, remote, data } = await fixture(); const other = await fixture();
+  await synchronizeVault(other.a, other.remote, context, signal());
+  const [foreignId, foreign] = [...other.data][0]; data.set(foreignId, foreign);
+  expect(await synchronizeVault(a, remote, context, signal())).toMatchObject({ status: 'synced', skipped: 1 });
+  expect(await synchronizeVault(a, remote, context, signal())).toMatchObject({ status: 'synced', skipped: 1 });
+}, 30000);
+it('rejects a new object whose hash does not match its id and a missing acknowledged object', async () => {
+  const { directory, a, b, remote, data } = await fixture(); await synchronizeVault(a, remote, context, signal());
+  await importSyncedVault(b, remote, context, password, signal(), async () => join(directory, 'b.term'));
+  await b.save({ ...b.getSnapshot().vault, name: 'Newer' }); await synchronizeVault(b, remote, context, signal());
+  const [oldId] = [...data.keys()]; const newId = [...data.keys()].find(id => id !== oldId)!;
+  data.set(newId, data.get(oldId)!);
+  await expect(synchronizeVault(a, remote, context, signal())).rejects.toMatchObject({ code: 'history' });
+}, 30000);
+it('imports when a foreign object comes first and refuses an account with only foreign objects', async () => {
+  const { directory, a, b, remote, data } = await fixture(); const other = await fixture('OTHER_LOCAL_TEST_PASSWORD');
+  await synchronizeVault(other.a, other.remote, context, signal()); await synchronizeVault(a, remote, context, signal());
+  const [foreignId, foreign] = [...other.data][0];
+  const mixed = { ...remote, list: async () => [foreignId, ...(await remote.list())], get: async (id: string) => id === foreignId ? foreign : remote.get(id) };
+  expect(await importSyncedVault(b, mixed, context, password, signal(), async () => join(directory, 'b.term'))).toMatchObject({ status: 'synced' });
+  b.lock(); data.clear(); data.set(foreignId, foreign);
+  await expect(importSyncedVault(b, remote, context, password, signal(), async () => join(directory, 'c.term'))).rejects.toMatchObject({ code: 'wrongVault' });
+}, 30000);
+it('accepts 100 versions and rejects the 101st with limit', async () => {
+  const { directory, a, b, remote } = await fixture();
+  await synchronizeVault(a, remote, context, signal());
+  for (let n = 1; n < 100; n++) { await a.save({ ...a.getSnapshot().vault, name: `Version ${n}` }); expect(await synchronizeVault(a, remote, context, signal())).toMatchObject({ status: 'synced', versions: n + 1 }); }
+  expect(await importSyncedVault(b, remote, context, password, signal(), async () => join(directory, 'b.term'))).toMatchObject({ status: 'synced', versions: 100 });
+  await a.save({ ...a.getSnapshot().vault, name: 'Version 100' });
+  await expect(synchronizeVault(a, remote, context, signal())).rejects.toMatchObject({ code: 'limit' });
+}, 120000);

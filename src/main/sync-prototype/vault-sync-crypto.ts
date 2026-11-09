@@ -35,7 +35,7 @@ const aad = (context: SyncContext, purpose: string, kdf: EncryptedVaultFile['kdf
 export function sealDocument(document: unknown, vaultKey: Buffer, kdf: EncryptedVaultFile['kdf'], context: SyncContext, purpose: 'version' | 'state'): EncryptedVaultFile {
   validateKdf(kdf); const key = keyFor(vaultKey, context, purpose); const nonce = randomBytes(12); const plain = Buffer.from(JSON.stringify(document));
   try {
-    ensure(plain.length <= (purpose === 'state' ? 16 * 1048576 : 768 * 1024), 'limit');
+    ensure(plain.length <= (purpose === 'state' ? 40 * 1048576 : 768 * 1024), 'limit');
     const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(aad(context, purpose, kdf));
     const payload = Buffer.concat([cipher.update(plain), cipher.final()]);
     return { format: 'terminus-encrypted-vault', version: 1, kdf: { ...kdf }, cipher: { algorithm: 'aes-256-gcm', nonce: nonce.toString('base64'), authTag: cipher.getAuthTag().toString('base64') }, payload: payload.toString('base64') };
@@ -48,7 +48,7 @@ export function openDocument(file: EncryptedVaultFile, vaultKey: Buffer, kdf: En
     const nonce = Buffer.from(file.cipher.nonce, 'base64'); const tag = Buffer.from(file.cipher.authTag, 'base64'); ensure(nonce.length === 12 && tag.length === 16);
     const decipher = createDecipheriv('aes-256-gcm', key, nonce); decipher.setAAD(aad(context, purpose, kdf)); decipher.setAuthTag(tag);
     plain = Buffer.concat([decipher.update(Buffer.from(file.payload, 'base64')), decipher.final()]);
-    ensure(plain.length <= (purpose === 'state' ? 16 * 1048576 : 768 * 1024), 'limit'); return JSON.parse(plain.toString('utf8'));
+    ensure(plain.length <= (purpose === 'state' ? 40 * 1048576 : 768 * 1024), 'limit'); return JSON.parse(plain.toString('utf8'));
   } catch (error) { if (error instanceof SyncFailure) throw error; throw new SyncFailure('wrongVault'); }
   finally { key.fill(0); plain?.fill(0); }
 }
