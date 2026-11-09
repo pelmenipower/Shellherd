@@ -1,5 +1,5 @@
 import type { VaultSyncResult } from './vault-sync';
-import { createHmac, createPublicKey, randomBytes, sign, timingSafeEqual } from 'node:crypto';
+import { createHmac, createPublicKey, randomBytes, sign, timingSafeEqual, verify } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import { z } from 'zod';
 import type { RemoteIdentity, RemoteIdentityStore } from '../remote/identity';
@@ -12,8 +12,11 @@ const token = z.string().uuid();
 const hex64 = /^[a-f0-9]{64}$/;
 // Same rule as DEVICE_NAME in scripts/sync-prototype/device-proof.mjs (the dev scripts are not imported into the bundle).
 // eslint-disable-next-line no-control-regex
-const DEVICE_NAME = /^[^\x00-\x1f\x7f]{1,80}$/;
-const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+export const DEVICE_NAME = /^[^\x00-\x1f\x7f]{1,80}$/;
+export const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+// Weak-key probe as in signingKeyOf: the identity point makes OpenSSL accept one signature for every message.
+const WEAK_PROBE = Buffer.from('shellherd-weak-key-probe');
+const IDENTITY_SIGNATURE = Buffer.concat([Buffer.from([1]), Buffer.alloc(63)]);
 const RENEW_MARGIN_MS = 60_000;
 const requestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('start'), clientId: token }).strict(),
@@ -117,7 +120,11 @@ export class SyncLabHost {
     const keys = new Map<string, KeyObject>(); const revoked = new Map<string, number | null>();
     for (const item of list) {
       revoked.set(item.id, item.revokedAt);
-      try { keys.set(item.id, createPublicKey({ key: Buffer.concat([SPKI_PREFIX, Buffer.from(item.signingKey, 'base64')]), format: 'der', type: 'spki' })); } catch { /* Unusable key: the author counts as unknown. */ }
+      try {
+        const raw = Buffer.from(item.signingKey, 'base64'); if (raw.length !== 32) continue;
+        const key = createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw]), format: 'der', type: 'spki' });
+        if (verify(null, WEAK_PROBE, key, IDENTITY_SIGNATURE) === false) keys.set(item.id, key);
+      } catch { /* Unusable or weak key: the author counts as unknown. */ }
     }
     return { id: identity.id, sign: data => sign(null, data, identity.signingKey), keyOf: id => keys.get(id), revokedAt: id => revoked.get(id) };
   }
@@ -155,7 +162,7 @@ export class SyncLabHost {
     const current = this.#own(owner, parsed.data.clientId);
     if (!current?.info || !current.loaded || current.busy || current.signedIn) return { ok: false, code: 'stale' };
     const { identity, persistent } = current.loaded; const { username, password, deviceName } = parsed.data;
-    current.busy = true;
+    current.busy = true; let remembered = false;
     try {
       // Never send the vault password to the server; undefined means the vault is locked, so no check is possible.
       const same = await this.matchesVaultPassword?.(password); this.#live(current);
@@ -164,7 +171,7 @@ export class SyncLabHost {
       await account.enroll(identity, { username, password, name: deviceName, ephemeral: !persistent }); this.#live(current);
       const session = await account.openSession(identity); this.#live(current);
       current.expiresAt = session.expiresAt;
-      current.store!.rememberEnrollment({ serverId: current.info.serverId, namespace: current.info.namespace, serverUrl: current.info.serverUrl, username, name: deviceName, enrolledAt: Date.now() });
+      current.store!.rememberEnrollment({ serverId: current.info.serverId, namespace: current.info.namespace, serverUrl: current.info.serverUrl, username, name: deviceName, enrolledAt: Date.now() }); remembered = true;
       { const key = randomBytes(32); current.passwordDigest = { key, digest: digestOf(key, password) }; } // Held after every sign-in, checked or not (E3).
       await account.list(); this.#live(current); // Verify access, never upload a Vault as a side effect of sign-in.
       await this.#roster(current, false);
@@ -172,7 +179,10 @@ export class SyncLabHost {
       current.signedIn = { signedIn: true, username, device: { fingerprint: identity.id, name: deviceName, persistent } };
       return { ok: true, state: this.#state(current) };
     } catch (error) {
-      if (this.#connection === current) { current.account?.close(); current.account = undefined; current.expiresAt = undefined; current.roster = undefined; current.devices = undefined; }
+      if (this.#connection === current) {
+        current.account?.close(); current.account = undefined; current.expiresAt = undefined; current.roster = undefined; current.devices = undefined;
+        if (remembered) current.enrolled = { username, name: deviceName }; // The store knows the enrollment, so the dialog must not ask for the password again.
+      }
       if (this.#connection !== current || (isFailure(error) && error.code === 'stale')) return { ok: false, code: 'stale' };
       const status = statusOf(error);
       return { ok: false, code: isFailure(error) ? error.code : status === 401 ? 'authentication' : status === 429 ? 'limit' : 'connection' };
@@ -281,6 +291,7 @@ export class SyncLabHost {
     } catch (error) {
       if (this.#connection === current && !isFailure(error) && error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && Object.hasOwn(syncCodes, error.code))
         return { ok: false, code: syncCodes[error.code as keyof typeof syncCodes] };
+      if (this.#connection === current && (statusOf(error) === 429 || statusOf(error) === 507)) return { ok: false, code: 'syncLimit' }; // Object write budget or quota.
       return this.#failed(current, error);
     } finally { current.busy = false; }
   }

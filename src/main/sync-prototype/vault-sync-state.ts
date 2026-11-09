@@ -59,7 +59,8 @@ export async function lockSyncState(filePath: string, key: Buffer, kdf: Encrypte
       const old = await wire(); ensure((old === undefined ? undefined : hashWire(old)) === expected, 'changed');
       if (old === undefined) return;
       await unlink(path); expected = undefined;
-      const directory = await open(dirname(path), 'r'); try { await directory.sync(); } finally { await directory.close(); }
+      try { const directory = await open(dirname(path), 'r'); try { await directory.sync(); } finally { await directory.close(); } }
+      catch (error) { uncertain = true; throw error; } // The unlink may not be durable.
     },
     async close() { await lock.close(); await unlink(lockPath); },
   };

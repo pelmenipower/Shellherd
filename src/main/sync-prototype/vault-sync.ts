@@ -43,8 +43,10 @@ export const SYNC_RETAIN = 16; export const SYNC_COMPACT_AT = 32; export const S
 const hex64 = z.string().regex(/^[a-f0-9]{64}$/);
 const base64 = (size: number) => z.string().refine(value => { const bytes = Buffer.from(value, 'base64'); return bytes.length === size && bytes.toString('base64') === value; });
 const ids = z.array(hex64).max(100).refine(a => new Set(a).size === a.length);
-/** Account listing: up to 100 versions plus a few keyboxes. */
-const listingIds = z.array(hex64).max(100 + SYNC_KEYBOXES_MAX).refine(a => new Set(a).size === a.length);
+/** Account listing: the server and the transport cap the account at 100 objects in total (keyboxes included). */
+const listingSchema = z.array(hex64).max(100).refine(a => new Set(a).size === a.length);
+/** Server listing; more than the 100-object quota reports `limit`, anything else malformed throws. */
+const listingIds = { parse(value: unknown): string[] { if (Array.isArray(value) && value.length > 100) throw new SyncFailure('limit'); return listingSchema.parse(value); } };
 const authorSchema = z.object({ device: hex64, at: z.number().refine(Number.isSafeInteger).refine(n => n >= 0), signature: base64(64) }).strict();
 const versionSchema = z.object({ kind: z.literal('shellherd-sync-version-v2'), parents: ids.refine(a => a.length <= 16), portable: z.unknown(), compacts: z.array(hex64).max(SYNC_COMPACTS_MAX).refine(a => new Set(a).size === a.length).optional(), author: authorSchema.optional() }).strict();
 const keyboxSchema = z.object({ kind: z.literal('shellherd-sync-keybox-v1'), method: z.literal('recovery'), syncKey: base64(32), createdBy: hex64.nullable() }).strict();
@@ -218,9 +220,10 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
     const ignored = new Set([...wires].filter(([, wire]) => parseSyncEnvelope(wire) === null).map(([id]) => id));
     let recoveryCode: string | undefined;
     // Aborts a key bootstrap: take our keybox back, drop the checkpoint, report syncKey.
-    const abortBootstrap = async (own: string): Promise<never> => {
+    // The checkpoint stays if it already holds versions (retry after a failed first run): deleting it would orphan them.
+    const abortBootstrap = async (own: string, versionsHeld: boolean): Promise<never> => {
       try { await remote.remove?.(own); } catch { /* best effort */ }
-      await checkpoint!.remove(); throw new SyncFailure('syncKey');
+      if (!versionsHeld) await checkpoint!.remove(); throw new SyncFailure('syncKey');
     };
     if (!stateIn) {
       if (options.recoveryCode !== undefined) {
@@ -234,8 +237,8 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
         stateIn = { kind: 'shellherd-sync-state-v2', syncKey: syncKey.toString('base64'), keybox: id, versions: [], acked: [], localHeads: [], working: local.portable, projection: local.portable };
         await checkpoint.write(stateIn); check();
         ensure(await remote.put(keybox) === id); check();
-        if (!await confirmKeybox(remote, id, new Set(), ignored, check)) await abortBootstrap(id);
-        delete stateIn.keybox; await checkpoint.write(stateIn); check(); recoveryCode = code;
+        if (!await confirmKeybox(remote, id, new Set(), ignored, check)) await abortBootstrap(id, false);
+        recoveryCode = code; // The pending marker stays until a result carrying the code is returned (see `settle`).
       }
       graphIn = new Graph(versionKey(syncKey, context), context, lease.snapshot.vault.id);
     } else if (stateIn.keybox) {
@@ -244,8 +247,9 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
       stateIn.keybox = id; await checkpoint.write(stateIn); check();
       try { await remote.remove?.(old); } catch { /* 404 or network: the stale keybox stays harmless */ }
       check(); ensure(await remote.put(keybox) === id); check();
-      if (!await confirmKeybox(remote, id, new Set([old]), ignored, check)) await abortBootstrap(id);
-      delete stateIn.keybox; await checkpoint.write(stateIn); check(); recoveryCode = code;
+      // A failed earlier run may already have uploaded own versions.
+      if (!await confirmKeybox(remote, id, new Set([old, ...stateIn.acked, ...graphIn!.values.keys()]), ignored, check)) await abortBootstrap(id, stateIn.versions.length > 0);
+      recoveryCode = code;
     }
     const state: State = stateIn!; const graph: Graph = graphIn!;
     let recoveredSnapshot: VaultSessionSnapshot | undefined;
@@ -264,6 +268,8 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
       ...(recoveryCode ? { recoveryCode } : {}), ...(unknownAuthors ? { unknownAuthors } : {}), ...(quarantined ? { quarantined } : {}),
     });
     const persist = async (): Promise<void> => { state.versions = [...graph.wires.values()]; await checkpoint!.write(state); check(); };
+    // Clears the pending keybox marker right before a result (with the recovery code) is returned; an exception keeps it for the next run.
+    const settle = async (): Promise<void> => { if (state.keybox) { delete state.keybox; await persist(); } };
     if (!state.localHeads.length) {
       const equal = graph.heads().filter(id => samePortable(graph.value(id).portable, local.portable));
       if (equal.length === 1) { state.localHeads = equal; state.working = graph.value(equal[0]).portable; }
@@ -284,27 +290,30 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
     let target: PortableVault; let targetHeads = heads;
     if (heads.length === 1) target = graph.value(heads[0]).portable;
     else {
-      if (heads.length !== 2) return outcome('conflict', graph, heads.length);
+      if (heads.length !== 2) { await settle(); return outcome('conflict', graph, heads.length); }
       const localHead = heads.find(id => state.localHeads.includes(id));
       const left = localHead ?? heads[0]; const right = heads.find(id => id !== left)!; const base = graph.base(left, right);
-      if (!base) return outcome('conflict', graph, 1);
+      if (!base) { await settle(); return outcome('conflict', graph, 1); }
       const b = graph.value(base).portable; const l = graph.value(left).portable; const r = graph.value(right).portable;
       const merged = mergePortableVaults(b, l, r);
       const canKeepLocal = Boolean(localHead) && merged.conflicts.length > 0 && merged.conflicts.every(c => c.scope === 'node' && c.field === 'configuration-or-move');
       if (!merged.portable) {
         // Consent is valid only for the exact local document and conflicting history the user saw.
         const conflictRevision = hashWire(stable([heads, documentHash(lease.snapshot.vault)]));
-        if (!canKeepLocal || keepLocalRevision !== conflictRevision) return {
-          ...outcome('conflict', graph, merged.conflicts.length, canKeepLocal),
-          ...(canKeepLocal ? { conflictRevision } : {}),
-          ...(recoveredSnapshot ? { snapshot: recoveredSnapshot } : {}),
-        };
+        if (!canKeepLocal || keepLocalRevision !== conflictRevision) {
+          await settle();
+          return {
+            ...outcome('conflict', graph, merged.conflicts.length, canKeepLocal),
+            ...(canKeepLocal ? { conflictRevision } : {}),
+            ...(recoveredSnapshot ? { snapshot: recoveredSnapshot } : {}),
+          };
+        }
         target = resolveVaultConfigurationConflicts(b, l, r, merged.conflicts.map(c => ({ id: c.id, side: 'left' as const })));
       } else target = merged.portable;
       targetHeads = [graph.create(target, heads)]; await persist(); await upload();
     }
     const materialized = materializeVault(target, local.local);
-    if (!materialized.vault) return outcome('bindings', graph, materialized.needsBindings.length);
+    if (!materialized.vault) { await settle(); return outcome('bindings', graph, materialized.needsBindings.length); }
     const next = materialized.vault; const projection = splitVaultForSync(next).portable;
     let snapshot = recoveredSnapshot;
     if (!samePortable(next, lease.snapshot.vault)) {
@@ -342,11 +351,12 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
         // Housekeeping: a failed upload/persist leaves C in the checkpoint for the next run (E5); abort and key-change signals still propagate.
         let c: string;
         try { c = graph.create(graph.value(head).portable, [head], compacts); await persist(); await upload(); state.localHeads = [c]; await persist(); }
-        catch (error) { if (error instanceof SyncFailure && (error.code === 'locked' || error.code === 'changed')) throw error; return { ...outcome('synced', graph, 0, false, materialized.needsApproval.length), ...(compactedCount > 0 ? { compacted: compactedCount } : {}), snapshot }; }
+        catch (error) { if (error instanceof SyncFailure && (error.code === 'locked' || error.code === 'changed')) throw error; await settle(); return { ...outcome('synced', graph, 0, false, materialized.needsApproval.length), ...(compactedCount > 0 ? { compacted: compactedCount } : {}), snapshot }; }
         await removeAll(removeNow);
         graph.prune(new Set([c])); state.acked = state.acked.filter(id => graph.values.has(id)); await persist();
       }
     }
+    await settle();
     return { ...outcome('synced', graph, 0, false, materialized.needsApproval.length), ...(compactedCount > 0 ? { compacted: compactedCount } : {}), snapshot };
   } finally { try { await checkpoint?.close(); } finally { lease.key.fill(0); syncKey?.fill(0); graphIn?.key.fill(0); } }
 }

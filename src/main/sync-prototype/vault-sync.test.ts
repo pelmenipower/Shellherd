@@ -237,12 +237,13 @@ it('imports when a foreign object comes first and refuses an account without a m
   b.lock(); data.clear(); data.set(foreignId, foreign);
   await expect(importB(f, 'c.term')).rejects.toMatchObject({ code: 'recoveryCode' });
 }, 30000);
-it('accepts 100 versions and rejects the 101st with limit', async () => {
+it('accepts 99 versions next to the keybox (100 objects) and rejects an account beyond the 100-object listing cap', async () => {
   const f = await fixture(); const { a, remote } = f;
   await publish(f);
-  for (let n = 1; n < 100; n++) { await a.save({ ...a.getSnapshot().vault, name: `Version ${n}` }); expect(await synchronizeVault(a, remote, context, signal())).toMatchObject({ status: 'synced', versions: n + 1 }); }
-  expect(await importB(f)).toMatchObject({ status: 'synced', versions: 100 });
-  await a.save({ ...a.getSnapshot().vault, name: 'Version 100' });
+  for (let n = 1; n < 99; n++) { await a.save({ ...a.getSnapshot().vault, name: `Version ${n}` }); expect(await synchronizeVault(a, remote, context, signal())).toMatchObject({ status: 'synced', versions: n + 1 }); }
+  expect(await importB(f)).toMatchObject({ status: 'synced', versions: 99 });
+  await a.save({ ...a.getSnapshot().vault, name: 'Version 99' });
+  await synchronizeVault(a, remote, context, signal()); // The server would answer 507 here; the fake accepts the 101st object.
   await expect(synchronizeVault(a, remote, context, signal())).rejects.toMatchObject({ code: 'limit' });
 }, 120000);
 
@@ -295,6 +296,35 @@ it('continues with a new code and exactly one keybox after a crash between the k
   expect(result).toMatchObject({ status: 'synced' }); expect(keyboxes(f.data)).toHaveLength(1); expect(f.data.has(stale)).toBe(false); expect(count(f.data)).toBe(1);
   expect(await checkpointOf(f.a)).not.toHaveProperty('keybox'); f.key = accountKey(f);
   expect(await importB(f)).toMatchObject({ status: 'synced' });
+}, 30000);
+it('keeps the pending keybox and shows a code on the next run when the first version put fails after the confirmation', async () => {
+  const f = await fixture(password, true); let failed = false;
+  const failing: VaultRemote = { ...f.remote, async put(wire) { if (kindOf(wire) === 'version' && !failed) { failed = true; throw Error('network'); } return f.remote.put(wire); } };
+  await expect(synchronizeVault(f.a, failing, context, signal())).rejects.toThrow('network');
+  expect(keyboxes(f.data)).toHaveLength(1); expect(await checkpointOf(f.a)).toHaveProperty('keybox');
+  const result = await synchronizeVault(f.a, f.remote, context, signal()); f.code = result.recoveryCode; expect(f.code).toMatch(/^[0-9a-f]{32}$/);
+  expect(result).toMatchObject({ status: 'synced' }); expect(keyboxes(f.data)).toHaveLength(1); expect(count(f.data)).toBe(1);
+  expect(await checkpointOf(f.a)).not.toHaveProperty('keybox'); f.key = accountKey(f);
+  expect(await importB(f)).toMatchObject({ status: 'synced' });
+}, 30000);
+it('shows a code on the next run when the run is aborted after the own version was uploaded, without orphaning it', async () => {
+  const f = await fixture(password, true); const controller = new AbortController();
+  const aborting: VaultRemote = { ...f.remote, async put(wire) { const id = await f.remote.put(wire); if (kindOf(wire) === 'version') controller.abort(); return id; } };
+  await expect(synchronizeVault(f.a, aborting, context, controller.signal)).rejects.toMatchObject({ code: 'locked' });
+  expect(count(f.data)).toBe(1); expect(await checkpointOf(f.a)).toHaveProperty('keybox');
+  const result = await synchronizeVault(f.a, f.remote, context, signal()); f.code = result.recoveryCode; expect(f.code).toMatch(/^[0-9a-f]{32}$/);
+  expect(result).toMatchObject({ status: 'synced' }); expect(keyboxes(f.data)).toHaveLength(1); expect(count(f.data)).toBe(1);
+  expect(await checkpointOf(f.a)).not.toHaveProperty('keybox'); f.key = accountKey(f);
+  expect(await importB(f)).toMatchObject({ status: 'synced' });
+}, 30000);
+it('does not delete a checkpoint that holds versions when a retried bootstrap is aborted by a rival keybox', async () => {
+  const f = await fixture(password, true); const rival = await fixture(); await publish(rival);
+  const [, rivalKeybox] = keyboxes(rival.data)[0]; let failed = false;
+  const failing: VaultRemote = { ...f.remote, async put(wire) { if (kindOf(wire) === 'version' && !failed) { failed = true; throw Error('network'); } return f.remote.put(wire); } };
+  await expect(synchronizeVault(f.a, failing, context, signal())).rejects.toThrow('network');
+  f.data.set(hashWire(rivalKeybox), rivalKeybox);
+  await expect(synchronizeVault(f.a, f.remote, context, signal())).rejects.toMatchObject({ code: 'syncKey' });
+  expect(await checkpointOf(f.a)).toHaveProperty('versions'); expect(((await checkpointOf(f.a))!.versions as string[]).length).toBe(1);
 }, 30000);
 it('reports syncKey for versions without a keybox and recoveryCode when a code is given', async () => {
   const f = await fixture(); await publish(f);

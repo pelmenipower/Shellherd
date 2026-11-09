@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSync, verify } from 'node:crypto';
-import { SyncLabHost } from './lab-host';
+import { SyncLabHost, DEVICE_NAME, SPKI_PREFIX } from './lab-host';
 import type { AccountDriver, DeviceEntry } from './lab-host';
 import { generateRemoteIdentity } from '../remote/identity';
 import type { RemoteIdentity, RemoteIdentityStore } from '../remote/identity';
@@ -193,6 +193,13 @@ describe('sign-in', () => {
       expect(store.rememberEnrollment).not.toHaveBeenCalled();
     }
   });
+  it('treats the enrollment as known when the sign-in fails after it was remembered', async () => {
+    const { host, store } = harness({ account: { list: vi.fn(async () => { throw { status: 500 }; }) } });
+    await host.connect(1, connectCommand);
+    expect(await host.signIn(1, signInCommand)).toEqual({ ok: false, code: 'connection' });
+    expect(store.rememberEnrollment).toHaveBeenCalled();
+    expect(host.request(1, { kind: 'status', clientId })).toMatchObject({ ok: true, state: { enrolled: { username: 'alice', name: 'Laptop' } } });
+  });
   it('rejects a device name with control characters or a bad length without contacting the server', async () => {
     const { host, createAccount } = harness();
     await host.connect(1, connectCommand);
@@ -342,8 +349,8 @@ describe('sync actions', () => {
     await h.host.performSync(1, { kind: 'synchronize', clientId, recoveryCode: raw });
     expect((syncVault.mock.calls as unknown[][])[1][3]).toEqual({ kind: 'synchronize', recoveryCode: expect.stringMatching(/^[0-9a-f]{32}$/) });
   });
-  it('maps core error codes including the new ones, and HTTP 429 to limit', async () => {
-    const errors: [unknown, string][] = [[{ code: 'syncKey' }, 'syncKey'], [{ code: 'recoveryCode' }, 'syncRecoveryCode'], [{ code: 'migrate' }, 'syncMigrate'], [{ code: 'recovery' }, 'syncRecovery'], [{ status: 429 }, 'limit'], [Error('x'), 'connection']];
+  it('maps core error codes including the new ones, and HTTP 429/507 during sync to syncLimit', async () => {
+    const errors: [unknown, string][] = [[{ code: 'syncKey' }, 'syncKey'], [{ code: 'recoveryCode' }, 'syncRecoveryCode'], [{ code: 'migrate' }, 'syncMigrate'], [{ code: 'recovery' }, 'syncRecovery'], [{ status: 429 }, 'syncLimit'], [{ status: 507 }, 'syncLimit'], [Error('x'), 'connection']];
     for (const [error, code] of errors) {
       const h = await run({ syncVault: async () => { throw error; } });
       expect(await h.host.performSync(1, { kind: 'synchronize', clientId })).toEqual({ ok: false, code });
@@ -500,5 +507,29 @@ describe('private network, import digest and foreign objects', () => {
     expect(removed).toMatchObject({ ok: true, state: { sync: { skipped: 0, removedForeign: 1 } } });
     expect(JSON.stringify(removed)).not.toContain(foreignId);
     expect(await host.performSync(1, { kind: 'removeForeign', clientId })).toEqual({ ok: false, code: 'invalid' });
+  });
+});
+
+describe('parity with the server device proof', () => {
+  it('uses the same device name rule and Ed25519 SPKI prefix as scripts/sync-prototype/device-proof.mjs', async () => {
+    // @ts-expect-error The dev script has no type declarations.
+    const proof = await import('../../../scripts/sync-prototype/device-proof.mjs') as { DEVICE_NAME: RegExp; ed25519Spki(raw: Buffer): Buffer };
+    expect(DEVICE_NAME.source).toBe(proof.DEVICE_NAME.source); expect(DEVICE_NAME.flags).toBe(proof.DEVICE_NAME.flags);
+    const raw = Buffer.alloc(32, 7); expect(Buffer.concat([SPKI_PREFIX, raw]).equals(proof.ed25519Spki(raw))).toBe(true);
+  });
+});
+
+describe('weak signing keys in the device list', () => {
+  it('counts the author of an identity-point key as unknown for the sync core', async () => {
+    let device: { keyOf(id: string): unknown } | undefined; const weak = 'f'.repeat(64);
+    const identity = generateRemoteIdentity(); const good = generateKeyPairSync('ed25519'); const goodRaw = good.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64');
+    const identityPoint = Buffer.concat([Buffer.from([1]), Buffer.alloc(31)]).toString('base64');
+    const h = harness({
+      account: { devices: vi.fn(async () => [entryOf(identity), entryOf(identity, { id: weak, signingKey: identityPoint }), entryOf(identity, { id: 'e'.repeat(64), signingKey: goodRaw })]) },
+      syncVault: async (...a: any[]) => { device = a[4]; return sync; },
+    });
+    h.store.load.mockReturnValue({ identity, persistent: true });
+    await h.signedIn(); await h.host.performSync(1, { kind: 'synchronize', clientId });
+    expect(device!.keyOf(weak)).toBeUndefined(); expect(device!.keyOf('e'.repeat(64))).toBeDefined();
   });
 });
