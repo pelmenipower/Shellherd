@@ -4,7 +4,7 @@ import { splitSignal } from '../../shared/remote-signal';
 import { RemoteSessionController, type CaptureSource, type PeerFactory, type RemoteView } from './remote-peer';
 
 const FP = Array.from({ length: 32 }, () => 'ab').join(':');
-const sdp = (extra = ''): string => `v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=fingerprint:sha-256 ${FP}\r\n${extra}`;
+const sdp = (extra = ''): string => `v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=fingerprint:sha-256 ${FP}\r\na=setup:actpass\r\n${extra}`;
 const idle: RemoteLabState = { phase: 'online' };
 
 class FakePc {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { REMOTE_LAB_LIMITS, type RemoteSignalPart } from './remote-lab';
-import { SignalCollector, checkSdp, formatFingerprint, isSignalPart, signalBytes, splitSignal } from './remote-signal';
+import { SignalCollector, checkSdp, formatFingerprint, isSignalPart, normalizeVerification, signalBytes, splitSignal, verifyFingerprintPrefix } from './remote-signal';
 
 const fp = Array.from({ length: 32 }, (_, i) => i.toString(16).padStart(2, '0')).join(':');
 const sdp = (extra: string[] = [], media = 'm=video 9 UDP/TLS/RTP/SAVPF 96'): string =>
-  ['v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', `a=fingerprint:sha-256 ${fp}`, media, ...extra, ''].join('\r\n');
+  ['v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', `a=fingerprint:sha-256 ${fp}`, 'a=setup:actpass', media, ...extra, ''].join('\r\n');
 
 describe('signalBytes', () => {
   it('counts the JSON-escaped UTF-8 size without quotes', () => {
@@ -114,6 +114,16 @@ describe('checkSdp', () => {
     expect(() => checkSdp(sdp().replace('sha-256', 'sha-1'), 'offer')).toThrow();
     expect(() => checkSdp(sdp().replace(/:[0-9a-f]{2}\r\n/, '\r\n'), 'offer')).toThrow();
   });
+  it('requires exactly one a=fingerprint: line of any algorithm', () => {
+    const line = `a=fingerprint:sha-256 ${fp}`;
+    expect(() => checkSdp(sdp().replace('\r\n' + 'a=setup', `\r\n${line}\r\na=setup`), 'offer')).toThrow('fingerprint');
+    expect(() => checkSdp(sdp(['a=fingerprint:sha-1 AA:BB']), 'offer')).toThrow('fingerprint');
+    expect(() => checkSdp(sdp(['a=fingerprint:sha-512 AA:BB']), 'answer')).toThrow('fingerprint');
+  });
+  it('requires exactly one a=setup: line', () => {
+    expect(() => checkSdp(sdp().replace('a=setup:actpass\r\n', ''), 'offer')).toThrow('fingerprint');
+    expect(() => checkSdp(sdp(['a=setup:active']), 'offer')).toThrow('fingerprint');
+  });
   it('rejects relay candidates', () => {
     expect(() => checkSdp(sdp(['a=candidate:1 1 udp 1 10.0.0.1 5000 typ relay raddr 0.0.0.0 rport 0']), 'answer')).toThrow();
   });
@@ -127,5 +137,31 @@ describe('formatFingerprint', () => {
   });
   it('rejects invalid input', () => {
     for (const bad of ['', 'a'.repeat(63), 'a'.repeat(65), 'A'.repeat(64), 'g'.repeat(64)]) expect(() => formatFingerprint(bad)).toThrow();
+  });
+});
+
+describe('normalizeVerification', () => {
+  it('strips whitespace and lower-cases to exactly 12 hex chars', () => {
+    expect(normalizeVerification('ABCD EF01\t2345\n')).toBe('abcdef012345');
+    expect(normalizeVerification(' 0123456789ab ')).toBe('0123456789ab');
+  });
+  it('rejects wrong length or non-hex', () => {
+    for (const bad of ['', 'abcdef01234', 'abcdef0123456', 'abcdef01234g', 'abcdef0123é4']) expect(normalizeVerification(bad)).toBeNull();
+  });
+});
+
+describe('verifyFingerprintPrefix', () => {
+  const fingerprint = 'abcdef012345' + '6789abcdef01'.repeat(4) + '0123';
+  it('matches the normalized 12-char prefix', () => {
+    expect(fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(verifyFingerprintPrefix('abcdef012345', fingerprint)).toBe(true);
+    expect(verifyFingerprintPrefix(' ABCD ef01 2345 ', fingerprint)).toBe(true);
+  });
+  it('rejects wrong prefix, bad input and bad fingerprints', () => {
+    expect(verifyFingerprintPrefix('abcdef012346', fingerprint)).toBe(false);
+    expect(verifyFingerprintPrefix('bbcdef012345', fingerprint)).toBe(false);
+    expect(verifyFingerprintPrefix('abcdef01234', fingerprint)).toBe(false);
+    expect(verifyFingerprintPrefix('abcdef012345', fingerprint.slice(1))).toBe(false);
+    expect(verifyFingerprintPrefix('abcdef012345', fingerprint.toUpperCase())).toBe(false);
   });
 });
