@@ -144,7 +144,7 @@ describe('confirmCaptureDialog', () => {
     showMessageBox.mockImplementation(async () => { abort.abort(); return { response: 1 }; });
     expect(await confirmCaptureDialog(3, prompt, abort.signal)).toBe('declined');
     showMessageBox.mockRejectedValue(Error('x'));
-    expect(await confirmCaptureDialog(3, prompt, new AbortController().signal)).toBe('declined');
+    expect(await confirmCaptureDialog(3, prompt, new AbortController().signal)).toBe('unavailable');
   });
 
   it('reads showMessageBox at call time', async () => {

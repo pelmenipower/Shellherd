@@ -13,10 +13,10 @@ export async function boundedJson(url, options = {}, maxBytes = 2 * 1024 * 1024)
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } finally { await (reader ? reader.cancel() : response.body?.cancel())?.catch(() => {}); }
 }
-export async function probeSyncServer(serverUrl, { allowLoopbackHttp = false, signal } = {}) {
-  const url = normalizeSyncServerUrl(serverUrl, allowLoopbackHttp); check(url);
+export async function probeSyncServer(serverUrl, { allowLoopbackHttp = false, allowPrivateHttp = false, signal } = {}) {
+  const url = normalizeSyncServerUrl(serverUrl, { loopback: allowLoopbackHttp, private: allowPrivateHttp }); check(url);
   const info = await boundedJson(new URL('v1/info', url), { signal }, 4096);
   check(info.service === 'shellherd-sync-prototype' && info.protocol === 1 && /^[a-f0-9]{64}$/.test(info.serverId)
     && typeof info.namespace === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(info.namespace) && info.maxObjectBytes === 1048576);
-  return { serverUrl: url, serverId: info.serverId, namespace: info.namespace, enrollmentAvailable: info.deviceEnrollment === true, authentication: info.authentication === 'password' ? 'password' : 'device', rendezvous: info.rendezvous === true, rendezvousProof: info.rendezvousProof === true };
+  return { serverUrl: url, serverId: info.serverId, namespace: info.namespace, enrollmentAvailable: info.deviceEnrollment === true, authentication: info.authentication === 'password' ? 'password' : 'device', rendezvous: info.rendezvous === true, rendezvousProof: info.rendezvousProof === true, rendezvousNoise: info.rendezvousNoise === true };
 }

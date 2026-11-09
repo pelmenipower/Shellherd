@@ -92,7 +92,7 @@ describe('development lab ownership boundary', () => {
   it('aborts a pending server probe on close and never resurrects a canceled setup', async () => {
     let resolveProbe!: (value: { serverUrl: string; serverId: string; namespace: string }) => void;
     let signal!: AbortSignal;
-    const probe = vi.fn((_url: string, current: AbortSignal) => { signal = current; return new Promise<{ serverUrl: string; serverId: string; namespace: string }>(resolve => { resolveProbe = resolve; }); });
+    const probe = vi.fn((_url: string, _private: boolean, current: AbortSignal) => { signal = current; return new Promise<{ serverUrl: string; serverId: string; namespace: string }>(resolve => { resolveProbe = resolve; }); });
     const host = new SyncLabHost(() => ({ action: () => ({ ok: true, state: { phase: 'idle' } }), close() {} }), probe);
     const pending = host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
     host.request(1, { kind: 'close', clientId }); expect(signal.aborted).toBe(true);
@@ -162,6 +162,83 @@ describe('development lab ownership boundary', () => {
       await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
       await host.signIn(1, command);
       expect(await host.performSync(1, { kind: 'synchronize', clientId })).toMatchObject({ ok: true, state: { sync: { skipped: 2 } } });
+    });
+  });
+  describe('private network, import digest and foreign objects', () => {
+    const info = async (serverUrl: string) => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space', authentication: 'password' as const });
+    const signIn = { kind: 'signIn', clientId, username: 'alice', password: 'LOGIN_PASSWORD' };
+    const setup = (sync: any, matches: (p: string) => Promise<boolean | undefined> = async () => undefined) => {
+      const host = new SyncLabHost(() => ({ action: () => ({ ok: false, code: 'unavailable' }), close() {} }), info, undefined,
+        () => ({ login: async () => {}, list: async () => [], close() {} }), sync, matches);
+      return host;
+    };
+    const ready = async (host: SyncLabHost) => { await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' }); await host.signIn(1, signIn); };
+    it('passes privateNetwork to the probe and rejects tunnel HTTP without the flag', async () => {
+      const probe = vi.fn(async (serverUrl: string) => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space' }));
+      const host = new SyncLabHost(() => ({ action: () => ({ ok: true, state: { phase: 'idle' } }), close() {} }), probe);
+      expect(await host.connect(1, { kind: 'connect', clientId, serverUrl: 'http://10.0.0.5' })).toEqual({ ok: false, code: 'invalid' });
+      expect(probe).not.toHaveBeenCalled();
+      expect(await host.connect(1, { kind: 'connect', clientId, serverUrl: 'http://10.0.0.5', privateNetwork: true })).toMatchObject({ ok: true });
+      expect(probe).toHaveBeenCalledWith('http://10.0.0.5/', true, expect.any(AbortSignal));
+      host.reset();
+      await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
+      expect(probe).toHaveBeenLastCalledWith('https://sync.example.net/', false, expect.any(AbortSignal));
+      host.reset();
+    });
+    it('rejects an import with the sign-in password (locked vault) and wipes the digest', async () => {
+      const sync = vi.fn(async () => ({ status: 'synced' as const, versions: 1, conflicts: 0, canKeepLocal: false, approvals: 0 }));
+      const host = setup(sync); await ready(host);
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
+      expect(sync).not.toHaveBeenCalled();
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER' })).toMatchObject({ ok: true });
+      expect(sync).toHaveBeenCalledOnce();
+    });
+    it('keeps the digest across failed attempts and wipes it after a successful import', async () => {
+      const sync = vi.fn(async (_a: unknown, _i: unknown, _s: unknown, request: any) => request.password === 'OTHER' ? { status: 'synced' as const, versions: 1, conflicts: 0, canKeepLocal: false, approvals: 0, snapshot: {} } : undefined);
+      const host = setup(sync); await ready(host);
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'WRONG' })).toMatchObject({ ok: true });
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
+      expect(sync).toHaveBeenCalledOnce();
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER' })).toMatchObject({ ok: true });
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: true }); // digest wiped after success
+    });
+    it('also rejects after a checked-different login, and compares NFKC-normalized', async () => {
+      const sync = vi.fn(async () => undefined);
+      const host = setup(sync, async () => false); await ready(host);
+      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
+      const host2 = setup(sync);
+      await host2.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
+      await host2.signIn(1, { ...signIn, password: 'caf\u00e9' });
+      expect(await host2.performSync(1, { kind: 'importVault', clientId, password: 'cafe\u0301' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
+      expect(sync).not.toHaveBeenCalled();
+    });
+    it('wipes the digest on close and reset', async () => {
+      const fill = vi.spyOn(Buffer.prototype, 'fill');
+      try {
+        const host = setup(async () => undefined); await ready(host);
+        fill.mockClear(); host.request(1, { kind: 'close', clientId }); expect(fill).toHaveBeenCalledTimes(2);
+        await ready(host); fill.mockClear(); host.reset(); expect(fill).toHaveBeenCalledTimes(2);
+        await ready(host); fill.mockClear(); host.closeOwner(1); expect(fill).toHaveBeenCalledTimes(2);
+      } finally { fill.mockRestore(); }
+    });
+    it('keeps foreign ids out of the state and removes them only when known', async () => {
+      const foreignId = 'f'.repeat(64);
+      const sync = vi.fn()
+        .mockResolvedValueOnce({ status: 'synced', versions: 1, conflicts: 0, canKeepLocal: false, approvals: 0, skipped: 1, compacted: 3, foreign: [foreignId], snapshot: undefined })
+        .mockResolvedValueOnce({ removedForeign: 1 });
+      const host = setup(sync); await ready(host);
+      expect(await host.performSync(1, { kind: 'removeForeign', clientId })).toEqual({ ok: false, code: 'invalid' });
+      expect(sync).not.toHaveBeenCalled();
+      const reply = await host.performSync(1, { kind: 'synchronize', clientId });
+      expect(reply).toMatchObject({ ok: true, state: { sync: { skipped: 1, compacted: 3 } } });
+      expect(JSON.stringify(reply)).not.toContain(foreignId);
+      expect(JSON.stringify(host.request(1, { kind: 'status', clientId }))).not.toContain(foreignId);
+      const removed = await host.performSync(1, { kind: 'removeForeign', clientId });
+      expect(sync).toHaveBeenLastCalledWith(expect.any(Object), expect.any(Object), expect.any(AbortSignal), { kind: 'removeForeign', ids: [foreignId] });
+      expect(removed).toMatchObject({ ok: true, state: { sync: { skipped: 0, removedForeign: 1 } } });
+      expect(JSON.stringify(removed)).not.toContain(foreignId);
+      expect(await host.performSync(1, { kind: 'removeForeign', clientId })).toEqual({ ok: false, code: 'invalid' });
     });
   });
 });

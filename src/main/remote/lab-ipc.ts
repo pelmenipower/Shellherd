@@ -61,7 +61,7 @@ export async function confirmCaptureDialog(owner: number, prompt: CapturePrompt,
     });
     return response === 1 && !signal.aborted ? 'accepted' : 'declined';
   } catch {
-    return 'declined';
+    return 'unavailable';
   }
 }
 
@@ -82,7 +82,7 @@ export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; mat
   if (remoteLabRequested()) {
     try {
       const transport = await import(/* @vite-ignore */ script('http-common.mjs')) as {
-        probeSyncServer(url: string, options: { allowLoopbackHttp: boolean; signal: AbortSignal }): Promise<RemoteServerInfo>;
+        probeSyncServer(url: string, options: { allowLoopbackHttp: boolean; allowPrivateHttp: boolean; signal: AbortSignal }): Promise<RemoteServerInfo>;
       };
       const accounts = await import(/* @vite-ignore */ script('account-transport.mjs')) as {
         AccountStore: new (info: RemoteServerInfo, options: { signal: AbortSignal }) => RemoteAccount;
@@ -100,7 +100,7 @@ export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; mat
           return { privateKey, publicKey, id: rendezvous.deviceId(publicKey) };
         });
       const deps: RemoteDeps = {
-        probe: (serverUrl, signal) => transport.probeSyncServer(serverUrl, { allowLoopbackHttp: true, signal }),
+        probe: (serverUrl, allowPrivateHttp, signal) => transport.probeSyncServer(serverUrl, { allowLoopbackHttp: true, allowPrivateHttp, signal }),
         createAccount: (info, signal) => new accounts.AccountStore(info, { signal }),
         createPeer: (account, identity) => new client.RendezvousPeer(account, identity),
         identity: () => store,

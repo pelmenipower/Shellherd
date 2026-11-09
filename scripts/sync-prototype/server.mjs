@@ -1,6 +1,7 @@
 // Central ciphertext-only transport prototype. No client crypto/decryption modules.
 // This executable intentionally listens on loopback only. Not a production release.
 import http from 'node:http';
+import net from 'node:net';
 import { createHash, createPublicKey, randomBytes, verify } from 'node:crypto';
 import { constants } from 'node:fs';
 import { mkdir, lstat, open, readdir, rename, unlink, readFile } from 'node:fs/promises';
@@ -90,7 +91,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       check(request.headers.origin === undefined && request.headers['transfer-encoding'] === undefined);
       if (request.method === 'GET' && path === '/v1/info') {
         check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
-        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'password' : 'device', objectFormat: login ? 'encrypted-vault' : 'device-snapshot', rendezvous: Boolean(broker), rendezvousProof: Boolean(broker) }); return;
+        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'password' : 'device', objectFormat: login ? 'encrypted-vault' : 'device-snapshot', rendezvous: Boolean(broker), rendezvousProof: Boolean(broker), rendezvousNoise: Boolean(broker) }); return;
       }
       if (login && path === '/v1/login') {
         check(request.method === 'POST', 405);
@@ -126,7 +127,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       const administration = path === '/v1/access' || path === '/v1/enrollments/pending';
       const control = registration || administration || Boolean(enrollmentId);
       check(path === collection || (path.startsWith(collection + '/') && /^[a-f0-9]{64}$/.test(path.slice(collection.length + 1))) || (control && access.enabled), 404);
-      const methods = registration ? ['POST'] : enrollmentId ? ['GET', 'DELETE'] : path === '/v1/enrollments/pending' ? ['GET'] : ['GET', 'PUT'];
+      const methods = registration ? ['POST'] : enrollmentId ? ['GET', 'DELETE'] : path === '/v1/enrollments/pending' ? ['GET'] : path === collection || path === '/v1/access' ? ['GET', 'PUT'] : login ? ['GET', 'DELETE'] : ['GET'];
       check(methods.includes(request.method), 405);
       const device = request.headers['x-shellherd-device']; const nonce = request.headers['x-shellherd-nonce']; const signature = request.headers['x-shellherd-signature'];
       const authorized = login ? login.authorize(request.headers.authorization) : null;
@@ -164,6 +165,18 @@ export async function createSyncServer({ directory, serverId, namespace, devices
           try { const document = JSON.parse(body); check(JSON.stringify(document) === body); send(200, await access.apply(document)); }
           finally { busy = false; }
         }
+        return;
+      }
+      if (request.method === 'DELETE') {
+        const id = path.slice(collection.length + 1);
+        check(!uncertain, 503); check(!busy, 409); check(objects.has(id), 404); busy = true;
+        try {
+          await unlink(join(directory, id + '.blob')).catch(error => { if (error.code !== 'ENOENT') throw error; });
+          total -= objects.get(id); objects.delete(id);
+          try { const dir = await open(directory, 'r'); try { await dir.sync(); } finally { await dir.close(); } }
+          catch (error) { uncertain = true; throw error; }
+          send(200, { removed: true });
+        } finally { busy = false; }
         return;
       }
       if (request.method === 'GET') {
@@ -208,9 +221,10 @@ export async function createSyncServer({ directory, serverId, namespace, devices
     });
   }
   return { server, info: { serverId, namespace }, async listen(port = 0, host = '127.0.0.1') {
-    check(host === '127.0.0.1' || host === '0.0.0.0');
+    check(typeof host === 'string' && net.isIP(host) !== 0);
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); });
-    return `http://127.0.0.1:${server.address().port}/`;
+    const shown = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : net.isIPv6(host) ? `[${host}]` : host;
+    return `http://${shown}:${server.address().port}/`;
   }, async close() { broker?.clear(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
 }
 

@@ -10,7 +10,7 @@ export type RemoteErrorCode = 'unavailable' | 'invalid' | 'stale' | 'identity' |
 export interface RemoteSignalPart { kind: 'offer' | 'answer' | 'bye'; part: number; of: number; data: string }
 export type RemoteLabCommand =
   | { kind: 'status' } | { kind: 'close' }
-  | { kind: 'connect'; serverUrl: string }
+  | { kind: 'connect'; serverUrl: string; privateNetwork?: boolean }
   | { kind: 'signIn'; username: string; password: string }
   | { kind: 'goOnline'; deviceName: string } | { kind: 'goOffline' }
   | { kind: 'request'; target: string; verification: string | null }
@@ -49,5 +49,5 @@ export const REMOTE_LAB_LIMITS = {
   deviceName: 80, signalPart: 6144, signalParts: 4, sdp: 24576,
   requestMs: 60000, consentMs: 55000, sessionMs: 300000,
   setupPollMs: 1000, activePollMs: 5000, gatherMs: 2000, acceptDelayMs: 1000, byeMs: 2000,
-  verificationHex: 12, verificationAttempts: 3, muteMs: 600000,
+  verificationHex: 16, verificationAttempts: 3, muteMs: 600000, handshakeMs: 20000,
 } as const;

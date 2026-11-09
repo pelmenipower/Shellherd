@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { formatDateTime } from '../../../shared/format';
 import type { RemoteLabReply } from '../../../shared/remote-lab';
-import { normalizeSyncServerUrl } from '../../../shared/sync-server-url.mjs';
+import { needsPrivateNetwork, normalizeSyncServerUrl } from '../../../shared/sync-server-url.mjs';
 import { normalizeVerification } from '../../../shared/remote-signal';
 import { endKey, errorKey, groupFingerprint } from '../remote-lab';
 import type { RemoteSessionController, RemoteView } from '../remote-peer';
@@ -27,7 +27,10 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
   const [password, setPassword] = useState(''); const [deviceName, setDeviceName] = useState(controller.deviceName ?? '');
   const [typed, setTyped] = useState<Record<string, string>>({});
   const [waiting, setWaiting] = useState(false);
-  const normalized = normalizeSyncServerUrl(serverUrl, true);
+  const [privateChecked, setPrivateChecked] = useState(false);
+  const privateCandidate = needsPrivateNetwork(serverUrl);
+  const privateNetwork = privateCandidate && privateChecked;
+  const normalized = normalizeSyncServerUrl(serverUrl, { loopback: true, private: privateNetwork });
   const { state } = view;
   const session = state.session;
   const viewerSession = session?.role === 'viewer' ? session : undefined;
@@ -57,7 +60,7 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
     try { await action(); }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
-  const connect = (): Promise<void> => run(() => controller.act({ kind: 'connect', serverUrl: normalized ?? '' }));
+  const connect = (): Promise<void> => run(() => controller.act(privateNetwork ? { kind: 'connect', serverUrl: normalized ?? '', privateNetwork: true } : { kind: 'connect', serverUrl: normalized ?? '' }));
   const signIn = (): Promise<void> => {
     const serverPassword = password; setPassword('');
     return run(() => controller.act({ kind: 'signIn', username, password: serverPassword }));
@@ -82,7 +85,11 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
     {state.phase === 'idle' && <form className="remote-lab-form" onSubmit={event => { event.preventDefault(); void connect(); }}>
       <label htmlFor={`${id}-server-url`}>{t('remoteLab:serverUrl')}</label>
       <input id={`${id}-server-url`} type="url" value={serverUrl} maxLength={2048} autoComplete="off" spellCheck={false} disabled={busy}
-        aria-invalid={serverUrl.trim() !== '' && !normalized || undefined} onChange={event => { setServerUrl(event.target.value); controller.clearError(); }} />
+        aria-invalid={serverUrl.trim() !== '' && !normalized || undefined} onChange={event => { setServerUrl(event.target.value); setPrivateChecked(false); controller.clearError(); }} />
+      {privateCandidate && <>
+        <label className="remote-lab-check"><input type="checkbox" checked={privateChecked} disabled={busy} onChange={event => setPrivateChecked(event.target.checked)} />{t('remoteLab:privateNetwork.label')}</label>
+        <p className="remote-lab-warning">{t('remoteLab:privateNetwork.hint')}</p>
+      </>}
       <button className="primary-button" type="submit" disabled={busy || !normalized}>{t('remoteLab:connect')}</button>
     </form>}
     {state.phase === 'serverReady' && <form className="remote-lab-form" onSubmit={event => { event.preventDefault(); void signIn(); }}>
@@ -135,6 +142,7 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
         </section>}
       </>}
     </section>}
+    {viewerSession?.state === 'connecting' && !view.stream && <p className="remote-lab-caption" role="status">{t('remoteLab:connecting')}</p>}
     {requesting && waiting && <p className="remote-lab-caption" role="status">{t('remoteLab:waiting')}</p>}
     {viewerSession && view.stream && <section className="remote-lab-viewer">
       <video ref={video} className="remote-lab-video" autoPlay muted playsInline />

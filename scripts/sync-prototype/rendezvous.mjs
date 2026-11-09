@@ -129,13 +129,10 @@ export function createRendezvous({ authorize, isActive, clock = Date.now, server
         send(200, { messages: incoming.queue.filter(message => message.sequence > after) }); return;
       }
       fail(request.method === 'POST', 405);
-      fail(exact(body, 'ciphertext,nonce,sequence,tag') && Number.isSafeInteger(body.sequence) && body.sequence > 0 && body.sequence <= 0xffffffff);
-      for (const [field, size] of [['nonce', 12], ['tag', 16], ['ciphertext', null]]) {
-        fail(typeof body[field] === 'string'); const decoded = Buffer.from(body[field], 'base64');
-        fail(decoded.toString('base64') === body[field] && (size === null ? decoded.length > 0 && decoded.length <= 8192 : decoded.length === size));
-      }
+      fail(exact(body, 'frame,sequence') && Number.isSafeInteger(body.sequence) && body.sequence > 0 && body.sequence <= 0xffffffff && typeof body.frame === 'string');
+      const decoded = Buffer.from(body.frame, 'base64'); fail(decoded.toString('base64') === body.frame && decoded.length >= 1 && decoded.length <= 8208);
       // A lost HTTP acknowledgment can be retried with the exact same frame.
-      const digest = createHash('sha256').update(JSON.stringify([body.sequence, body.nonce, body.ciphertext, body.tag])).digest('hex');
+      const digest = createHash('sha256').update(JSON.stringify([body.sequence, body.frame])).digest('hex');
       if (body.sequence <= outgoing.sequence) {
         fail(outgoing.receipts.get(body.sequence) === digest, 409);
         send(200, { sequence: body.sequence }); return;

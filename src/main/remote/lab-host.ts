@@ -12,7 +12,7 @@ import { normalizeSyncServerUrl } from '../../shared/sync-server-url.mjs';
 import type { RemoteIdentity, RemoteIdentityStore } from './identity';
 import type { PresenceHandlers, PresenceTimers, PresenceTransport } from './presence';
 
-export interface RemoteServerInfo { serverUrl: string; serverId: string; namespace: string; authentication: 'password' | 'device'; rendezvous: boolean; rendezvousProof: boolean }
+export interface RemoteServerInfo { serverUrl: string; serverId: string; namespace: string; authentication: 'password' | 'device'; rendezvous: boolean; rendezvousProof: boolean; rendezvousNoise: boolean }
 /** What the native consent dialog shows; fingerprint is the full 64-hex id of the requester. */
 export interface CapturePrompt { name: string; fingerprint: string; verified: boolean }
 export interface RemoteSessionWire { id: string; from: string; to: string; nonce: string; scope: string; state: string; expiresAt: number }
@@ -21,7 +21,7 @@ export interface RemotePeer {
   readonly identity: { id: string; publicKey: string; privateKey: KeyObject };
   register(name: string): Promise<unknown>; devices(): Promise<unknown[]>; sessions(): Promise<unknown[]>; unregister(): Promise<unknown>;
   request(target: string, scope: 'view'): Promise<RemoteSessionWire>;
-  channel(session: RemoteSessionWire, peerPublicKey: string, expectedFingerprint: string, scope: 'view'): RemoteChannel;
+  channel(session: RemoteSessionWire, expectedFingerprint: string, scope: 'view'): RemoteChannel;
 }
 export interface RemoteAccount {
   login(username: string, password: string): Promise<{ signedIn: true; expiresAt: number }>;
@@ -30,7 +30,7 @@ export interface RemoteAccount {
   logout(): Promise<void>; close(): void;
 }
 export interface RemoteDeps {
-  probe(serverUrl: string, signal: AbortSignal): Promise<RemoteServerInfo>;
+  probe(serverUrl: string, allowPrivateHttp: boolean, signal: AbortSignal): Promise<RemoteServerInfo>;
   createAccount(info: RemoteServerInfo, signal: AbortSignal): RemoteAccount;
   createPeer(account: RemoteAccount, identity: RemoteIdentity): RemotePeer;
   identity(): RemoteIdentityStore;
@@ -52,7 +52,7 @@ const sessionId = z.string().min(1).max(128);
 const requestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('status'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('close'), clientId: uuid }).strict(),
-  z.object({ kind: z.literal('connect'), clientId: uuid, serverUrl: z.string().max(2048) }).strict(),
+  z.object({ kind: z.literal('connect'), clientId: uuid, serverUrl: z.string().max(2048), privateNetwork: z.boolean().optional() }).strict(),
   z.object({ kind: z.literal('signIn'), clientId: uuid, username: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/), password: z.string().min(1).max(1024) }).strict(),
   z.object({ kind: z.literal('goOnline'), clientId: uuid, deviceName: z.string().max(1024) }).strict(),
   z.object({ kind: z.literal('goOffline'), clientId: uuid }).strict(),
@@ -73,7 +73,7 @@ const frameSchema = z.object({ part: z.unknown() }).strict();
 const NAME = /^[^\x00-\x1f\x7f]{1,80}$/;
 
 interface Sess {
-  id: string; role: 'viewer' | 'agent'; peer: RemoteDevice; peerKey: string; wire: RemoteSessionWire;
+  id: string; role: 'viewer' | 'agent'; peer: RemoteDevice; wire: RemoteSessionWire;
   state: RemoteLabSession['state']; deadline: number; requestDeadline: number; startedAt?: number;
   channel?: RemoteChannel; collector: SignalCollector; tail: Promise<unknown>; pending: number;
   armed: boolean; handles: Set<unknown>; deadlineHandle?: unknown; ended: boolean;
@@ -124,7 +124,7 @@ export class RemoteLabHost {
     switch (req.kind) {
       case 'status': return this.#ok();
       case 'close': this.#teardown('stopped'); return { ok: true, state: { phase: 'idle' } };
-      case 'connect': return this.#exclusive(() => this.#connect(owner, req.clientId, req.serverUrl));
+      case 'connect': return this.#exclusive(() => this.#connect(owner, req.clientId, req.serverUrl, req.privateNetwork === true));
       case 'signIn': return this.#exclusive(() => this.#signIn(req.username, req.password));
       case 'goOnline': return this.#exclusive(() => this.#goOnline(req.deviceName));
       case 'goOffline': return this.#exclusive(() => this.#goOffline());
@@ -200,17 +200,17 @@ export class RemoteLabHost {
     finally { if (this.#gen === gen) this.#busy = false; } // A teardown already cleared the flag.
   }
 
-  async #connect(owner: number, clientId: string, serverUrl: string): Promise<RemoteLabReply> {
+  async #connect(owner: number, clientId: string, serverUrl: string, privateNetwork: boolean): Promise<RemoteLabReply> {
     if (this.#binding) return { ok: false, code: 'stale' };
-    const url = normalizeSyncServerUrl(serverUrl, true);
+    const url = normalizeSyncServerUrl(serverUrl, { loopback: true, private: privateNetwork });
     if (!url) return { ok: false, code: 'invalid' };
     this.#binding = { owner, clientId };
     this.#controller = new AbortController();
     const gen = this.#gen;
     try {
-      const info = await this.deps!.probe(url, this.#controller.signal);
+      const info = await this.deps!.probe(url, privateNetwork, this.#controller.signal);
       if (this.#gen !== gen) return { ok: false, code: 'stale' };
-      if (info.authentication !== 'password' || !info.rendezvous || info.rendezvousProof !== true) { this.#binding = undefined; return { ok: false, code: 'unavailable' }; }
+      if (info.authentication !== 'password' || !info.rendezvous || info.rendezvousProof !== true || info.rendezvousNoise !== true) { this.#binding = undefined; return { ok: false, code: 'unavailable' }; }
       this.#info = info; this.#phase = 'serverReady';
       return this.#ok();
     } catch {
@@ -338,7 +338,7 @@ export class RemoteLabHost {
     const timers = this.deps!.timers;
     if (timers.now() >= s.deadline) { this.#end(s, 'expired'); return { ok: false, code: 'expired' }; }
     let channel: RemoteChannel;
-    try { channel = this.#online.peer.channel(s.wire, s.peerKey, s.peer.id, 'view'); }
+    try { channel = this.#online.peer.channel(s.wire, s.peer.id, 'view'); }
     catch { this.#end(s, 'failed'); return { ok: false, code: 'mismatch' }; }
     s.channel = channel;
     try { await channel.accept(); }
@@ -349,11 +349,15 @@ export class RemoteLabHost {
       return { ok: false, code: expired ? 'expired' : 'connection' };
     }
     if (this.#session !== s) return { ok: false, code: 'stale' };
+    // The state stays 'granted' during the handshake; decline and stop end it.
+    const r = await this.#establish(s);
+    if (!r.ok) return { ok: false, code: r.code };
+    if (this.#session !== s) return { ok: false, code: 'stale' };
     s.state = 'connecting';
     s.deadline = timers.now() + L.sessionMs;
     this.#startDeadline(s);
     this.#setSharing(true);
-    this.#startLoop(s);
+    if (this.#consume(s, r.values)) this.#startLoop(s);
     return this.#ok();
   }
 
@@ -483,7 +487,7 @@ export class RemoteLabHost {
 
   #newSession(role: 'viewer' | 'agent', wire: RemoteSessionWire, device: PeerDevice, deadline: number): Sess {
     return {
-      id: wire.id, role, wire, peerKey: device.publicKey, peer: this.#peerOf(device),
+      id: wire.id, role, wire, peer: this.#peerOf(device),
       state: role === 'viewer' ? 'requesting' : 'consent', deadline, requestDeadline: deadline, collector: new SignalCollector(),
       tail: Promise.resolve(), pending: 0, armed: false, handles: new Set(), ended: false,
       owner: this.#binding!.owner, verified: false, attempts: 0, prompting: false, captured: false, abort: new AbortController(),
@@ -526,13 +530,55 @@ export class RemoteLabHost {
     const parsed = wireSchema.safeParse(result);
     if (!parsed.success) { this.#end(s, 'failed'); return; }
     if (parsed.data.state !== 'active') { this.#pollRequest(s); return; }
-    try { s.channel = this.#online!.peer.channel(parsed.data, s.peerKey, s.peer.id, 'view'); }
+    try { s.channel = this.#online!.peer.channel(parsed.data, s.peer.id, 'view'); }
     catch { this.#end(s, 'failed'); this.#emit({ kind: 'error', code: 'mismatch' }); return; }
+    const r = await this.#establish(s);
+    if (!r.ok) { if (r.code === 'mismatch') this.#emit({ kind: 'error', code: 'mismatch' }); return; }
+    if (this.#session !== s || s.ended) return;
     s.state = 'connecting';
     s.deadline = timers.now() + L.sessionMs;
     this.#startDeadline(s);
     this.#publish();
-    this.#startLoop(s);
+    if (this.#consume(s, r.values)) this.#startLoop(s);
+  }
+
+  /** Resolves when the timer fires or the session aborts; the handle never outlives the session. */
+  #sleep(s: Sess, ms: number): Promise<void> {
+    return new Promise(resolve => {
+      if (s.ended) { resolve(); return; }
+      const timers = this.deps!.timers;
+      const done = (): void => { s.abort.signal.removeEventListener('abort', done); s.handles.delete(handle); timers.clearTimeout(handle); resolve(); };
+      const handle = timers.setTimeout(done, ms);
+      s.handles.add(handle);
+      s.abort.signal.addEventListener('abort', done, { once: true });
+    });
+  }
+
+  /** Drives the Noise handshake until the channel is ready. Delivered values are buffered for #consume, never an error. */
+  async #establish(s: Sess): Promise<{ ok: true; values: unknown[] } | { ok: false; code: RemoteErrorCode }> {
+    const timers = this.deps!.timers;
+    const channel = s.channel!;
+    const limit = Math.min(s.deadline, timers.now() + L.handshakeMs);
+    const values: unknown[] = [];
+    const timeout = (): { ok: false; code: RemoteErrorCode } => {
+      if (timers.now() >= s.deadline) { this.#end(s, 'expired'); return { ok: false, code: 'expired' }; }
+      this.#end(s, 'failed'); return { ok: false, code: 'connection' };
+    };
+    for (let first = true; ; first = false) {
+      if (!first) await this.#sleep(s, L.setupPollMs);
+      if (s.ended || this.#session !== s) return { ok: false, code: 'stale' };
+      if (timers.now() >= limit) return timeout();
+      try { values.push(...await channel.receive()); }
+      catch (error) {
+        if (s.ended || this.#session !== s) return { ok: false, code: 'stale' };
+        if ((error as { code?: unknown } | null)?.code === 'mismatch') { this.#end(s, 'failed'); return { ok: false, code: 'mismatch' }; }
+        if (statusOf(error) === 404) { this.#end(s, 'remote', 'remote'); return { ok: false, code: 'stale' }; }
+        if (timers.now() < limit) continue; // 429 or a transient network error: keep polling until handshakeMs.
+        return timeout();
+      }
+      if (s.ended || this.#session !== s) return { ok: false, code: 'stale' };
+      if (channel.ready) return { ok: true, values };
+    }
   }
 
   #startLoop(s: Sess): void {
@@ -550,15 +596,20 @@ export class RemoteLabHost {
       return;
     }
     if (s.ended) return;
+    if (this.#consume(s, values)) this.#startLoop(s);
+  }
+
+  /** Processes the values of one receive(); false when the session ended while doing so. */
+  #consume(s: Sess, values: unknown[]): boolean {
     for (const value of values) {
       const frame = frameSchema.safeParse(value);
-      if (!frame.success || !isSignalPart(frame.data.part)) { this.#end(s, 'failed'); return; }
+      if (!frame.success || !isSignalPart(frame.data.part)) { this.#end(s, 'failed'); return false; }
       const part = frame.data.part;
-      if (part.kind === 'bye') { this.#end(s, 'remote', 'remote'); return; }
-      if (part.kind !== (s.role === 'viewer' ? 'offer' : 'answer')) { this.#end(s, 'failed'); return; }
+      if (part.kind === 'bye') { this.#end(s, 'remote', 'remote'); return false; }
+      if (part.kind !== (s.role === 'viewer' ? 'offer' : 'answer')) { this.#end(s, 'failed'); return false; }
       this.#emit({ kind: 'signal', sessionId: s.id, part });
       let message: ReturnType<SignalCollector['push']>;
-      try { message = s.collector.push(part); } catch { this.#end(s, 'failed'); return; }
+      try { message = s.collector.push(part); } catch { this.#end(s, 'failed'); return false; }
       if (message && s.state === 'connecting') {
         const now = this.deps!.timers.now();
         s.state = 'active'; s.startedAt = now;
@@ -567,7 +618,7 @@ export class RemoteLabHost {
         this.#publish();
       }
     }
-    if (!s.ended) this.#startLoop(s);
+    return !s.ended;
   }
 
   /** Local ordering (K8): state first, events second, network last and never awaited by the caller. */

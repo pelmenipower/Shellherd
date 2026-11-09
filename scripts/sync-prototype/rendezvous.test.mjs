@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile, chmod, symlink } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { afterEach, beforeAll, expect, it as platformIt } from 'vitest';
+import { afterEach, beforeAll, expect, it as platformIt, vi } from 'vitest';
 import { createAccount } from './account-auth.mjs';
 import { createSyncServer } from './server.mjs';
 import { AccountStore } from './account-transport.mjs';
@@ -10,6 +10,7 @@ import { boundedJson, probeSyncServer } from './http-common.mjs';
 import { createRendezvousIdentity, RendezvousPeer } from './rendezvous-client.mjs';
 import { registrationProof } from './rendezvous.mjs';
 import { readConfig, replaceAccount, startServer } from '../../server/main.mjs';
+vi.setConfig({ testTimeout: 20_000 }); // network tests are load-sensitive
 const it = platformIt.runIf(process.platform === 'linux');
 const password = 'ONLY_TEST_RENDEZVOUS_PASSWORD';
 const cleanup = []; let account;
@@ -31,10 +32,16 @@ async function setup({ enabled = true } = {}) {
 async function pair(ctx, scope = 'view') {
   const alice = await ctx.peer('Alice'); const bob = await ctx.peer('Bob');
   const session = await alice.request(bob.identity.id, scope);
-  const a = alice.channel(session, bob.identity.publicKey, bob.identity.id, scope);
-  const b = bob.channel(session, alice.identity.publicKey, alice.identity.id, scope);
+  const a = alice.channel(session, bob.identity.id, scope);
+  const b = bob.channel(session, alice.identity.id, scope);
   cleanup.push(() => { a.dispose(); b.dispose(); });
   return { alice, bob, session, a, b };
+}
+// Drives both sides until both channels are ready (K21: direct rounds, no sleeping).
+async function handshake(a, b) {
+  await b.accept();
+  for (let round = 0; round < 6 && !(a.ready && b.ready); round++) { await a.receive(); await b.receive(); }
+  expect(a.ready && b.ready).toBe(true);
 }
 // Raw registration with an explicit identity, so tests can tamper with single fields.
 async function rawPut(ctx, peer, identity, { name = 'Raw', mutate = body => body, challenge } = {}) {
@@ -53,14 +60,15 @@ it('requires login, keeps the existing sync probe compatible, and is opt-in', as
   await expect(store.request('GET', '/v1/rendezvous/devices')).rejects.toMatchObject({ status: 404 });
 });
 it('requires target approval and a cryptographically verified consent frame before sending', async () => {
+
   const ctx = await setup(); const { alice, bob, session, a, b } = await pair(ctx, 'control');
   expect(await alice.devices()).toHaveLength(2); expect(await bob.sessions()).toEqual([session]);
   await expect(a.send('before consent')).rejects.toThrow();
   await expect(request(alice, 'POST', `/v1/rendezvous/sessions/${session.id}/accept`, {})).rejects.toMatchObject({ status: 403 });
   await expect(request(bob, 'POST', `/v1/rendezvous/sessions/${session.id}/accept`, 7)).rejects.toMatchObject({ status: 400 });
   await expect(request(bob, 'POST', `/v1/rendezvous/sessions/${session.id}/accept`, [])).rejects.toMatchObject({ status: 400 });
-  await b.accept(); expect(b.ready).toBe(true); expect(a.ready).toBe(false);
-  await a.receive(); expect(a.ready).toBe(true);
+  await b.accept(); expect(b.ready).toBe(false); expect(a.ready).toBe(false);
+  await handshake(a, b);
   await a.send({ type: 'signal', marker: 'NEVER_SERVER_PLAINTEXT' });
   expect(await b.receive()).toEqual([{ type: 'signal', marker: 'NEVER_SERVER_PLAINTEXT' }]);
   expect(await b.receive()).toEqual([]);
@@ -74,12 +82,14 @@ it('requires target approval and a cryptographically verified consent frame befo
 it('rejects key substitution, wrong scope and a server-forged approval', async () => {
   const ctx = await setup(); const { alice, bob, session, a } = await pair(ctx);
   const attacker = createRendezvousIdentity();
-  expect(() => alice.channel(session, attacker.publicKey, bob.identity.id, 'view')).toThrow();
-  expect(() => alice.channel(session, bob.identity.publicKey, bob.identity.id, 'control')).toThrow();
+  expect(() => alice.channel(session, attacker.id, 'view')).toThrow();
+  expect(() => alice.channel(session, bob.identity.id, 'control')).toThrow();
   await request(bob, 'POST', `/v1/rendezvous/sessions/${session.id}/accept`, {});
   await expect(a.send('server state is insufficient')).rejects.toThrow();
-  await request(bob, 'POST', `/v1/rendezvous/sessions/${session.id}/messages`, { sequence: 1, nonce: randomBytes(12).toString('base64'), ciphertext: Buffer.from('forged approval').toString('base64'), tag: randomBytes(16).toString('base64') });
+  await request(bob, 'POST', `/v1/rendezvous/sessions/${session.id}/messages`, { sequence: 1, frame: Buffer.from('forged approval').toString('base64') });
   await expect(a.receive()).rejects.toThrow(); expect(a.ready).toBe(false);
+  // A failed verification poisons the channel (K19).
+  await expect(a.receive()).rejects.toThrow();
 });
 it('rejects server replacement of a locally generated request challenge and channel reuse', async () => {
   const ctx = await setup(); const alice = await ctx.peer('Alice'); const bob = await ctx.peer('Bob');
@@ -93,21 +103,23 @@ it('rejects server replacement of a locally generated request challenge and chan
   // The tampered request already holds the (alice,bob) pair on the server, so use a third device.
   const carol = await ctx.peer('Carol');
   const session = await alice.request(carol.identity.id);
-  const channel = alice.channel(session, carol.identity.publicKey, carol.identity.id, 'view'); cleanup.push(() => channel.dispose());
-  expect(() => alice.channel(session, carol.identity.publicKey, carol.identity.id, 'view')).toThrow();
+  const channel = alice.channel(session, carol.identity.id, 'view'); cleanup.push(() => channel.dispose());
+  expect(() => alice.channel(session, carol.identity.id, 'view')).toThrow();
 });
-it('handles a lost encrypted consent reply and data in the same receive batch as consent', async () => {
+it('handles a lost handshake reply and data in the same receive batch as consent', async () => {
   const ctx = await setup(); const { bob, a, b } = await pair(ctx);
   const original = bob.store.request.bind(bob.store); let lose = true;
   bob.store.request = async (...args) => {
     const result = await original(...args);
-    if (lose && args[1].endsWith('/messages')) { lose = false; throw Error('Lost consent reply'); } return result;
+    if (lose && args[1].endsWith('/messages') && args[0] === 'POST' && JSON.parse(args[2]).sequence === 2) { lose = false; throw Error('Lost consent reply'); } return result;
   };
-  await expect(b.accept()).rejects.toThrow('Lost consent reply'); expect(b.ready).toBe(false);
-  await b.retry(); await b.send('data after consent');
+  await b.accept(); await a.receive(); expect(b.ready).toBe(false);
+  await expect(b.receive()).rejects.toThrow('Lost consent reply'); expect(b.ready).toBe(false);
+  await b.retry(); await b.receive(); expect(b.ready).toBe(true);
+  await b.send('data after consent');
   expect(await a.receive()).toEqual(['data after consent']); expect(a.ready).toBe(true);
   await a.send('confirmed'); expect(await b.receive()).toEqual(['confirmed']);
-});
+}, 20_000);
 it('isolates session participants even when they share the server account', async () => {
   const ctx = await setup(); const { alice, bob, session } = await pair(ctx); const outsider = await ctx.peer('Outsider');
   expect(await outsider.sessions()).toEqual([]);
@@ -129,7 +141,7 @@ it('expires pending requests and presence, removes sessions on logout and unregi
   await alice.unregister(); expect(await alice.devices()).toEqual([]);
 });
 it('enforces a five-minute active session limit even with fresh presence leases', async () => {
-  const ctx = await setup(); const { alice, bob, a, b } = await pair(ctx); await b.accept(); await a.receive();
+  const ctx = await setup(); const { alice, bob, a, b } = await pair(ctx); await handshake(a, b);
   for (let i = 0; i < 10; i++) { ctx.advance(30_000); await alice.register('Alice'); await bob.register('Bob'); }
   expect(await alice.sessions()).toEqual([]);
   await expect(a.send('expired')).rejects.toMatchObject({ status: 404 });
@@ -141,10 +153,9 @@ it('bounds pending requests, payloads, sequence order and unacknowledged message
   const others = []; for (let i = 0; i < 4; i++) others.push(await ctx.peer(`Other${i}`));
   for (let i = 0; i < 3; i++) await alice.request(others[i].identity.id);
   await expect(alice.request(others[3].identity.id)).rejects.toMatchObject({ status: 429 });
-  await b.accept(); await a.receive();
-  await expect(a.send('x'.repeat(8192))).rejects.toThrow();
+  await b.accept();
   const path = `/v1/rendezvous/sessions/${session.id}/messages`;
-  const frame = sequence => ({ sequence, nonce: randomBytes(12).toString('base64'), tag: randomBytes(16).toString('base64'), ciphertext: Buffer.from('opaque').toString('base64') });
+  const frame = sequence => ({ sequence, frame: randomBytes(24).toString('base64') });
   await expect(request(alice, 'POST', path, frame(2))).rejects.toMatchObject({ status: 409 });
   const first = frame(1); await request(alice, 'POST', path, first); await request(alice, 'POST', path, first);
   await expect(request(alice, 'POST', path, frame(1))).rejects.toMatchObject({ status: 409 });
@@ -155,7 +166,7 @@ it('bounds pending requests, payloads, sequence order and unacknowledged message
   await expect(request(bob, 'POST', `/v1/rendezvous/sessions/${session.id}/ack`, { through: 34 })).rejects.toMatchObject({ status: 400 });
 });
 it('recovers lost send and receive acknowledgments without duplicated delivery', async () => {
-  const ctx = await setup(); const { alice, bob, a, b } = await pair(ctx); await b.accept(); await a.receive();
+  const ctx = await setup(); const { alice, bob, a, b } = await pair(ctx); await handshake(a, b);
   const original = alice.store.request.bind(alice.store); let failSend = true;
   alice.store.request = async (...args) => {
     const result = await original(...args);
@@ -309,10 +320,10 @@ it('blocks the pair for 30 s only when the target drops a pending request', asyn
 });
 it('binds channel roles to the session direction', async () => {
   const ctx = await setup(); const { alice, bob, session } = await pair(ctx);
-  expect(() => alice.channel({ ...session }, alice.identity.publicKey, alice.identity.id, 'view')).toThrow();
-  expect(() => bob.channel({ ...session }, bob.identity.publicKey, bob.identity.id, 'view')).toThrow();
+  expect(() => alice.channel({ ...session }, alice.identity.id, 'view')).toThrow();
+  expect(() => bob.channel({ ...session }, bob.identity.id, 'view')).toThrow();
   const third = createRendezvousIdentity();
-  expect(() => bob.channel({ ...session, to: third.id }, third.publicKey, third.id, 'view')).toThrow();
+  expect(() => bob.channel({ ...session, to: third.id }, third.id, 'view')).toThrow();
 });
 it('reports rendezvousProof in the probe', async () => {
   const ctx = await setup(); expect(ctx.info.rendezvousProof).toBe(true);

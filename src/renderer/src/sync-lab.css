@@ -26,6 +26,8 @@
 .sync-server-route strong { padding: var(--space-16); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-app); }
 .sync-server-form { display: grid; gap: var(--space-12); padding: var(--space-20) 0; }
 .sync-server-form input { width: 100%; }
+.sync-server-form .sync-lab-check { align-items: center; margin: 0; }
+.sync-server-form .sync-lab-check input { width: auto; margin-top: 0; }
 .sync-server-form button { justify-self: start; }
 .sync-server-ready { padding: var(--space-16) 0; }
 .sync-server-ready dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-12); }

@@ -141,27 +141,34 @@ describe('formatFingerprint', () => {
 });
 
 describe('normalizeVerification', () => {
-  it('strips whitespace and lower-cases to exactly 12 hex chars', () => {
-    expect(normalizeVerification('ABCD EF01\t2345\n')).toBe('abcdef012345');
-    expect(normalizeVerification(' 0123456789ab ')).toBe('0123456789ab');
+  it('strips whitespace and lower-cases to exactly 16 hex chars', () => {
+    expect(normalizeVerification('ABCD EF01\t2345 6789\n')).toBe('abcdef0123456789');
+    expect(normalizeVerification('aaaaaaaa bbbbbbbb')).toBe('aaaaaaaabbbbbbbb');
+    expect(REMOTE_LAB_LIMITS.verificationHex).toBe(16);
   });
   it('rejects wrong length or non-hex', () => {
-    for (const bad of ['', 'abcdef01234', 'abcdef0123456', 'abcdef01234g', 'abcdef0123é4']) expect(normalizeVerification(bad)).toBeNull();
+    for (const bad of ['', 'abcdef012345678', 'abcdef01234567890', 'abcdef012345', 'abcdef012345678g', 'abcdef012345678é']) expect(normalizeVerification(bad)).toBeNull();
   });
 });
 
 describe('verifyFingerprintPrefix', () => {
-  const fingerprint = 'abcdef012345' + '6789abcdef01'.repeat(4) + '0123';
-  it('matches the normalized 12-char prefix', () => {
+  const fingerprint = 'abcdef0123456789' + '6789abcdef01'.repeat(4);
+  it('matches the normalized 16-char prefix', () => {
     expect(fingerprint).toMatch(/^[a-f0-9]{64}$/);
-    expect(verifyFingerprintPrefix('abcdef012345', fingerprint)).toBe(true);
-    expect(verifyFingerprintPrefix(' ABCD ef01 2345 ', fingerprint)).toBe(true);
+    expect(verifyFingerprintPrefix('abcdef0123456789', fingerprint)).toBe(true);
+    expect(verifyFingerprintPrefix(' ABCD ef01 2345 6789 ', fingerprint)).toBe(true);
   });
-  it('rejects wrong prefix, bad input and bad fingerprints', () => {
-    expect(verifyFingerprintPrefix('abcdef012346', fingerprint)).toBe(false);
-    expect(verifyFingerprintPrefix('bbcdef012345', fingerprint)).toBe(false);
-    expect(verifyFingerprintPrefix('abcdef01234', fingerprint)).toBe(false);
-    expect(verifyFingerprintPrefix('abcdef012345', fingerprint.slice(1))).toBe(false);
-    expect(verifyFingerprintPrefix('abcdef012345', fingerprint.toUpperCase())).toBe(false);
+  it('rejects a deviation anywhere in chars 13 to 16, bad input and bad fingerprints', () => {
+    for (const bad of ['abcdef012346' + '6789', 'abcdef0123556789', 'abcdef0123466789', 'abcdef0123456788']) expect(verifyFingerprintPrefix(bad, fingerprint)).toBe(false);
+    expect(verifyFingerprintPrefix('bbcdef0123456789', fingerprint)).toBe(false);
+    expect(verifyFingerprintPrefix('abcdef012345', fingerprint)).toBe(false);
+    expect(verifyFingerprintPrefix('abcdef0123456789', fingerprint.slice(1))).toBe(false);
+    expect(verifyFingerprintPrefix('abcdef0123456789', fingerprint.toUpperCase())).toBe(false);
+  });
+});
+
+describe('REMOTE_LAB_LIMITS', () => {
+  it('has a 20 s handshake budget', () => {
+    expect(REMOTE_LAB_LIMITS.handshakeMs).toBe(20000);
   });
 });

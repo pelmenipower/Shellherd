@@ -13,7 +13,7 @@
   "stepSync": "3 · Verschlüsselt synchronisieren",
   "serverUrl": "Server-URL",
   "serverPlaceholder": "https://sync.example.net",
-  "serverHint": "Trage deinen Server mit HTTPS ein. HTTP ist im Entwicklungs-Prototyp ausschließlich für 127.0.0.1 oder ::1 erlaubt. Keine Vault-Passwörter oder Schlüssel in die URL eintragen.",
+  "serverHint": "Trage deinen Server mit HTTPS ein. HTTP ist nur für 127.0.0.1, ::1 oder – nach Bestätigung – für eine WireGuard-/Tailscale-Adresse erlaubt. Keine Vault-Passwörter oder Schlüssel in die URL eintragen.",
   "connect": "Anmelden",
   "connecting": "Anmeldung wird geprüft …",
   "readyTitle": "Am Sync-Server angemeldet",
@@ -36,7 +36,8 @@
     "syncLimit": "Das unterstützte Größen-, Versions- oder Verschlüsselungsprofil wurde überschritten. Der lokale Vault bleibt erhalten.",
     "syncConflict": "Die Versionen benötigen eine bewusste Konfliktauflösung. Die vorhandenen Varianten bleiben erhalten.",
     "syncBindings": "Richte die gerätespezifischen Schlüssel- und Dateipfade lokal ein.",
-    "samePassword": "Das Serverpasswort darf nicht dein Vault-Passwort sein. Es wurde nichts an den Server gesendet."
+    "samePassword": "Das Serverpasswort darf nicht dein Vault-Passwort sein. Es wurde nichts an den Server gesendet.",
+    "samePasswordImport": "Das Vault-Passwort ist zugleich dein Serverpasswort, und dieses wurde bereits an den Server gesendet. Der Import wurde abgebrochen. Ändere das Vault-Passwort auf dem Ursprungsgerät und wechsle das Serverpasswort."
   },
   "username": "Benutzername",
   "serverPassword": "Serverpasswort",
@@ -56,5 +57,15 @@
   "keepLocalHint": "Diese Auswahl behält bei allen angezeigten Verbindungskonflikten die lokalen Verbindungsdaten. Unabhängige Serveränderungen werden trotzdem übernommen. Die anderen Varianten bleiben in der verschlüsselten Historie.",
   "keepLocal": "Bei Konflikten meine Verbindungsdaten behalten",
   "skipped_one": "{{count}} fremdes oder nicht lesbares Objekt wurde übersprungen.",
-  "skipped_other": "{{count}} fremde oder nicht lesbare Objekte wurden übersprungen."
+  "skipped_other": "{{count}} fremde oder nicht lesbare Objekte wurden übersprungen.",
+  "privateNetwork": {
+    "label": "Privates Netz (WireGuard/Tailscale): HTTP erlauben",
+    "hint": "Nur für eine WireGuard- oder Tailscale-Adresse dieses Servers. Außerhalb eines solchen Tunnels könnte das Netz Serverpasswort und Daten mitlesen. Dein Vault-Passwort bleibt lokal."
+  },
+  "compacted_one": "{{count}} ältere Version wurde zusammengefasst und vom Server entfernt.",
+  "compacted_other": "{{count}} ältere Versionen wurden zusammengefasst und vom Server entfernt.",
+  "removeForeign": "Fremde Objekte entfernen",
+  "removeForeignHint": "Entfernt nur Objekte, die sich mit deinem Vault-Passwort nicht lesen lassen. Ein Serverkonto trägt genau einen Vault.",
+  "removedForeign_one": "{{count}} fremdes Objekt wurde entfernt.",
+  "removedForeign_other": "{{count}} fremde Objekte wurden entfernt."
 }

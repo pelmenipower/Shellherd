@@ -53,12 +53,13 @@ describe('decidePermission', () => {
     expect(decidePermission('media', { ...d, mediaTypes: [] }, 1, 'request', ctx({ remoteLabEnabled: false }))).toBe(false);
   });
 
-  it('media check: audio denied, others follow granted', () => {
+  it('media check: only video follows granted; audio, unknown and missing are denied', () => {
     const d = { isMainFrame: true };
     expect(decidePermission('media', { ...d, mediaType: 'audio' }, 1, 'check', ctx())).toBe(false);
+    expect(decidePermission('media', { ...d, mediaType: 'unknown' }, 1, 'check', ctx())).toBe(false);
     expect(decidePermission('media', { ...d, mediaType: 'video' }, 1, 'check', ctx())).toBe(true);
-    expect(decidePermission('media', d, 1, 'check', ctx())).toBe(true);
-    expect(decidePermission('media', d, 1, 'check', ctx({}, false))).toBe(false);
+    expect(decidePermission('media', { ...d, mediaType: 'video' }, 1, 'check', ctx({}, false))).toBe(false);
+    expect(decidePermission('media', d, 1, 'check', ctx())).toBe(false);
   });
 
   it('null web contents id is denied', () => {

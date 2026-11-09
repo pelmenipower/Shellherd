@@ -86,17 +86,17 @@ export function formatFingerprint(hex64: string): string {
   return hex64.match(/.{8}/g)!.join(' ');
 }
 
-/** Strips all whitespace, lower-cases; returns exactly 12 hex chars or null. */
+/** Strips all whitespace, lower-cases; returns exactly REMOTE_LAB_LIMITS.verificationHex hex chars or null. */
 export function normalizeVerification(input: string): string | null {
   const text = input.replace(/\s+/g, '').toLowerCase();
-  return /^[a-f0-9]{12}$/.test(text) ? text : null;
+  return new RegExp(`^[a-f0-9]{${REMOTE_LAB_LIMITS.verificationHex}}$`).test(text) ? text : null;
 }
 
-/** Constant-time (pure JS, XOR accumulator; no node:crypto so the renderer can import it) check of the input against fingerprint.slice(0, 12). */
+/** Constant-time (pure JS, XOR accumulator; no node:crypto so the renderer can import it) check of the input against fingerprint.slice(0, REMOTE_LAB_LIMITS.verificationHex). */
 export function verifyFingerprintPrefix(input: string, fingerprint: string): boolean {
   const normalized = normalizeVerification(input);
   if (normalized === null || !/^[a-f0-9]{64}$/.test(fingerprint)) return false;
   let diff = 0;
-  for (let i = 0; i < 12; i++) diff |= normalized.charCodeAt(i) ^ fingerprint.charCodeAt(i);
+  for (let i = 0; i < REMOTE_LAB_LIMITS.verificationHex; i++) diff |= normalized.charCodeAt(i) ^ fingerprint.charCodeAt(i);
   return diff === 0;
 }

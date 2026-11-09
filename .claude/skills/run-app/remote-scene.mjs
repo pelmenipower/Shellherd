@@ -27,6 +27,7 @@ const PATTERN = [
 ];
 const TOLERANCE = 48;
 const END_WITHIN_MS = 8000;
+const CONNECT_WITHIN_MS = 8000; // consent -> encrypted channel (connecting) or running share
 
 class Fail extends Error { constructor(message, code = 1) { super(message); this.code = code; } }
 
@@ -118,7 +119,8 @@ const PIXEL_CHECK = `(() => {
   return ${JSON.stringify(PATTERN)}.map(point => ({ ...point, got: [...context.getImageData(Math.floor(point.x * canvas.width), Math.floor(point.y * canvas.height), 1, 1).data].slice(0, 3) }));
 })()`;
 
-const FIRST_12 = fingerprint => fingerprint.replace(/\s+/g, '').slice(0, 12);
+// H2: the typed check is the first two groups, 16 characters.
+const FIRST_16 = fingerprint => fingerprint.replace(/\s+/g, '').slice(0, 16);
 const DEVICE_A = `li.remote-lab-device:has(strong:text-is(${JSON.stringify(NAME_A)}))`; // Playwright selector (driver routes)
 const ROW_A_JS = `[...document.querySelectorAll('li.remote-lab-device')].find(li => li.querySelector('strong')?.textContent === ${JSON.stringify(NAME_A)})`; // same row for page.evaluate
 const CONSENT = 'dialog.remote-consent-dialog';
@@ -133,19 +135,30 @@ async function recordNativeDialogs() {
     }; return true;`);
 }
 
-// B requests a view of A. With an unverified pin B types the first 12 characters of A's own display; with a verified pin there is no field.
+// After consent B must show "connecting" (encrypted channel being established) or the share must already run, within 8 s.
+async function awaitConnecting(consentAt) {
+  const CONNECTING = 'Verschlüsselte Verbindung wird aufgebaut';
+  const connectingAtB = `[...document.querySelectorAll('${LAB} .remote-lab-caption')].some(p => p.textContent.includes(${JSON.stringify(CONNECTING)})) || !!document.querySelector('${LAB} video')`;
+  for (;; await pause(100)) {
+    if (await B.evaluate(`!!(${connectingAtB})`)) { log(`B: „${CONNECTING} …“ oder Bild nach ${Date.now() - consentAt} ms`); return; }
+    if (await A.evaluate(has('.remote-share-bar'))) { log(`A: Freigabe aktiv nach ${Date.now() - consentAt} ms`); return; }
+    if (Date.now() - consentAt >= CONNECT_WITHIN_MS) throw new Fail(`weder „connecting“ noch aktive Freigabe binnen ${CONNECT_WITHIN_MS / 1000} s nach der Zustimmung`);
+  }
+}
+
+// B requests a view of A. With an unverified pin B types the first 16 characters of A's own display; with a verified pin there is no field.
 async function request(fingerprintOfA, { verified }) {
   await B.waitFor('A in der Geräteliste', ROW_A_JS);
   const rowText = await B.evaluate(`${ROW_A_JS}.textContent`);
   // E6: only unverified peers must hide their fingerprint; verified pins may show it.
-  if (!verified && rowText.replace(/\s+/g, '').includes(FIRST_12(fingerprintOfA))) throw new Fail('B: die Geräteliste zeigt den Fingerabdruck von A vor der Prüfung (E6)');
+  if (!verified && rowText.replace(/\s+/g, '').includes(FIRST_16(fingerprintOfA))) throw new Fail('B: die Geräteliste zeigt den Fingerabdruck von A vor der Prüfung (E6)');
   if (verified) {
     if (!rowText.includes('Geprüft am')) throw new Fail('B: „Geprüft am“ fehlt bei A trotz bestätigtem Pin');
     if (await B.evaluate(`!!${ROW_A_JS}.querySelector('input.remote-lab-verify')`)) throw new Fail('B: Prüffeld bei A trotz bestätigtem Pin');
     log('B: A ist geprüft („Geprüft am“), kein Feld');
   } else {
-    await B.fill(`${DEVICE_A} input.remote-lab-verify`, FIRST_12(fingerprintOfA));
-    log('B: erste 12 Zeichen von A aus dessen Anzeige getippt');
+    await B.fill(`${DEVICE_A} input.remote-lab-verify`, FIRST_16(fingerprintOfA));
+    log('B: erste 16 Zeichen von A aus dessen Anzeige getippt');
   }
   await B.click(`${DEVICE_A} button.primary-button`);
   await A.waitFor('Zustimmungsdialog', has(`${CONSENT}[open]`));
@@ -154,14 +167,14 @@ async function request(fingerprintOfA, { verified }) {
 // A confirms B in the renderer dialog: typed prefix for an unverified pin, no field for a verified one.
 async function prepareConsent(fingerprintOfB, { verified }) {
   const dialogText = await A.evaluate(`document.querySelector('${CONSENT}').textContent`);
-  if (!verified && dialogText.replace(/\s+/g, '').includes(FIRST_12(fingerprintOfB))) throw new Fail('A: der Renderer-Dialog zeigt den Fingerabdruck von B (E6)');
+  if (!verified && dialogText.replace(/\s+/g, '').includes(FIRST_16(fingerprintOfB))) throw new Fail('A: der Renderer-Dialog zeigt den Fingerabdruck von B (E6)');
   if (verified) {
     if (!dialogText.includes('Geprüft am')) throw new Fail('A: „Geprüft am“ fehlt im Zustimmungsdialog trotz bestätigtem Pin');
     if (await A.evaluate(has(`${CONSENT} input.remote-lab-verify`))) throw new Fail('A: Prüffeld im Zustimmungsdialog trotz bestätigtem Pin');
     log('A: Zustimmung ohne Feld, B ist geprüft');
   } else {
-    await A.fill(`${CONSENT} input.remote-lab-verify`, FIRST_12(fingerprintOfB));
-    log('A: erste 12 Zeichen von B aus dessen Anzeige getippt');
+    await A.fill(`${CONSENT} input.remote-lab-verify`, FIRST_16(fingerprintOfB));
+    log('A: erste 16 Zeichen von B aus dessen Anzeige getippt');
   }
 }
 
@@ -182,7 +195,9 @@ async function run() {
   await prepareConsent(fingerprintB, { verified: false });
   await pause(1100); // accept is locked for 1 s after the dialog opens
   shots.push(await A.shot('remote-consent'));
+  const consentAt = Date.now();
   await A.click(`${CONSENT} .primary-button`);
+  await awaitConnecting(consentAt);
   await A.waitFor('Leiste „Bildschirm wird angesehen“', has('.remote-share-bar'));
   const dialogs = await A.main('return globalThis.__shellherdDialogs');
   if (dialogs.length !== 1) throw new Fail(`A: erwartet genau einen nativen Dialog, aufgezeichnet ${dialogs.length}`);

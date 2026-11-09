@@ -26,10 +26,12 @@ it('carries a 20 KiB payload in parts through the E2EE rendezvous channel', asyn
   };
   const alice = await peer('Alice'); const bob = await peer('Bob');
   const session = await alice.request(bob.identity.id, 'view');
-  const a = alice.channel(session, bob.identity.publicKey, bob.identity.id, 'view');
-  const b = bob.channel(session, alice.identity.publicKey, alice.identity.id, 'view');
+  const a = alice.channel(session, bob.identity.id, 'view');
+  const b = bob.channel(session, alice.identity.id, 'view');
   cleanup.push(() => { a.dispose(); b.dispose(); });
-  await b.accept(); await a.receive();
+  await b.accept();
+  for (let round = 0; round < 6 && !(a.ready && b.ready); round++) { await a.receive(); await b.receive(); }
+  expect(a.ready && b.ready).toBe(true);
   const payload = 'a=candidate line with "q", ä and 😀 padding padding padding\r\n'.repeat(330);
   const parts = splitSignal('offer', payload);
   expect(parts.length).toBeGreaterThan(1);
