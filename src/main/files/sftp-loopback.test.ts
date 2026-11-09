@@ -241,7 +241,9 @@ describe('SFTP over a real SSH connection', () => {
     await manager.editClose(1, sessionId, editId);
     expect(manager.state(1, sessionId).edits).toEqual([]);
     await waitFor(() => { try { statSync(opened[0]); return undefined; } catch { return true; } });
-  });
+    // Two real saves (500 ms settle each) plus SSH round trips; each waitFor alone may take 5 s, so the
+    // 5 s default timed out under CI load.
+  }, 30_000);
 
   it('creates a new empty file but never replaces an existing one', async () => {
     await manager.createFile(1, sessionId, '/project/notes.md');
