@@ -23,7 +23,9 @@ curl --fail http://127.0.0.1:8787/v1/info
 ```
 
 `init` benötigt ein interaktives Terminal und fragt Benutzername sowie ein
-verdecktes Serverpasswort mit Wiederholung ab. Kein Passwort in Kommandozeile,
+wahlweise ein generiertes Serverpasswort (24 Zeichen, einmalig angezeigt, jetzt
+notieren) oder ein eigenes verdecktes Passwort mit mindestens 16 Zeichen und
+Wiederholung ab. Kein Passwort in Kommandozeile,
 Compose-Datei oder Umgebungsvariable. Das Vault-Passwort bleibt ein separates,
 ausschließlich lokal verwendetes Geheimnis. Ein erneutes `init` überschreibt
 keine bestehende Konfiguration.
@@ -49,9 +51,34 @@ Firewall für HTTPS konfigurieren. Der Serverport bleibt intern. Keine
 Zugriffslogs sind im Beispiel ausgeschaltet; externe Proxy-/Monitoringdienste
 dürfen keine Authorization-Header oder Request-Inhalte protokollieren.
 
+`Caddyfile.example` setzt `read_body 10s`. Das setzt eine Mindestrate von etwa
+100 KB/s für einen 1-MiB-Body voraus; langsamere Clients werden getrennt.
+
 Podman: Das Dockerfile ist ein normales OCI-Buildrezept. Mit einer vorhandenen
 Compose-Implementierung können dieselben Dateien verwendet werden. Eine
 Podman-Freigabe muss gesondert mit der jeweiligen Installation geprüft werden.
+
+## Limits pro Quelle
+
+Der Server begrenzt Anfragen, Anmeldungen und Verbindungen pro Quelladresse
+(IPv6 je /64) und bremst fehlgeschlagene Anmeldungen mit wachsendem Backoff
+(Antwort 429 mit `retry-after`). Hinter dem Caddy-Proxy sieht der Server nur
+`127.0.0.1`. Dann in `compose.yaml` den auskommentierten Eintrag
+`SHELLHERD_SERVER_TRUSTED_PROXY: "1"` aktivieren: Der Server nimmt das letzte
+Element von `X-Forwarded-For` als Quelle. Das nur setzen, wenn der Port wie
+vorgegeben auf `127.0.0.1` gebunden ist und ausschließlich der Proxy ihn erreicht.
+
+Optional und außerhalb dieses Repos kann fail2ban wiederholte 429-Antworten oder
+Fehlanmeldungen auf Firewall-Ebene sperren. Gegen verteilte Floods hilft nur ein
+privates Netz (WireGuard/Tailscale), siehe H2.
+
+## Image aktualisieren
+
+Das Dockerfile pinnt das Basisimage per Digest. Zum Erneuern den Digest des
+Tags `node:22-bookworm-slim` auflösen (`docker buildx imagetools inspect
+node:22-bookworm-slim`), in der `FROM`-Zeile und im Kommentar darüber (Tag,
+Datum) ersetzen, neu bauen und `node scripts/check-server-container.mjs`
+ausführen. Danach `docker compose -f server/compose.yaml up -d --build`.
 
 ## Lokal ohne Container
 

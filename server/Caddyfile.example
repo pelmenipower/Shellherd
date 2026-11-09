@@ -1,8 +1,31 @@
 # Run Caddy on the same host. Replace this domain and provide DNS to this host.
+{
+    servers {
+        timeouts {
+            read_header 5s
+            read_body 10s
+            write 30s
+            idle 60s
+        }
+    }
+}
+
 shellherd.example.org {
     request_body {
-        max_size 1MB
+        max_size 1MiB
     }
-    reverse_proxy 127.0.0.1:8787
+    @api path /v1/*
+    handle @api {
+        reverse_proxy 127.0.0.1:8787 {
+            transport http {
+                dial_timeout 2s
+                response_header_timeout 20s
+            }
+        }
+    }
+    handle {
+        respond 404
+    }
+    header -Server
     # Access logging is deliberately not enabled.
 }
