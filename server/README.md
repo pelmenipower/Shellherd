@@ -33,9 +33,10 @@ keine bestehende Konfiguration.
 Das benannte Volume `server-data` enthält `/data/server.json` (Modus 0600 mit
 gesalzenem scrypt-Hash, Server-ID, Namespace) und `/data/objects` (0700 mit
 verschlüsselten unveränderlichen Objekten). Kontozugang ist ein einzelnes
-gemeinsames Serverkonto, keine Mehrbenutzerverwaltung. Geräte, Sitzungen und
-Sitzungstoken bleiben im RAM. Neustart verwirft diese; der Konto-Hash und die
-Vault-Versionen bleiben erhalten.
+gemeinsames Serverkonto, keine Mehrbenutzerverwaltung. Dazu kommt `devices.json`
+(0600) im Objektverzeichnis mit dem Geräteverzeichnis, siehe „Geräte“. Sitzungen
+und Sitzungstoken sowie temporäre Geräte bleiben im RAM. Neustart verwirft
+diese; Konto-Hash, Vault-Versionen und persistente Geräte bleiben erhalten.
 
 Der Container läuft als UID/GID 1000 ohne zusätzliche Capabilities, mit
 schreibgeschütztem Root-Dateisystem und Ressourcenlimits. Neue benannte Volumes
@@ -60,9 +61,15 @@ Podman-Freigabe muss gesondert mit der jeweiligen Installation geprüft werden.
 
 ## Limits pro Quelle
 
-Der Server begrenzt Anfragen, Anmeldungen und Verbindungen pro Quelladresse
-(IPv6 je /64) und bremst fehlgeschlagene Anmeldungen mit wachsendem Backoff
-(Antwort 429 mit `retry-after`). Hinter dem Proxy auf dem Host erscheinen
+Der Server begrenzt Anfragen, Einschreibungen, Sitzungen und Verbindungen pro
+Quelladresse (IPv6 je /64) und bremst fehlgeschlagene Passwort- und
+Signaturprüfungen mit wachsendem Backoff (Antwort 429 mit `retry-after`).
+Einzelne Budgets pro Minute und Quelle: `challenge` 30 (`GET /v1/challenge`),
+`enroll` wie `login` (`POST /v1/devices`), `session` 20 (`POST /v1/session`).
+Zusätzlich gilt `deviceWrites` 60 pro Minute und Gerät für `PUT` und `DELETE`
+auf Vault-Objekten. Offene Challenges: höchstens 8 je Quelle und 128 insgesamt,
+jede gilt 30 Sekunden und ist einmalig. Sitzungen: höchstens 4 je Gerät (die
+älteste fällt weg) und 64 insgesamt. Hinter dem Proxy auf dem Host erscheinen
 Clients im Container als Adresse des Docker-Gateways (nicht `127.0.0.1`), also
 als eine einzige Quelle. Deshalb setzt `compose.yaml` aktiv
 `SHELLHERD_SERVER_TRUSTED_PROXY: "1"`: Der Server nimmt das letzte Element von
@@ -75,6 +82,76 @@ Quelle per Header fälschen.
 Optional und außerhalb dieses Repos kann fail2ban wiederholte 429-Antworten oder
 Fehlanmeldungen auf Firewall-Ebene sperren. Gegen verteilte Floods hilft nur ein
 privates Netz (Tailscale/WireGuard), siehe nächster Abschnitt.
+
+## Geräte
+
+Seit Härtung H3 meldet sich kein Client mehr mit dem Serverpasswort an. Das
+Passwort dient nur noch der **Einschreibung** eines Geräts und geht genau einmal
+je Gerät über die Leitung (TLS oder Tunnel). Danach weist sich das Gerät mit
+seinem Ed25519-Schlüssel aus. `POST /v1/login` gibt es nicht mehr (404).
+`/v1/info` meldet `authentication: "enrolled-device"`, `deviceSessions: true` und
+`objectFormat: "sync-object"`. Clients und Server der Vorstufe H2 lehnen sich
+gegenseitig sichtbar ab (`unavailable`); es gibt keinen Rückfall. Alle Geräte
+und der Server werden gemeinsam aktualisiert.
+
+**Einschreiben.** `POST /v1/devices` mit Benutzername, Passwort und einem
+selbstsignierten Einschreibedokument. Es bindet Signaturschlüssel, Noise-Schlüssel
+(X25519) und Gerätenamen an die Geräte-ID (SHA-256 des X25519-Schlüssels) und
+wird nur mit korrektem Serverpasswort angenommen. Die Antwort enthält keinen
+Token. Dieselbe Einschreibung ist idempotent und hebt einen Widerruf auf. Dieselbe
+ID mit anderen Schlüsseln ergibt immer 409. Das Dokument beweist den Besitz des
+Signaturschlüssels, nicht des X25519-Schlüssels; ein Passwortbesitzer kann also
+eine fremde, noch nicht eingeschriebene ID belegen (sichtbar in der Liste, das
+echte Gerät erhält dann 409).
+
+**Signierte Sitzung.** `GET /v1/challenge` liefert eine einmalige Nonce (30
+Sekunden). `POST /v1/session` mit `{device, nonce, signature}` prüft die
+Signatur gegen das Geräteverzeichnis und gibt einen Token zurück, der wie bisher
+15 Minuten gilt (`POST /v1/refresh` bis 12 Stunden). Die Nonce ist nach dem
+Versuch verbraucht, auch bei falscher Signatur. Ein Fehlschlag zählt als
+fehlgeschlagene Anmeldung (Backoff). Der Token gehört zu genau einem Gerät;
+jeder Request prüft, ob das Gerät noch aktiv ist. Ein Token ist weiterhin ein
+Inhaberausweis für seine Laufzeit.
+
+**Liste und Widerruf.** `GET /v1/devices` (mit Token) liefert alle Einträge
+(Id, Name, Signaturschlüssel, `enrolledAt`, `revokedAt`, `ephemeral`) und
+markiert das eigene Gerät mit `self`. `DELETE /v1/devices/<id>` widerruft ein
+Gerät. Der Request trägt zusätzlich zum Token eine Gerätesignatur über Methode,
+Pfad und frische Nonce (Header `x-shellherd-device`, `x-shellherd-nonce`,
+`x-shellherd-signature`), damit ein gestohlener Token niemanden aussperren kann.
+Der Widerruf löscht sofort alle Sitzungen und die Rendezvous-Präsenz des Geräts.
+Der Eintrag bleibt als widerrufen erhalten, damit alte Versionen zuordenbar
+bleiben. Eine bestehende direkte WebRTC-Verbindung zwischen zwei Geräten läuft
+nach einem Widerruf weiter. Ein widerrufenes Gerät behält den Sync-Schlüssel und
+seine lokalen Daten; der Widerruf verhindert neue Downloads und Uploads, kein
+Lesen bereits geladener Daten.
+
+**Temporäre Geräte.** Ohne OS-Schlüsselablage hält der Client seine Identität nur
+im RAM und schreibt sich mit `ephemeral: true` ein. Der Server hält solche Geräte
+ausschließlich im RAM. Sie erscheinen in der Liste als temporär, verfallen 12
+Stunden nach der letzten Sitzung und sind nach einem Neustart weg. Sind alle 8
+Plätze belegt, verdrängt eine neue temporäre Einschreibung das temporäre Gerät
+mit der ältesten Sitzung ohne aktive Sitzung; gibt es keines, antwortet der
+Server mit 429.
+
+**Grenzen.** Höchstens 16 aktive persistente Geräte (sonst 429) und höchstens 64
+Einträge in `devices.json` einschließlich widerrufener. Bei vollem Verzeichnis
+fällt der am längsten widerrufene Eintrag weg, gibt es keinen, kommt 429. Dazu
+höchstens 8 temporäre Geräte im RAM. `devices.json` ist höchstens 64 KiB groß.
+
+**Passwortwechsel ist kein Widerruf.** `rotate-password` ändert nur, wer sich
+einschreiben darf. Bereits eingeschriebene Geräte und ihre Sitzungen bleiben
+unberührt; ein Widerruf ist eine eigene Aktion. Wer das Serverpasswort kennt,
+kann ein neues Gerät einschreiben und danach alle anderen widerrufen. Ausweg:
+`rotate-password` ausführen und die rechtmäßigen Geräte neu einschreiben.
+
+**Alte H2-Objekte.** Vault-Objekte im Format `terminus-encrypted-vault` bleiben
+auf der Platte lesbar, der Server startet damit. Ein `PUT` in diesem Format wird
+mit 400 abgelehnt, ein `GET` liefert sie weiter. Neue Clients behandeln sie als
+fremd. Vor dem Umstieg das Konto leeren oder danach einmal im Sync-Dialog
+„Fremde Objekte entfernen“ ausführen. Der erste Abgleich legt eine
+Wiederherstellungs-Keybox und neue Versionen im Format `shellherd-sync-object`
+an; ein alter lokaler Sync-Zustand (`.sync-state` v1) muss gelöscht werden.
 
 ## Privates Netz
 
@@ -177,7 +254,7 @@ docker compose -f server/compose.yaml run --rm server rotate-password
 docker compose -f server/compose.yaml up -d
 ```
 
-Die Rotation ersetzt die Kontokonfiguration atomar und erhält Server-ID,
+Die Rotation widerruft keine Geräte (siehe „Geräte“). Sie ersetzt die Kontokonfiguration atomar und erhält Server-ID,
 Namespace und Objekte. Der abgefragte Benutzername kann gleich bleiben. Erst
 beim folgenden Start gilt der neue Zugang. Alte RAM-Sitzungen sind durch den
 Stop verworfen. Auch lokal `rotate-password` ausschließlich bei gestopptem
@@ -188,8 +265,12 @@ bereits heruntergeladenen Daten.
 ## Backup und Wiederherstellung
 
 Server stoppen und das **gesamte** Datenvolume mit privaten Dateirechten sichern.
-Die Sicherung enthält den Konto-Hash und verschlüsselte Vaults; sie bleibt
-schutzbedürftig. Beispiel aus einem Container in dasselbe benannte Volume:
+Die Sicherung enthält den Konto-Hash, das Geräteverzeichnis `devices.json`
+(öffentliche Schlüssel, Namen, Widerrufsstände, keine privaten Schlüssel) und
+verschlüsselte Vaults; sie bleibt schutzbedürftig. Temporäre Geräte stehen nicht
+darin. Nach einer Wiederherstellung gelten Einschreibungen und Widerrufe des
+Sicherungsstands: Ein inzwischen widerrufenes Gerät ist dann wieder aktiv, bis
+der Widerruf wiederholt wird. Beispiel aus einem Container in dasselbe benannte Volume:
 
 ```sh
 docker compose -f server/compose.yaml stop server
@@ -212,20 +293,26 @@ Ein alter Serverbackupstand beweist gegenüber Clients keinen neuesten Stand.
 
 ## Vermittlungsablauf und API
 
-Die bestehende API bleibt kompatibel: `GET /v1/info`, `POST /v1/login`,
-`POST /v1/logout` und die authentifizierten Vault-Objektendpunkte. `/v1/info`
-meldet zusätzlich `rendezvous: true` und `rendezvousNoise: true` (Noise-Frames,
+`POST /v1/login` entfällt (404). Die Anmeldung läuft über Einschreibung und
+signierte Sitzung (siehe „Geräte“). `/v1/info` meldet zusätzlich `rendezvous: true` und `rendezvousNoise: true` (Noise-Frames,
 siehe unten). Clients lehnen Server ohne `rendezvousNoise` ab; es gibt keinen
 Rückfall auf ein älteres Protokoll. `DELETE /v1/vaults/<namespace>/objects/<id>`
-(64 Hex-Zeichen) entfernt ein Vault-Objekt, ausschließlich bei Anmeldung mit dem
-Serverkonto (im Gerätemodus 405); Antwort `{removed: true}`, unbekannte ID 404.
-Alle folgenden Endpunkte verlangen
-`Authorization: Bearer …` aus der Anmeldung:
+(64 Hex-Zeichen) entfernt ein Vault-Objekt mit einer Gerätesitzung (im alten
+Gerätemodus 405); Antwort `{removed: true}`, unbekannte ID 404. Objekte haben die
+Hülle `shellherd-sync-object` (Version 1, `kind` `version` oder `keybox`, AES-256-GCM,
+kanonisches JSON, höchstens 1 MiB); `PUT` im Altformat gibt 400. Alle Endpunkte
+außer den ersten drei Zeilen verlangen `Authorization: Bearer …` aus einer Sitzung:
 
 | Methode und Pfad | Funktion |
 | --- | --- |
-| `POST /v1/refresh` | Leerer Body; verlängert die Anmeldung um 15 Minuten, höchstens 12 Stunden ab Login. Token bleibt gleich. |
-| `PUT /v1/rendezvous/devices` | `{name, publicKey}` registrieren/Präsenz erneuern |
+| `GET /v1/challenge` | Ohne Token; einmalige Nonce, 30 Sekunden gültig |
+| `POST /v1/devices` | Ohne Token; `{username, password, enrollment, ephemeral?}` schreibt ein Gerät ein, Antwort 201 (neu) oder 200 (bekannt), ohne Token |
+| `POST /v1/session` | Ohne Token; `{device, nonce, signature}`, Antwort `{token, expiresAt, device}` |
+| `POST /v1/logout` | Beendet die eigene Sitzung |
+| `GET /v1/devices` | Geräteliste mit `self` |
+| `DELETE /v1/devices/<id>` | Gerät widerrufen; zusätzlich signierte `x-shellherd-*`-Header, Body leer; Antwort `{revoked: true}`, unbekannt 404 |
+| `POST /v1/refresh` | Leerer Body; verlängert die Anmeldung um 15 Minuten, höchstens 12 Stunden ab Sitzungsbeginn. Token bleibt gleich. |
+| `PUT /v1/rendezvous/devices` | `{name, publicKey}` registrieren/Präsenz erneuern; `publicKey` muss der eingeschriebene Noise-Schlüssel des Sitzungsgeräts sein (sonst 403) |
 | `GET /v1/rendezvous/devices` | Aktive Geräte des gemeinsamen Serverkontos |
 | `DELETE /v1/rendezvous/devices` | Eigenes Gerät und dessen Sitzungen entfernen |
 | `POST /v1/rendezvous/sessions` | `{target, scope, nonce}`; `view` oder `control` anfragen, frische 256-Bit-Client-Nonce als Hex |
@@ -237,7 +324,7 @@ Alle folgenden Endpunkte verlangen
 | `GET /v1/rendezvous/sessions/:id/messages?after=N` | Nicht quittierte Frames lesen |
 | `POST /v1/rendezvous/sessions/:id/ack` | `{through: N}` quittieren |
 
-Ein Gerät pro Anmeldung, maximal 32 Geräte. Präsenz spätestens alle 30 Sekunden
+Ein Gerät pro Sitzung, maximal 32 Geräte. Präsenz spätestens alle 30 Sekunden
 erneuern, Lease 60 Sekunden. Ausloggen, Ablauf des Tokens (15 Minuten, ohne `POST /v1/refresh`) oder der
 Präsenz entfernen auch die betreffenden Sitzungen beim nächsten Request.
 Anfragen laufen nach 60 Sekunden ab, angenommene Sitzungen nach fünf Minuten.
@@ -271,12 +358,12 @@ nach erfolgreichem Sync:
   folgenlos: der nächste Lauf setzt fort.
 - Ein Serverkonto enthält genau einen Vault. Der Client löscht nie Objekte, die er
   als Teil derselben Historie lesen kann, außer durch diese Kompaktierung.
-  Objekte, die sich mit dem entsperrten Vault-Schlüssel nicht öffnen lassen
-  (anderer Vault im selben Konto), löscht er nur auf ausdrücklichen Auftrag des
+  Objekte, die sich mit dem Sync-Schlüssel nicht öffnen lassen
+  (anderer Vault im selben Konto, auch Objekte im Altformat von H2), löscht er nur auf ausdrücklichen Auftrag des
   Kontoinhabers im Sync-Dialog („Fremde Objekte entfernen“), nach erneutem
   Lesen und nur wenn sie tatsächlich unlesbar sind.
-- Löschen verlangt die Anmeldung mit dem Serverkonto. Ein Gerät im Gerätemodus
-  erhält 405.
+- Löschen verlangt eine Gerätesitzung (60 Schreibzugriffe pro Minute und Gerät).
+  Im alten Gerätemodus erhält das Gerät 405.
 - **Vor der ersten Kompaktierung alle Geräte mit Sync-Lab gemeinsam auf denselben
   Stand der App aktualisieren.** Ein altes Gerät kennt `compacts` nicht, würde
   fehlende Vorgänger als Historienbruch werten und den Sync verweigern.
