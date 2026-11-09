@@ -12,6 +12,7 @@ scripts/sync-prototype/*
 !scripts/sync-prototype/http-proof.mjs
 !scripts/sync-prototype/account-auth.mjs
 !scripts/sync-prototype/account-init.mjs
+!scripts/sync-prototype/rate-limit.mjs
 !scripts/sync-prototype/vault-file-wire.mjs
 !scripts/sync-prototype/rendezvous.mjs
 !src/
