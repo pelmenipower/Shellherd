@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { RemoteLabEvent, RemoteLabReply, RemoteSignalPart } from '../../shared/remote-lab';
+import { REMOTE_LAB_LIMITS, type RemoteLabEvent, type RemoteLabReply, type RemoteSignalPart } from '../../shared/remote-lab';
 import type { RemoteIdentity, RemoteIdentityStore } from './identity';
 import { RemoteLabHost, type RemoteAccount, type RemoteChannel, type RemoteDeps, type RemotePeer, type RemoteSessionWire } from './lab-host';
 import type { PresenceHandlers } from './presence';
@@ -11,7 +11,7 @@ const SID = '1'.repeat(64);
 const SID2 = '2'.repeat(64);
 const CLIENT = '00000000-0000-4000-8000-000000000001';
 const OWNER = 7;
-const PREFIX = 'b'.repeat(12);
+const PREFIX = 'b'.repeat(REMOTE_LAB_LIMITS.verificationHex);
 const URL = 'http://127.0.0.1:8788/';
 
 class Clock {
@@ -418,11 +418,11 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: null })).toEqual({ ok: false, code: 'invalid' });
     expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'zz' })).toEqual({ ok: false, code: 'invalid' });
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { attemptsLeft: 3 } } });
-    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
+    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(REMOTE_LAB_LIMITS.verificationHex) })).toEqual({ ok: false, code: 'mismatch' });
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { attemptsLeft: 2 } } });
-    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
+    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(REMOTE_LAB_LIMITS.verificationHex) })).toEqual({ ok: false, code: 'mismatch' });
     expect(t.kinds('ended')).toEqual([]);
-    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
+    expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(REMOTE_LAB_LIMITS.verificationHex) })).toEqual({ ok: false, code: 'mismatch' });
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'mismatch' }]);
     expect(t.host.captureGranted(OWNER)).toBe(false);
     t.handlers().onSessions([wire({ id: SID2 })]);
@@ -920,7 +920,7 @@ describe('RemoteLabHost: viewer verification (B7, B10)', () => {
     t.known.mockReturnValue({ firstSeen: 1, verified: false });
     expect(await t.act({ kind: 'request', target: B, verification: null })).toEqual({ ok: false, code: 'invalid' });
     expect(await t.act({ kind: 'request', target: B, verification: 'zz' })).toEqual({ ok: false, code: 'invalid' });
-    for (let i = 0; i < 3; i++) expect(await t.act({ kind: 'request', target: B, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
+    for (let i = 0; i < 3; i++) expect(await t.act({ kind: 'request', target: B, verification: 'c'.repeat(REMOTE_LAB_LIMITS.verificationHex) })).toEqual({ ok: false, code: 'mismatch' });
     expect(t.peer.request).not.toHaveBeenCalled();
   });
 
@@ -928,7 +928,7 @@ describe('RemoteLabHost: viewer verification (B7, B10)', () => {
     const t = setup();
     await t.goOnline();
     t.handlers().onDevices([device(B, 'Büro')]);
-    for (let i = 0; i < 3; i++) expect(await t.act({ kind: 'request', target: B, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
+    for (let i = 0; i < 3; i++) expect(await t.act({ kind: 'request', target: B, verification: 'c'.repeat(REMOTE_LAB_LIMITS.verificationHex) })).toEqual({ ok: false, code: 'mismatch' });
     expect(await t.act({ kind: 'request', target: B, verification: PREFIX })).toEqual({ ok: false, code: 'mismatch' });
     expect(t.peer.request).not.toHaveBeenCalled();
     await t.act({ kind: 'goOffline' });
