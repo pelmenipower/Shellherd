@@ -8,7 +8,7 @@ import { formatFingerprint } from '../../shared/remote-signal';
 import { mainT } from '../i18n';
 import { RemoteLabHost } from './lab-host';
 import type { CapturePrompt, RemoteAccount, RemoteDeps, RemotePeer, RemoteServerInfo } from './lab-host';
-import { RemoteIdentityStore, safeStorageCipher } from './identity';
+import type { RemoteIdentityStore } from './identity';
 import type { RemoteIdentity } from './identity';
 import { PresenceLoop } from './presence';
 import type { PresenceTimers } from './presence';
@@ -76,7 +76,7 @@ export function remoteLabRequested(env: NodeJS.ProcessEnv = process.env, package
 }
 
 /** Rendezvous scripts are loaded only in an explicitly enabled dev checkout; anything missing leaves the host without deps. */
-export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; matchesVaultPassword(password: string): Promise<boolean> }): Promise<RemoteLabHost> {
+export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; matchesVaultPassword(password: string): Promise<boolean>; identity: RemoteIdentityStore }): Promise<RemoteLabHost> {
   let host = new RemoteLabHost();
   if (remoteLabRequested()) {
     try {
@@ -87,15 +87,13 @@ export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; mat
         AccountStore: new (info: RemoteServerInfo, options: { signal: AbortSignal }) => RemoteAccount;
       };
       const client = await import(/* @vite-ignore */ script('rendezvous-client.mjs')) as {
-        createRendezvousIdentity(): RemoteIdentity;
         RendezvousPeer: new (store: RemoteAccount, identity: RemoteIdentity) => RemotePeer;
       };
-      const store = new RemoteIdentityStore(join(app.getPath('userData'), 'remote-identity.json'), safeStorageCipher());
       const deps: RemoteDeps = {
         probe: (serverUrl, allowPrivateHttp, signal) => transport.probeSyncServer(serverUrl, { allowLoopbackHttp: true, allowPrivateHttp, signal }),
         createAccount: (info, signal) => new accounts.AccountStore(info, { signal }),
         createPeer: (account, identity) => new client.RendezvousPeer(account, identity),
-        identity: () => store,
+        identity: () => options.identity,
         presence: (transportLike, name, handlers) => new PresenceLoop(transportLike, name, timers, handlers),
         timers,
         isUnlocked: options.isUnlocked,

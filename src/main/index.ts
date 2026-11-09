@@ -46,6 +46,7 @@ import { registerSyncLabIpc } from './sync-prototype/lab-ipc';
 import type { SyncLabHost } from './sync-prototype/lab-host';
 import { registerPermissionHandlers } from './permissions';
 import { registerRemoteLabIpc, remoteLabRequested } from './remote/lab-ipc';
+import { RemoteIdentityStore, safeStorageCipher } from './remote/identity';
 import type { RemoteLabHost } from './remote/lab-host';
 
 import { IPC_CHANNELS } from '../shared/ipc';
@@ -262,8 +263,10 @@ if (remoteLabRequested()) {
 app.whenReady().then(async () => {
   if (!singleInstance) return;
   let syncVaultChanged: (snapshot: import('./vault/session').VaultSessionSnapshot) => void = () => {};
-  syncLabHost = await registerSyncLabIpc({ sessions: vaultSessionManager, onSynced: snapshot => syncVaultChanged(snapshot) });
-  remoteLabHost = await registerRemoteLabIpc({ isUnlocked: () => vaultSessionManager.isUnlocked(), matchesVaultPassword: p => vaultSessionManager.matchesPassword(p) });
+  // One identity store (and file) for both labs; load() caches.
+  const identity = new RemoteIdentityStore(join(app.getPath('userData'), 'remote-identity.json'), safeStorageCipher());
+  syncLabHost = await registerSyncLabIpc({ sessions: vaultSessionManager, identity, onSynced: snapshot => syncVaultChanged(snapshot) });
+  remoteLabHost = await registerRemoteLabIpc({ isUnlocked: () => vaultSessionManager.isUnlocked(), matchesVaultPassword: p => vaultSessionManager.matchesPassword(p), identity });
   registerPermissionHandlers(session.defaultSession, { remoteLabEnabled: remoteLabHost.enabled, captureGranted: id => remoteLabHost?.captureGranted(id) ?? false, requestCapture: async id => (await remoteLabHost?.requestCapture(id)) != null });
   // Protection goes on at once but comes off only after the renderer had time to stop its tracks (R11).
   let unprotectTimer: ReturnType<typeof setTimeout> | undefined;
