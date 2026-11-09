@@ -5,7 +5,7 @@ const mock = vi.hoisted(() => ({
 }));
 vi.mock('electron', () => ({ app: mock.app, ipcMain: { handle: mock.handle } }));
 vi.mock('../windows', () => ({ windowRegistry: { requireMain: mock.guard } }));
-const sync = vi.hoisted(() => ({ synchronizeVault: vi.fn(), importSyncedVault: vi.fn(), removeForeignObjects: vi.fn() }));
+const sync = vi.hoisted(() => ({ synchronizeVault: vi.fn(), importSyncedVault: vi.fn(), removeForeignObjects: vi.fn(), regenerateRecoveryCode: vi.fn() }));
 vi.mock('./vault-sync', () => sync);
 import { buildSyncLabHost, registerSyncLabIpc, vaultPasswordMatcher } from './lab-ipc';
 import { AppError } from '../../shared/errors';
@@ -42,8 +42,29 @@ it('passes remove through to the vault remote and calls removeForeignObjects wit
   const [s, remote, i, ids, sg] = sync.removeForeignObjects.mock.calls[0];
   expect([s, i, ids, sg]).toEqual([sessions, info, ['x', 'y'], signal]);
   await remote.remove('x'); expect(remove).toHaveBeenCalledWith('x');
-  await host.syncVault({ list: driver.list, get: driver.get, put: driver.put }, info, signal, { kind: 'synchronize' });
+  await host.syncVault({ list: driver.list, get: driver.get, put: driver.put }, info, signal, { kind: 'synchronize' }, undefined);
   expect(sync.synchronizeVault.mock.calls[0][1].remove).toBeUndefined();
+});
+it('adds the device to the sync context and routes regenerate and import to the core', async () => {
+  const driver = { list: async () => [], get: async () => 'w', put: async () => 'id', remove: async () => true };
+  const info = { serverId: 's', namespace: 'n' } as never; const signal = new AbortController().signal; const sessions = {} as never;
+  const device = { id: 'd' } as never;
+  sync.regenerateRecoveryCode.mockResolvedValue({ recoveryCode: 'c' }); sync.synchronizeVault.mockResolvedValue({}); sync.importSyncedVault.mockResolvedValue({});
+  const host = buildSyncLabHost({ probeSyncServer: vi.fn() }, { AccountStore: vi.fn() as never }, { sessions }) as unknown as { syncVault: (...a: unknown[]) => Promise<unknown> };
+  expect(await host.syncVault(driver, info, signal, { kind: 'regenerateCode' }, device)).toEqual({ recoveryCode: 'c' });
+  expect(sync.regenerateRecoveryCode.mock.calls[0][2]).toEqual({ serverId: 's', namespace: 'n', device });
+  await host.syncVault(driver, info, signal, { kind: 'synchronize', recoveryCode: 'abc' }, device);
+  expect(sync.synchronizeVault.mock.calls[0][2]).toEqual({ serverId: 's', namespace: 'n', device });
+  expect(sync.synchronizeVault.mock.calls[0][4]).toEqual({ keepLocalRevision: undefined, recoveryCode: 'abc' });
+  await host.syncVault(driver, info, signal, { kind: 'importVault', password: 'p', recoveryCode: 'rc' }, device);
+  expect(sync.importSyncedVault.mock.calls[0].slice(2, 5)).toEqual([{ serverId: 's', namespace: 'n', device }, 'rc', 'p']);
+});
+it('dispatches the device-key requests to the host', async () => {
+  const host = await registerSyncLabIpc(); const handler = mock.handle.mock.calls[0][1]; const event = { sender: { id: 1 } };
+  const clientId = '123e4567-e89b-42d3-a456-426614174000';
+  for (const kind of ['openSession', 'listDevices', 'revokeDevice', 'regenerateCode', 'signIn'])
+    expect(await handler(event, { kind, clientId })).toMatchObject({ ok: false });
+  expect(host.enabled).toBe(false);
 });
 it('forwards allowPrivateHttp to the server probe', async () => {
   const probeSyncServer = vi.fn(async () => ({ serverUrl: 'u', serverId: 's', namespace: 'n' }));

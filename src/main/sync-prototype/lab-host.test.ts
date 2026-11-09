@@ -1,55 +1,79 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SyncLabHost } from './lab-host';
+import { generateKeyPairSync, verify } from 'node:crypto';
+import { SyncLabHost, DEVICE_NAME, SPKI_PREFIX, weakEd25519 } from './lab-host';
+import type { AccountDriver, DeviceEntry } from './lab-host';
+import { generateRemoteIdentity } from '../remote/identity';
+import type { RemoteIdentity, RemoteIdentityStore } from '../remote/identity';
 const clientId = '123e4567-e89b-42d3-a456-426614174000';
 const otherId = '123e4567-e89b-42d3-a456-426614174001';
+const serverId = 'a'.repeat(64);
+const idle = { action: () => ({ ok: false as const, code: 'unavailable' as const }), close() {} };
+const infoOf = async (serverUrl: string) => ({ serverUrl, serverId, namespace: 'space', authentication: 'enrolled-device' as const, deviceSessions: true });
+const url = 'https://sync.example.net';
+const connectCommand = { kind: 'connect', clientId, serverUrl: url };
+const signInCommand = { kind: 'signIn', clientId, username: 'alice', password: 'PRIVATE_PASSWORD', deviceName: 'Laptop' };
+const entryOf = (identity: RemoteIdentity, extra: Partial<DeviceEntry> = {}): DeviceEntry => ({ id: identity.id, name: 'Laptop', signingKey: identity.signingPublicKey, enrolledAt: 1, revokedAt: null, ephemeral: false, ...extra });
+/** Identity store fake; enrollment starts empty unless given. */
+const storeOf = (identity = generateRemoteIdentity(), enrollment?: unknown, persistent = true) => {
+  const store = { load: vi.fn(() => ({ identity, persistent })), enrollment: vi.fn(() => enrollment), rememberEnrollment: vi.fn(), forgetEnrollment: vi.fn() };
+  return { identity, store, asStore: store as unknown as RemoteIdentityStore };
+};
+const accountOf = (identity: RemoteIdentity, over: Partial<Record<keyof AccountDriver, unknown>> = {}) => ({
+  enroll: vi.fn(async () => ({})), openSession: vi.fn(async () => ({ signedIn: true as const, expiresAt: Date.now() + 600000, device: identity.id })),
+  devices: vi.fn(async () => [entryOf(identity)]), revoke: vi.fn(async () => ({ revoked: true })), list: vi.fn(async () => []), close: vi.fn(), ...over,
+}) as unknown as AccountDriver & { [K in keyof AccountDriver]: AccountDriver[K] & ReturnType<typeof vi.fn> };
+const enrolledOf = (over: Record<string, unknown> = {}) => ({ serverId, namespace: 'space', serverUrl: `${url}/`, username: 'alice', name: 'Laptop', enrolledAt: 1, ...over });
+const sync = { status: 'synced' as const, versions: 1, conflicts: 0, canKeepLocal: false, approvals: 0 };
+/** Host with injected fakes; `connected` runs connect and (optionally) sign-in. */
+const harness = (opts: { enrollment?: unknown; persistent?: boolean; account?: Partial<Record<keyof AccountDriver, unknown>>; syncVault?: (...a: any[]) => Promise<any>; matches?: (p: string) => Promise<boolean | undefined>; info?: (u: string) => Promise<any> } = {}) => {
+  const ids = storeOf(undefined, opts.enrollment, opts.persistent);
+  const account = accountOf(ids.identity, opts.account);
+  const createAccount = vi.fn(() => account);
+  const host = new SyncLabHost(() => idle, opts.info ?? infoOf, undefined, createAccount, opts.syncVault as never, opts.matches, () => ids.asStore);
+  const signedIn = async () => { await host.connect(1, connectCommand); return host.signIn(1, signInCommand); };
+  return { host, account, createAccount, ...ids, signedIn };
+};
 describe('development lab ownership boundary', () => {
-  it('allows conflict resolution only after login, for the owning dialog and the reviewed revision', async () => {
+  it('allows conflict resolution only after sign-in, for the owning dialog and the reviewed revision', async () => {
     const revision = 'c'.repeat(64);
-    const sync = vi.fn(async () => ({ status: 'conflict' as const, versions: 3, conflicts: 1, canKeepLocal: true, conflictRevision: revision, approvals: 0 }));
-    const host = new SyncLabHost(() => ({ action: () => ({ ok: false, code: 'unavailable' }), close() {} }),
-      async serverUrl => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space', authentication: 'password' }), undefined,
-      () => ({ login: async () => {}, list: async () => [], close() {} }), sync);
-    await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
+    const syncVault = vi.fn(async () => ({ ...sync, status: 'conflict' as const, versions: 3, conflicts: 1, canKeepLocal: true, conflictRevision: revision }));
+    const { host } = harness({ syncVault });
+    await host.connect(1, connectCommand);
     expect(await host.performSync(1, { kind: 'synchronize', clientId })).toEqual({ ok: false, code: 'stale' });
-    await host.signIn(1, { kind: 'signIn', clientId, username: 'alice', password: 'ONLY_TEST_PASSWORD' });
+    await host.signIn(1, signInCommand);
     expect(await host.performSync(2, { kind: 'synchronize', clientId })).toEqual({ ok: false, code: 'stale' });
     expect(await host.performSync(1, { kind: 'keepLocal', clientId, reviewed: true, revision })).toEqual({ ok: false, code: 'invalid' });
-    expect(sync).not.toHaveBeenCalled();
+    expect(syncVault).not.toHaveBeenCalled();
     expect(await host.performSync(1, { kind: 'synchronize', clientId })).toMatchObject({ ok: true, state: { sync: { conflictRevision: revision } } });
     expect(await host.performSync(1, { kind: 'keepLocal', clientId, reviewed: false, revision })).toEqual({ ok: false, code: 'invalid' });
     expect(await host.performSync(1, { kind: 'keepLocal', clientId, reviewed: true, revision: 'd'.repeat(64) })).toEqual({ ok: false, code: 'invalid' });
-    expect(sync).toHaveBeenCalledOnce();
+    expect(syncVault).toHaveBeenCalledOnce();
     expect(await host.performSync(1, { kind: 'keepLocal', clientId, reviewed: true, revision })).toMatchObject({ ok: true });
-    expect(sync).toHaveBeenLastCalledWith(expect.any(Object), expect.any(Object), expect.any(AbortSignal), { kind: 'keepLocal', clientId, reviewed: true, revision });
+    expect(syncVault).toHaveBeenLastCalledWith(expect.any(Object), expect.any(Object), expect.any(AbortSignal), { kind: 'keepLocal', reviewed: true, revision }, expect.any(Object));
     host.reset();
   });
-  it('keeps login credentials and tokens out of replies, permits retry and closes the account with its owner', async () => {
-    const login = vi.fn().mockRejectedValueOnce({ status: 401 }).mockResolvedValue({ token: 'MUST_NOT_LEAK' });
-    const list = vi.fn(async () => []); const close = vi.fn(); const createAccount = vi.fn(() => ({ login, list, close }));
-    const host = new SyncLabHost(() => ({ action: () => ({ ok: false, code: 'unavailable' }), close() {} }),
-      async serverUrl => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space', authentication: 'password' }), undefined, createAccount);
-    await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
-    const command = { kind: 'signIn', clientId, username: 'alice', password: 'PRIVATE_PASSWORD' };
-    expect(await host.signIn(2, command)).toEqual({ ok: false, code: 'stale' });
-    expect(login).not.toHaveBeenCalled();
-    expect(await host.signIn(1, command)).toEqual({ ok: false, code: 'authentication' });
-    expect(close).toHaveBeenCalledOnce();
-    const reply = await host.signIn(1, command);
+  it('keeps credentials and tokens out of replies, permits retry and closes the account with its owner', async () => {
+    const enroll = vi.fn().mockRejectedValueOnce({ status: 401 }).mockResolvedValue({ token: 'MUST_NOT_LEAK' });
+    const { host, account } = harness({ account: { enroll } });
+    await host.connect(1, connectCommand);
+    expect(await host.signIn(2, signInCommand)).toEqual({ ok: false, code: 'stale' });
+    expect(enroll).not.toHaveBeenCalled();
+    expect(await host.signIn(1, signInCommand)).toEqual({ ok: false, code: 'authentication' });
+    expect(account.close).toHaveBeenCalledOnce();
+    const reply = await host.signIn(1, signInCommand);
     expect(reply).toMatchObject({ ok: true, state: { account: { signedIn: true, username: 'alice' } } });
     expect(JSON.stringify(reply)).not.toMatch(/PRIVATE_PASSWORD|MUST_NOT_LEAK/);
-    expect(list).toHaveBeenCalledOnce(); host.closeOwner(1); expect(close).toHaveBeenCalledTimes(2);
+    expect(account.list).toHaveBeenCalledOnce(); host.closeOwner(1); expect(account.close).toHaveBeenCalledTimes(2);
   });
-  it('aborts login on close and never exposes a completed canceled sign-in', async () => {
+  it('aborts sign-in on close and never exposes a completed canceled sign-in', async () => {
     let complete!: () => void; let signal!: AbortSignal;
-    const close = vi.fn(); const list = vi.fn(async () => []);
-    const host = new SyncLabHost(() => ({ action: () => ({ ok: false, code: 'unavailable' }), close() {} }),
-      async serverUrl => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space', authentication: 'password' }), undefined,
-      (_info, current) => { signal = current; return { login: () => new Promise<void>(resolve => { complete = resolve; }), list, close }; });
-    await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
-    const command = { kind: 'signIn', clientId, username: 'alice', password: 'PRIVATE_PASSWORD' };
-    const pending = host.signIn(1, command);
-    expect(await host.signIn(1, command)).toEqual({ ok: false, code: 'stale' });
-    host.closeOwner(1); expect(close).toHaveBeenCalledOnce(); expect(signal.aborted).toBe(true);
+    const ids = storeOf(); const account = accountOf(ids.identity, { enroll: () => new Promise<void>(resolve => { complete = resolve; }) });
+    const host = new SyncLabHost(() => idle, infoOf, undefined, (_info, current) => { signal = current; return account; }, undefined, undefined, () => ids.asStore);
+    await host.connect(1, connectCommand);
+    const pending = host.signIn(1, signInCommand);
+    expect(await host.signIn(1, signInCommand)).toEqual({ ok: false, code: 'stale' });
+    await vi.waitFor(() => expect(complete).toBeDefined());
+    host.closeOwner(1); expect(account.close).toHaveBeenCalled(); expect(signal.aborted).toBe(true);
     complete(); expect(await pending).toEqual({ ok: false, code: 'stale' });
     expect(host.request(1, { kind: 'status', clientId })).toEqual({ ok: false, code: 'stale' });
   });
@@ -78,25 +102,22 @@ describe('development lab ownership boundary', () => {
     host.reset();
   });
   it('connects only an explicitly selected safe URL and keeps the result scoped to its dialog', async () => {
-    const probe = vi.fn(async (serverUrl: string) => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space' }));
-    const host = new SyncLabHost(() => ({ action: () => ({ ok: true, state: { phase: 'idle' } }), close() {} }), probe);
+    const { host } = harness();
     expect(await host.connect(1, { kind: 'connect', clientId, serverUrl: 'http://192.168.1.2' })).toEqual({ ok: false, code: 'invalid' });
-    expect(probe).not.toHaveBeenCalled();
-    const reply = await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
-    expect(reply).toMatchObject({ ok: true, state: { phase: 'serverReady', server: { serverUrl: 'https://sync.example.net/' } } });
+    const reply = await host.connect(1, connectCommand);
+    expect(reply).toMatchObject({ ok: true, state: { phase: 'serverReady', server: { serverUrl: 'https://sync.example.net/' }, identity: { persistent: true } } });
     expect(host.request(2, { kind: 'status', clientId })).toEqual({ ok: false, code: 'stale' });
     host.request(1, { kind: 'close', clientId: otherId });
     expect(host.request(1, { kind: 'status', clientId }).ok).toBe(true);
     host.closeOwner(1); expect(host.request(1, { kind: 'status', clientId }).ok).toBe(false);
   });
   it('aborts a pending server probe on close and never resurrects a canceled setup', async () => {
-    let resolveProbe!: (value: { serverUrl: string; serverId: string; namespace: string }) => void;
-    let signal!: AbortSignal;
-    const probe = vi.fn((_url: string, _private: boolean, current: AbortSignal) => { signal = current; return new Promise<{ serverUrl: string; serverId: string; namespace: string }>(resolve => { resolveProbe = resolve; }); });
-    const host = new SyncLabHost(() => ({ action: () => ({ ok: true, state: { phase: 'idle' } }), close() {} }), probe);
-    const pending = host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
+    let resolveProbe!: (value: Awaited<ReturnType<typeof infoOf>>) => void; let signal!: AbortSignal;
+    const probe = vi.fn((_url: string, _private: boolean, current: AbortSignal) => { signal = current; return new Promise<Awaited<ReturnType<typeof infoOf>>>(resolve => { resolveProbe = resolve; }); });
+    const host = new SyncLabHost(() => idle, probe as never, undefined, undefined, undefined, undefined, () => storeOf().asStore);
+    const pending = host.connect(1, connectCommand);
     host.request(1, { kind: 'close', clientId }); expect(signal.aborted).toBe(true);
-    resolveProbe({ serverUrl: 'https://sync.example.net/', serverId: 'a'.repeat(64), namespace: 'space' });
+    resolveProbe(await infoOf(`${url}/`));
     expect(await pending).toEqual({ ok: false, code: 'stale' });
     expect(host.request(1, { kind: 'status', clientId }).ok).toBe(false);
   });
@@ -106,9 +127,8 @@ describe('development lab ownership boundary', () => {
     const begin = vi.fn(() => new Promise<typeof view>(resolve => { complete = resolve; }));
     const close = vi.fn(); const refresh = vi.fn(async () => view);
     const createEnrollment = vi.fn(() => ({ begin, refresh, close }));
-    const host = new SyncLabHost(() => ({ action: () => ({ ok: true, state: { phase: 'idle' } }), close() {} }),
-      async serverUrl => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space', enrollmentAvailable: true }), createEnrollment);
-    await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
+    const host = new SyncLabHost(() => idle, async serverUrl => ({ ...(await infoOf(serverUrl)), enrollmentAvailable: true }), createEnrollment, undefined, undefined, undefined, () => storeOf().asStore);
+    await host.connect(1, connectCommand);
     expect(await host.authorize(2, { kind: 'requestAccess', clientId })).toEqual({ ok: false, code: 'stale' });
     expect(await host.authorize(1, { kind: 'requestAccess', clientId: otherId })).toEqual({ ok: false, code: 'stale' });
     expect(createEnrollment).not.toHaveBeenCalled();
@@ -120,125 +140,411 @@ describe('development lab ownership boundary', () => {
     expect(host.request(1, { kind: 'status', clientId })).toEqual({ ok: false, code: 'stale' });
     expect(refresh).not.toHaveBeenCalled();
   });
-  describe('vault password separation', () => {
-    const make = (matches: (p: string) => Promise<boolean | undefined>, login = vi.fn(async () => {}), sync?: () => Promise<any>) => {
-      const host = new SyncLabHost(() => ({ action: () => ({ ok: false, code: 'unavailable' }), close() {} }),
-        async serverUrl => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space', authentication: 'password' }), undefined,
-        () => ({ login, list: async () => [], close() {} }), sync, matches);
-      return { host, login };
-    };
-    const command = { kind: 'signIn', clientId, username: 'alice', password: 'PRIVATE_PASSWORD' };
-    it('rejects the vault password before login', async () => {
-      const { host, login } = make(async () => true);
-      await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
-      expect(await host.signIn(1, command)).toEqual({ ok: false, code: 'samePassword' });
-      expect(login).not.toHaveBeenCalled();
-    });
-    it('signs in when the vault is locked (undefined) or the password differs', async () => {
-      for (const result of [undefined, false]) {
-        const { host, login } = make(async () => result);
-        await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
-        expect(await host.signIn(1, command)).toMatchObject({ ok: true });
-        expect(login).toHaveBeenCalledOnce();
-      }
-    });
-    it('ends with connection when the check throws', async () => {
-      const { host, login } = make(async () => { throw Error('boom'); });
-      await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
-      expect(await host.signIn(1, command)).toEqual({ ok: false, code: 'connection' });
-      expect(login).not.toHaveBeenCalled();
-    });
-    it('is stale when the connection changes during the check', async () => {
-      let release!: (v: boolean) => void;
-      const { host, login } = make(() => new Promise<boolean>(resolve => { release = resolve; }));
-      await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
-      const pending = host.signIn(1, command);
-      host.closeOwner(1); release(false);
-      expect(await pending).toEqual({ ok: false, code: 'stale' });
-      expect(login).not.toHaveBeenCalled();
-    });
-    it('reports skipped objects in the state', async () => {
-      const { host } = make(async () => false, undefined, async () => ({ status: 'synced' as const, versions: 1, conflicts: 0, canKeepLocal: false, approvals: 0, skipped: 2 }));
-      await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
-      await host.signIn(1, command);
-      expect(await host.performSync(1, { kind: 'synchronize', clientId })).toMatchObject({ ok: true, state: { sync: { skipped: 2 } } });
-    });
+});
+
+describe('connect and enrollment state', () => {
+  it('requires enrolled-device authentication with device sessions', async () => {
+    for (const info of [{ authentication: 'password' as const, deviceSessions: true }, { authentication: 'enrolled-device' as const, deviceSessions: undefined }, { authentication: 'device' as const, deviceSessions: true }]) {
+      const { host, store } = harness({ info: async serverUrl => ({ ...(await infoOf(serverUrl)), ...info }) });
+      expect(await host.connect(1, connectCommand)).toEqual({ ok: false, code: 'unavailable' });
+      expect(store.load).not.toHaveBeenCalled();
+      expect(host.request(1, { kind: 'status', clientId }).ok).toBe(false);
+    }
   });
-  describe('private network, import digest and foreign objects', () => {
-    const info = async (serverUrl: string) => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space', authentication: 'password' as const });
-    const signIn = { kind: 'signIn', clientId, username: 'alice', password: 'LOGIN_PASSWORD' };
-    const setup = (sync: any, matches: (p: string) => Promise<boolean | undefined> = async () => undefined) => {
-      const host = new SyncLabHost(() => ({ action: () => ({ ok: false, code: 'unavailable' }), close() {} }), info, undefined,
-        () => ({ login: async () => {}, list: async () => [], close() {} }), sync, matches);
-      return host;
-    };
-    const ready = async (host: SyncLabHost) => { await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' }); await host.signIn(1, signIn); };
-    it('passes privateNetwork to the probe and rejects tunnel HTTP without the flag', async () => {
-      const probe = vi.fn(async (serverUrl: string) => ({ serverUrl, serverId: 'a'.repeat(64), namespace: 'space' }));
-      const host = new SyncLabHost(() => ({ action: () => ({ ok: true, state: { phase: 'idle' } }), close() {} }), probe);
-      expect(await host.connect(1, { kind: 'connect', clientId, serverUrl: 'http://10.0.0.5' })).toEqual({ ok: false, code: 'invalid' });
-      expect(probe).not.toHaveBeenCalled();
-      expect(await host.connect(1, { kind: 'connect', clientId, serverUrl: 'http://10.0.0.5', privateNetwork: true })).toMatchObject({ ok: true });
-      expect(probe).toHaveBeenCalledWith('http://10.0.0.5/', true, expect.any(AbortSignal));
-      host.reset();
-      await host.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
-      expect(probe).toHaveBeenLastCalledWith('https://sync.example.net/', false, expect.any(AbortSignal));
-      host.reset();
+  it('drops the connection when the identity cannot be loaded', async () => {
+    const ids = storeOf(); ids.store.load.mockImplementation(() => { throw Error('corrupt'); });
+    const host = new SyncLabHost(() => idle, infoOf, undefined, undefined, undefined, undefined, () => ids.asStore);
+    expect(await host.connect(1, connectCommand)).toEqual({ ok: false, code: 'identity' });
+    expect(host.request(1, { kind: 'status', clientId }).ok).toBe(false);
+  });
+  it('reports the enrollment for the same URL and namespace', async () => {
+    const { host, store } = harness({ enrollment: enrolledOf() });
+    const reply = await host.connect(1, connectCommand);
+    expect(store.enrollment).toHaveBeenCalledWith(serverId);
+    expect(reply).toMatchObject({ ok: true, state: { enrolled: { username: 'alice', name: 'Laptop' } } });
+    expect((reply as { state: object }).state).not.toHaveProperty('enrolledElsewhere');
+  });
+  it('flags another URL with the same serverId as enrolledElsewhere and never opens a session (K10)', async () => {
+    const { host, createAccount, account } = harness({ enrollment: enrolledOf({ serverUrl: 'https://old.example.net/' }) });
+    const reply = await host.connect(1, connectCommand);
+    expect(reply).toMatchObject({ ok: true, state: { enrolledElsewhere: 'https://old.example.net/' } });
+    expect((reply as { state: object }).state).not.toHaveProperty('enrolled');
+    expect(await host.openSession(1, { kind: 'openSession', clientId })).toEqual({ ok: false, code: 'stale' });
+    expect(createAccount).not.toHaveBeenCalled(); expect(account.openSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('sign-in', () => {
+  it('enrolls, opens a session, remembers the enrollment and loads the roster; clears enrolledElsewhere', async () => {
+    const { host, account, store, identity } = harness({ enrollment: enrolledOf({ serverUrl: 'https://old.example.net/' }), persistent: false });
+    await host.connect(1, connectCommand);
+    const reply = await host.signIn(1, signInCommand);
+    expect(account.enroll).toHaveBeenCalledWith(identity, { username: 'alice', password: 'PRIVATE_PASSWORD', name: 'Laptop', ephemeral: true });
+    expect(store.rememberEnrollment).toHaveBeenCalledWith({ serverId, namespace: 'space', serverUrl: 'https://sync.example.net/', username: 'alice', name: 'Laptop', enrolledAt: expect.any(Number) });
+    expect(reply).toMatchObject({ ok: true, state: { account: { signedIn: true, username: 'alice', device: { fingerprint: identity.id, name: 'Laptop', persistent: false } }, enrolled: { username: 'alice', name: 'Laptop' }, devices: [{ id: identity.id, self: true }] } });
+    expect((reply as { state: object }).state).not.toHaveProperty('enrolledElsewhere');
+    expect(JSON.stringify(reply)).not.toContain(identity.signingPublicKey);
+  });
+  it('maps 429 to limit, 401 to authentication, others to connection', async () => {
+    for (const [status, code] of [[429, 'limit'], [401, 'authentication'], [409, 'connection'], [undefined, 'connection']] as const) {
+      const { host, store } = harness({ account: { enroll: vi.fn(async () => { throw { status }; }) } });
+      await host.connect(1, connectCommand);
+      expect(await host.signIn(1, signInCommand)).toEqual({ ok: false, code });
+      expect(store.rememberEnrollment).not.toHaveBeenCalled();
+    }
+  });
+  it('treats the enrollment as known when the sign-in fails after it was remembered', async () => {
+    const { host, store } = harness({ account: { list: vi.fn(async () => { throw { status: 500 }; }) } });
+    await host.connect(1, connectCommand);
+    expect(await host.signIn(1, signInCommand)).toEqual({ ok: false, code: 'connection' });
+    expect(store.rememberEnrollment).toHaveBeenCalled();
+    expect(host.request(1, { kind: 'status', clientId })).toMatchObject({ ok: true, state: { enrolled: { username: 'alice', name: 'Laptop' } } });
+  });
+  it('rejects a device name with control characters or a bad length without contacting the server', async () => {
+    const { host, createAccount } = harness();
+    await host.connect(1, connectCommand);
+    for (const deviceName of ['bad\nname', 'tab\there', '', 'x'.repeat(81), '\u007f'])
+      expect(await host.signIn(1, { ...signInCommand, deviceName })).toEqual({ ok: false, code: 'invalid' });
+    expect(createAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe('session handling', () => {
+  const opened = async (over: Parameters<typeof harness>[0] = {}) => {
+    const h = harness({ enrollment: enrolledOf(), ...over });
+    await h.host.connect(1, connectCommand);
+    return h;
+  };
+  const open = { kind: 'openSession', clientId };
+  it('opens a session without a password for an enrolled device', async () => {
+    const { host, account, identity } = await opened();
+    const reply = await host.openSession(1, open);
+    expect(account.openSession).toHaveBeenCalledWith(identity);
+    expect(account.enroll).not.toHaveBeenCalled(); expect(account.list).toHaveBeenCalledOnce();
+    expect(reply).toMatchObject({ ok: true, state: { account: { signedIn: true, username: 'alice', device: { name: 'Laptop' } }, enrolled: { username: 'alice' } } });
+    expect(await host.openSession(1, open)).toEqual({ ok: false, code: 'stale' }); // Already signed in.
+  });
+  it('requires an enrollment', async () => {
+    const h = harness(); await h.host.connect(1, connectCommand);
+    expect(await h.host.openSession(1, open)).toEqual({ ok: false, code: 'stale' });
+  });
+  it('retries a 401 once with a new openSession call; the enrollment stays on success', async () => {
+    const good = { signedIn: true, expiresAt: Date.now() + 600000, device: 'x' };
+    const openSession = vi.fn().mockRejectedValueOnce({ status: 401 }).mockResolvedValue(good);
+    const { host, store } = await opened({ account: { openSession } });
+    expect(await host.openSession(1, open)).toMatchObject({ ok: true });
+    expect(openSession).toHaveBeenCalledTimes(2); expect(store.forgetEnrollment).not.toHaveBeenCalled();
+  });
+  it('forgets the enrollment after a second 401 (B6)', async () => {
+    const openSession = vi.fn(async () => { throw { status: 401 }; });
+    const { host, store } = await opened({ account: { openSession } });
+    const reply = await host.openSession(1, open);
+    expect(reply).toMatchObject({ ok: false, code: 'authentication' });
+    expect(openSession).toHaveBeenCalledTimes(2);
+    expect(store.forgetEnrollment).toHaveBeenCalledWith(serverId);
+    expect(host.request(1, { kind: 'status', clientId })).toMatchObject({ ok: true });
+    expect(JSON.stringify(host.request(1, { kind: 'status', clientId }))).not.toContain('"enrolled"');
+  });
+  it('keeps the enrollment when a server action answers 401 and drops only the session', async () => {
+    const syncVault = vi.fn(async () => { throw { status: 401 }; });
+    const { host, store, account } = await opened({ syncVault });
+    await host.openSession(1, open);
+    const reply = await host.performSync(1, { kind: 'synchronize', clientId });
+    expect(reply).toMatchObject({ ok: false, code: 'authentication', state: { enrolled: { username: 'alice', name: 'Laptop' } } });
+    expect((reply as { state: object }).state).not.toHaveProperty('account');
+    expect(account.close).toHaveBeenCalled(); expect(store.forgetEnrollment).not.toHaveBeenCalled();
+    expect(await host.performSync(1, { kind: 'synchronize', clientId })).toEqual({ ok: false, code: 'stale' });
+    expect(await host.openSession(1, open)).toMatchObject({ ok: true }); // A new session needs no password.
+  });
+  it('renews the session at expiresAt minus 60 s before a server action', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1_000_000);
+    try {
+      const openSession = vi.fn(async () => ({ signedIn: true as const, expiresAt: Date.now() + 300_000, device: 'x' }));
+      const syncVault = vi.fn(async () => sync);
+      const { host } = await opened({ account: { openSession }, syncVault });
+      await host.openSession(1, open); expect(openSession).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(1_000_000 + 239_999);
+      await host.performSync(1, { kind: 'synchronize', clientId }); expect(openSession).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(1_000_000 + 240_000);
+      await host.performSync(1, { kind: 'synchronize', clientId }); expect(openSession).toHaveBeenCalledTimes(2);
+      await host.devices(1, { kind: 'listDevices', clientId }); expect(openSession).toHaveBeenCalledTimes(2); // New expiry is far away.
+      vi.setSystemTime(1_000_000 + 240_000 + 240_000);
+      await host.devices(1, { kind: 'listDevices', clientId }); expect(openSession).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('sync actions', () => {
+  const run = async (opts: Parameters<typeof harness>[0] = {}) => { const h = harness(opts); await h.signedIn(); return h; };
+  it('hands syncVault a device whose keys come from a fresh roster', async () => {
+    const other = generateRemoteIdentity();
+    const seen: any[] = [];
+    const syncVault = vi.fn(async (_a, _i, _s, _r, device) => { seen.push(device); return sync; });
+    const h = harness({ syncVault }); await h.signedIn();
+    h.account.devices.mockClear();
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Other', revokedAt: 77 })]);
+    await h.host.performSync(1, { kind: 'synchronize', clientId });
+    expect(h.account.devices).toHaveBeenCalledOnce();
+    const device = seen[0]; expect(device.id).toBe(h.identity.id);
+    expect(device.revokedAt(other.id)).toBe(77); expect(device.revokedAt(h.identity.id)).toBeNull(); expect(device.revokedAt('f'.repeat(64))).toBeUndefined();
+    const data = Buffer.from('payload');
+    expect(verify(null, data, device.keyOf(h.identity.id), device.sign(data))).toBe(true);
+    expect(device.keyOf(other.id)).toBeDefined(); expect(device.keyOf('f'.repeat(64))).toBeUndefined();
+    // A later run reads the new roster again.
+    h.account.devices.mockResolvedValue([entryOf(h.identity)]);
+    await h.host.performSync(1, { kind: 'synchronize', clientId });
+    expect(seen[1].keyOf(other.id)).toBeUndefined();
+  });
+  it('ends with connection when the own roster entry is missing or carries another key (B3)', async () => {
+    const syncVault = vi.fn(async () => sync);
+    const h = await run({ syncVault });
+    const foreignKey = generateKeyPairSync('ed25519').publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64');
+    for (const roster of [[], [entryOf(h.identity, { signingKey: foreignKey })], [entryOf(generateRemoteIdentity())]]) {
+      h.account.devices.mockResolvedValue(roster);
+      expect(await h.host.performSync(1, { kind: 'synchronize', clientId })).toEqual({ ok: false, code: 'connection' });
+    }
+    expect(syncVault).not.toHaveBeenCalled();
+  });
+  it('does not pass a device (or load the strict roster) for removeForeign', async () => {
+    const syncVault = vi.fn()
+      .mockResolvedValueOnce({ ...sync, foreign: ['f'.repeat(64)] }).mockResolvedValueOnce({ removedForeign: 1 });
+    const h = await run({ syncVault });
+    await h.host.performSync(1, { kind: 'synchronize', clientId });
+    h.account.devices.mockClear(); h.account.devices.mockResolvedValue([]);
+    expect(await h.host.performSync(1, { kind: 'removeForeign', clientId })).toMatchObject({ ok: true });
+    expect(syncVault).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.any(AbortSignal), { kind: 'removeForeign', ids: ['f'.repeat(64)] }, undefined);
+    expect(h.account.devices).not.toHaveBeenCalled();
+  });
+  it('returns the recovery code only in the one reply and never in state, status or later replies (K13)', async () => {
+    const code = '0123456789abcdef0123456789abcdef';
+    const syncVault = vi.fn()
+      .mockResolvedValueOnce({ ...sync, recoveryCode: code, unknownAuthors: 2, quarantined: 1 })
+      .mockResolvedValueOnce({ recoveryCode: 'f'.repeat(32) }).mockResolvedValueOnce(sync);
+    const h = await run({ syncVault });
+    const first = await h.host.performSync(1, { kind: 'synchronize', clientId }) as { state: { sync: object }; recoveryCode?: string };
+    expect(first.recoveryCode).toBe(code);
+    expect(first.state.sync).toEqual({ ...sync, unknownAuthors: 2, quarantined: 1 });
+    expect(JSON.stringify(first.state)).not.toContain(code);
+    expect(JSON.stringify(h.host.request(1, { kind: 'status', clientId }))).not.toContain(code);
+    const regenerated = await h.host.performSync(1, { kind: 'regenerateCode', clientId }) as { state: unknown; recoveryCode?: string };
+    expect(regenerated.recoveryCode).toBe('f'.repeat(32));
+    expect(syncVault).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.any(AbortSignal), { kind: 'regenerateCode' }, expect.any(Object));
+    expect(JSON.stringify(regenerated.state)).not.toContain('f'.repeat(32));
+    expect(h.host.request(1, { kind: 'status', clientId })).toMatchObject({ ok: true, state: { sync: { unknownAuthors: 2 } } }); // sync unchanged by regenerate
+    expect(JSON.stringify(h.host.request(1, { kind: 'status', clientId }))).not.toMatch(new RegExp(`${code}|${'f'.repeat(32)}`));
+    const later = await h.host.performSync(1, { kind: 'synchronize', clientId });
+    expect(later).not.toHaveProperty('recoveryCode');
+  });
+  it('normalizes a recovery code for synchronize and import, rejecting an invalid one before any call', async () => {
+    const syncVault = vi.fn(async () => sync);
+    const h = await run({ syncVault });
+    expect(await h.host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER', recoveryCode: 'not a code' })).toEqual({ ok: false, code: 'invalid' });
+    expect(await h.host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER', recoveryCode: 'x'.repeat(65) })).toEqual({ ok: false, code: 'invalid' });
+    expect(await h.host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER' })).toEqual({ ok: false, code: 'invalid' });
+    expect(await h.host.performSync(1, { kind: 'synchronize', clientId, recoveryCode: 'zzz' })).toEqual({ ok: false, code: 'invalid' });
+    expect(syncVault).not.toHaveBeenCalled();
+    const raw = '0123456789ABCDEF0123456789ABCDEF';
+    await h.host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER', recoveryCode: raw });
+    expect((syncVault.mock.calls as unknown[][])[0][3]).toEqual({ kind: 'importVault', password: 'OTHER', recoveryCode: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    await h.host.performSync(1, { kind: 'synchronize', clientId, recoveryCode: raw });
+    expect((syncVault.mock.calls as unknown[][])[1][3]).toEqual({ kind: 'synchronize', recoveryCode: expect.stringMatching(/^[0-9a-f]{32}$/) });
+  });
+  it('maps core error codes including the new ones, and HTTP 429/507 during sync to syncLimit', async () => {
+    const errors: [unknown, string][] = [[{ code: 'syncKey' }, 'syncKey'], [{ code: 'recoveryCode' }, 'syncRecoveryCode'], [{ code: 'migrate' }, 'syncMigrate'], [{ code: 'recovery' }, 'syncRecovery'], [{ status: 429 }, 'syncLimit'], [{ status: 507 }, 'syncLimit'], [Error('x'), 'connection']];
+    for (const [error, code] of errors) {
+      const h = await run({ syncVault: async () => { throw error; } });
+      expect(await h.host.performSync(1, { kind: 'synchronize', clientId })).toEqual({ ok: false, code });
+    }
+  });
+  it('reports skipped objects in the state', async () => {
+    const h = await run({ syncVault: async () => ({ ...sync, skipped: 2 }) });
+    expect(await h.host.performSync(1, { kind: 'synchronize', clientId })).toMatchObject({ ok: true, state: { sync: { skipped: 2 } } });
+  });
+});
+
+describe('device list', () => {
+  const run = async () => { const h = harness({ syncVault: async () => sync }); await h.signedIn(); return h; };
+  it('computes self locally and ignores the server flag', async () => {
+    const h = await run(); const other = generateRemoteIdentity();
+    h.account.devices.mockResolvedValue([{ ...entryOf(h.identity), self: false }, { ...entryOf(other, { name: 'Other' }), self: true }]);
+    const reply = await h.host.devices(1, { kind: 'listDevices', clientId });
+    expect((reply as any).state.devices).toEqual([
+      { id: h.identity.id, name: 'Laptop', enrolledAt: 1, revokedAt: null, ephemeral: false, self: true },
+      { id: other.id, name: 'Other', enrolledAt: 1, revokedAt: null, ephemeral: false, self: false },
+    ]);
+    expect(JSON.stringify(reply)).not.toContain('signingKey');
+  });
+  it('validates revoke ids, revokes another device and reloads the list; 404 is ok', async () => {
+    const h = await run(); const other = generateRemoteIdentity();
+    expect(await h.host.devices(1, { kind: 'revokeDevice', clientId, id: 'nothex' })).toEqual({ ok: false, code: 'invalid' });
+    expect(h.account.revoke).not.toHaveBeenCalled();
+    h.account.devices.mockClear();
+    expect(await h.host.devices(1, { kind: 'revokeDevice', clientId, id: other.id })).toMatchObject({ ok: true, state: { phase: 'serverReady' } });
+    expect(h.account.revoke).toHaveBeenCalledWith(h.identity, other.id); expect(h.account.devices).toHaveBeenCalledOnce();
+    h.account.revoke.mockRejectedValueOnce({ status: 404 });
+    expect(await h.host.devices(1, { kind: 'revokeDevice', clientId, id: other.id })).toMatchObject({ ok: true });
+  });
+  it('revoking itself forgets the enrollment, closes the connection and ends idle', async () => {
+    const h = await run();
+    expect(await h.host.devices(1, { kind: 'revokeDevice', clientId, id: h.identity.id })).toEqual({ ok: true, state: { phase: 'idle' } });
+    expect(h.store.forgetEnrollment).toHaveBeenCalledWith(serverId); expect(h.account.close).toHaveBeenCalled();
+    expect(h.host.request(1, { kind: 'status', clientId }).ok).toBe(false);
+  });
+  it('needs a session and the owning dialog', async () => {
+    const h = harness(); await h.host.connect(1, connectCommand);
+    expect(await h.host.devices(1, { kind: 'listDevices', clientId })).toEqual({ ok: false, code: 'stale' });
+    await h.host.signIn(1, signInCommand);
+    expect(await h.host.devices(2, { kind: 'listDevices', clientId })).toEqual({ ok: false, code: 'stale' });
+  });
+});
+
+describe('vault password separation', () => {
+  const make = (matches: (p: string) => Promise<boolean | undefined>, enroll = vi.fn(async () => ({}))) => harness({ matches, account: { enroll } });
+  it('rejects the vault password before sign-in', async () => {
+    const { host, account } = make(async () => true);
+    await host.connect(1, connectCommand);
+    expect(await host.signIn(1, signInCommand)).toEqual({ ok: false, code: 'samePassword' });
+    expect(account.enroll).not.toHaveBeenCalled();
+  });
+  it('signs in when the vault is locked (undefined) or the password differs', async () => {
+    for (const result of [undefined, false]) {
+      const { host, account } = make(async () => result);
+      await host.connect(1, connectCommand);
+      expect(await host.signIn(1, signInCommand)).toMatchObject({ ok: true });
+      expect(account.enroll).toHaveBeenCalledOnce();
+    }
+  });
+  it('ends with connection when the check throws', async () => {
+    const { host, account } = make(async () => { throw Error('boom'); });
+    await host.connect(1, connectCommand);
+    expect(await host.signIn(1, signInCommand)).toEqual({ ok: false, code: 'connection' });
+    expect(account.enroll).not.toHaveBeenCalled();
+  });
+  it('is stale when the connection changes during the check', async () => {
+    let release!: (v: boolean) => void;
+    const { host, account } = make(() => new Promise<boolean>(resolve => { release = resolve; }));
+    await host.connect(1, connectCommand);
+    const pending = host.signIn(1, signInCommand);
+    host.closeOwner(1); release(false);
+    expect(await pending).toEqual({ ok: false, code: 'stale' });
+    expect(account.enroll).not.toHaveBeenCalled();
+  });
+});
+
+describe('private network, import digest and foreign objects', () => {
+  const code = '0123456789abcdef0123456789abcdef';
+  const imp = (password: string, recoveryCode = code) => ({ kind: 'importVault', clientId, password, recoveryCode });
+  const setup = async (syncVault: any, matches: (p: string) => Promise<boolean | undefined> = async () => undefined) => {
+    const h = harness({ syncVault, matches }); await h.signedIn(); return h.host;
+  };
+  const signedPassword = signInCommand.password;
+  it('passes privateNetwork to the probe and rejects tunnel HTTP without the flag', async () => {
+    const probe = vi.fn(infoOf);
+    const host = new SyncLabHost(() => idle, probe, undefined, undefined, undefined, undefined, () => storeOf().asStore);
+    expect(await host.connect(1, { kind: 'connect', clientId, serverUrl: 'http://10.0.0.5' })).toEqual({ ok: false, code: 'invalid' });
+    expect(probe).not.toHaveBeenCalled();
+    expect(await host.connect(1, { kind: 'connect', clientId, serverUrl: 'http://10.0.0.5', privateNetwork: true })).toMatchObject({ ok: true });
+    expect(probe).toHaveBeenCalledWith('http://10.0.0.5/', true, expect.any(AbortSignal));
+    host.reset();
+    await host.connect(1, connectCommand);
+    expect(probe).toHaveBeenLastCalledWith('https://sync.example.net/', false, expect.any(AbortSignal));
+    host.reset();
+  });
+  it('rejects an import with the sign-in password (locked vault) and wipes the digest', async () => {
+    const syncVault = vi.fn(async () => sync);
+    const host = await setup(syncVault);
+    expect(await host.performSync(1, imp(signedPassword))).toMatchObject({ ok: false, code: 'samePasswordImport' });
+    expect(syncVault).not.toHaveBeenCalled();
+    expect(await host.performSync(1, imp('OTHER'))).toMatchObject({ ok: true });
+    expect(syncVault).toHaveBeenCalledOnce();
+  });
+  it('rejects an invalid recovery code without a syncVault call', async () => {
+    const syncVault = vi.fn(async () => sync);
+    const host = await setup(syncVault);
+    expect(await host.performSync(1, imp('OTHER', 'nope'))).toEqual({ ok: false, code: 'invalid' });
+    expect(syncVault).not.toHaveBeenCalled();
+  });
+  it('keeps the digest across failed attempts and wipes it after a successful import', async () => {
+    const syncVault = vi.fn(async (_a: unknown, _i: unknown, _s: unknown, request: any) => request.password === 'OTHER' ? { ...sync, snapshot: {} } : undefined);
+    const host = await setup(syncVault);
+    expect(await host.performSync(1, imp('WRONG'))).toMatchObject({ ok: true });
+    expect(await host.performSync(1, imp(signedPassword))).toMatchObject({ ok: false, code: 'samePasswordImport' });
+    expect(await host.performSync(1, imp(signedPassword))).toMatchObject({ ok: false, code: 'samePasswordImport' });
+    expect(syncVault).toHaveBeenCalledOnce();
+    expect(await host.performSync(1, imp('OTHER'))).toMatchObject({ ok: true });
+    expect(await host.performSync(1, imp(signedPassword))).toMatchObject({ ok: true }); // digest wiped after success
+  });
+  it('compares NFKC-normalized', async () => {
+    const syncVault = vi.fn(async () => undefined);
+    const h = harness({ syncVault }); await h.host.connect(1, connectCommand);
+    await h.host.signIn(1, { ...signInCommand, password: 'café' });
+    expect(await h.host.performSync(1, imp('café'))).toMatchObject({ ok: false, code: 'samePasswordImport' });
+    expect(syncVault).not.toHaveBeenCalled();
+  });
+  it('wipes the digest on close and reset', async () => {
+    const fill = vi.spyOn(Buffer.prototype, 'fill');
+    try {
+      const h = harness(); const ready = async () => { await h.host.connect(1, connectCommand); await h.host.signIn(1, signInCommand); };
+      await ready(); fill.mockClear(); h.host.request(1, { kind: 'close', clientId }); expect(fill).toHaveBeenCalledTimes(2);
+      await ready(); fill.mockClear(); h.host.reset(); expect(fill).toHaveBeenCalledTimes(2);
+      await ready(); fill.mockClear(); h.host.closeOwner(1); expect(fill).toHaveBeenCalledTimes(2);
+    } finally { fill.mockRestore(); }
+  });
+  it('keeps foreign ids out of the state and removes them only when known', async () => {
+    const foreignId = 'f'.repeat(64);
+    const syncVault = vi.fn()
+      .mockResolvedValueOnce({ ...sync, skipped: 1, compacted: 3, foreign: [foreignId], snapshot: undefined })
+      .mockResolvedValueOnce({ removedForeign: 1 });
+    const host = await setup(syncVault);
+    expect(await host.performSync(1, { kind: 'removeForeign', clientId })).toEqual({ ok: false, code: 'invalid' });
+    expect(syncVault).not.toHaveBeenCalled();
+    const reply = await host.performSync(1, { kind: 'synchronize', clientId });
+    expect(reply).toMatchObject({ ok: true, state: { sync: { skipped: 1, compacted: 3 } } });
+    expect(JSON.stringify(reply)).not.toContain(foreignId);
+    expect(JSON.stringify(host.request(1, { kind: 'status', clientId }))).not.toContain(foreignId);
+    const removed = await host.performSync(1, { kind: 'removeForeign', clientId });
+    expect(syncVault).toHaveBeenLastCalledWith(expect.any(Object), expect.any(Object), expect.any(AbortSignal), { kind: 'removeForeign', ids: [foreignId] }, undefined);
+    expect(removed).toMatchObject({ ok: true, state: { sync: { skipped: 0, removedForeign: 1 } } });
+    expect(JSON.stringify(removed)).not.toContain(foreignId);
+    expect(await host.performSync(1, { kind: 'removeForeign', clientId })).toEqual({ ok: false, code: 'invalid' });
+  });
+});
+
+describe('parity with the server device proof', () => {
+  it('uses the same device name rule and Ed25519 SPKI prefix as scripts/sync-prototype/device-proof.mjs', async () => {
+    // @ts-expect-error The dev script has no type declarations.
+    const proof = await import('../../../scripts/sync-prototype/device-proof.mjs') as { DEVICE_NAME: RegExp; ed25519Spki(raw: Buffer): Buffer };
+    expect(DEVICE_NAME.source).toBe(proof.DEVICE_NAME.source); expect(DEVICE_NAME.flags).toBe(proof.DEVICE_NAME.flags);
+    const raw = Buffer.alloc(32, 7); expect(Buffer.concat([SPKI_PREFIX, raw]).equals(proof.ed25519Spki(raw))).toBe(true);
+  });
+  it('rejects the same weak Ed25519 keys as the server: all eight small-order points, non-canonical y, and no real key', async () => {
+    // @ts-expect-error The dev script has no type declarations.
+    const proof = await import('../../../scripts/sync-prototype/device-proof.mjs') as { weakEd25519(raw: Buffer): boolean };
+    const weak = ['0100000000000000000000000000000000000000000000000000000000000000', '0100000000000000000000000000000000000000000000000000000000000080',
+      'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f', 'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+      '0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000080',
+      'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a', 'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa',
+      '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05', '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85',
+      'edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f', 'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f', 'f'.repeat(64)];
+    for (const hex of weak) { const raw = Buffer.from(hex, 'hex'); expect(weakEd25519(raw)).toBe(true); expect(proof.weakEd25519(raw)).toBe(true); }
+    for (let n = 0; n < 32; n++) {
+      const raw = generateKeyPairSync('ed25519').publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
+      expect(weakEd25519(raw)).toBe(false); expect(proof.weakEd25519(raw)).toBe(false);
+    }
+  });
+});
+
+describe('weak signing keys in the device list', () => {
+  it('counts the author of an identity-point key as unknown for the sync core', async () => {
+    let device: { keyOf(id: string): unknown } | undefined; const weak = 'f'.repeat(64);
+    const identity = generateRemoteIdentity(); const good = generateKeyPairSync('ed25519'); const goodRaw = good.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64');
+    const identityPoint = Buffer.concat([Buffer.from([1]), Buffer.alloc(31)]).toString('base64');
+    const h = harness({
+      account: { devices: vi.fn(async () => [entryOf(identity), entryOf(identity, { id: weak, signingKey: identityPoint }), entryOf(identity, { id: 'e'.repeat(64), signingKey: goodRaw })]) },
+      syncVault: async (...a: any[]) => { device = a[4]; return sync; },
     });
-    it('rejects an import with the sign-in password (locked vault) and wipes the digest', async () => {
-      const sync = vi.fn(async () => ({ status: 'synced' as const, versions: 1, conflicts: 0, canKeepLocal: false, approvals: 0 }));
-      const host = setup(sync); await ready(host);
-      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
-      expect(sync).not.toHaveBeenCalled();
-      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER' })).toMatchObject({ ok: true });
-      expect(sync).toHaveBeenCalledOnce();
-    });
-    it('keeps the digest across failed attempts and wipes it after a successful import', async () => {
-      const sync = vi.fn(async (_a: unknown, _i: unknown, _s: unknown, request: any) => request.password === 'OTHER' ? { status: 'synced' as const, versions: 1, conflicts: 0, canKeepLocal: false, approvals: 0, snapshot: {} } : undefined);
-      const host = setup(sync); await ready(host);
-      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'WRONG' })).toMatchObject({ ok: true });
-      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
-      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
-      expect(sync).toHaveBeenCalledOnce();
-      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER' })).toMatchObject({ ok: true });
-      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: true }); // digest wiped after success
-    });
-    it('also rejects after a checked-different login, and compares NFKC-normalized', async () => {
-      const sync = vi.fn(async () => undefined);
-      const host = setup(sync, async () => false); await ready(host);
-      expect(await host.performSync(1, { kind: 'importVault', clientId, password: 'LOGIN_PASSWORD' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
-      const host2 = setup(sync);
-      await host2.connect(1, { kind: 'connect', clientId, serverUrl: 'https://sync.example.net' });
-      await host2.signIn(1, { ...signIn, password: 'caf\u00e9' });
-      expect(await host2.performSync(1, { kind: 'importVault', clientId, password: 'cafe\u0301' })).toMatchObject({ ok: false, code: 'samePasswordImport' });
-      expect(sync).not.toHaveBeenCalled();
-    });
-    it('wipes the digest on close and reset', async () => {
-      const fill = vi.spyOn(Buffer.prototype, 'fill');
-      try {
-        const host = setup(async () => undefined); await ready(host);
-        fill.mockClear(); host.request(1, { kind: 'close', clientId }); expect(fill).toHaveBeenCalledTimes(2);
-        await ready(host); fill.mockClear(); host.reset(); expect(fill).toHaveBeenCalledTimes(2);
-        await ready(host); fill.mockClear(); host.closeOwner(1); expect(fill).toHaveBeenCalledTimes(2);
-      } finally { fill.mockRestore(); }
-    });
-    it('keeps foreign ids out of the state and removes them only when known', async () => {
-      const foreignId = 'f'.repeat(64);
-      const sync = vi.fn()
-        .mockResolvedValueOnce({ status: 'synced', versions: 1, conflicts: 0, canKeepLocal: false, approvals: 0, skipped: 1, compacted: 3, foreign: [foreignId], snapshot: undefined })
-        .mockResolvedValueOnce({ removedForeign: 1 });
-      const host = setup(sync); await ready(host);
-      expect(await host.performSync(1, { kind: 'removeForeign', clientId })).toEqual({ ok: false, code: 'invalid' });
-      expect(sync).not.toHaveBeenCalled();
-      const reply = await host.performSync(1, { kind: 'synchronize', clientId });
-      expect(reply).toMatchObject({ ok: true, state: { sync: { skipped: 1, compacted: 3 } } });
-      expect(JSON.stringify(reply)).not.toContain(foreignId);
-      expect(JSON.stringify(host.request(1, { kind: 'status', clientId }))).not.toContain(foreignId);
-      const removed = await host.performSync(1, { kind: 'removeForeign', clientId });
-      expect(sync).toHaveBeenLastCalledWith(expect.any(Object), expect.any(Object), expect.any(AbortSignal), { kind: 'removeForeign', ids: [foreignId] });
-      expect(removed).toMatchObject({ ok: true, state: { sync: { skipped: 0, removedForeign: 1 } } });
-      expect(JSON.stringify(removed)).not.toContain(foreignId);
-      expect(await host.performSync(1, { kind: 'removeForeign', clientId })).toEqual({ ok: false, code: 'invalid' });
-    });
+    h.store.load.mockReturnValue({ identity, persistent: true });
+    await h.signedIn(); await h.host.performSync(1, { kind: 'synchronize', clientId });
+    expect(device!.keyOf(weak)).toBeUndefined(); expect(device!.keyOf('e'.repeat(64))).toBeDefined();
   });
 });

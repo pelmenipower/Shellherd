@@ -5,7 +5,11 @@
 // demo vault in each (`demo-setup.mjs`), and a non-loopback network interface (WebRTC uses host candidates only).
 // Env: A_RUN_DIR/A_PORT (default <tmp>/shellherd-run, 9333), B_RUN_DIR/B_PORT (default <tmp>/shellherd-run-b, 9336),
 // REMOTE_SERVER_URL (default http://127.0.0.1:8788). Synthetic data only; no real vault or profile is touched.
-// A repeated run needs fresh instances: the decline mutes B at A for 10 minutes and blocks the pair at the server for 30 s.
+// Both devices enroll (device name in the sign-in form; the identity is temporary under --password-store=basic, so the
+// server holds the enrollment in RAM only). A repeated run needs fresh instances (restart both drivers, keep the fake):
+// the decline mutes B at A for 10 minutes and blocks the pair at the server for 30 s, and every new instance enrolls as
+// a new temporary device. The server evicts the oldest idle temporary device when its quota is full (B9), so the same
+// `npm run drive:sshd` fake serves any number of runs; device names carry a per-run suffix so stale rows never match.
 // Exit codes: 0 ok, 1 step failed, 2 driver unreachable, 3 no non-loopback interface.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,8 +18,11 @@ import path from 'node:path';
 const SERVER_URL = process.env.REMOTE_SERVER_URL ?? 'http://127.0.0.1:8788';
 const USER = 'demo';
 const PASSWORD = 'synthetic-rendezvous-demo';
-const NAME_A = 'Gerät A';
-const NAME_B = 'Gerät B';
+const RUN = Date.now().toString(36).slice(-5);
+const NAME_A = `Gerät A ${RUN}`;
+const NAME_B = `Gerät B ${RUN}`;
+// The hint text comes from the German catalog (the part before the colon), so the scene follows text changes.
+const TEMPORARY_HINT = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '../../../src/shared/locales/de-DE/remoteLab.json'), 'utf8')).identityTemporary.split(':')[0];
 const ENDED_REMOTE = 'Das andere Gerät hat die Verbindung beendet.';
 const ENDED_DECLINED = 'Das andere Gerät hat die Anfrage abgelehnt.';
 // Colours of the fake capture pattern (src/renderer/src/remote-capture-fake.ts), quadrant centres at 25 % / 75 %.
@@ -74,8 +81,8 @@ function hasNonLoopbackInterface() {
   return Object.values(os.networkInterfaces()).flat().some(entry => entry && !entry.internal && !entry.address.startsWith('169.254.') && !entry.address.startsWith('fe80:'));
 }
 
-// Opens the lab dialog from the settings dialog and signs in, one instance at a time (the server rejects parallel logins).
-async function signIn(side) {
+// Opens the lab dialog from the settings dialog and enrolls the device, one instance at a time (the server answers parallel enrollments with 429).
+async function signIn(side, name) {
   await side.waitFor('Einstellungen-Knopf', has('.settings-button'));
   await side.click('.settings-button');
   await side.waitFor('Fernzugriff-Eintrag', `[...document.querySelectorAll('dialog.settings-dialog button')].some(b => b.textContent.includes('Fernzugriff einrichten'))`);
@@ -84,17 +91,22 @@ async function signIn(side) {
   await side.fill(`${LAB} input[type=url]`, SERVER_URL);
   await side.click(`${LAB} form button[type=submit]`);
   await side.waitFor('Anmeldeformular', has(`${LAB} input[type=password]`));
+  // The temporary-identity hint must be visible before the enrollment (identity is set from "connect" on).
+  await side.waitFor('Hinweis „Temporäre Geräteidentität“ vor der Einschreibung', `[...document.querySelectorAll('${LAB} .remote-lab-warning')].some(p => p.textContent.includes(${JSON.stringify(TEMPORARY_HINT)}))`);
   await side.fill(`${LAB} input[autocomplete=username]`, USER);
   await side.fill(`${LAB} input[type=password]`, PASSWORD);
+  await side.fill(`${LAB} input[id$="-device-name"]`, name);
   await side.click(`${LAB} form button[type=submit]`);
-  await side.waitFor('Anmeldung (Gerätename-Feld)', has(`${LAB} .remote-lab-account form input`));
-  log(`${side.label}: angemeldet`);
+  await side.waitFor('Einschreibung (Knopf „Dieses Gerät online melden“)', has(`${LAB} .remote-lab-account button.primary-button`));
+  if (await side.evaluate(has(`${LAB} input[type=password]`))) throw new Fail(`${side.label}: das Passwortfeld steht nach der Einschreibung noch im DOM`);
+  log(`${side.label}: eingeschrieben als „${name}“ (temporär)`);
 }
 
 async function goOnline(side, name) {
-  await side.fill(`${LAB} .remote-lab-account form input`, name);
-  await side.click(`${LAB} .remote-lab-account form button[type=submit]`);
+  await side.click(`${LAB} .remote-lab-account button.primary-button`);
   await side.waitFor('online (Fingerabdruck sichtbar)', has(`${LAB} .remote-lab-account > code.remote-lab-fingerprint`));
+  const status = await side.evaluate(`[...document.querySelectorAll('${LAB} .remote-lab-account [role=status]')].map(p => p.textContent).join(' | ')`);
+  if (!status.includes(name)) throw new Fail(`${side.label}: der Gerätename aus der Einschreibung fehlt in der Online-Anzeige (${status})`);
   const fingerprint = await text(side, `${LAB} .remote-lab-account > code.remote-lab-fingerprint`);
   log(`${side.label}: online, Fingerabdruck ${fingerprint}`);
   return fingerprint;
@@ -181,10 +193,10 @@ async function prepareConsent(fingerprintOfB, { verified }) {
 async function run() {
   if (!hasNonLoopbackInterface()) throw new Fail('Keine Netzwerkschnittstelle außer Loopback: WebRTC braucht Host-Kandidaten (LAN-IP), sonst endet die Szene mit errors.peer.', 3);
 
-  // Sequential sign-in: the server answers a concurrent login with 429.
-  await signIn(A);
+  // Sequential enrollment: the server answers a concurrent password check with 429.
+  await signIn(A, NAME_A);
   const fingerprintA = await goOnline(A, NAME_A);
-  await signIn(B);
+  await signIn(B, NAME_B);
   const fingerprintB = await goOnline(B, NAME_B);
   if (fingerprintA === fingerprintB) throw new Fail('A und B haben denselben Fingerabdruck (gleiche Geräteidentität?)');
   await closeDialogs(A);

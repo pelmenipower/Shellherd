@@ -8,6 +8,7 @@ import { createSyncServer } from './server.mjs';
 import { AccountStore } from './account-transport.mjs';
 import { probeSyncServer } from './http-common.mjs';
 import { RendezvousPeer } from './rendezvous-client.mjs';
+import { createDeviceIdentity } from './device-proof.mjs';
 import { SignalCollector, splitSignal } from '../../src/shared/remote-signal.ts';
 const it = platformIt.runIf(process.platform === 'linux');
 const password = 'ONLY_TEST_REMOTE_SIGNAL_PASSWORD';
@@ -21,8 +22,9 @@ it('carries a 20 KiB payload in parts through the E2EE rendezvous channel', asyn
   cleanup.push(() => server.close());
   const info = await probeSyncServer(await server.listen(), { allowLoopbackHttp: true });
   const peer = async name => {
-    const store = new AccountStore(info); cleanup.push(() => store.close());
-    await store.login('testuser', password); const client = new RendezvousPeer(store); await client.register(name); return client;
+    const store = new AccountStore(info); cleanup.push(() => store.close()); const identity = createDeviceIdentity();
+    await store.enroll(identity, { username: 'testuser', password, name, ephemeral: false }); await store.openSession(identity);
+    const client = new RendezvousPeer(store, identity); await client.register(name); return client;
   };
   const alice = await peer('Alice'); const bob = await peer('Bob');
   const session = await alice.request(bob.identity.id, 'view');

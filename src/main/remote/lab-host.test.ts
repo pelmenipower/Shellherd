@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { REMOTE_LAB_LIMITS, type RemoteLabEvent, type RemoteLabReply, type RemoteSignalPart } from '../../shared/remote-lab';
-import type { RemoteIdentity, RemoteIdentityStore } from './identity';
+import type { Enrollment, RemoteIdentity, RemoteIdentityStore } from './identity';
 import { RemoteLabHost, type RemoteAccount, type RemoteChannel, type RemoteDeps, type RemotePeer, type RemoteSessionWire } from './lab-host';
 import type { PresenceHandlers } from './presence';
 
@@ -71,9 +71,13 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
   const known = vi.fn((_id: string): { firstSeen: number; verified: boolean; verifiedAt?: number } | undefined => undefined);
   const renamed = vi.fn((_id: string, _name: string) => false);
   const load = vi.fn(() => ({ identity: { id: SELF, publicKey: 'pk-self', privateKey: {} } as unknown as RemoteIdentity, persistent: true }));
-  const store = { load, known, remember, renamed } as unknown as RemoteIdentityStore;
+  const enrollment = vi.fn((_serverId: string): Enrollment | undefined => undefined);
+  const rememberEnrollment = vi.fn();
+  const forgetEnrollment = vi.fn();
+  const store = { load, known, remember, renamed, enrollment, rememberEnrollment, forgetEnrollment } as unknown as RemoteIdentityStore;
   const account: RemoteAccount & { getImpl?: () => Promise<unknown> } = {
-    login: vi.fn(async () => ({ signedIn: true as const, expiresAt: 5_000_000 })),
+    enroll: vi.fn(async () => ({})),
+    openSession: vi.fn(async () => ({ signedIn: true as const, expiresAt: 5_000_000, device: 'Laptop' })),
     request: vi.fn(async (method: string, path: string) => { requests.push({ method, path }); if (method === 'GET') return account.getImpl ? account.getImpl() : wire({ from: SELF, to: B }); return {}; }),
     refresh: vi.fn(async () => ({ expiresAt: 1 })), logout: vi.fn(async () => undefined), close: vi.fn(),
   };
@@ -86,7 +90,7 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
   const emergency = vi.fn();
   const confirmCapture = vi.fn(async (_owner: number, _prompt: unknown, _signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'> => 'accepted');
   const deps: RemoteDeps = {
-    probe: overrides.probe ?? (async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'demo', authentication: 'password', rendezvous: true, rendezvousProof: true, rendezvousNoise: true })),
+    probe: overrides.probe ?? (async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'demo', authentication: 'enrolled-device', deviceSessions: true, rendezvous: true, rendezvousProof: true, rendezvousNoise: true })),
     createAccount: () => account,
     createPeer: () => peer,
     identity: () => store,
@@ -104,7 +108,7 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
   const act = (body: Record<string, unknown>, owner = OWNER, clientId = CLIENT): Promise<RemoteLabReply> => host.action(owner, { clientId, ...body });
   const goOnline = async (): Promise<void> => {
     expect((await act({ kind: 'connect', serverUrl: URL })).ok).toBe(true);
-    expect((await act({ kind: 'signIn', username: 'demo', password: 'pw' })).ok).toBe(true);
+    expect((await act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).ok).toBe(true);
     expect((await act({ kind: 'goOnline', deviceName: 'Laptop' })).ok).toBe(true);
   };
   const kinds = (kind: string): RemoteLabEvent[] => events.filter(e => e.event.kind === kind).map(e => e.event);
@@ -131,7 +135,7 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     return channels[channels.length - 1]!;
   };
   const deletes = (): string[] => requests.filter(r => r.method === 'DELETE').map(r => r.path);
-  return { host, handshake, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, emergency, confirmCapture, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
+  return { host, handshake, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, enrollment, rememberEnrollment, forgetEnrollment, emergency, confirmCapture, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
 }
 
 describe('RemoteLabHost: setup', () => {
@@ -164,41 +168,157 @@ describe('RemoteLabHost: setup', () => {
   it('maps probe, login and presence errors to codes', async () => {
     const down = setup({ probe: async () => { throw new Error('x'); } });
     expect(await down.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'connection' });
-    const noRv = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: false, rendezvousProof: true, rendezvousNoise: true }) });
+    const noRv = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'enrolled-device', deviceSessions: true, rendezvous: false, rendezvousProof: true, rendezvousNoise: true }) });
     expect(await noRv.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'unavailable' });
     const a = setup();
     await a.act({ kind: 'connect', serverUrl: URL });
-    (a.account.login as ReturnType<typeof vi.fn>).mockRejectedValueOnce(Object.assign(new Error('x'), { status: 401 }));
-    expect(await a.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'authentication' });
-    (a.account.login as ReturnType<typeof vi.fn>).mockRejectedValueOnce(Object.assign(new Error('x'), { status: 429 }));
-    expect(await a.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'limit' });
-    (a.account.login as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('x'));
-    expect(await a.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'connection' });
-    await a.act({ kind: 'signIn', username: 'demo', password: 'pw' });
+    (a.account.enroll as ReturnType<typeof vi.fn>).mockRejectedValueOnce(Object.assign(new Error('x'), { status: 401 }));
+    expect(await a.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'authentication' });
+    (a.account.enroll as ReturnType<typeof vi.fn>).mockRejectedValueOnce(Object.assign(new Error('x'), { status: 429 }));
+    expect(await a.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'limit' });
+    (a.account.enroll as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('x'));
+    expect(await a.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'connection' });
+    await a.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' });
     a.setStart(async () => { throw Object.assign(new Error('x'), { status: 409 }); });
     expect(await a.act({ kind: 'goOnline', deviceName: 'L' })).toEqual({ ok: false, code: 'connection' });
     a.setStart(async () => { throw Object.assign(new Error('x'), { status: 429 }); });
     expect(await a.act({ kind: 'goOnline', deviceName: 'L' })).toEqual({ ok: false, code: 'limit' });
   });
 
-  it('goOnline: locked, invalid name and identity failure', async () => {
+  it('goOnline: locked and invalid name; an empty name falls back to the enrollment name', async () => {
     const t = setup();
     await t.act({ kind: 'connect', serverUrl: URL });
-    await t.act({ kind: 'signIn', username: 'demo', password: 'pw' });
+    await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' });
     t.unlocked.value = false;
     expect(await t.act({ kind: 'goOnline', deviceName: 'L' })).toEqual({ ok: false, code: 'locked' });
     t.unlocked.value = true;
-    expect(await t.act({ kind: 'goOnline', deviceName: '' })).toEqual({ ok: false, code: 'invalid' });
     expect(await t.act({ kind: 'goOnline', deviceName: 'a\nb' })).toEqual({ ok: false, code: 'invalid' });
-    t.load.mockImplementationOnce(() => { throw new Error('identity'); });
-    expect(await t.act({ kind: 'goOnline', deviceName: 'L' })).toEqual({ ok: false, code: 'identity' });
+    const names: string[] = [];
+    const named = setup({ deps: { presence: (_t, n, h) => { names.push(n); void h; return { start: async () => undefined, stop: async () => undefined }; } } });
+    await named.act({ kind: 'connect', serverUrl: URL });
+    await named.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Büro-PC' });
+    expect((await named.act({ kind: 'goOnline', deviceName: '' })).ok).toBe(true);
+    expect(names).toEqual(['Büro-PC']);
+  });
+
+  it('connect loads the identity once (shown from connect on); a failure yields identity and drops the binding', async () => {
+    const t = setup();
+    const reply = await t.act({ kind: 'connect', serverUrl: URL });
+    expect(reply).toMatchObject({ ok: true, state: { phase: 'serverReady', identity: { fingerprint: SELF, persistent: true } } });
+    expect((await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'L' })).ok).toBe(true);
+    await t.act({ kind: 'goOnline', deviceName: 'L' });
+    expect(t.load).toHaveBeenCalledTimes(1);
+    const bad = setup();
+    bad.load.mockImplementationOnce(() => { throw new Error('identity'); });
+    expect(await bad.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'identity' });
+    expect(await bad.act({ kind: 'status' })).toEqual({ ok: true, state: { phase: 'idle' } });
+    expect((await bad.act({ kind: 'connect', serverUrl: URL })).ok).toBe(true);
+  });
+
+  it('connect requires enrolled-device authentication and deviceSessions', async () => {
+    const info = (over: Record<string, unknown>) => async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'enrolled-device' as const, deviceSessions: true, rendezvous: true, rendezvousProof: true, rendezvousNoise: true, ...over }) as never;
+    for (const over of [{ deviceSessions: false }, { authentication: 'password' }, { authentication: 'device' }]) {
+      const t = setup({ probe: info(over) });
+      expect(await t.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'unavailable' });
+      expect(t.load).not.toHaveBeenCalled();
+    }
+  });
+
+  it('signIn enrolls with the device name, opens the session and remembers the enrollment (ephemeral for a temporary identity)', async () => {
+    const t = setup();
+    await t.act({ kind: 'connect', serverUrl: URL });
+    const reply = await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' });
+    expect(reply).toMatchObject({ ok: true, state: { phase: 'signedIn', account: { username: 'demo', validUntil: 5_000_000, deviceName: 'Laptop' }, enrolled: { username: 'demo', name: 'Laptop' } } });
+    expect(t.account.enroll).toHaveBeenCalledWith(expect.objectContaining({ id: SELF }), { username: 'demo', password: 'pw', name: 'Laptop', ephemeral: false });
+    expect(t.rememberEnrollment).toHaveBeenCalledWith({ serverId: 'f'.repeat(64), namespace: 'demo', serverUrl: URL, username: 'demo', name: 'Laptop', enrolledAt: t.clock.t });
+    const temp = setup();
+    temp.load.mockReturnValue({ identity: { id: SELF, publicKey: 'pk-self', privateKey: {} } as unknown as RemoteIdentity, persistent: false });
+    await temp.act({ kind: 'connect', serverUrl: URL });
+    expect(await temp.act({ kind: 'status' })).toMatchObject({ ok: true, state: { identity: { persistent: false } } });
+    await temp.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' });
+    expect(temp.account.enroll).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ ephemeral: true }));
+  });
+
+  it('signIn rejects a bad device name before any account is created', async () => {
+    const createAccount = vi.fn();
+    const t = setup({ deps: { createAccount: createAccount as unknown as RemoteDeps['createAccount'] } });
+    await t.act({ kind: 'connect', serverUrl: URL });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: '' })).toEqual({ ok: false, code: 'invalid' });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'a\nb' })).toEqual({ ok: false, code: 'invalid' });
+    expect(createAccount).not.toHaveBeenCalled();
+  });
+
+  it('an enrollment for this server is offered; openSession needs no password', async () => {
+    const t = setup();
+    t.enrollment.mockReturnValue({ serverId: 'f'.repeat(64), namespace: 'demo', serverUrl: URL, username: 'demo', name: 'Laptop', enrolledAt: 1 });
+    expect(await t.act({ kind: 'connect', serverUrl: URL })).toMatchObject({ ok: true, state: { phase: 'serverReady', enrolled: { username: 'demo', name: 'Laptop' } } });
+    const reply = await t.act({ kind: 'openSession' });
+    expect(reply).toMatchObject({ ok: true, state: { phase: 'signedIn', account: { username: 'demo', deviceName: 'Laptop' } } });
+    expect(t.account.enroll).not.toHaveBeenCalled();
+    expect((await t.act({ kind: 'goOnline', deviceName: '' })).ok).toBe(true);
+  });
+
+  it('K10: an enrollment on another URL shows enrolledElsewhere and allows no openSession', async () => {
+    const t = setup();
+    t.enrollment.mockReturnValue({ serverId: 'f'.repeat(64), namespace: 'demo', serverUrl: 'https://old.example/', username: 'demo', name: 'Laptop', enrolledAt: 1 });
+    const reply = await t.act({ kind: 'connect', serverUrl: URL });
+    expect(reply).toMatchObject({ ok: true, state: { enrolledElsewhere: 'https://old.example/' } });
+    expect((reply as { state: { enrolled?: unknown } }).state.enrolled).toBeUndefined();
+    expect(await t.act({ kind: 'openSession' })).toEqual({ ok: false, code: 'stale' });
+  });
+
+  it('openSession: one 401 is retried, two 401 forget the enrollment (B6)', async () => {
+    const t = setup();
+    t.enrollment.mockReturnValue({ serverId: 'f'.repeat(64), namespace: 'demo', serverUrl: URL, username: 'demo', name: 'Laptop', enrolledAt: 1 });
+    await t.act({ kind: 'connect', serverUrl: URL });
+    const open = t.account.openSession as ReturnType<typeof vi.fn>;
+    open.mockRejectedValueOnce(Object.assign(new Error('x'), { status: 401 }));
+    expect((await t.act({ kind: 'openSession' })).ok).toBe(true);
+    expect(t.forgetEnrollment).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledTimes(2);
+    const u = setup();
+    u.enrollment.mockReturnValue({ serverId: 'f'.repeat(64), namespace: 'demo', serverUrl: URL, username: 'demo', name: 'Laptop', enrolledAt: 1 });
+    await u.act({ kind: 'connect', serverUrl: URL });
+    (u.account.openSession as ReturnType<typeof vi.fn>).mockRejectedValue(Object.assign(new Error('x'), { status: 401 }));
+    expect(await u.act({ kind: 'openSession' })).toEqual({ ok: false, code: 'authentication' });
+    expect(u.forgetEnrollment).toHaveBeenCalledWith('f'.repeat(64));
+    expect((await u.act({ kind: 'status' }) as { state: { enrolled?: unknown } }).state.enrolled).toBeUndefined();
+  });
+
+  it('B6: a 401 in presence keeps the enrollment; openSession then signs in again without a password', async () => {
+    const t = setup();
+    t.enrollment.mockReturnValue({ serverId: 'f'.repeat(64), namespace: 'demo', serverUrl: URL, username: 'demo', name: 'Laptop', enrolledAt: 1 });
+    await t.act({ kind: 'connect', serverUrl: URL });
+    await t.act({ kind: 'openSession' });
+    t.setStart(async () => { throw Object.assign(new Error('x'), { status: 401 }); });
+    expect(await t.act({ kind: 'goOnline', deviceName: '' })).toEqual({ ok: false, code: 'authentication' });
+    expect(await t.act({ kind: 'status' })).toMatchObject({ ok: true, state: { phase: 'serverReady', enrolled: { name: 'Laptop' } } });
+    expect(t.forgetEnrollment).not.toHaveBeenCalled();
+    t.setStart(async () => undefined);
+    expect((await t.act({ kind: 'openSession' })).ok).toBe(true);
+    expect(t.account.enroll).not.toHaveBeenCalled();
+  });
+
+  it('B6: onOffline(authentication) and a 401 in request keep the enrollment', async () => {
+    const t = setup();
+    await t.goOnline();
+    t.handlers().onOffline('authentication');
+    expect(await t.act({ kind: 'status' })).toMatchObject({ ok: true, state: { phase: 'serverReady', enrolled: { username: 'demo' } } });
+    expect(t.forgetEnrollment).not.toHaveBeenCalled();
+    const u = setup();
+    await u.goOnline();
+    u.handlers().onDevices([device(B, 'Büro')]);
+    u.peer.request.mockRejectedValueOnce(Object.assign(new Error('x'), { status: 401 }));
+    await u.act({ kind: 'request', target: B, verification: PREFIX });
+    expect(u.forgetEnrollment).not.toHaveBeenCalled();
+    expect(await u.act({ kind: 'status' })).toMatchObject({ ok: true, state: { phase: 'serverReady', enrolled: { username: 'demo' } } });
   });
 
   it('allows only one network action at a time', async () => {
     let release!: () => void;
-    const t = setup({ probe: () => new Promise(r => { release = () => r({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: true, rendezvousProof: true, rendezvousNoise: true }); }) });
+    const t = setup({ probe: () => new Promise(r => { release = () => r({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'enrolled-device', deviceSessions: true, rendezvous: true, rendezvousProof: true, rendezvousNoise: true }); }) });
     const first = t.act({ kind: 'connect', serverUrl: URL });
-    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'stale' });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'stale' });
     release();
     expect((await first).ok).toBe(true);
   });
@@ -629,14 +749,14 @@ describe('RemoteLabHost: ending (R5, R6, K8)', () => {
   it('M3: a 401 in goOnline drops the account so the user can sign in again', async () => {
     const t = setup();
     await t.act({ kind: 'connect', serverUrl: URL });
-    await t.act({ kind: 'signIn', username: 'demo', password: 'pw' });
+    await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' });
     t.setStart(async () => { throw Object.assign(new Error('x'), { status: 401 }); });
     expect(await t.act({ kind: 'goOnline', deviceName: 'L' })).toEqual({ ok: false, code: 'authentication' });
     const status = await t.act({ kind: 'status' });
     expect(status).toMatchObject({ ok: true, state: { phase: 'serverReady' } });
     expect((status as { state: { account?: unknown } }).state.account).toBeUndefined();
     expect(t.account.close).toHaveBeenCalled();
-    expect((await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).ok).toBe(true);
+    expect((await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).ok).toBe(true);
   });
 
   it('M3: a 401 in request drops the account and stops presence', async () => {
@@ -647,7 +767,7 @@ describe('RemoteLabHost: ending (R5, R6, K8)', () => {
     expect(await t.act({ kind: 'request', target: B, verification: PREFIX })).toEqual({ ok: false, code: 'authentication' });
     expect(await t.act({ kind: 'status' })).toMatchObject({ ok: true, state: { phase: 'serverReady' } });
     expect(t.presenceStop).toHaveBeenCalled();
-    expect((await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).ok).toBe(true);
+    expect((await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).ok).toBe(true);
   });
 
   it('K10: unchanged state is not re-sent, a changed device list is', async () => {
@@ -880,22 +1000,22 @@ describe('RemoteLabHost: sign-in guard (M3) and server capability', () => {
     const createAccount = vi.fn();
     const t = await ready({ createAccount: createAccount as unknown as RemoteDeps['createAccount'] });
     t.unlocked.value = false;
-    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'locked' });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'locked' });
     expect(createAccount).not.toHaveBeenCalled();
   });
 
-  it('the vault password is refused with samePassword before createAccount and login', async () => {
+  it('the vault password is refused with samePassword before createAccount and enroll', async () => {
     const createAccount = vi.fn();
     const t = await ready({ matchesVaultPassword: async () => true, createAccount: createAccount as unknown as RemoteDeps['createAccount'] });
-    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'samePassword' });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'samePassword' });
     expect(createAccount).not.toHaveBeenCalled();
-    expect(t.account.login).not.toHaveBeenCalled();
+    expect(t.account.enroll).not.toHaveBeenCalled();
   });
 
   it('a throwing check yields locked', async () => {
     const createAccount = vi.fn();
     const t = await ready({ matchesVaultPassword: async () => { throw new Error('locked'); }, createAccount: createAccount as unknown as RemoteDeps['createAccount'] });
-    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw' })).toEqual({ ok: false, code: 'locked' });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'locked' });
     expect(createAccount).not.toHaveBeenCalled();
   });
 
@@ -903,7 +1023,7 @@ describe('RemoteLabHost: sign-in guard (M3) and server capability', () => {
     let release!: (v: boolean) => void;
     const createAccount = vi.fn();
     const t = await ready({ matchesVaultPassword: () => new Promise<boolean>(r => { release = r; }), createAccount: createAccount as unknown as RemoteDeps['createAccount'] });
-    const pending = t.act({ kind: 'signIn', username: 'demo', password: 'pw' });
+    const pending = t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' });
     await flush();
     t.host.reset();
     release(false);
@@ -912,7 +1032,7 @@ describe('RemoteLabHost: sign-in guard (M3) and server capability', () => {
   });
 
   it('connect without rendezvousProof is unavailable', async () => {
-    const t = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password', rendezvous: true, rendezvousProof: false, rendezvousNoise: true }) });
+    const t = setup({ probe: async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'enrolled-device', deviceSessions: true, rendezvous: true, rendezvousProof: false, rendezvousNoise: true }) });
     expect(await t.act({ kind: 'connect', serverUrl: URL })).toEqual({ ok: false, code: 'unavailable' });
   });
 });
@@ -988,7 +1108,7 @@ describe('RemoteLabHost: viewer verification (B7, B10)', () => {
 let channels0: FakeChannel | undefined;
 describe('RemoteLabHost: Noise handshake (T8)', () => {
   const PRIVATE = 'http://10.8.0.2:8787/';
-  const info = (over: Record<string, unknown> = {}) => ({ serverUrl: PRIVATE, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password' as const, rendezvous: true, rendezvousProof: true, rendezvousNoise: true, ...over });
+  const info = (over: Record<string, unknown> = {}) => ({ serverUrl: PRIVATE, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'enrolled-device' as const, deviceSessions: true, rendezvous: true, rendezvousProof: true, rendezvousNoise: true, ...over });
 
   it('connect without rendezvousNoise is unavailable (no downgrade)', async () => {
     const t = setup({ probe: async () => info({ rendezvousNoise: false }) });

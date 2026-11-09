@@ -13,7 +13,7 @@ Härtung H1 setzt diese Befunde um (Spec `docs/superpowers/specs/2026-11-09-secu
 | --- | --- | --- |
 | M1 | Rate-Limits | Behoben im Server: Limits pro Quelle (`SHELLHERD_SERVER_TRUSTED_PROXY=1` hinter dem Proxy), Backoff bei Anmeldefehlern, Verbindungslimit je Adresse. Gegen verteilte Floods hilft nur ein privates Netz (WireGuard/Tailscale, H2). |
 | M2 | Fingerabdruck-Vergleich per Checkbox | Behoben: getippte Prüfung beidseitig (seit H2 16 Hex-Zeichen = 64 Bit, vorher 12), Pinning geprüfter Geräte, genau ein DTLS-Fingerabdruck. 2^64 Schlüsselerzeugungen gegen einen rechenstarken Betreiber sind teuer, aber kein Beweis; zusätzlich bestätigt der Noise-Handshake den Schlüssel gegen den vollen Fingerabdruck (256 Bit). H1-Pins (48 Bit) bleiben gültig. Die Prüfung schützt gegen einen bösartigen Server bei ehrlichem Renderer, nicht gegen einen kompromittierten Renderer. |
-| M3 | Serverpasswort gleich Vault-Passwort | Behoben: Die Anmeldung prüft per Argon2id, dass beide verschieden sind, bevor etwas gesendet wird (Ausnahme: gesperrter Vault im Sync-Lab, Importfall). |
+| M3 | Serverpasswort gleich Vault-Passwort | Behoben (H1), seit H3 für den Normalbetrieb geschlossen: Das Passwort geht nur noch bei der Einschreibung eines Geräts über die Leitung (einmal je Gerät), danach nie wieder; die Anmeldung prüft per Argon2id, dass beide verschieden sind, bevor etwas gesendet wird. Die Importprüfung greift nur, wenn in derselben Verbindung mit Passwort eingeschrieben wurde (nach einer passwortlosen Sitzung gibt es keinen Digest). |
 | M4 | Aufnahme ohne native Zustimmung, keine Permission-Handler, keine CSP, Tracks nicht erzwingbar beendbar | Behoben: Permission- und Display-Media-Handler im Main geben eine Bildschirmquelle nur nach Zustimmung im nativen Dialog für die aktuelle Sitzung frei (auch `getUserMedia` mit Desktop-Quelle läuft über denselben Dialog; Desktop-Audio bleibt gesperrt). Restrisiko: Ein kompromittierter Renderer kann den Dialog auslösen, aber nicht bestätigen; Permission-Handler deny-by-default, CSP, Notbremse per Fensterneuladen nach 2 s. Wayland-Portal und Windows-Capture sind nicht manuell geprüft. H2: Nur der `media`-Check ist verschärft (nur `video`); die Anfrage-Regel bleibt, weil `getDisplayMedia` und Legacy-Desktop-`getUserMedia` in Electron 44 im Handler nicht unterscheidbar sind. Der Legacy-Desktop-Pfad nach erteilter Zustimmung (andere Quelle, Desktop-Audio) bleibt Restrisiko (M4-Rest); es bleiben Zustimmung je Sitzung, nur Hauptframe, CSP und Notbremse. |
 | N1 | Fremdes Objekt blockiert den Sync | Behoben: übersprungen und gezählt; Client-Limits 100/32 MiB wie der Server. Seit H2 entfernt „Fremde Objekte entfernen“ nur nicht lesbare Objekte (AEAD-Öffnung unter dem Vault-Schlüssel), sonst belegen sie weiter das Kontingent. |
 | N2 | Registrierung ohne Besitznachweis | Behoben: Challenge mit statisch-ephemerem X25519-DH bei jeder Registrierung. |
@@ -35,11 +35,40 @@ Härtung H2 (Spec `docs/superpowers/specs/2026-11-09-secure-channel-design.md`, 
 | M2 Prüflänge | 16 Zeichen, plus Schlüsselbestätigung im Handshake. |
 | Privates Netz | Option für HTTP zu WireGuard-/Tailscale-Adressen (10/8, 172.16/12, 192.168/16, 100.64/10, `fc00::/7`). Im fremden WLAN lägen Serverpasswort, Token und Chiffrat im Klartext; der Hinweistext sagt das. Ein kompromittierter Renderer kann `privateNetwork: true` ohne Klick senden, das gleicht der freien URL-Wahl und wird angenommen. Gegen verteilte Floods hilft das private Netz. |
 | Kompaktierung | Aufbewahrung der jüngsten 16 Versionen, kumulative `compacts`-Liste (höchstens 256), Löschen per `DELETE`. `history` erkennt das Löschen bereits bestätigter Objekte. |
-| Löschrecht per Konto | Grenze: Jede Anmeldung des Kontos (Token, 15 min) darf Objekte löschen. Das betrifft die Verfügbarkeit. Löschen oder Zurückhalten noch nie gesehener Objekte bleibt unerkennbar (Freeze, bis H3). |
+| Löschrecht per Konto | Grenze: Jede Anmeldung des Kontos (Token, 15 min) darf Objekte löschen. Das betrifft die Verfügbarkeit. Löschen oder Zurückhalten noch nie gesehener Objekte bleibt unerkennbar (Freeze; auch nach H3 unverändert, siehe I3). |
 | M4-Rest | Legacy-Desktop-`getUserMedia` nach erteilter Zustimmung bleibt offen (E1). |
 | Native Addon | `sodium-native` ist nur unter Linux x64 ausgeführt; fehlt es, ist der Fernzugriff nicht verfügbar. |
 | Bibliotheks-Interna | Das Löschen von Schlüsselmaterial in `dispose` nutzt Felder von `noise-handshake` 4.2.0 (exakt gepinnt). Restbytes der HKDF-Ausgabe und JS-Strings bleiben bis zur GC im Speicher. |
 | H1-Server | Ein Server ohne `DELETE` lässt das Konto mit H2-Clients bis 507 wachsen. Server und Clients gemeinsam aktualisieren. |
+
+## Stand H3 (Gerätesignaturen und zufälliger Sync-Schlüssel)
+
+Härtung H3 (Spec `docs/superpowers/specs/2026-11-09-device-keys-design.md`, Validierungs-Anhang `…-validation.md` geht vor). Keine Sicherheitsfreigabe, kein unabhängiger Review.
+
+| Gegenstand | Stand |
+| --- | --- |
+| M3 Passwort auf der Leitung | Geschlossen für den Normalbetrieb: Das Serverpasswort dient nur der Einschreibung (`POST /v1/devices`, einmal je Gerät). `POST /v1/login` gibt es nicht mehr, Sitzungen entstehen aus einer signierten Challenge (`/v1/challenge`, `/v1/session`). |
+| I1 Offline-Raten des Vault-Passworts aus dem Serverbackup | Behoben: Serverobjekte tragen kein Vault-KDF mehr. Sie sind unter einem zufälligen 256-Bit-Sync-Schlüssel verschlüsselt, der in einer Keybox unter einem 128-Bit-Wiederherstellungscode liegt. Raten ist unabhängig vom Vault-Passwort aussichtslos. |
+| I2 Vault-Schlüssel als Objektschlüssel | Behoben: Der Vault-Schlüssel verschlüsselt keine Serverobjekte mehr. Lokal leitet HKDF weiter den Schlüssel des Sync-Zustands ab (getrennter Zweck). |
+| I3 Zurückhalten nie gesehener Objekte | Unverändert, mit Begründung: Ein konsistenter Schnitt (Server zeigt allen Geräten denselben älteren Stand) ist ohne zweiten Kanal nicht von „war offline“ zu unterscheiden. Vektoruhren, Anker oder signierte Tombstones ändern das nicht, weil der Server ältere Anker konsistent zeigen kann. Autorenstempel ordnen Versionen und Kompaktierungen Geräten zu, erkennen den Schnitt aber nicht. |
+| Geräte-Roster | Der Server hält je Gerät Signatur- und Noise-Schlüssel (`devices.json`, höchstens 16 aktive und 64 Einträge). Widerruf ist signiert, beendet Sitzungen und Rendezvous-Präsenz sofort und `authorize` prüft das Roster bei jedem Request. Das Rendezvous bindet das registrierte Gerät an den eingeschriebenen Noise-Schlüssel. |
+| Temporäre Identität | Ohne Schlüsselablage des Betriebssystems schreibt sich das Gerät nur im RAM des Servers ein (höchstens 8, Ablauf nach 12 h, weg beim Neustart). Kein Klartext-Fallback. |
+| Autorenstempel und Quarantäne | Versionen tragen eine Ed25519-Signatur des Geräts. Versionen eines widerrufenen Geräts ab dem Widerruf werden nicht automatisch übernommen, mit Schutz für Vorfahren und bereits bestätigte Versionen. Unbekannte Autoren bleiben gültig und werden gezählt. |
+
+**Neue und bleibende Grenzen (H3):**
+
+- Wer das Serverpasswort kennt, kann Geräte einschreiben, alle anderen widerrufen und Objekte löschen. Klartext liest er ohne Wiederherstellungscode nicht. Ausweg: `rotate-password` und Wiedereinschreibung der eigenen Geräte. Ein Passwortwechsel widerruft keine Geräte.
+- Eine bestehende WebRTC-Verbindung läuft nach einem Widerruf weiter, weil sie direkt zwischen den Geräten besteht (höchstens bis zum Ende der Sitzung nach fünf Minuten). Die Fernzugriff-Token bleiben 15 Minuten Inhaberausweise; der Widerruf wirkt, weil `authorize` das Roster prüft.
+- Die Einschreibung beweist nur den Besitz des Signaturschlüssels, nicht den des X25519-Schlüssels. Ein Passwortbesitzer kann eine fremde, noch nicht eingeschriebene ID belegen (sichtbar im Roster, 409 für das echte Gerät). Die Rendezvous-Präsenz prüft den Besitz weiter.
+- Ein Passwortbesitzer kann bis zu 8 Keyboxen mit kleinerer ID einstellen. Der Client probiert nur die ersten 8 nach ID und findet die echte dann nicht (nur Verfügbarkeit; der Passwortbesitzer kann ohnehin löschen).
+- Die Quarantäne gilt für entfernte dauerhafte Geräte. Entfernte temporäre Geräte verlassen das Roster, ihre Versionen werden angenommen und als „unbekannter Autor“ gezählt. Hochladen können sie nach dem Entfernen nicht mehr, weil ihre Sitzung gelöscht ist.
+- Ein Gerät mit Sync-Schlüssel kann die Quarantäne umgehen, indem es einen unbekannten Autor einträgt. Sie hält nur ehrliche, veraltete oder später zurückgespielte Versionen eines widerrufenen Geräts auf. Der Stempel trägt die Uhr des Autors: Abweichungen führen höchstens zum Zurückhalten, nie zur Sperre.
+- Ein widerrufenes Gerät behält den Sync-Schlüssel und seine lokalen Daten. Der Schlüssel wird nicht rotiert (T04-Grenze).
+- Ein Wechsel der Server-URL verlangt eine neue Einschreibung (Hinweis „angemeldet unter …“): Der Client pinnt die URL je Einschreibung.
+- Schwache Ed25519-Schlüssel: Nur der Identitätspunkt wird abgewiesen; andere Punkte kleiner Ordnung kann nur ein Einschreibender mit Passwort setzen, der damit nichts gewinnt, was er nicht ohnehin hat.
+- Die Migration mehrerer Geräte ohne vorherigen gemeinsamen Stand ergibt zwei Wurzeln ohne Basis, also einen Konflikt ohne Auflösungsweg. Reihenfolge: vorher alle Geräte abgleichen, das erste neu abgleichen, die weiteren neu laden.
+- Sync-Schlüssel, Code und Passwort liegen als JS-Strings bis zur Garbage Collection im Speicher.
+- Der Wiederherstellungscode erscheint genau einmal im Renderer; ein kompromittierter Renderer kann ihn lesen (wie das Vault-Passwort bei der Eingabe).
 
 ## Umfang der ersten Ausbaustufe
 

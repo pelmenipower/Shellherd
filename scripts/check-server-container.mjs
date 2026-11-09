@@ -3,11 +3,11 @@ import { spawn } from 'node:child_process';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { argon2id } from 'hash-wasm';
 import { createAccount } from './sync-prototype/account-auth.mjs';
 import { AccountStore } from './sync-prototype/account-transport.mjs';
 import { probeSyncServer } from './sync-prototype/http-common.mjs';
 import { RendezvousPeer } from './sync-prototype/rendezvous-client.mjs';
+import { createDeviceIdentity } from './sync-prototype/device-proof.mjs';
 
 const image = 'shellherd-server:local'; const suffix = randomBytes(8).toString('hex');
 const name = `shellherd-server-test-${suffix}`; const volume = `${name}-data`; const restored = `${name}-restored`;
@@ -44,9 +44,14 @@ try {
   const bootstrap = "import {readFileSync} from 'node:fs'; import {writeFile} from 'node:fs/promises'; const config=JSON.parse(readFileSync(0,'utf8')); await writeFile('/data/server.json',JSON.stringify(config),{mode:0o600,flag:'wx'});";
   await docker(['run', '--rm', '-i', '--network', 'none', '--read-only', ...volumeMount(volume), '--entrypoint', 'node', image, '--input-type=module', '-e', bootstrap], { input: JSON.stringify(config) });
   let info = await start(volume);
-  async function login(currentInfo, loginPassword = password) { const store = new AccountStore(currentInfo); stores.push(store); await store.login('container-test', loginPassword); return store; }
-  const first = await login(info); const second = await login(info);
-  const alice = new RendezvousPeer(first); const bob = new RendezvousPeer(second);
+  // Enroll a device with the account password (needed once), or sign an enrolled one in with its key alone.
+  async function enroll(currentInfo, enrollPassword = password, identity = createDeviceIdentity()) {
+    const store = new AccountStore(currentInfo); stores.push(store);
+    await store.enroll(identity, { username: 'container-test', password: enrollPassword, name: 'synthetic-' + identity.id.slice(0, 8), ephemeral: false }); await store.openSession(identity); return { store, identity };
+  }
+  async function signIn(currentInfo, identity) { const store = new AccountStore(currentInfo); stores.push(store); await store.openSession(identity); return store; }
+  const { store: first, identity: firstIdentity } = await enroll(info); const { store: second, identity: secondIdentity } = await enroll(info);
+  const alice = new RendezvousPeer(first, firstIdentity); const bob = new RendezvousPeer(second, secondIdentity);
   await alice.register('synthetic-client'); await bob.register('synthetic-target');
   const session = await alice.request(bob.identity.id);
   const a = alice.channel(session, bob.identity.id, 'view');
@@ -54,37 +59,37 @@ try {
   await b.accept();
   for (let round = 0; round < 6 && !(a.ready && b.ready); round++) { await a.receive(); await b.receive(); }
   assert.equal(a.ready && b.ready, true); await a.send('SYNTHETIC_PRIVATE_SIGNAL'); assert.deepEqual(await b.receive(), ['SYNTHETIC_PRIVATE_SIGNAL']);
-  console.log('PASS: image runs as UID 1000 with read-only root; login and encrypted signaling over the published loopback port.');
-  const salt = randomBytes(16); const nonce = randomBytes(12);
-  const key = Buffer.from(await argon2id({ password: randomBytes(32), salt, parallelism: 1, iterations: 3, memorySize: 65536, hashLength: 32, outputType: 'binary' }));
-  const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(Buffer.from('terminus-encrypted-vault:v1'));
+  console.log('PASS: image runs as UID 1000 with read-only root; enrollment, device sessions and encrypted signaling over the published loopback port.');
+  const nonce = randomBytes(12); const key = randomBytes(32);
+  const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(Buffer.from('shellherd-container-check'));
   const payload = Buffer.concat([cipher.update('SYNTHETIC_PRIVATE_VAULT_CONTENT'), cipher.final()]);
-  const wire = JSON.stringify({ format: 'terminus-encrypted-vault', version: 1, kdf: { algorithm: 'argon2id', salt: salt.toString('base64'), memoryKiB: 65536, iterations: 3, parallelism: 1 }, cipher: { algorithm: 'aes-256-gcm', nonce: nonce.toString('base64'), authTag: cipher.getAuthTag().toString('base64') }, payload: payload.toString('base64') });
+  const wire = JSON.stringify({ format: 'shellherd-sync-object', version: 1, kind: 'version', cipher: { algorithm: 'aes-256-gcm', nonce: nonce.toString('base64'), authTag: cipher.getAuthTag().toString('base64') }, payload: payload.toString('base64') });
   const id = await first.put(wire);
   // Exercise the actual image HEALTHCHECK command before stopping.
   const health = JSON.parse(await docker(['inspect', name]))[0].Config.Healthcheck.Test;
   assert.equal(health[0], 'CMD-SHELL'); await docker(['exec', name, '/bin/sh', '-c', health[1]]);
   await stop(); info = await start(volume);
   first.info.serverUrl = info.serverUrl; await assert.rejects(() => first.list(), error => error.status === 401);
-  const after = await login(info); assert.deepEqual(await after.list(), [id]); assert.equal(await after.get(id), wire);
+  const after = await signIn(info, firstIdentity); assert.deepEqual(await after.list(), [id]); assert.equal(await after.get(id), wire); // the enrollment lives in devices.json on the volume
   assert.deepEqual(await after.request('GET', '/v1/rendezvous/devices'), { devices: [] });
-  console.log('PASS: account and ciphertext survive container replacement; old tokens, presence and sessions do not.');
+  console.log('PASS: account, roster and ciphertext survive container replacement; old tokens, presence and sessions do not.');
   await stop();
   const archive = await docker(['run', '--rm', '--network', 'none', '--read-only', ...volumeMount(volume), '--entrypoint', 'tar', image, '-C', '/data', '-czf', '-', '.'], { binary: true });
   await docker(['run', '--rm', '-i', '--network', 'none', '--read-only', ...volumeMount(restored), '--entrypoint', 'tar', image, '-C', '/data', '-xzf', '-'], { input: archive });
   const inspection = await docker(['run', '--rm', '--network', 'none', '--read-only', ...volumeMount(restored), '--entrypoint', 'node', image, '--input-type=module', '-e', "import {readFile,readdir} from 'node:fs/promises'; let text=await readFile('/data/server.json','utf8'); for(const name of await readdir('/data/objects'))text+=await readFile('/data/objects/'+name,'utf8'); console.log(text);"]);
   for (const marker of [password, 'SYNTHETIC_PRIVATE_SIGNAL', 'SYNTHETIC_PRIVATE_VAULT_CONTENT']) assert.equal(inspection.includes(marker), false);
-  info = await start(restored); const fromBackup = await login(info); const downloaded = JSON.parse(await fromBackup.get(id));
-  const decipher = createDecipheriv('aes-256-gcm', key, nonce); decipher.setAAD(Buffer.from('terminus-encrypted-vault:v1')); decipher.setAuthTag(Buffer.from(downloaded.cipher.authTag, 'base64'));
+  info = await start(restored); const fromBackup = await signIn(info, secondIdentity); const downloaded = JSON.parse(await fromBackup.get(id));
+  const decipher = createDecipheriv('aes-256-gcm', key, nonce); decipher.setAAD(Buffer.from('shellherd-container-check')); decipher.setAuthTag(Buffer.from(downloaded.cipher.authTag, 'base64'));
   assert.equal(Buffer.concat([decipher.update(Buffer.from(downloaded.payload, 'base64')), decipher.final()]).toString(), 'SYNTHETIC_PRIVATE_VAULT_CONTENT'); key.fill(0);
   console.log('PASS: backup restored into a fresh volume, private file permissions preserved, no plaintext markers in server storage.');
   await stop();
   const newPassword = randomBytes(32).toString('hex'); const newAccount = await createAccount('container-test', newPassword);
   const rotate = "import {readFileSync} from 'node:fs'; import {replaceAccount} from './server/main.mjs'; await replaceAccount('/data',JSON.parse(readFileSync(0,'utf8')));";
   await docker(['run', '--rm', '-i', '--network', 'none', '--read-only', ...volumeMount(restored), '--entrypoint', 'node', image, '--input-type=module', '-e', rotate], { input: JSON.stringify(newAccount) });
-  info = await start(restored); await assert.rejects(() => login(info), error => error.status === 401);
-  assert.equal(await (await login(info, newPassword)).get(id), wire);
-  console.log('PASS: atomic account rotation rejects the old password and retains server identity and encrypted objects.');
+  info = await start(restored); await assert.rejects(() => enroll(info), error => error.status === 401);
+  assert.equal(await (await enroll(info, newPassword)).store.get(id), wire);
+  assert.equal(await (await signIn(info, firstIdentity)).get(id), wire); // enrolled devices keep working without the password
+  console.log('PASS: atomic account rotation rejects the old password for new enrollments and retains server identity, roster and encrypted objects.');
 } finally {
   for (const channel of channels) channel.dispose(); for (const store of stores) store.close();
   await stop(); for (const item of volumes) await docker(['volume', 'rm', item]);
