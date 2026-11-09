@@ -63,9 +63,11 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
   const connect = (): Promise<void> => run(() => controller.act(privateNetwork ? { kind: 'connect', serverUrl: normalized ?? '', privateNetwork: true } : { kind: 'connect', serverUrl: normalized ?? '' }));
   const signIn = (): Promise<void> => {
     const serverPassword = password; setPassword('');
-    return run(() => controller.act({ kind: 'signIn', username, password: serverPassword }));
+    return run(() => controller.act({ kind: 'signIn', username, password: serverPassword, deviceName: deviceName.trim() }));
   };
-  const goOnline = (): Promise<void> => run(() => controller.act({ kind: 'goOnline', deviceName: deviceName.trim() }));
+  const openSession = (): Promise<void> => run(() => controller.act({ kind: 'openSession' }));
+  // An empty name makes the host fall back to the enrollment name.
+  const goOnline = (): Promise<void> => run(() => controller.act({ kind: 'goOnline', deviceName: (state.account?.deviceName ?? deviceName).trim() }));
   const goOffline = (): Promise<void> => run(() => controller.act({ kind: 'goOffline' }));
   const requestView = (target: string, verification: string | null): Promise<void> => run(async () => {
     const reply = await controller.act({ kind: 'request', target, verification });
@@ -92,26 +94,31 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
       </>}
       <button className="primary-button" type="submit" disabled={busy || !normalized}>{t('remoteLab:connect')}</button>
     </form>}
-    {state.phase === 'serverReady' && <form className="remote-lab-form" onSubmit={event => { event.preventDefault(); void signIn(); }}>
+    {state.phase === 'serverReady' && <section className="remote-lab-form">
       {state.server && <p className="remote-lab-caption">{state.server.serverUrl}</p>}
-      <label htmlFor={`${id}-username`}>{t('remoteLab:username')}</label>
-      <input id={`${id}-username`} value={username} maxLength={64} autoComplete="username" spellCheck={false} disabled={busy}
-        onChange={event => { setUsername(event.target.value); controller.clearError(); }} />
-      <label htmlFor={`${id}-password`}>{t('remoteLab:password')}</label>
-      <input id={`${id}-password`} type="password" value={password} maxLength={1024} autoComplete="off" disabled={busy}
-        onChange={event => { setPassword(event.target.value); controller.clearError(); }} />
-      <button className="primary-button" type="submit" disabled={busy || !/^[a-zA-Z0-9_.-]{1,64}$/.test(username) || !password}>{t('remoteLab:signIn')}</button>
-    </form>}
-    {(state.phase === 'signedIn' || state.phase === 'online') && <section className="remote-lab-account">
-      {state.account && <p role="status">{t('remoteLab:signedInAs', { username: state.account.username })}</p>}
-      {state.phase === 'signedIn' && <form className="remote-lab-form" onSubmit={event => { event.preventDefault(); void goOnline(); }}>
+      {state.identity && !state.identity.persistent && <p className="remote-lab-warning">{t('remoteLab:identityTemporary')}</p>}
+      {state.enrolled ? <>
+        <p>{t('remoteLab:enrolledHint')}</p>
+        <button type="button" className="primary-button" disabled={busy} onClick={() => void openSession()}>{t('remoteLab:openSession')}</button>
+      </> : <form className="remote-lab-form" onSubmit={event => { event.preventDefault(); void signIn(); }}>
+        {state.enrolledElsewhere && <p className="remote-lab-warning">{t('remoteLab:enrolledElsewhere', { url: state.enrolledElsewhere })}</p>}
+        <label htmlFor={`${id}-username`}>{t('remoteLab:username')}</label>
+        <input id={`${id}-username`} value={username} maxLength={64} autoComplete="username" spellCheck={false} disabled={busy}
+          onChange={event => { setUsername(event.target.value); controller.clearError(); }} />
+        <label htmlFor={`${id}-password`}>{t('remoteLab:password')}</label>
+        <input id={`${id}-password`} type="password" value={password} maxLength={1024} autoComplete="off" disabled={busy}
+          onChange={event => { setPassword(event.target.value); controller.clearError(); }} />
         <label htmlFor={`${id}-device-name`}>{t('remoteLab:deviceName')}</label>
         <input id={`${id}-device-name`} value={deviceName} maxLength={80} autoComplete="off" spellCheck={false} disabled={busy}
           onChange={event => { setDeviceName(event.target.value); controller.clearError(); }} />
-        <button className="primary-button" type="submit" disabled={busy || !nameValid}>{t('remoteLab:goOnline')}</button>
+        <button className="primary-button" type="submit" disabled={busy || !/^[a-zA-Z0-9_.-]{1,64}$/.test(username) || !password || !nameValid}>{t('remoteLab:signIn')}</button>
       </form>}
+    </section>}
+    {(state.phase === 'signedIn' || state.phase === 'online') && <section className="remote-lab-account">
+      {state.account && <p role="status">{t('remoteLab:signedInAs', { username: state.account.username })}</p>}
+      {state.phase === 'signedIn' && <button type="button" className="primary-button" disabled={busy} onClick={() => void goOnline()}>{t('remoteLab:goOnline')}</button>}
       {state.phase === 'online' && <>
-        {state.account && <p role="status">{t('remoteLab:online', { name: deviceName.trim(), time: formatDateTime(state.account.validUntil, 'time') })}</p>}
+        {state.account && <p role="status">{t('remoteLab:online', { name: (state.account.deviceName || deviceName).trim(), time: formatDateTime(state.account.validUntil, 'time') })}</p>}
         <h3>{t('remoteLab:fingerprintOwn')}</h3>
         <code className="remote-lab-fingerprint">{ownFingerprint}</code>
         {state.identity && !state.identity.persistent && <p className="remote-lab-warning">{t('remoteLab:identityTemporary')}</p>}
