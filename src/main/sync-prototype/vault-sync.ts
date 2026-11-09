@@ -167,20 +167,27 @@ export async function importSyncedVault(sessions: VaultSessionManager, remote: V
   const check = (): void => { ensure(!signal.aborted && !sessions.isUnlocked(), 'locked'); };
   ensure(process.platform === 'linux', 'limit');
   check(); const listing = ids.parse(await remote.list()); check(); ensure(listing.length > 0, 'history');
-  // One key per distinct KDF parameter set (at most 8); every key except the anchor's is wiped afterwards.
-  const keys = new Map<string, Buffer>(); let key: Buffer | undefined; let graph: Graph | undefined;
-  try {
-    for (const id of listing) {
-      const wire = await remote.get(id); check(); ensure(hashWire(wire) === id);
-      let kdf: EncryptedVaultFile['kdf'];
-      try { kdf = encryptedFile(wire).kdf; } catch (error) { if (error instanceof SyncFailure && error.code === 'limit') throw error; continue; }
-      const tag = stable(kdf); let candidate = keys.get(tag);
-      if (!candidate) { if (keys.size >= 8) continue; candidate = await keyFromPassword(password, kdf); keys.set(tag, candidate); check(); }
-      const attempt = new Graph(candidate, kdf, context);
-      if (attempt.tryAdd(wire) !== null) { graph = attempt; key = candidate; break; }
-    }
-  } catch (error) { for (const k of keys.values()) k.fill(0); throw error; }
-  for (const k of keys.values()) if (k !== key) k.fill(0);
+  // Group candidates by KDF parameter set; derive for the most frequent sets first (at most 8 derivations), so a few foreign objects cannot block the import.
+  let key: Buffer | undefined; let graph: Graph | undefined;
+  const groups = new Map<string, { kdf: EncryptedVaultFile['kdf']; wires: string[] }>();
+  for (const id of listing) {
+    const wire = await remote.get(id); check(); ensure(hashWire(wire) === id);
+    let kdf: EncryptedVaultFile['kdf'];
+    try { kdf = encryptedFile(wire).kdf; } catch (error) { if (error instanceof SyncFailure && error.code === 'limit') throw error; continue; }
+    const tag = stable(kdf); const group = groups.get(tag);
+    if (group) group.wires.push(wire); else groups.set(tag, { kdf, wires: [wire] });
+  }
+  for (const { kdf, wires } of [...groups.values()].sort((x, y) => y.wires.length - x.wires.length).slice(0, 8)) {
+    const candidate = await keyFromPassword(password, kdf);
+    try {
+      check();
+      for (const wire of wires) {
+        const attempt = new Graph(candidate, kdf, context);
+        if (attempt.tryAdd(wire) !== null) { graph = attempt; key = candidate; break; }
+      }
+    } finally { if (candidate !== key) candidate.fill(0); }
+    if (key) break;
+  }
   ensure(graph && key, 'wrongVault');
   const kdf = graph.kdf; let checkpoint: Awaited<ReturnType<typeof lockSyncState>> | undefined; let reserved: string | undefined; let written = false;
   try {

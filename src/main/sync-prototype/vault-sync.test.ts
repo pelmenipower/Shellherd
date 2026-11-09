@@ -214,3 +214,13 @@ it('accepts 100 versions and rejects the 101st with limit', async () => {
   await a.save({ ...a.getSnapshot().vault, name: 'Version 100' });
   await expect(synchronizeVault(a, remote, context, signal())).rejects.toMatchObject({ code: 'limit' });
 }, 120000);
+
+it('imports although eight foreign objects with distinct KDF salts precede the vault versions', async () => {
+  const { directory, a, b, remote, data } = await fixture();
+  await synchronizeVault(a, remote, context, signal());
+  await a.save({ ...a.getSnapshot().vault, name: 'Second version' }); await synchronizeVault(a, remote, context, signal());
+  const own = [...data.entries()]; expect(own).toHaveLength(2); data.clear();
+  for (let n = 0; n < 8; n++) { const wire = JSON.stringify(await encryptVault(structuredClone(exampleVault), `FOREIGN_PASSWORD_${n}`)); await remote.put(wire); }
+  for (const [id, wire] of own) data.set(id, wire);
+  expect(await importSyncedVault(b, remote, context, password, signal(), async () => join(directory, 'b.term'))).toMatchObject({ status: 'synced' });
+}, 30000);

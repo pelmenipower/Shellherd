@@ -79,18 +79,21 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       response.end(JSON.stringify(value));
     };
     void (async () => {
-      const now = clock(); if (now - windowStart >= 60_000 || now < windowStart) { windowStart = now; requests = 0; }
-      check(++requests <= limits.global, 429, Math.max(1, Math.ceil((windowStart + 60_000 - now) / 1000)));
+      const now = clock();
       const source = sourceOf(request, { trustedProxy }); budget('source:' + source, limits.source);
-      check(request.headers.origin === undefined && request.headers['transfer-encoding'] === undefined);
       const path = request.url; check(typeof path === 'string' && path.length < 512);
+      // Per-source buckets first: only requests that pass them count against the global budget, so one source cannot exhaust it for all.
+      if (request.method === 'GET' && path === '/v1/info') budget('info:' + source, limits.info);
+      if (login && path === '/v1/login' && request.method === 'POST') budget('login:' + source, limits.login);
+      if (now - windowStart >= 60_000 || now < windowStart) { windowStart = now; requests = 0; }
+      check(++requests <= limits.global, 429, Math.max(1, Math.ceil((windowStart + 60_000 - now) / 1000)));
+      check(request.headers.origin === undefined && request.headers['transfer-encoding'] === undefined);
       if (request.method === 'GET' && path === '/v1/info') {
-        budget('info:' + source, limits.info);
         check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
         send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'password' : 'device', objectFormat: login ? 'encrypted-vault' : 'device-snapshot', rendezvous: Boolean(broker), rendezvousProof: Boolean(broker) }); return;
       }
       if (login && path === '/v1/login') {
-        check(request.method === 'POST', 405); budget('login:' + source, limits.login);
+        check(request.method === 'POST', 405);
         let body;
         try {
           check(request.headers['content-type'] === 'application/json');

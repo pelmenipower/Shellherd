@@ -62,11 +62,15 @@ Podman-Freigabe muss gesondert mit der jeweiligen Installation geprüft werden.
 
 Der Server begrenzt Anfragen, Anmeldungen und Verbindungen pro Quelladresse
 (IPv6 je /64) und bremst fehlgeschlagene Anmeldungen mit wachsendem Backoff
-(Antwort 429 mit `retry-after`). Hinter dem Caddy-Proxy sieht der Server nur
-`127.0.0.1`. Dann in `compose.yaml` den auskommentierten Eintrag
-`SHELLHERD_SERVER_TRUSTED_PROXY: "1"` aktivieren: Der Server nimmt das letzte
-Element von `X-Forwarded-For` als Quelle. Das nur setzen, wenn der Port wie
-vorgegeben auf `127.0.0.1` gebunden ist und ausschließlich der Proxy ihn erreicht.
+(Antwort 429 mit `retry-after`). Hinter dem Proxy auf dem Host erscheinen
+Clients im Container als Adresse des Docker-Gateways (nicht `127.0.0.1`), also
+als eine einzige Quelle. Deshalb setzt `compose.yaml` aktiv
+`SHELLHERD_SERVER_TRUSTED_PROXY: "1"`: Der Server nimmt das letzte Element von
+`X-Forwarded-For` als Quelle. Das ist nur sicher, solange der Port wie
+vorgegeben auf `127.0.0.1` gebunden ist und ausschließlich der Proxy ihn
+erreicht. Das Flag entfernen, wenn der Server direkt ohne Proxy betrieben wird
+(etwa nur im WireGuard-Netz); sonst könnten Clients ihre Quelle per Header
+fälschen.
 
 Optional und außerhalb dieses Repos kann fail2ban wiederholte 429-Antworten oder
 Fehlanmeldungen auf Firewall-Ebene sperren. Gegen verteilte Floods hilft nur ein

@@ -96,6 +96,14 @@ it('rate limits /v1/info per source with retry-after and X-Forwarded-For only be
   expect((await get(proxiedUrl + 'v1/info', { headers: { 'x-forwarded-for': '2.2.2.2' } })).status).toBe(200); // other source
   expect((await get(proxiedUrl + 'v1/info', { headers: { 'x-forwarded-for': '9.9.9.9, 1.1.1.1' } })).status).toBe(429); // last element counts
 });
+it('does not let one source exhaust the global budget for others', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shellherd-global-')); cleanup.push(() => rm(directory, { recursive: true, force: true }));
+  const a = device('alice'); cleanup.push(() => a.destroy());
+  const service = await createSyncServer({ directory, serverId: randomBytes(32).toString('hex'), namespace: 'central-vault', devices: [{ id: a.id, signingKey: a.public[1] }], trustedProxy: true, clock: () => 5000 });
+  cleanup.push(() => service.close()); const url = await service.listen();
+  for (let i = 0; i < 600; i++) await get(url + 'v1/info', { headers: { 'x-forwarded-for': '6.6.6.6' } });
+  expect((await get(url + 'v1/info', { headers: { 'x-forwarded-for': '1.2.3.4' } })).status).toBe(200);
+});
 it('closes the ninth connection of one source unless a trusted proxy is configured', async () => {
   const open = async (trustedProxy) => {
     const directory = await mkdtemp(join(tmpdir(), 'shellherd-conn-')); cleanup.push(() => rm(directory, { recursive: true, force: true }));
