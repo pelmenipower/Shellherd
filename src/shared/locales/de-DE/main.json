@@ -44,6 +44,13 @@
     },
     "importKnownHosts": {
       "title": "known_hosts-Datei auswählen"
+    },
+    "remoteConsent": {
+      "title": "Bildschirm freigeben?",
+      "message": "{{name}} möchte den Bildschirm dieses Geräts ansehen. Nur Ansehen, höchstens fünf Minuten.",
+      "detail": "Fingerabdruck des anfragenden Geräts:\n{{fingerprint}}\n\nÜbertragen wird der gesamte Hauptbildschirm, bis du auf „Beenden“ klickst.",
+      "confirm": "Bildschirm freigeben",
+      "decline": "Ablehnen"
     }
   },
   "assistant": {

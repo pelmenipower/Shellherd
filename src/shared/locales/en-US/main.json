@@ -44,6 +44,13 @@
     },
     "importKnownHosts": {
       "title": "Select known_hosts file"
+    },
+    "remoteConsent": {
+      "title": "Share your screen?",
+      "message": "{{name}} wants to view the screen of this device. View only, five minutes at most.",
+      "detail": "Fingerprint of the requesting device:\n{{fingerprint}}\n\nThe entire primary screen is shared until you click “End”.",
+      "confirm": "Share screen",
+      "decline": "Decline"
     }
   },
   "assistant": {
