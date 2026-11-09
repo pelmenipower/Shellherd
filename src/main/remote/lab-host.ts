@@ -7,12 +7,14 @@ import { REMOTE_LAB_LIMITS } from '../../shared/remote-lab';
 import type {
   RemoteDevice, RemoteEndReason, RemoteErrorCode, RemoteLabEvent, RemoteLabReply, RemoteLabSession, RemoteLabState, RemoteSignalPart,
 } from '../../shared/remote-lab';
-import { SignalCollector, isSignalPart, splitSignal } from '../../shared/remote-signal';
+import { SignalCollector, isSignalPart, normalizeVerification, splitSignal, verifyFingerprintPrefix } from '../../shared/remote-signal';
 import { normalizeSyncServerUrl } from '../../shared/sync-server-url.mjs';
 import type { RemoteIdentity, RemoteIdentityStore } from './identity';
 import type { PresenceHandlers, PresenceTimers, PresenceTransport } from './presence';
 
-export interface RemoteServerInfo { serverUrl: string; serverId: string; namespace: string; authentication: 'password' | 'device'; rendezvous: boolean }
+export interface RemoteServerInfo { serverUrl: string; serverId: string; namespace: string; authentication: 'password' | 'device'; rendezvous: boolean; rendezvousProof: boolean }
+/** What the native consent dialog shows; fingerprint is the full 64-hex id of the requester. */
+export interface CapturePrompt { name: string; fingerprint: string; verified: boolean }
 export interface RemoteSessionWire { id: string; from: string; to: string; nonce: string; scope: string; state: string; expiresAt: number }
 export interface RemoteChannel { readonly ready: boolean; accept(): Promise<void>; send(value: unknown): Promise<unknown>; receive(): Promise<unknown[]>; close(): Promise<void>; dispose(): void }
 export interface RemotePeer {
@@ -35,6 +37,12 @@ export interface RemoteDeps {
   presence(transport: PresenceTransport, name: string, handlers: PresenceHandlers): { start(): Promise<void>; stop(): Promise<void> };
   timers: PresenceTimers;
   isUnlocked(): boolean;
+  /** Constant-time check against the unlocked vault; rejects (any error) when the vault is locked. */
+  matchesVaultPassword(password: string): Promise<boolean>;
+  /** Native consent in main; resolves false on decline, abort or missing parent window. Never throws. */
+  confirmCapture(owner: number, prompt: CapturePrompt, signal: AbortSignal): Promise<boolean>;
+  /** Renderer did not ack 'stopped' in time: kill its process and reload. */
+  emergency(owner: number): void;
 }
 
 const L = REMOTE_LAB_LIMITS;
@@ -48,12 +56,13 @@ const requestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('signIn'), clientId: uuid, username: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/), password: z.string().min(1).max(1024) }).strict(),
   z.object({ kind: z.literal('goOnline'), clientId: uuid, deviceName: z.string().max(1024) }).strict(),
   z.object({ kind: z.literal('goOffline'), clientId: uuid }).strict(),
-  z.object({ kind: z.literal('request'), clientId: uuid, target: z.string().regex(hex64), compared: z.literal(true) }).strict(),
-  z.object({ kind: z.literal('armCapture'), clientId: uuid, sessionId }).strict(),
+  z.object({ kind: z.literal('request'), clientId: uuid, target: z.string().regex(hex64), verification: z.string().max(64).nullable() }).strict(),
+  z.object({ kind: z.literal('armCapture'), clientId: uuid, sessionId, verification: z.string().max(64).nullable() }).strict(),
   z.object({ kind: z.literal('accept'), clientId: uuid, sessionId }).strict(),
   z.object({ kind: z.literal('decline'), clientId: uuid, sessionId }).strict(),
   z.object({ kind: z.literal('signal'), clientId: uuid, sessionId, part: z.unknown() }).strict(),
   z.object({ kind: z.literal('stop'), clientId: uuid, sessionId }).strict(),
+  z.object({ kind: z.literal('stopped'), clientId: uuid, sessionId }).strict(),
 ]);
 const wireSchema = z.object({
   id: z.string().regex(hex64), from: z.string().regex(hex64), to: z.string().regex(hex64), nonce: z.string().regex(/^[a-f0-9]{1,128}$/),
@@ -68,9 +77,10 @@ interface Sess {
   state: RemoteLabSession['state']; deadline: number; requestDeadline: number; startedAt?: number;
   channel?: RemoteChannel; collector: SignalCollector; tail: Promise<unknown>; pending: number;
   armed: boolean; handles: Set<unknown>; deadlineHandle?: unknown; ended: boolean;
+  owner: number; verified: boolean; attempts: number; prompting: boolean; captured: boolean; abort: AbortController;
 }
 interface PeerDevice { id: string; name: string; publicKey: string }
-interface Online { store: RemoteIdentityStore; identity: RemoteIdentity; persistent: boolean; peer: RemotePeer; presence: { start(): Promise<void>; stop(): Promise<void> }; devices: PeerDevice[]; processed: Set<string> }
+interface Online { store: RemoteIdentityStore; identity: RemoteIdentity; persistent: boolean; peer: RemotePeer; presence: { start(): Promise<void>; stop(): Promise<void> }; devices: PeerDevice[]; processed: Set<string>; attempts: Map<string, number>; muted: Map<string, number>; mutedCount: number }
 
 const statusOf = (error: unknown): number | undefined =>
   typeof error === 'object' && error !== null && typeof (error as { status?: unknown }).status === 'number' ? (error as { status: number }).status : undefined;
@@ -84,7 +94,7 @@ export class RemoteLabHost {
   #user?: { username: string; validUntil: number };
   #online?: Online;
   #session?: Sess;
-  #grant?: { owner: number; sess: Sess; until: number; used: boolean };
+  #pendingStops = new Map<string, { owner: number; handle: unknown }>();
   #controller = new AbortController();
   #busy = false;
   #gen = 0;
@@ -105,6 +115,7 @@ export class RemoteLabHost {
     const parsed = requestSchema.safeParse(raw);
     if (!parsed.success) return { ok: false, code: 'invalid' };
     const req = parsed.data;
+    if (req.kind === 'stopped') return this.#stopped(owner, req.sessionId);
     const bound = this.#binding;
     if (!bound) {
       if (req.kind === 'status' || req.kind === 'close') return { ok: true, state: { phase: 'idle' } };
@@ -117,25 +128,57 @@ export class RemoteLabHost {
       case 'signIn': return this.#exclusive(() => this.#signIn(req.username, req.password));
       case 'goOnline': return this.#exclusive(() => this.#goOnline(req.deviceName));
       case 'goOffline': return this.#exclusive(() => this.#goOffline());
-      case 'request': return this.#exclusive(() => this.#request(req.target));
+      case 'request': return this.#exclusive(() => this.#request(req.target, req.verification));
       case 'accept': return this.#exclusive(() => this.#accept(req.sessionId));
-      case 'armCapture': return this.#armCapture(owner, req.sessionId);
+      case 'armCapture': return this.#armCapture(req.sessionId, req.verification);
       case 'decline': return this.#decline(req.sessionId);
       case 'signal': return this.#signal(req.sessionId, req.part);
       case 'stop': return this.#stop(req.sessionId);
     }
   }
 
-  consumeCaptureGrant(webContentsId: number): string | null {
-    const g = this.#grant;
-    if (!g || g.owner !== webContentsId || g.used || this.deps!.timers.now() >= g.until) return null;
+  /** For the permission handler: owner matches, agent session armed and in 'consent' or 'granted'. */
+  captureArmed(webContentsId: number): boolean {
     const s = this.#session;
-    if (s !== g.sess || s.role !== 'agent' || s.state !== 'consent') return null;
-    g.used = true;
+    return !!s && this.#binding?.owner === webContentsId && s.role === 'agent' && s.armed && !s.ended && (s.state === 'consent' || s.state === 'granted');
+  }
+
+  /** Display-media gate: runs the native consent once per session; resolves the session id after consent -> 'granted', else null. */
+  async requestCapture(webContentsId: number): Promise<string | null> {
+    const deps = this.deps;
+    const s = this.#session;
+    if (!deps || !s || this.#binding?.owner !== webContentsId || s.owner !== webContentsId) return null;
+    if (s.role !== 'agent' || s.state !== 'consent' || !s.armed || s.prompting || !deps.isUnlocked() || deps.timers.now() >= s.deadline) return null;
+    s.prompting = true;
+    let ok = false;
+    try { ok = await deps.confirmCapture(s.owner, { name: s.peer.name, fingerprint: s.peer.id, verified: s.verified || s.peer.known?.verified === true }, s.abort.signal); }
+    catch { ok = false; }
+    if (s.ended || this.#session !== s) return null;
+    if (!ok) { this.#mute(s.peer.id); this.#end(s, 'declined'); return null; }
+    const locked = !deps.isUnlocked();
+    if (locked || deps.timers.now() >= s.deadline) { this.#end(s, locked ? 'locked' : 'expired'); return null; }
+    s.state = 'granted'; s.captured = true;
+    this.#publish();
     return s.id;
   }
 
-  closeOwner(owner: number): void { if (this.#binding?.owner === owner) this.#teardown('stopped'); }
+  #stopped(owner: number, id: string): RemoteLabReply {
+    const pending = this.#pendingStops.get(id);
+    if (!pending || pending.owner !== owner) return { ok: false, code: 'stale' };
+    this.deps!.timers.clearTimeout(pending.handle);
+    this.#pendingStops.delete(id);
+    return this.#binding ? this.#ok() : { ok: true, state: { phase: 'idle' } };
+  }
+
+  closeOwner(owner: number): void {
+    if (this.#binding?.owner === owner) this.#teardown('stopped');
+    // The renderer is gone: no acknowledgement can come, and nothing is left to kill.
+    for (const [id, pending] of [...this.#pendingStops]) {
+      if (pending.owner !== owner) continue;
+      this.deps?.timers.clearTimeout(pending.handle);
+      this.#pendingStops.delete(id);
+    }
+  }
   reset(reason?: 'locked'): void { this.#teardown(reason ?? 'stopped'); }
 
   // --- network actions -------------------------------------------------------------------------
@@ -158,7 +201,7 @@ export class RemoteLabHost {
     try {
       const info = await this.deps!.probe(url, this.#controller.signal);
       if (this.#gen !== gen) return { ok: false, code: 'stale' };
-      if (info.authentication !== 'password' || !info.rendezvous) { this.#binding = undefined; return { ok: false, code: 'unavailable' }; }
+      if (info.authentication !== 'password' || !info.rendezvous || info.rendezvousProof !== true) { this.#binding = undefined; return { ok: false, code: 'unavailable' }; }
       this.#info = info; this.#phase = 'serverReady';
       return this.#ok();
     } catch {
@@ -170,7 +213,12 @@ export class RemoteLabHost {
 
   async #signIn(username: string, password: string): Promise<RemoteLabReply> {
     if (this.#phase !== 'serverReady' || !this.#info) return { ok: false, code: 'stale' };
+    if (!this.deps!.isUnlocked()) return { ok: false, code: 'locked' };
     const gen = this.#gen;
+    let same: boolean;
+    try { same = await this.deps!.matchesVaultPassword(password); } catch { return { ok: false, code: 'locked' }; }
+    if (this.#gen !== gen) return { ok: false, code: 'stale' };
+    if (same) return { ok: false, code: 'samePassword' };
     const account = this.deps!.createAccount(this.#info, this.#controller.signal);
     try {
       const result = await account.login(username, password);
@@ -197,7 +245,7 @@ export class RemoteLabHost {
       register: n => peer.register(n), sessions: () => peer.sessions(), devices: () => peer.devices(),
       refresh: () => account.refresh(), unregister: () => peer.unregister(),
     };
-    const ctx: Online = { store, identity: loaded.identity, persistent: loaded.persistent, peer, devices: [], processed: new Set(), presence: undefined as unknown as Online['presence'] };
+    const ctx: Online = { store, identity: loaded.identity, persistent: loaded.persistent, peer, devices: [], processed: new Set(), attempts: new Map(), muted: new Map(), mutedCount: 0, presence: undefined as unknown as Online['presence'] };
     const live = (): boolean => this.#online === ctx;
     ctx.presence = this.deps!.presence(transport, name, {
       onSessions: list => { if (live()) this.#onSessions(ctx, list); },
@@ -228,12 +276,24 @@ export class RemoteLabHost {
     return this.#ok();
   }
 
-  async #request(target: string): Promise<RemoteLabReply> {
+  async #request(target: string, verification: string | null): Promise<RemoteLabReply> {
     const ctx = this.#online;
     if (this.#phase !== 'online' || !ctx || this.#session) return { ok: false, code: 'stale' };
     if (!this.deps!.isUnlocked()) return { ok: false, code: 'locked' };
     const device = ctx.devices.find(d => d.id === target);
     if (!device) return { ok: false, code: 'stale' };
+    if (verification === null) {
+      if (ctx.store.known(target)?.verified !== true) return { ok: false, code: 'invalid' };
+    } else {
+      if (normalizeVerification(verification) === null) return { ok: false, code: 'invalid' };
+      if ((ctx.attempts.get(target) ?? 0) >= L.verificationAttempts) return { ok: false, code: 'mismatch' };
+      if (!verifyFingerprintPrefix(verification, target)) {
+        ctx.attempts.set(target, (ctx.attempts.get(target) ?? 0) + 1);
+        return { ok: false, code: 'mismatch' };
+      }
+      ctx.attempts.delete(target);
+    }
+    const verified = verification !== null;
     const gen = this.#gen;
     let wire: RemoteSessionWire;
     try { wire = await ctx.peer.request(target, 'view'); }
@@ -254,6 +314,7 @@ export class RemoteLabHost {
     }
     const now = this.deps!.timers.now();
     const s = this.#newSession('viewer', wire, device, now + L.requestMs);
+    s.verified = verified;
     s.requestDeadline = s.deadline;
     this.#session = s;
     this.#startDeadline(s);
@@ -263,11 +324,9 @@ export class RemoteLabHost {
 
   async #accept(id: string): Promise<RemoteLabReply> {
     const s = this.#session;
-    if (!s || s.id !== id || s.role !== 'agent' || s.state !== 'consent' || !this.#online) return { ok: false, code: 'stale' };
+    if (!s || s.id !== id || s.role !== 'agent' || s.state !== 'granted' || !this.#online) return { ok: false, code: 'stale' };
     if (!this.deps!.isUnlocked()) return { ok: false, code: 'locked' };
-    if (!s.armed) return { ok: false, code: 'stale' };
     const timers = this.deps!.timers;
-    this.#grant = undefined;
     if (timers.now() >= s.deadline) { this.#end(s, 'expired'); return { ok: false, code: 'expired' }; }
     let channel: RemoteChannel;
     try { channel = this.#online.peer.channel(s.wire, s.peerKey, s.peer.id, 'view'); }
@@ -291,20 +350,43 @@ export class RemoteLabHost {
 
   // --- session actions -------------------------------------------------------------------------
 
-  #armCapture(owner: number, id: string): RemoteLabReply {
+  #armCapture(id: string, verification: string | null): RemoteLabReply {
     const s = this.#session;
     if (!s || s.id !== id || s.role !== 'agent' || s.state !== 'consent' || s.armed) return { ok: false, code: 'stale' };
     if (!this.deps!.isUnlocked()) return { ok: false, code: 'locked' };
+    if (verification === null) {
+      if (s.peer.known?.verified !== true) return { ok: false, code: 'invalid' };
+    } else {
+      if (normalizeVerification(verification) === null) return { ok: false, code: 'invalid' };
+      if (!verifyFingerprintPrefix(verification, s.peer.id)) {
+        s.attempts++;
+        if (s.attempts >= L.verificationAttempts) {
+          this.#mute(s.peer.id);
+          this.#end(s, 'mismatch');
+        } else this.#publish();
+        return { ok: false, code: 'mismatch' };
+      }
+      s.verified = true;
+    }
     s.armed = true;
-    this.#grant = { owner, sess: s, until: this.deps!.timers.now() + L.captureGrantMs, used: false };
     return this.#ok();
   }
 
   #decline(id: string): RemoteLabReply {
     const s = this.#session;
-    if (!s || s.id !== id || s.role !== 'agent' || s.state !== 'consent') return { ok: false, code: 'stale' };
+    if (!s || s.id !== id || s.role !== 'agent' || (s.state !== 'consent' && s.state !== 'granted')) return { ok: false, code: 'stale' };
+    this.#mute(s.peer.id);
     this.#end(s, 'declined');
     return this.#ok();
+  }
+
+  /** Suppresses further requests of this device for muteMs (FIFO, at most 64 entries). */
+  #mute(fingerprint: string): void {
+    const ctx = this.#online;
+    if (!ctx) return;
+    ctx.muted.delete(fingerprint);
+    ctx.muted.set(fingerprint, this.deps!.timers.now() + L.muteMs);
+    if (ctx.muted.size > 64) ctx.muted.delete(ctx.muted.keys().next().value as string);
   }
 
   #stop(id: string): RemoteLabReply {
@@ -346,9 +428,14 @@ export class RemoteLabHost {
   #onSessions(ctx: Online, list: unknown[]): void {
     const wires = list.flatMap(item => { const r = wireSchema.safeParse(item); return r.success ? [r.data] : []; });
     const current = this.#session;
-    if (current?.role === 'agent' && current.state === 'consent' && !wires.some(w => w.id === current.id)) this.#end(current, 'remote', 'remote');
+    if (current?.role === 'agent' && (current.state === 'consent' || current.state === 'granted') && !wires.some(w => w.id === current.id)) this.#end(current, 'remote', 'remote');
     for (const wire of wires) {
       if (wire.to !== ctx.identity.id || wire.state !== 'pending' || ctx.processed.has(wire.id)) continue;
+      const mutedUntil = ctx.muted.get(wire.from);
+      if (mutedUntil !== undefined) {
+        if (this.deps!.timers.now() < mutedUntil) { this.#markProcessed(ctx, wire.id); void this.#delete(wire.id); ctx.mutedCount++; continue; }
+        ctx.muted.delete(wire.from);
+      }
       if (wire.scope !== 'view' || this.#session) { this.#markProcessed(ctx, wire.id); void this.#delete(wire.id); continue; }
       const device = ctx.devices.find(d => d.id === wire.from);
       if (!device) continue; // Not in the device list yet: retry next round without marking.
@@ -386,12 +473,18 @@ export class RemoteLabHost {
   // --- session plumbing ------------------------------------------------------------------------
 
   #newSession(role: 'viewer' | 'agent', wire: RemoteSessionWire, device: PeerDevice, deadline: number): Sess {
-    const known = this.#online?.store.known(device.id);
     return {
-      id: wire.id, role, wire, peerKey: device.publicKey, peer: { id: device.id, name: device.name, ...(known ? { known: { firstSeen: known.firstSeen } } : {}) },
+      id: wire.id, role, wire, peerKey: device.publicKey, peer: this.#peerOf(device),
       state: role === 'viewer' ? 'requesting' : 'consent', deadline, requestDeadline: deadline, collector: new SignalCollector(),
       tail: Promise.resolve(), pending: 0, armed: false, handles: new Set(), ended: false,
+      owner: this.#binding!.owner, verified: false, attempts: 0, prompting: false, captured: false, abort: new AbortController(),
     };
+  }
+
+  #peerOf(device: PeerDevice): RemoteDevice {
+    const store = this.#online?.store;
+    const known = store?.known(device.id);
+    return { id: device.id, name: device.name, ...(known ? { known: { ...known } } : {}), ...(store?.renamed(device.id, device.name) ? { changed: true as const } : {}) };
   }
 
   #after(s: Sess, ms: number, fn: () => void): void {
@@ -460,7 +553,8 @@ export class RemoteLabHost {
       if (message && s.state === 'connecting') {
         const now = this.deps!.timers.now();
         s.state = 'active'; s.startedAt = now;
-        this.#online?.store.remember(s.peer.id, s.peer.name, now);
+        const store = this.#online?.store;
+        store?.remember(s.peer.id, s.peer.name, now, s.verified || store.known(s.peer.id)?.verified === true);
         this.#publish();
       }
     }
@@ -473,7 +567,12 @@ export class RemoteLabHost {
     s.ended = true;
     for (const h of s.handles) this.deps!.timers.clearTimeout(h);
     s.handles.clear();
-    if (this.#grant?.sess === s) this.#grant = undefined;
+    s.abort.abort();
+    if (s.role === 'agent' && s.captured) {
+      // The renderer must ack 'stopped'; otherwise its process is killed (emergency brake).
+      const handle = this.deps!.timers.setTimeout(() => { this.#pendingStops.delete(s.id); this.deps!.emergency(s.owner); }, L.byeMs);
+      this.#pendingStops.set(s.id, { owner: s.owner, handle });
+    }
     this.#session = undefined;
     this.#setSharing(false);
     this.#emit({ kind: 'ended', sessionId: s.id, reason });
@@ -515,7 +614,7 @@ export class RemoteLabHost {
     const online = this.#online;
     const cleanup = s ? this.#end(s, reason) : Promise.resolve();
     const controller = this.#controller;
-    this.#gen++; this.#busy = false; this.#grant = undefined;
+    this.#gen++; this.#busy = false;
     this.#online = undefined; this.#account = undefined; this.#user = undefined; this.#info = undefined; this.#phase = 'idle';
     void online?.presence.stop().catch(() => undefined);
     this.#publish();
@@ -542,10 +641,11 @@ export class RemoteLabHost {
     const online = this.#online;
     if (online && this.#phase === 'online') {
       state.identity = { fingerprint: online.identity.id, persistent: online.persistent };
-      state.devices = online.devices.map(d => { const known = online.store.known(d.id); return { id: d.id, name: d.name, ...(known ? { known: { firstSeen: known.firstSeen } } : {}) }; });
+      state.devices = online.devices.map(d => this.#peerOf(d));
+      if (online.mutedCount > 0) state.muted = online.mutedCount;
     }
     const s = this.#session;
-    if (s) state.session = { id: s.id, role: s.role, peer: s.peer, scope: 'view', state: s.state, expiresAt: s.deadline, ...(s.startedAt !== undefined ? { startedAt: s.startedAt } : {}) };
+    if (s) state.session = { id: s.id, role: s.role, peer: s.peer, scope: 'view', state: s.state, expiresAt: s.deadline, ...(s.startedAt !== undefined ? { startedAt: s.startedAt } : {}), ...(s.role === 'agent' && s.state === 'consent' && !s.verified && s.peer.known?.verified !== true ? { attemptsLeft: L.verificationAttempts - s.attempts } : {}) };
     return state;
   }
 
