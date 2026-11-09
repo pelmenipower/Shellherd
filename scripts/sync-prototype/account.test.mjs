@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { afterEach, beforeAll, expect, it as linuxIt } from 'vitest';
-import { createAccount } from './account-auth.mjs';
+import { createAccount, accountAuth, generatePassword } from './account-auth.mjs';
 import { createSyncServer } from './server.mjs';
 import { AccountStore } from './account-transport.mjs';
 import { probeSyncServer, boundedJson } from './http-common.mjs';
@@ -74,3 +74,51 @@ it('refuses mixed authentication modes and does not persist a plaintext account 
   expect(await createAccount('testuser', serverPassword)).not.toEqual(account);
   await expect(setup({ devices: [{ id: 'injected', signingKey: randomBytes(32).toString('base64') }] })).rejects.toThrow();
 });
+
+const rejects = async (promise, status, retryAfter) => { const error = await promise.then(() => null, e => e); expect(error?.status).toBe(status); if (retryAfter !== undefined) expect(error.retryAfter).toBe(retryAfter); };
+const body = (password = serverPassword, username = 'testuser') => ({ username, password });
+it('backs off 1s, 2s, 4s from the third consecutive failure and resets on success', async () => {
+  let now = 1000; const auth = accountAuth(account, () => now);
+  await rejects(auth.login(body('x'), 'a'), 401); await rejects(auth.login(body('x'), 'a'), 401);
+  expect((await auth.login(body(), 'a')).token).toMatch(/^[a-f0-9]{64}$/); // two failures, then success: no backoff
+  for (let i = 0; i < 3; i++) await rejects(auth.login(body('x'), 'b'), 401);
+  await rejects(auth.login(body(), 'b'), 429, 1); expect((await auth.login(body(), 'c')).token).toBeTruthy(); // other source unaffected
+  now += 1000; await rejects(auth.login(body('x'), 'b'), 401); // 4th failure
+  now += 1999; await rejects(auth.login(body(), 'b'), 429, 1); now += 1; await rejects(auth.login(body('x'), 'b'), 401); // 5th failure
+  now += 3999; await rejects(auth.login(body(), 'b'), 429, 1); now += 1; expect((await auth.login(body(), 'b')).token).toBeTruthy();
+  for (let i = 0; i < 2; i++) await rejects(auth.login(body('x'), 'b'), 401);
+  expect((await auth.login(body(), 'b')).token).toBeTruthy(); // counter was reset by the success
+}, 30000);
+it('counts malformed bodies as failures and caps the backoff at 60 seconds', async () => {
+  let now = 1000; const auth = accountAuth(account, () => now);
+  for (let i = 0; i < 3; i++) await rejects(auth.login({}, 'a'), 400);
+  await rejects(auth.login(body(), 'a'), 429, 1);
+  for (let i = 0; i < 12; i++) { now += 61_000; await rejects(auth.login({}, 'a'), 400); }
+  await rejects(auth.login(body(), 'a'), 429, 60);
+});
+it('refuses only already failing sources once the global failure budget is spent', async () => {
+  const now = 1000; const auth = accountAuth(account, () => now);
+  await rejects(auth.login(body('x'), 'dirty'), 401);
+  for (let i = 0; i < 29; i++) await rejects(auth.login({}, 'spray' + i), 400);
+  await rejects(auth.login(body(), 'dirty'), 429);
+  expect((await auth.login(body(), 'clean')).token).toBeTruthy();
+}, 30000);
+it('rejects a wrong user name with the correct password', async () => {
+  const auth = accountAuth(account); await rejects(auth.login(body(serverPassword, 'testusex'), 'a'), 401);
+  await rejects(auth.login(body(serverPassword, 'x'.repeat(64)), 'a'), 401);
+});
+it('generates 24 character passwords from the unambiguous alphabet', () => {
+  const seen = new Set(); for (let i = 0; i < 100; i++) { const p = generatePassword(); expect(p).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789]{24}$/); seen.add(p); }
+  expect(seen.size).toBe(100);
+});
+it('limits logins to five per minute and source and the rendezvous budget per token', async () => {
+  const { info } = await setup({ clock: () => 1000, rendezvous: true });
+  const attempt = () => fetch(new URL('v1/login', info.serverUrl), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'testuser', password: serverPassword }) });
+  const first = await attempt(); expect(first.status).toBe(200); const { token } = await first.json();
+  for (let i = 0; i < 4; i++) expect((await attempt()).status).toBe(200);
+  const sixth = await attempt(); expect(sixth.status).toBe(429); expect(sixth.headers.get('retry-after')).toBe('12');
+  const poll = () => fetch(new URL('v1/rendezvous/devices', info.serverUrl), { headers: { authorization: `Bearer ${token}` } });
+  for (let i = 0; i < 180; i++) expect((await poll()).status).toBe(200);
+  const over = await poll(); expect(over.status).toBe(429); expect(over.headers.get('retry-after')).toBe('1');
+  expect((await fetch(new URL('v1/rendezvous/devices', info.serverUrl), { headers: { authorization: `Bearer ${'0'.repeat(64)}` } })).status).toBe(401);
+}, 30000);

@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
+import { connect } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import sodium from 'libsodium-wrappers';
 import { afterEach, expect, it as linuxIt } from 'vitest';
@@ -77,4 +78,34 @@ it('detects altered server blobs and refuses redirects or unrelated HTTP service
   cleanup.push(() => new Promise(resolve => { redirect.closeAllConnections(); redirect.close(resolve); }));
   await expect(probeSyncServer(`http://127.0.0.1:${redirect.address().port}/`, { allowLoopbackHttp: true })).rejects.toThrow();
   expect(redirects).toBe(1);
+});
+
+const get = (url, options) => fetch(url, options);
+it('rate limits /v1/info per source with retry-after and X-Forwarded-For only behind a trusted proxy', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'shellherd-limits-')); cleanup.push(() => rm(directory, { recursive: true, force: true }));
+  const a = device('alice'); cleanup.push(() => a.destroy());
+  const config = { directory, serverId: randomBytes(32).toString('hex'), namespace: 'central-vault', devices: [{ id: a.id, signingKey: a.public[1] }], clock: () => 5000 };
+  const plain = await createSyncServer(config); cleanup.push(() => plain.close()); const url = await plain.listen();
+  for (let i = 0; i < 30; i++) expect((await get(url + 'v1/info')).status).toBe(200);
+  const limited = await get(url + 'v1/info'); expect(limited.status).toBe(429); expect(Number(limited.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
+  expect((await get(url + 'v1/info', { headers: { 'x-forwarded-for': '9.9.9.9' } })).status).toBe(429); // header ignored without the flag
+  await plain.close();
+  const proxied = await createSyncServer({ ...config, trustedProxy: true }); cleanup.push(() => proxied.close()); const proxiedUrl = await proxied.listen();
+  for (let i = 0; i < 30; i++) await get(proxiedUrl + 'v1/info', { headers: { 'x-forwarded-for': '1.1.1.1' } });
+  expect((await get(proxiedUrl + 'v1/info', { headers: { 'x-forwarded-for': '1.1.1.1' } })).status).toBe(429);
+  expect((await get(proxiedUrl + 'v1/info', { headers: { 'x-forwarded-for': '2.2.2.2' } })).status).toBe(200); // other source
+  expect((await get(proxiedUrl + 'v1/info', { headers: { 'x-forwarded-for': '9.9.9.9, 1.1.1.1' } })).status).toBe(429); // last element counts
+});
+it('closes the ninth connection of one source unless a trusted proxy is configured', async () => {
+  const open = async (trustedProxy) => {
+    const directory = await mkdtemp(join(tmpdir(), 'shellherd-conn-')); cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const a = device('alice'); cleanup.push(() => a.destroy());
+    const service = await createSyncServer({ directory, serverId: randomBytes(32).toString('hex'), namespace: 'central-vault', devices: [{ id: a.id, signingKey: a.public[1] }], trustedProxy });
+    cleanup.push(() => service.close()); const port = Number(new URL(await service.listen()).port);
+    const sockets = []; let closed = 0;
+    for (let i = 0; i < 9; i++) await new Promise(resolve => { const s = connect(port, '127.0.0.1', resolve); s.on('error', () => {}); s.on('close', () => { closed++; }); sockets.push(s); });
+    await new Promise(resolve => setTimeout(resolve, 150)); sockets.forEach(s => s.destroy()); return closed;
+  };
+  expect(await open(false)).toBeGreaterThanOrEqual(1);
+  expect(await open(true)).toBe(0);
 });

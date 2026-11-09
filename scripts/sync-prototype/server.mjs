@@ -12,20 +12,22 @@ import { createAccessRegistry } from './server-access.mjs';
 import { accountAuth } from './account-auth.mjs';
 import { validateVaultFile } from './vault-file-wire.mjs';
 import { createRendezvous } from './rendezvous.mjs';
+import { DEFAULT_LIMITS, createLimiter, sourceOf } from './rate-limit.mjs';
 const MAX = 1024 * 1024;
 const sha = data => createHash('sha256').update(data).digest('hex');
 const ascii = s => typeof s === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(s);
-function check(ok, code = 400) { if (!ok) { const error = Error('Request rejected'); error.status = code; throw error; } }
+function check(ok, code = 400, retryAfter) { if (!ok) { const error = Error('Request rejected'); error.status = code; if (retryAfter !== undefined) error.retryAfter = retryAfter; throw error; } }
 function base64(s, length) {
   check(typeof s === 'string' && s.length < MAX * 2); const bytes = Buffer.from(s, 'base64');
   check(bytes.toString('base64') === s && (length === undefined || bytes.length === length)); return bytes;
 }
-export async function createSyncServer({ directory, serverId, namespace, devices = [], account = null, publicUrl = null, clock = () => Date.now(), adminPublicKey = null, adminDevices = [], accessFault, rendezvous = false }) {
+export async function createSyncServer({ directory, serverId, namespace, devices = [], account = null, publicUrl = null, clock = () => Date.now(), adminPublicKey = null, adminDevices = [], accessFault, rendezvous = false, trustedProxy = false, limits = {} }) {
+  limits = { ...DEFAULT_LIMITS, ...limits };
   check(typeof serverId === 'string' && /^[a-f0-9]{64}$/.test(serverId) && ascii(namespace));
   check(Array.isArray(devices) && devices.length <= 16 && (account !== null ? devices.length === 0 && adminPublicKey === null && adminDevices.length === 0 : devices.length > 0));
-  const login = account === null ? null : accountAuth(account, clock);
+  const login = account === null ? null : accountAuth(account, clock, limits);
   check(typeof rendezvous === 'boolean' && (!rendezvous || login !== null));
-  const broker = rendezvous ? createRendezvous({ authorize: header => login.authorize(header), isActive: key => login.isActive(key), clock }) : null;
+  const broker = rendezvous ? createRendezvous({ authorize: header => login.authorize(header), isActive: key => login.isActive(key), clock, serverId }) : null;
   check(publicUrl === null || normalizeSyncServerUrl(publicUrl) === publicUrl);
   const keys = new Map();
   for (const device of devices) {
@@ -66,27 +68,37 @@ export async function createSyncServer({ directory, serverId, namespace, devices
   }
   check(objects.size <= 100 && total <= 32 * MAX, 500);
   const nonces = new Map(); let requests = 0; let windowStart = clock();
+  const limiter = createLimiter({ clock, maxKeys: limits.maxKeys });
+  const budget = (key, capacity, perMinute = capacity) => { const result = limiter.take(key, { capacity, perMinute }); check(result.ok, 429, result.retryAfter); };
   const server = http.createServer({ maxHeaderSize: 8192 }, (request, response) => {
-    const send = (status, value) => {
+    const send = (status, value, retryAfter) => {
       if (response.destroyed) return;
-      response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', connection: 'close' });
+      const headers = { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', connection: 'close' };
+      if (status === 429) headers['retry-after'] = String(retryAfter ?? 1);
+      response.writeHead(status, headers);
       response.end(JSON.stringify(value));
     };
     void (async () => {
       const now = clock(); if (now - windowStart >= 60_000 || now < windowStart) { windowStart = now; requests = 0; }
-      check(++requests <= 600, 429);
+      check(++requests <= limits.global, 429, Math.max(1, Math.ceil((windowStart + 60_000 - now) / 1000)));
+      const source = sourceOf(request, { trustedProxy }); budget('source:' + source, limits.source);
       check(request.headers.origin === undefined && request.headers['transfer-encoding'] === undefined);
       const path = request.url; check(typeof path === 'string' && path.length < 512);
       if (request.method === 'GET' && path === '/v1/info') {
+        budget('info:' + source, limits.info);
         check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
-        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'password' : 'device', objectFormat: login ? 'encrypted-vault' : 'device-snapshot', rendezvous: Boolean(broker) }); return;
+        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'password' : 'device', objectFormat: login ? 'encrypted-vault' : 'device-snapshot', rendezvous: Boolean(broker), rendezvousProof: Boolean(broker) }); return;
       }
       if (login && path === '/v1/login') {
-        check(request.method === 'POST', 405); check(request.headers['content-type'] === 'application/json');
-        const length = Number(request.headers['content-length']); check(Number.isSafeInteger(length) && length > 0 && length <= 8192, 413);
-        const chunks = []; let used = 0; for await (const chunk of request) { used += chunk.length; check(used <= 8192, 413); chunks.push(chunk); }
-        check(used === length); const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        send(200, await login.login(body)); return;
+        check(request.method === 'POST', 405); budget('login:' + source, limits.login);
+        let body;
+        try {
+          check(request.headers['content-type'] === 'application/json');
+          const length = Number(request.headers['content-length']); check(Number.isSafeInteger(length) && length > 0 && length <= 8192, 413);
+          const chunks = []; let used = 0; for await (const chunk of request) { used += chunk.length; check(used <= 8192, 413); chunks.push(chunk); }
+          check(used === length); body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch (error) { login.fail(source); throw error; } // a malformed request counts as a failed attempt
+        send(200, await login.login(body, source)); return;
       }
       if (login && path === '/v1/logout') {
         check(request.method === 'POST' && Number(request.headers['content-length'] ?? 0) === 0);
@@ -97,6 +109,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         send(200, login.refresh(request.headers.authorization)); return;
       }
       if (broker && path.startsWith('/v1/rendezvous/')) {
+        const token = login.authorize(request.headers.authorization); budget('rendezvous:' + token, limits.rendezvousToken);
         await broker.handle(request, path, send); return;
       }
       if (!login && request.method === 'GET' && path === '/v1/challenge') {
@@ -176,10 +189,21 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         objects.set(id, bytes); total += bytes; send(201, { id });
       } catch (error) { if (renamed) uncertain = true; throw error; }
       finally { busy = false; await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
-    })().catch(error => send(error.status ?? 400, { error: 'request-rejected' }));
+    })().catch(error => send(error.status ?? 400, { error: 'request-rejected' }, error.retryAfter));
   });
   server.requestTimeout = 15_000; server.headersTimeout = 10_000; server.keepAliveTimeout = 2000; server.maxConnections = 32; server.maxHeadersCount = 32;
   server.on('clientError', (_error, socket) => socket.destroy());
+  // Per-source connection cap; off behind a trusted proxy because every socket then comes from the proxy.
+  if (!trustedProxy) {
+    const open = new Map();
+    server.on('connection', socket => {
+      const source = sourceOf({ socket, headers: {} });
+      const count = (open.get(source) ?? 0) + 1;
+      if (count > limits.connectionsPerSource) { socket.destroy(); return; }
+      open.set(source, count);
+      socket.once('close', () => { const left = (open.get(source) ?? 1) - 1; if (left > 0) open.set(source, left); else open.delete(source); });
+    });
+  }
   return { server, info: { serverId, namespace }, async listen(port = 0, host = '127.0.0.1') {
     check(host === '127.0.0.1' || host === '0.0.0.0');
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); });
