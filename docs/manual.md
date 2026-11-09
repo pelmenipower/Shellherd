@@ -795,6 +795,7 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 
 - A device that returns after a long absence with a locally present, since compacted version merges over the compacted base instead of reporting a history error.
 - If it returns after such a long absence that the list has already cut off the common base, a history message appears. Reloading from the server then helps.
+- If a device builds a change on a base that has since been compacted, other devices may see it as a conflict without a common base until that device syncs again.
 - If an account has two heads with no computable common base, it stays a conflict without a resolution path, as before, and no compaction runs.
 - An H1 server without delete lets the account keep growing with an H2 client until the server answers 507. Update server and clients together.
 - Every sign-in of the account holds the right to delete (token, 15 min). Whoever abuses it can remove objects. The sync detects deletion of already confirmed objects (history message). Objects never seen before can be withheld unnoticed.

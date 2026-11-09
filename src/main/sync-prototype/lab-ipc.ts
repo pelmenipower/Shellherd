@@ -20,30 +20,39 @@ export function vaultPasswordMatcher(sessions?: Pick<VaultSessionManager, 'match
   };
 }
 
+export interface TransportModule { probeSyncServer(url: string, options: { allowLoopbackHttp: boolean; allowPrivateHttp: boolean; signal: AbortSignal }): Promise<NonNullable<SyncLabState['server']>> }
+export interface AccountModule { AccountStore: new (info: NonNullable<SyncLabState['server']>, options: { signal: AbortSignal }) => AccountDriver }
+
+/** Wires the loaded prototype transport modules to the vault sync; exported for tests. */
+export function buildSyncLabHost(transport: TransportModule, account: AccountModule, options: { sessions?: VaultSessionManager }): SyncLabHost {
+  return new SyncLabHost(() => ({ action: () => ({ ok: false, code: 'unavailable' }), close() {} }),
+    (serverUrl, allowPrivateHttp, signal) => transport.probeSyncServer(serverUrl, { allowLoopbackHttp: true, allowPrivateHttp, signal }), undefined,
+    (info, signal) => new account.AccountStore(info, { signal }),
+    async (remote, info, signal, request) => {
+      if (!options.sessions || !remote.get || !remote.put) throw Error('Sync unavailable');
+      const vaultRemote: VaultRemote = { list: async () => await remote.list() as string[], get: (id: string) => remote.get!(id), put: (wire: string) => remote.put!(wire) };
+      if (remote.remove) vaultRemote.remove = (id: string) => remote.remove!(id);
+      if (request.kind === 'removeForeign') return { removedForeign: await removeForeignObjects(options.sessions, vaultRemote, info, request.ids, signal) };
+      if (request.kind === 'importVault') return importSyncedVault(options.sessions, vaultRemote, info, request.password, signal, async () => {
+        const parent = windowRegistry.main(); if (!parent || signal.aborted) return undefined;
+        const result = await dialog.showSaveDialog(parent, { title: mainT('dialogs.vaultSave.title'), defaultPath: 'synced-vault.term', filters: [{ name: mainT('dialogs.vaultFilter'), extensions: ['term'] }] });
+        return result.canceled ? undefined : result.filePath;
+      });
+      return synchronizeVault(options.sessions, vaultRemote, info, signal, request.kind === 'keepLocal' ? request.revision : undefined);
+    }, vaultPasswordMatcher(options.sessions));
+}
+
 /** Account transport scripts are loaded only in an explicitly enabled dev checkout. */
 export async function registerSyncLabIpc(options: { sessions?: VaultSessionManager; onSynced?: (snapshot: VaultSessionSnapshot) => void } = {}): Promise<SyncLabHost> {
   let host = new SyncLabHost();
   if (!app.isPackaged && process.env.SHELLHERD_SYNC_LAB === '1') {
     try {
-      const transportUrl = pathToFileURL(join(app.getAppPath(), 'scripts/sync-prototype/http-common.mjs')).href;
-      const transport = await import(/* @vite-ignore */ transportUrl) as { probeSyncServer(url: string, options: { allowLoopbackHttp: boolean; allowPrivateHttp: boolean; signal: AbortSignal }): Promise<NonNullable<SyncLabState['server']>> };
-      const accountUrl = pathToFileURL(join(app.getAppPath(), 'scripts/sync-prototype/account-transport.mjs')).href;
-      const account = await import(/* @vite-ignore */ accountUrl) as { AccountStore: new (info: NonNullable<SyncLabState['server']>, options: { signal: AbortSignal }) => AccountDriver };
-      host = new SyncLabHost(() => ({ action: () => ({ ok: false, code: 'unavailable' }), close() {} }),
-        (serverUrl, allowPrivateHttp, signal) => transport.probeSyncServer(serverUrl, { allowLoopbackHttp: true, allowPrivateHttp, signal }), undefined,
-        (info, signal) => new account.AccountStore(info, { signal }),
-        async (remote, info, signal, request) => {
-          if (!options.sessions || !remote.get || !remote.put) throw Error('Sync unavailable');
-          const transport: VaultRemote = { list: async () => await remote.list() as string[], get: (id: string) => remote.get!(id), put: (wire: string) => remote.put!(wire) };
-          if (remote.remove) transport.remove = (id: string) => remote.remove!(id);
-          if (request.kind === 'removeForeign') return { removedForeign: await removeForeignObjects(options.sessions, transport, info, request.ids, signal) };
-          if (request.kind === 'importVault') return importSyncedVault(options.sessions, transport, info, request.password, signal, async () => {
-            const parent = windowRegistry.main(); if (!parent || signal.aborted) return undefined;
-            const result = await dialog.showSaveDialog(parent, { title: mainT('dialogs.vaultSave.title'), defaultPath: 'synced-vault.term', filters: [{ name: mainT('dialogs.vaultFilter'), extensions: ['term'] }] });
-            return result.canceled ? undefined : result.filePath;
-          });
-          return synchronizeVault(options.sessions, transport, info, signal, request.kind === 'keepLocal' ? request.revision : undefined);
-        }, vaultPasswordMatcher(options.sessions));
+      // Resolved relative to the main bundle (out/main): app.getAppPath() points to the run dir under the run-app driver.
+      const transportUrl = pathToFileURL(join(__dirname, '..', '..', 'scripts', 'sync-prototype', 'http-common.mjs')).href;
+      const transport = await import(/* @vite-ignore */ transportUrl) as TransportModule;
+      const accountUrl = pathToFileURL(join(__dirname, '..', '..', 'scripts', 'sync-prototype', 'account-transport.mjs')).href;
+      const account = await import(/* @vite-ignore */ accountUrl) as AccountModule;
+      host = buildSyncLabHost(transport, account, options);
     } catch { /* Absent scripts: feature stays unavailable. */ }
   }
   ipcMain.handle('sync-lab:action', (event, request: unknown) => {
