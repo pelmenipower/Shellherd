@@ -1,6 +1,5 @@
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, session, webContents } from 'electron';
 import type { DisplayMediaRequestHandlerHandlerRequest, Streams, WebFrameMain } from 'electron';
-import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { windowRegistry } from '../windows';
@@ -91,14 +90,7 @@ export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; mat
         createRendezvousIdentity(): RemoteIdentity;
         RendezvousPeer: new (store: RemoteAccount, identity: RemoteIdentity) => RemotePeer;
       };
-      const rendezvous = await import(/* @vite-ignore */ script('rendezvous.mjs')) as { deviceId(publicKey: string): string };
-      const store = new RemoteIdentityStore(join(app.getPath('userData'), 'remote-identity.json'), safeStorageCipher(),
-        () => client.createRendezvousIdentity(),
-        pkcs8 => {
-          const privateKey = createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' });
-          const publicKey = createPublicKey(privateKey).export({ format: 'der', type: 'spki' }).toString('base64');
-          return { privateKey, publicKey, id: rendezvous.deviceId(publicKey) };
-        });
+      const store = new RemoteIdentityStore(join(app.getPath('userData'), 'remote-identity.json'), safeStorageCipher());
       const deps: RemoteDeps = {
         probe: (serverUrl, allowPrivateHttp, signal) => transport.probeSyncServer(serverUrl, { allowLoopbackHttp: true, allowPrivateHttp, signal }),
         createAccount: (info, signal) => new accounts.AccountStore(info, { signal }),
