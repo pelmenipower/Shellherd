@@ -1,5 +1,5 @@
 // Enrollment, session and request proofs for enrolled devices. Ed25519 signs tagged JSON arrays (domain separation).
-import { createPublicKey, generateKeyPairSync, verify } from 'node:crypto';
+import { createPublicKey, generateKeyPairSync } from 'node:crypto';
 import { deviceId } from './rendezvous.mjs';
 export const DEVICE_ENROLLMENT = 'shellherd-device-enrollment-v1';
 export const DEVICE_SESSION = 'shellherd-device-session-v1';
@@ -9,8 +9,17 @@ const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const check = ok => { if (!ok) throw Error('Device proof input rejected'); };
 const hex64 = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const namespaceOk = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
-const WEAK_PROBE = Buffer.from('shellherd-weak-key-probe');
-const IDENTITY_SIGNATURE = Buffer.concat([Buffer.from([1]), Buffer.alloc(63)]);
+// Ed25519 points of small order (sign bit cleared), plus every non-canonical y >= p. A key on one of them lets
+// signatures verify for many messages; OpenSSL's acceptance varies by version, so the bytes are checked directly.
+const SMALL_ORDER_Y = ['0100000000000000000000000000000000000000000000000000000000000000', 'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+  '0000000000000000000000000000000000000000000000000000000000000000', 'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a',
+  '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05'];
+const FIELD_P = (1n << 255n) - 19n;
+export function weakEd25519(raw32) {
+  const y = Buffer.from(raw32); y[31] &= 0x7f;
+  if (BigInt('0x' + Buffer.from(y).reverse().toString('hex')) >= FIELD_P) return true;
+  return SMALL_ORDER_Y.includes(y.toString('hex'));
+}
 export function ed25519Spki(raw32) {
   check(Buffer.isBuffer(raw32) && raw32.length === 32);
   return Buffer.concat([SPKI_PREFIX, raw32]);
@@ -19,10 +28,8 @@ export function signingKeyOf(base64Raw32) {
   check(typeof base64Raw32 === 'string' && base64Raw32.length === 44);
   const raw = Buffer.from(base64Raw32, 'base64');
   check(raw.length === 32 && raw.toString('base64') === base64Raw32);
-  const key = createPublicKey({ key: ed25519Spki(raw), format: 'der', type: 'spki' });
-  // The identity point makes OpenSSL accept one signature for every message.
-  check(verify(null, WEAK_PROBE, key, IDENTITY_SIGNATURE) === false);
-  return key;
+  check(!weakEd25519(raw));
+  return createPublicKey({ key: ed25519Spki(raw), format: 'der', type: 'spki' });
 }
 export function enrollmentBody(serverId, namespace, deviceIdValue, signingKeyB64, noiseKeyB64, name) {
   check(hex64(serverId) && namespaceOk(namespace) && hex64(deviceIdValue) && typeof signingKeyB64 === 'string' && signingKeyB64.length === 44 && typeof noiseKeyB64 === 'string' && noiseKeyB64.length === 60 && typeof name === 'string' && DEVICE_NAME.test(name));

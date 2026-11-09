@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSync, verify } from 'node:crypto';
-import { SyncLabHost, DEVICE_NAME, SPKI_PREFIX } from './lab-host';
+import { SyncLabHost, DEVICE_NAME, SPKI_PREFIX, weakEd25519 } from './lab-host';
 import type { AccountDriver, DeviceEntry } from './lab-host';
 import { generateRemoteIdentity } from '../remote/identity';
 import type { RemoteIdentity, RemoteIdentityStore } from '../remote/identity';
@@ -516,6 +516,21 @@ describe('parity with the server device proof', () => {
     const proof = await import('../../../scripts/sync-prototype/device-proof.mjs') as { DEVICE_NAME: RegExp; ed25519Spki(raw: Buffer): Buffer };
     expect(DEVICE_NAME.source).toBe(proof.DEVICE_NAME.source); expect(DEVICE_NAME.flags).toBe(proof.DEVICE_NAME.flags);
     const raw = Buffer.alloc(32, 7); expect(Buffer.concat([SPKI_PREFIX, raw]).equals(proof.ed25519Spki(raw))).toBe(true);
+  });
+  it('rejects the same weak Ed25519 keys as the server: all eight small-order points, non-canonical y, and no real key', async () => {
+    // @ts-expect-error The dev script has no type declarations.
+    const proof = await import('../../../scripts/sync-prototype/device-proof.mjs') as { weakEd25519(raw: Buffer): boolean };
+    const weak = ['0100000000000000000000000000000000000000000000000000000000000000', '0100000000000000000000000000000000000000000000000000000000000080',
+      'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f', 'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+      '0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000080',
+      'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a', 'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa',
+      '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05', '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85',
+      'edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f', 'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f', 'f'.repeat(64)];
+    for (const hex of weak) { const raw = Buffer.from(hex, 'hex'); expect(weakEd25519(raw)).toBe(true); expect(proof.weakEd25519(raw)).toBe(true); }
+    for (let n = 0; n < 32; n++) {
+      const raw = generateKeyPairSync('ed25519').publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
+      expect(weakEd25519(raw)).toBe(false); expect(proof.weakEd25519(raw)).toBe(false);
+    }
   });
 });
 

@@ -1,5 +1,5 @@
 import type { VaultSyncResult } from './vault-sync';
-import { createHmac, createPublicKey, randomBytes, sign, timingSafeEqual, verify } from 'node:crypto';
+import { createHmac, createPublicKey, randomBytes, sign, timingSafeEqual } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import { z } from 'zod';
 import type { RemoteIdentity, RemoteIdentityStore } from '../remote/identity';
@@ -14,9 +14,16 @@ const hex64 = /^[a-f0-9]{64}$/;
 // eslint-disable-next-line no-control-regex
 export const DEVICE_NAME = /^[^\x00-\x1f\x7f]{1,80}$/;
 export const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-// Weak-key probe as in signingKeyOf: the identity point makes OpenSSL accept one signature for every message.
-const WEAK_PROBE = Buffer.from('shellherd-weak-key-probe');
-const IDENTITY_SIGNATURE = Buffer.concat([Buffer.from([1]), Buffer.alloc(63)]);
+// Same rule as weakEd25519 in device-proof.mjs: small-order points (sign bit cleared) and non-canonical y >= p.
+export const SMALL_ORDER_Y = ['0100000000000000000000000000000000000000000000000000000000000000', 'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+  '0000000000000000000000000000000000000000000000000000000000000000', 'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a',
+  '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05'];
+const FIELD_P = (1n << 255n) - 19n;
+export function weakEd25519(raw32: Buffer): boolean {
+  const y = Buffer.from(raw32); y[31] &= 0x7f;
+  if (BigInt('0x' + Buffer.from(y).reverse().toString('hex')) >= FIELD_P) return true;
+  return SMALL_ORDER_Y.includes(y.toString('hex'));
+}
 const RENEW_MARGIN_MS = 60_000;
 const requestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('start'), clientId: token }).strict(),
@@ -121,9 +128,8 @@ export class SyncLabHost {
     for (const item of list) {
       revoked.set(item.id, item.revokedAt);
       try {
-        const raw = Buffer.from(item.signingKey, 'base64'); if (raw.length !== 32) continue;
-        const key = createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw]), format: 'der', type: 'spki' });
-        if (verify(null, WEAK_PROBE, key, IDENTITY_SIGNATURE) === false) keys.set(item.id, key);
+        const raw = Buffer.from(item.signingKey, 'base64'); if (raw.length !== 32 || weakEd25519(raw)) continue;
+        keys.set(item.id, createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw]), format: 'der', type: 'spki' }));
       } catch { /* Unusable or weak key: the author counts as unknown. */ }
     }
     return { id: identity.id, sign: data => sign(null, data, identity.signingKey), keyOf: id => keys.get(id), revokedAt: id => revoked.get(id) };
