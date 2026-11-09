@@ -21,9 +21,11 @@ try {
   await alice.register('synthetic-client'); await bob.register('synthetic-target');
   const session = await alice.request(bob.identity.id, 'view');
   // Simulation: both fingerprints come directly from our local test identities.
-  const a = alice.channel(session, bob.identity.publicKey, bob.identity.id, 'view');
-  const b = bob.channel(session, alice.identity.publicKey, alice.identity.id, 'view'); channels.push(a, b);
-  await b.accept(); await a.receive(); assert.equal(a.ready, true);
+  const a = alice.channel(session, bob.identity.id, 'view');
+  const b = bob.channel(session, alice.identity.id, 'view'); channels.push(a, b);
+  await b.accept();
+  for (let round = 0; round < 6 && !(a.ready && b.ready); round++) { await a.receive(); await b.receive(); }
+  assert.equal(a.ready, true); assert.equal(b.ready, true);
   await a.send({ signal: 'synthetic-offer' }); assert.deepEqual(await b.receive(), [{ signal: 'synthetic-offer' }]);
   await b.send({ signal: 'synthetic-answer' }); assert.deepEqual(await a.receive(), [{ signal: 'synthetic-answer' }]);
   await a.close(); assert.deepEqual(await bob.sessions(), []);

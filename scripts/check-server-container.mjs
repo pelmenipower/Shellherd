@@ -49,9 +49,11 @@ try {
   const alice = new RendezvousPeer(first); const bob = new RendezvousPeer(second);
   await alice.register('synthetic-client'); await bob.register('synthetic-target');
   const session = await alice.request(bob.identity.id);
-  const a = alice.channel(session, bob.identity.publicKey, bob.identity.id, 'view');
-  const b = bob.channel(session, alice.identity.publicKey, alice.identity.id, 'view'); channels.push(a, b);
-  await b.accept(); await a.receive(); await a.send('SYNTHETIC_PRIVATE_SIGNAL'); assert.deepEqual(await b.receive(), ['SYNTHETIC_PRIVATE_SIGNAL']);
+  const a = alice.channel(session, bob.identity.id, 'view');
+  const b = bob.channel(session, alice.identity.id, 'view'); channels.push(a, b);
+  await b.accept();
+  for (let round = 0; round < 6 && !(a.ready && b.ready); round++) { await a.receive(); await b.receive(); }
+  assert.equal(a.ready && b.ready, true); await a.send('SYNTHETIC_PRIVATE_SIGNAL'); assert.deepEqual(await b.receive(), ['SYNTHETIC_PRIVATE_SIGNAL']);
   console.log('PASS: image runs as UID 1000 with read-only root; login and encrypted signaling over the published loopback port.');
   const salt = randomBytes(16); const nonce = randomBytes(12);
   const key = Buffer.from(await argon2id({ password: randomBytes(32), salt, parallelism: 1, iterations: 3, memorySize: 65536, hashLength: 32, outputType: 'binary' }));
