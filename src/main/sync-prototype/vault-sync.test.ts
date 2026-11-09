@@ -8,8 +8,8 @@ import { encryptVault } from '../vault/crypto';
 import { writeEncryptedVaultFile, readEncryptedVaultFile } from '../vault/storage';
 import type { Vault, VaultNode } from '../../shared/vault/types';
 import { exampleVault } from '../../shared/vault/example';
-import { synchronizeVault, importSyncedVault } from './vault-sync';
-import { hashWire } from './vault-sync-crypto';
+import { synchronizeVault, importSyncedVault, removeForeignObjects, SYNC_COMPACTS_MAX } from './vault-sync';
+import { hashWire, encryptedFile, keyFromPassword, openDocument, sealDocument } from './vault-sync-crypto';
 import type { VaultRemote } from './vault-sync';
 import { backupVaultFile } from '../vault/storage';
 import { lockSyncState } from './vault-sync-state';
@@ -28,13 +28,14 @@ const password = 'ONLY_LOCAL_TEST_PASSWORD';
 const context = { serverId: 'b'.repeat(64), namespace: 'test' };
 const passwordOf = (n: VaultNode) => n.type === 'connection' && (n.protocol === 'ssh' || n.protocol === 'sftp') && n.authentication.method === 'password' ? n.authentication.password : undefined;
 const signal = () => new AbortController().signal;
-function store() {
+function store(withRemove = false) {
   const data = new Map<string, string>(); const remote: VaultRemote = {
+    ...(withRemove ? { async remove(id: string) { return data.delete(id); } } : {}),
     async list() { return [...data.keys()]; }, async get(id) { const wire = data.get(id); if (!wire) throw Error('Missing'); return wire; },
     async put(wire) { const id = hashWire(wire); data.set(id, wire); return id; },
   }; return { remote, data };
 }
-async function fixture(pw = password) {
+async function fixture(pw = password, withRemove = false) {
   const directory = await mkdtemp(join(tmpdir(), 'shellherd-real-sync-')); cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const a = new VaultSessionManager(); const b = new VaultSessionManager(); cleanup.push(() => { a.lock(); b.lock(); });
   const vault: Vault = structuredClone(exampleVault); vault.workspaces = []; const api = vault.nodes[0];
@@ -42,7 +43,7 @@ async function fixture(pw = password) {
   api.children = [0, 1].map(n => ({ ...structuredClone(api.children[0]), id: `password-${n}`, protocol: 'ssh', authentication: { method: 'password', password: `NEVER_PLAIN_${n}` } } as typeof api.children[0]));
   const file = await encryptVault(vault, pw);
   const path = await writeEncryptedVaultFile(join(directory, 'a.term'), file); await a.unlock(path, pw);
-  return { directory, a, b, ...store() };
+  return { directory, a, b, ...store(withRemove) };
 }
 it('publishes a real vault, imports it on another device, merges offline edits and resumes after restart', async () => {
   const { directory, a, b, remote, data } = await fixture();
@@ -223,4 +224,119 @@ it('imports although eight foreign objects with distinct KDF salts precede the v
   for (let n = 0; n < 8; n++) { const wire = JSON.stringify(await encryptVault(structuredClone(exampleVault), `FOREIGN_PASSWORD_${n}`)); await remote.put(wire); }
   for (const [id, wire] of own) data.set(id, wire);
   expect(await importSyncedVault(b, remote, context, password, signal(), async () => join(directory, 'b.term'))).toMatchObject({ status: 'synced' });
+}, 30000);
+
+// ---- Compaction (H2 T4) ----
+const sync = (m: VaultSessionManager, r: VaultRemote, s: AbortSignal = signal()) => synchronizeVault(m, r, context, s);
+/** `count` changing syncs; returns the last result. */
+async function churn(m: VaultSessionManager, r: VaultRemote, count: number, label = 'V') {
+  let result; for (let n = 0; n < count; n++) { await m.save({ ...m.getSnapshot().vault, name: `${label} ${n}` }); result = await sync(m, r); } return result!;
+}
+async function readVersion(wire: string): Promise<{ parents: string[]; compacts?: string[] }> {
+  const key = await keyFromPassword(password, encryptedFile(wire).kdf);
+  return openDocument(encryptedFile(wire), key, encryptedFile(wire).kdf, context, 'version') as { parents: string[]; compacts?: string[] };
+}
+/** A publishes, B imports, then A runs `count` changing syncs. */
+async function staleDevice(count: number) {
+  const f = await fixture(password, true); await sync(f.a, f.remote);
+  expect(await importSyncedVault(f.b, f.remote, context, password, signal(), async () => join(f.directory, 'b.term'))).toMatchObject({ status: 'synced' });
+  f.b.lock(); await churn(f.a, f.remote, count, 'A');
+  await f.b.unlock(join(f.directory, 'b.term'), password); return f;
+}
+it('compacts after 33 versions to exactly one compaction version and keeps syncing', async () => {
+  const { a, remote, data } = await fixture(password, true); await sync(a, remote);
+  const result = await churn(a, remote, 31); expect(result).toMatchObject({ status: 'synced', versions: 32 }); expect(result.compacted).toBeUndefined();
+  const before = new Set(data.keys());
+  await a.save({ ...a.getSnapshot().vault, name: 'Trigger' }); const compacted = await sync(a, remote);
+  expect(compacted).toMatchObject({ status: 'synced', versions: 17 }); expect(compacted.compacted).toBeGreaterThan(0);
+  expect(data.size).toBe(17);
+  const added = [...data.keys()].filter(id => !before.has(id)); expect(added.length).toBe(2); // trigger version + compaction version
+  const withCompacts = []; for (const wire of data.values()) { const v = await readVersion(wire); if (v.compacts) withCompacts.push(v); }
+  expect(withCompacts).toHaveLength(1); expect(withCompacts[0].compacts!.length).toBe(compacted.compacted); expect(withCompacts[0].compacts!.length).toBeLessThanOrEqual(SYNC_COMPACTS_MAX);
+  expect(await sync(a, remote)).toMatchObject({ status: 'synced', versions: 17 });
+}, 60000);
+it('creates no compacts field without compaction and does no compaction without remove', async () => {
+  const { a, remote, data } = await fixture(); await sync(a, remote);
+  expect(await churn(a, remote, 33)).toMatchObject({ status: 'synced', versions: 34 });
+  for (const wire of data.values()) expect(await readVersion(wire)).not.toHaveProperty('compacts');
+}, 60000);
+it('returning device whose acked id was compacted by C1 and C1 by C2 syncs without history', async () => {
+  const { b, remote, data } = await staleDevice(50);
+  expect(data.size).toBeLessThan(40);
+  expect(await sync(b, remote)).toMatchObject({ status: 'synced' });
+  expect(await sync(b, remote)).toMatchObject({ status: 'synced' });
+}, 120000);
+it('returning device with a local change merges over the compacted base', async () => {
+  const { b, remote } = await staleDevice(50);
+  const vault = b.getSnapshot().vault; await b.save({ ...vault, settings: { ...vault.settings, autoLockMinutes: 23 } });
+  const result = await sync(b, remote); expect(result).toMatchObject({ status: 'synced' });
+  expect(b.getSnapshot().vault.settings.autoLockMinutes).toBe(23); expect(b.getSnapshot().vault.name).toBe('A 49');
+  expect(await sync(b, remote)).toMatchObject({ status: 'synced' });
+}, 120000);
+it('reports a genuine conflict over a compacted base and deletes nothing', async () => {
+  const { b, remote, data } = await staleDevice(50);
+  await b.save({ ...b.getSnapshot().vault, name: 'B renamed' }); const ids = new Set(data.keys());
+  const result = await sync(b, remote); expect(result.status).toBe('conflict');
+  for (const id of ids) expect(data.has(id)).toBe(true); expect(result.compacted).toBeUndefined();
+}, 120000);
+it('reports history when the server deletes an acked object that no compaction covers or the acked carrier version', async () => {
+  const { a, remote, data } = await fixture(password, true); await sync(a, remote); await churn(a, remote, 33);
+  const saved = new Map(data); let c = '';
+  for (const [id, wire] of data) if ((await readVersion(wire)).compacts) c = id;
+  expect(c).not.toBe('');
+  data.delete(c); await expect(sync(a, remote)).rejects.toMatchObject({ code: 'history' }); data.set(c, saved.get(c)!);
+  const covered = new Set((await readVersion(saved.get(c)!)).compacts); const uncovered = [...data.keys()].filter(id => id !== c);
+  expect(uncovered.length).toBeGreaterThan(0); expect(uncovered.some(id => covered.has(id))).toBe(false);
+  data.delete(uncovered[0]); await expect(sync(a, remote)).rejects.toMatchObject({ code: 'history' });
+}, 60000);
+it('treats a compaction version under a foreign key as unreadable and reports history for acked ones', async () => {
+  const { a, remote, data } = await fixture(password, true); await sync(a, remote); await churn(a, remote, 33);
+  const other = await fixture('OTHER_LOCAL_TEST_PASSWORD'); await synchronizeVault(other.a, other.remote, context, signal());
+  let c = ''; for (const [id, wire] of data) if ((await readVersion(wire)).compacts) c = id;
+  const [foreignId, foreign] = [...other.data][0]; const saved = data.get(c)!;
+  data.delete(c); data.set(foreignId, foreign);
+  await expect(sync(a, remote)).rejects.toMatchObject({ code: 'history' }); data.delete(foreignId); data.set(c, saved);
+}, 60000);
+it('discards a compacted object the server re-delivers, repairs it and never reports history', async () => {
+  const { a, remote, data } = await fixture(password, true); await sync(a, remote);
+  const first = [...data.entries()][0]; await churn(a, remote, 32); expect(data.has(first[0])).toBe(false);
+  data.set(first[0], first[1]); expect(data.size).toBe(18);
+  const result = await sync(a, remote); expect(result).toMatchObject({ status: 'synced', versions: 17, compacted: 1 }); expect(data.has(first[0])).toBe(false); expect(data.size).toBe(17);
+}, 60000);
+it('survives a failing remove after the first deletion and repairs on the next run', async () => {
+  const f = await fixture(password, true); const { a, data } = f; await sync(a, f.remote); await churn(a, f.remote, 31);
+  let calls = 0; const flaky: VaultRemote = { ...f.remote, async remove(id) { if (++calls > 1) throw Error('network'); return data.delete(id); } };
+  await a.save({ ...a.getSnapshot().vault, name: 'Trigger' });
+  const result = await sync(a, flaky); expect(result).toMatchObject({ status: 'synced', compacted: 1 }); expect(data.size).toBeGreaterThan(17);
+  const repaired = await sync(a, f.remote); expect(repaired).toMatchObject({ status: 'synced' }); expect(repaired.compacted).toBeGreaterThan(0); expect(data.size).toBe(17);
+}, 60000);
+it('repairs after an abort between the upload of the compaction version and the first remove', async () => {
+  const f = await fixture(password, true); const { a, data } = f; await sync(a, f.remote); await churn(a, f.remote, 31);
+  const controller = new AbortController(); const aborting: VaultRemote = { ...f.remote, async put(wire) { const id = await f.remote.put(wire); if ((await readVersion(wire)).compacts) controller.abort(); return id; } };
+  await a.save({ ...a.getSnapshot().vault, name: 'Trigger' });
+  await expect(sync(a, aborting, controller.signal)).rejects.toMatchObject({ code: 'locked' }); expect(data.size).toBe(34);
+  expect(await sync(a, f.remote)).toMatchObject({ status: 'synced' }); expect(data.size).toBe(17);
+}, 60000);
+it('imports after compaction with a single head', async () => {
+  const f = await fixture(password, true); await sync(f.a, f.remote); await churn(f.a, f.remote, 33);
+  expect(await importSyncedVault(f.b, f.remote, context, password, signal(), async () => join(f.directory, 'b.term'))).toMatchObject({ status: 'synced', snapshot: { vault: { name: 'V 32' } } });
+  expect(await sync(f.b, f.remote)).toMatchObject({ status: 'synced' });
+}, 60000);
+it('removeForeignObjects deletes only unreadable listed objects and ignores readable, unlisted and absent ones', async () => {
+  const f = await fixture(password, true); const other = await fixture('OTHER_LOCAL_TEST_PASSWORD'); await sync(f.a, f.remote); await synchronizeVault(other.a, other.remote, context, signal());
+  const [foreignId, foreign] = [...other.data][0]; f.data.set(foreignId, foreign); const [ownId] = [...f.data.keys()];
+  const unlisted = 'c'.repeat(64); let removeCalls = 0; const counting: VaultRemote = { ...f.remote, async remove(id) { removeCalls++; return f.remote.remove!(id); } };
+  expect(await removeForeignObjects(f.a, counting, context, [foreignId, ownId, unlisted], signal())).toBe(1);
+  expect(removeCalls).toBe(1); expect(f.data.has(foreignId)).toBe(false); expect(f.data.has(ownId)).toBe(true);
+  // 404 does not count.
+  f.data.set(foreignId, foreign); const absent: VaultRemote = { ...f.remote, async remove() { return false; } };
+  expect(await removeForeignObjects(f.a, absent, context, [foreignId], signal())).toBe(0);
+  await expect(removeForeignObjects(f.a, store().remote, context, [foreignId], signal())).rejects.toMatchObject({ code: 'limit' });
+}, 30000);
+it('keeps a readable object of a newer client schema', async () => {
+  const f = await fixture(password, true); await sync(f.a, f.remote);
+  const [ownId, own] = [...f.data][0]; const { kdf } = encryptedFile(own); const key = await keyFromPassword(password, kdf);
+  const newer = JSON.stringify(sealDocument({ kind: 'shellherd-sync-version-v2', future: true }, key, kdf, context, 'version')); const newerId = hashWire(newer); f.data.set(newerId, newer);
+  expect(await removeForeignObjects(f.a, f.remote, context, [newerId, ownId], signal())).toBe(0);
+  expect(f.data.has(newerId)).toBe(true); expect(f.data.has(ownId)).toBe(true);
 }, 30000);
