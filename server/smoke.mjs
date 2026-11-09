@@ -8,16 +8,21 @@ import { createAccount } from '../scripts/sync-prototype/account-auth.mjs';
 import { AccountStore } from '../scripts/sync-prototype/account-transport.mjs';
 import { probeSyncServer } from '../scripts/sync-prototype/http-common.mjs';
 import { RendezvousPeer } from '../scripts/sync-prototype/rendezvous-client.mjs';
+import { createDeviceIdentity } from '../scripts/sync-prototype/device-proof.mjs';
 import { startServer } from './main.mjs';
 const directory = await mkdtemp(join(tmpdir(), 'shellherd-server-smoke-'));
-const password = randomBytes(32).toString('hex'); const stores = []; const channels = []; let server;
+const password = randomBytes(32).toString('hex'); const stores = []; const identities = []; const channels = []; let server;
 try {
   const config = { account: await createAccount('smoke', password), serverId: randomBytes(32).toString('hex'), namespace: 'smoke' };
   await writeFile(join(directory, 'server.json'), JSON.stringify(config), { mode: 0o600 });
   server = await startServer({ dataDirectory: directory, port: 0 });
   const info = await probeSyncServer(`http://127.0.0.1:${server.server.address().port}/`, { allowLoopbackHttp: true });
-  for (let i = 0; i < 2; i++) { const store = new AccountStore(info); stores.push(store); await store.login('smoke', password); }
-  const alice = new RendezvousPeer(stores[0]); const bob = new RendezvousPeer(stores[1]);
+  assert.deepEqual([info.authentication, info.deviceSessions], ['enrolled-device', true]);
+  for (const name of ['synthetic-client', 'synthetic-target']) {
+    const store = new AccountStore(info); const identity = createDeviceIdentity(); stores.push(store); identities.push(identity);
+    await store.enroll(identity, { username: 'smoke', password, name, ephemeral: false }); await store.openSession(identity);
+  }
+  const alice = new RendezvousPeer(stores[0], identities[0]); const bob = new RendezvousPeer(stores[1], identities[1]);
   await alice.register('synthetic-client'); await bob.register('synthetic-target');
   const session = await alice.request(bob.identity.id, 'view');
   // Simulation: both fingerprints come directly from our local test identities.
@@ -29,7 +34,11 @@ try {
   await a.send({ signal: 'synthetic-offer' }); assert.deepEqual(await b.receive(), [{ signal: 'synthetic-offer' }]);
   await b.send({ signal: 'synthetic-answer' }); assert.deepEqual(await a.receive(), [{ signal: 'synthetic-answer' }]);
   await a.close(); assert.deepEqual(await bob.sessions(), []);
-  console.log('PASS: persisted account, two logins, presence, simulated consent, encrypted bidirectional signaling and session closure.');
+  const roster = await stores[0].devices(); assert.deepEqual(roster.map(d => d.name).sort(), ['synthetic-client', 'synthetic-target']);
+  await stores[0].revoke(identities[0], identities[1].id);
+  assert.equal((await stores[0].devices()).find(d => d.id === identities[1].id).revokedAt !== null, true);
+  await assert.rejects(() => stores[1].list(), error => error.status === 401);
+  console.log('PASS: persisted roster, two enrolled devices, presence, simulated consent, encrypted bidirectional signaling, session closure and revocation.');
 } finally {
   for (const channel of channels) channel.dispose();
   for (const store of stores) await store.logout().catch(() => store.close());

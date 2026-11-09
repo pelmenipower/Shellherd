@@ -9,6 +9,7 @@ import { AccountStore } from './account-transport.mjs';
 import { boundedJson, probeSyncServer } from './http-common.mjs';
 import { createRendezvousIdentity, RendezvousPeer } from './rendezvous-client.mjs';
 import { registrationProof } from './rendezvous.mjs';
+import { createDeviceIdentity } from './device-proof.mjs';
 import { readConfig, replaceAccount, startServer } from '../../server/main.mjs';
 vi.setConfig({ testTimeout: 20_000 }); // network tests are load-sensitive
 const it = platformIt.runIf(process.platform === 'linux');
@@ -20,12 +21,13 @@ async function setup({ enabled = true } = {}) {
   let now = Date.now();
   const directory = await mkdtemp(join(tmpdir(), 'shellherd-rendezvous-'));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
-  const config = { directory, serverId: randomBytes(32).toString('hex'), namespace: 'test', account, rendezvous: enabled, clock: () => now, limits: { login: 100 } }; // login override: tests create many peers per minute
+  const config = { directory, serverId: randomBytes(32).toString('hex'), namespace: 'test', account, rendezvous: enabled, clock: () => now, limits: { login: 100, session: 100, challenge: 100 } }; // overrides: tests create many peers per minute
   const server = await createSyncServer(config); cleanup.push(() => server.close());
   const url = await server.listen(); const info = await probeSyncServer(url, { allowLoopbackHttp: true });
   async function peer(name) {
-    const store = new AccountStore(info); cleanup.push(() => store.close());
-    await store.login('testuser', password); const client = new RendezvousPeer(store); await client.register(name); return client;
+    const store = new AccountStore(info); cleanup.push(() => store.close()); const identity = createDeviceIdentity();
+    await store.enroll(identity, { username: 'testuser', password, name, ephemeral: false }); await store.openSession(identity);
+    const client = new RendezvousPeer(store, identity); await client.register(name); return client;
   }
   return { directory, config, server, url, info, peer, advance: amount => { now += amount; } };
 }
@@ -56,7 +58,8 @@ it('requires login, keeps the existing sync probe compatible, and is opt-in', as
   await expect(boundedJson(new URL('v1/rendezvous/devices', ctx.url))).rejects.toMatchObject({ status: 401 });
   const disabled = await setup({ enabled: false });
   expect((await boundedJson(new URL('v1/info', disabled.url))).rendezvous).toBe(false);
-  const store = new AccountStore(disabled.info); cleanup.push(() => store.close()); await store.login('testuser', password);
+  const store = new AccountStore(disabled.info); cleanup.push(() => store.close()); const identity = createDeviceIdentity();
+  await store.enroll(identity, { username: 'testuser', password, name: 'Alice', ephemeral: false }); await store.openSession(identity);
   await expect(store.request('GET', '/v1/rendezvous/devices')).rejects.toMatchObject({ status: 404 });
 });
 it('requires target approval and a cryptographically verified consent frame before sending', async () => {
@@ -193,8 +196,9 @@ it('does not restore presence, sessions or authentication tokens after a restart
   // Repoint only the endpoint to verify the old token against the restarted server.
   alice.store.info.serverUrl = next;
   await expect(alice.devices()).rejects.toMatchObject({ status: 401 });
-  const store = new AccountStore(info); cleanup.push(() => store.close()); await store.login('testuser', password);
-  expect(await store.request('GET', '/v1/rendezvous/devices')).toEqual({ devices: [] });
+  // The enrollment is persistent: the same device signs in again, but presence and tokens are gone.
+  const store = new AccountStore(info); cleanup.push(() => store.close());
+  await store.openSession(alice.identity); expect(await store.request('GET', '/v1/rendezvous/devices')).toEqual({ devices: [] });
 });
 it('loads private persisted configuration, rejects unsafe files and starts the standalone server', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'shellherd-standalone-')); cleanup.push(() => rm(directory, { force: true, recursive: true }));
@@ -218,14 +222,17 @@ it('rotates persisted account credentials without changing the server identity o
   const server = await startServer({ dataDirectory: directory, port: 0 }); cleanup.push(() => server.close());
   const info = await probeSyncServer(`http://127.0.0.1:${server.server.address().port}/`, { allowLoopbackHttp: true });
   const store = new AccountStore(info); cleanup.push(() => store.close());
-  await expect(store.login('testuser', password)).rejects.toMatchObject({ status: 401 });
-  await store.login('replacement-user', 'ONLY_TEST_REPLACEMENT_PASSWORD'); expect(await store.list()).toEqual([]);
+  const identity = createDeviceIdentity();
+  await expect(store.enroll(identity, { username: 'testuser', password, name: 'Old', ephemeral: false })).rejects.toMatchObject({ status: 401 });
+  await store.enroll(identity, { username: 'replacement-user', password: 'ONLY_TEST_REPLACEMENT_PASSWORD', name: 'New', ephemeral: false });
+  await store.openSession(identity); expect(await store.list()).toEqual([]);
 });
-it('exposes rendezvous in the probe and the session expiry from login', async () => {
+it('exposes rendezvous in the probe and the session expiry from the device session', async () => {
   const ctx = await setup(); expect(ctx.info.rendezvous).toBe(true);
   const off = await setup({ enabled: false }); expect(off.info.rendezvous).toBe(false);
   const store = new AccountStore(ctx.info); cleanup.push(() => store.close());
-  const before = Date.now(); const result = await store.login('testuser', password);
+  const identity = createDeviceIdentity(); await store.enroll(identity, { username: 'testuser', password, name: 'Alice', ephemeral: false });
+  const before = Date.now(); const result = await store.openSession(identity);
   expect(result.signedIn).toBe(true); expect(result.expiresAt).toBeGreaterThanOrEqual(before + 899000);
 });
 it('refresh extends the session by 15 minutes and keeps the token', async () => {
@@ -328,4 +335,28 @@ it('binds channel roles to the session direction', async () => {
 it('reports rendezvousProof in the probe', async () => {
   const ctx = await setup(); expect(ctx.info.rendezvousProof).toBe(true);
   const off = await setup({ enabled: false }); expect(off.info.rendezvousProof).toBe(false);
+});
+it('binds presence to the enrolled device of the session and its enrolled X25519 key', async () => {
+  const ctx = await setup(); const alice = await ctx.peer('Alice'); const bob = await ctx.peer('Bob');
+  // Bob's key with Alice's token is refused (403) even with a valid proof of possession.
+  await expect(rawPut(ctx, alice, bob.identity, { name: 'Bob' })).rejects.toMatchObject({ status: 403 });
+  // A fresh key that was never enrolled is refused too.
+  await expect(rawPut(ctx, alice, createRendezvousIdentity(), { name: 'Stray' })).rejects.toMatchObject({ status: 403 });
+  expect(await alice.devices()).toHaveLength(2);
+});
+it('lets the same device take over its own presence with a new session token', async () => {
+  const ctx = await setup(); const alice = await ctx.peer('Alice');
+  const second = new AccountStore(ctx.info); cleanup.push(() => second.close());
+  await second.openSession(alice.identity); const again = new RendezvousPeer(second, alice.identity);
+  await expect(again.register('Alice')).resolves.toMatchObject({ id: alice.identity.id });
+  expect(await again.devices()).toHaveLength(1);
+});
+it('drops presence and rendezvous sessions of a revoked device immediately', async () => {
+  const ctx = await setup(); const { alice, bob, session } = await pair(ctx);
+  const admin = await ctx.peer('Admin');
+  expect((await admin.devices()).map(d => d.id).sort()).toEqual([alice.identity.id, bob.identity.id, admin.identity.id].sort());
+  await admin.store.revoke(admin.identity, bob.identity.id);
+  expect((await admin.devices()).map(d => d.id).sort()).toEqual([alice.identity.id, admin.identity.id].sort());
+  await expect(bob.devices()).rejects.toMatchObject({ status: 401 });
+  await expect(alice.sessions()).resolves.toEqual([]); expect(session.to).toBe(bob.identity.id);
 });

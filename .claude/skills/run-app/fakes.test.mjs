@@ -37,6 +37,7 @@ import { writeImportFixtures } from './import-fixtures.mjs';
 import { startRendezvousFake } from './rendezvous.mjs';
 import { probeSyncServer } from '../../../scripts/sync-prototype/http-common.mjs';
 import { AccountStore } from '../../../scripts/sync-prototype/account-transport.mjs';
+import { createDeviceIdentity } from '../../../scripts/sync-prototype/device-proof.mjs';
 
 // Windows only: ssh2 server tests are flaky on Linux CI (see sftp-loopback.test.ts).
 describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real app code', { timeout: 20_000 }, () => {
@@ -548,18 +549,19 @@ describe('masking fixture of the demo server', () => {
 
 // The fake relies on Linux permissions of the sync server (0700 directory), like rendezvous.test.mjs.
 describe.runIf(process.platform === 'linux')('rendezvous fake of the run-app scene', { timeout: 30_000 }, () => {
-  it('announces rendezvous and accepts the synthetic demo account', async () => {
+  it('announces rendezvous and enrolls a device with the synthetic demo account', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'shellherd-rendezvous-fake-'));
     const fake = await startRendezvousFake({ port: 0, dir: join(dir, 'rendezvous') });
     try {
       expect(fake.url).toBe(`http://127.0.0.1:${fake.port}/`);
       const raw = await (await fetch(`${fake.url}v1/info`)).json();
-      expect(raw).toMatchObject({ authentication: 'password', rendezvous: true, namespace: 'demo' });
+      expect(raw).toMatchObject({ authentication: 'enrolled-device', deviceSessions: true, rendezvous: true, namespace: 'demo' });
       const info = await probeSyncServer(fake.url, { allowLoopbackHttp: true });
-      expect(info).toMatchObject({ authentication: 'password', rendezvous: true, namespace: 'demo' });
-      const account = new AccountStore(info);
+      expect(info).toMatchObject({ authentication: 'enrolled-device', deviceSessions: true, rendezvous: true, namespace: 'demo' });
+      const account = new AccountStore(info); const identity = createDeviceIdentity();
       try {
-        await expect(account.login('demo', 'synthetic-rendezvous-demo')).resolves.toMatchObject({ signedIn: true });
+        await expect(account.enroll(identity, { username: 'demo', password: 'synthetic-rendezvous-demo', name: 'Demo device', ephemeral: true })).resolves.toMatchObject({ id: identity.id, ephemeral: true });
+        await expect(account.openSession(identity)).resolves.toMatchObject({ signedIn: true, device: identity.id });
       } finally { account.close(); }
     } finally {
       await fake.close();

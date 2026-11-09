@@ -6,7 +6,7 @@ ENV NODE_ENV=production \
     SHELLHERD_SERVER_PORT=8787
 WORKDIR /app
 COPY server/main.mjs ./server/main.mjs
-COPY scripts/sync-prototype/server.mjs scripts/sync-prototype/server-access.mjs scripts/sync-prototype/http-proof.mjs scripts/sync-prototype/account-auth.mjs scripts/sync-prototype/account-init.mjs scripts/sync-prototype/rate-limit.mjs scripts/sync-prototype/vault-file-wire.mjs scripts/sync-prototype/rendezvous.mjs ./scripts/sync-prototype/
+COPY scripts/sync-prototype/server.mjs scripts/sync-prototype/server-access.mjs scripts/sync-prototype/http-proof.mjs scripts/sync-prototype/account-auth.mjs scripts/sync-prototype/account-init.mjs scripts/sync-prototype/rate-limit.mjs scripts/sync-prototype/vault-file-wire.mjs scripts/sync-prototype/rendezvous.mjs scripts/sync-prototype/device-proof.mjs scripts/sync-prototype/device-roster.mjs scripts/sync-prototype/sync-object-wire.mjs ./scripts/sync-prototype/
 COPY src/shared/sync-server-url.mjs ./src/shared/sync-server-url.mjs
 RUN mkdir /data && chown node:node /data && chmod 0700 /data
 USER node
