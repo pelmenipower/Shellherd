@@ -17,21 +17,19 @@
   "identityTemporary": "Temporary device identity: this computer has no operating system key store. The fingerprint changes on the next start.",
   "devices": "Online devices",
   "noDevices": "No other device is online.",
-  "compared": "I compared the fingerprint on the other device",
   "requestView": "View screen",
   "waiting": "Waiting for approval on the other device…",
   "viewing": "Screen of {{name}} · session ends {{time}}",
   "stop": "End connection",
   "consent": {
     "title": "Share your screen?",
-    "body": "{{name}} wants to view the screen of this device. Compare the fingerprint on the other device.",
+    "body": "{{name}} wants to view the screen of this device.",
     "fingerprint": "Fingerprint of the requesting device",
-    "known": "Known since {{date}}",
-    "unknown": "Device not seen before",
     "expires": "Request expires in {{seconds}} s",
     "linuxHint": "On Linux, the Shellherd window also stays visible in the shared picture.",
     "accept": "Share screen",
-    "decline": "Decline"
+    "decline": "Decline",
+    "nativeHint": "After the click, Shellherd asks once more in a system dialog."
   },
   "bar": {
     "viewing": "Screen is being viewed by {{name}} · since {{time}}",
@@ -44,7 +42,8 @@
     "locked": "The connection ended because the vault was locked.",
     "declined": "The other device declined the request.",
     "failed": "The connection failed.",
-    "scope": "Control is not supported yet. Only viewing is possible."
+    "scope": "Control is not supported yet. Only viewing is possible.",
+    "mismatch": "Verification failed three times. The request was declined."
   },
   "errors": {
     "unavailable": "Remote access is not available in this build.",
@@ -61,6 +60,15 @@
     "media": "Screen capture was canceled or is not available.",
     "peer": "No direct connection possible. Both devices must be on the same network.",
     "scope": "Control is not supported yet. Only viewing is possible.",
-    "limit": "Too many requests or devices. Wait a moment and try again."
-  }
+    "limit": "Too many requests or devices. Wait a moment and try again.",
+    "samePassword": "The server password must not be your vault password. Nothing was sent to the server."
+  },
+  "verify": {
+    "label": "First 12 characters of the fingerprint from the other device",
+    "hint": "Read them on the other device under “Fingerprint of this device”.",
+    "verified": "Verified on {{date}}",
+    "changed": "The fingerprint of {{name}} has changed. Verify it again."
+  },
+  "muted_one": "{{count}} request muted",
+  "muted_other": "{{count}} requests muted"
 }

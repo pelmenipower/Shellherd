@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { formatDateTime } from '../../../shared/format';
 import type { RemoteLabReply } from '../../../shared/remote-lab';
 import { normalizeSyncServerUrl } from '../../../shared/sync-server-url.mjs';
+import { normalizeVerification } from '../../../shared/remote-signal';
 import { endKey, errorKey, groupFingerprint } from '../remote-lab';
 import type { RemoteSessionController, RemoteView } from '../remote-peer';
 import { useNativeSurfaceBlock } from '../native-surface';
@@ -24,7 +25,7 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
   const [busy, setBusy] = useState(false);
   const [serverUrl, setServerUrl] = useState(''); const [username, setUsername] = useState('');
   const [password, setPassword] = useState(''); const [deviceName, setDeviceName] = useState(controller.deviceName ?? '');
-  const [selected, setSelected] = useState<{ target: string; compared: boolean } | null>(null);
+  const [typed, setTyped] = useState<Record<string, string>>({});
   const [waiting, setWaiting] = useState(false);
   const normalized = normalizeSyncServerUrl(serverUrl, true);
   const { state } = view;
@@ -42,7 +43,7 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
       if (controller.view.state.session?.role === 'viewer') controller.stop();
     };
   }, [controller]);
-  useEffect(() => { setSelected(null); }, [deviceKey]);
+  useEffect(() => { setTyped({}); }, [deviceKey]);
   useEffect(() => {
     if (!requesting) { setWaiting(false); return; }
     const handle = setTimeout(() => setWaiting(true), WAITING_DELAY_MS);
@@ -63,7 +64,11 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
   };
   const goOnline = (): Promise<void> => run(() => controller.act({ kind: 'goOnline', deviceName: deviceName.trim() }));
   const goOffline = (): Promise<void> => run(() => controller.act({ kind: 'goOffline' }));
-  const requestView = (target: string): Promise<void> => run(() => controller.act({ kind: 'request', target, compared: true }));
+  const requestView = (target: string, verification: string | null): Promise<void> => run(async () => {
+    const reply = await controller.act({ kind: 'request', target, verification });
+    if (!reply.ok && reply.code === 'mismatch') setTyped(current => ({ ...current, [target]: '' }));
+    return reply;
+  });
 
   const nameValid = /^[^\x00-\x1f\x7f]{1,80}$/.test(deviceName.trim());
   const ownFingerprint = state.identity ? grouped(state.identity.fingerprint) : '';
@@ -103,18 +108,27 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
         <h3>{t('remoteLab:fingerprintOwn')}</h3>
         <code className="remote-lab-fingerprint">{ownFingerprint}</code>
         {state.identity && !state.identity.persistent && <p className="remote-lab-warning">{t('remoteLab:identityTemporary')}</p>}
+        {state.muted ? <p className="remote-lab-caption">{t('remoteLab:muted', { count: state.muted })}</p> : null}
         <button type="button" className="secondary-button" disabled={busy} onClick={() => void goOffline()}>{t('remoteLab:goOffline')}</button>
         {!viewerSession && <section className="remote-lab-devices" aria-labelledby={`${id}-devices`}>
           <h3 id={`${id}-devices`}>{t('remoteLab:devices')}</h3>
           {(state.devices ?? []).length === 0 ? <p className="remote-lab-caption">{t('remoteLab:noDevices')}</p> : <ul className="remote-lab-device-list">
             {(state.devices ?? []).map(device => {
-              const compared = selected?.target === device.id && selected.compared;
+              const verified = device.known?.verified === true;
+              const verification = verified ? null : normalizeVerification(typed[device.id] ?? '');
               return <li key={device.id} className="remote-lab-device">
                 <strong>{device.name}</strong>
-                <code className="remote-lab-fingerprint">{grouped(device.id)}</code>
-                <label className="remote-lab-check"><input type="checkbox" checked={compared} disabled={busy}
-                  onChange={event => setSelected({ target: device.id, compared: event.target.checked })} /><span>{t('remoteLab:compared')}</span></label>
-                <button type="button" className="primary-button" disabled={busy || !compared} onClick={() => void requestView(device.id)}>{t('remoteLab:requestView')}</button>
+                {device.changed && <p className="remote-lab-warning">{t('remoteLab:verify.changed', { name: device.name })}</p>}
+                {verified ? <>
+                  <p className="remote-lab-caption">{t('remoteLab:verify.verified', { date: formatDateTime(device.known?.verifiedAt ?? device.known?.firstSeen ?? 0, 'short') })}</p>
+                  <code className="remote-lab-fingerprint">{grouped(device.id)}</code>
+                </> : <>
+                  <label htmlFor={`${id}-verify-${device.id}`}>{t('remoteLab:verify.label')}</label>
+                  <input id={`${id}-verify-${device.id}`} className="remote-lab-verify" maxLength={23} autoComplete="off" spellCheck={false} inputMode="text"
+                    value={typed[device.id] ?? ''} disabled={busy} onChange={event => setTyped(current => ({ ...current, [device.id]: event.target.value }))} />
+                  <p className="remote-lab-caption">{t('remoteLab:verify.hint')}</p>
+                </>}
+                <button type="button" className="primary-button" disabled={busy || (!verified && verification === null)} onClick={() => void requestView(device.id, verification)}>{t('remoteLab:requestView')}</button>
               </li>;
             })}
           </ul>}

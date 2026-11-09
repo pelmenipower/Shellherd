@@ -11,6 +11,12 @@ const QUADRANTS: [string, number, number][] = [
 export function fakeCapture(): CaptureSource {
   return {
     capture: async () => {
+      // Pass the real permission handler, display-media handler and native consent first;
+      // in fake mode the main process answers with no source, so this rejects.
+      try {
+        const real = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        for (const track of real.getTracks()) track.stop();
+      } catch { /* expected in fake mode */ }
       const canvas = document.createElement('canvas');
       canvas.width = 640;
       canvas.height = 360;
