@@ -354,3 +354,45 @@ it('answers 429 once 64 sessions are open and 500 without a roster', () => {
   const bare = accountAuth(account); expect(() => bare.openSession('d'.repeat(64))).toThrow(expect.objectContaining({ status: 500 }));
   expect(() => bare.authorize('Bearer ' + '0'.repeat(64))).toThrow(expect.objectContaining({ status: 500 }));
 });
+
+// Review fixes: cheap rejections before scrypt, separate session failure budget, nonce first, DELETE budget.
+const weakKey = Buffer.concat([Buffer.from([1]), Buffer.alloc(31)]).toString('base64');
+const enrollWith = (ctx, identity, { password = serverPassword, patch = {} } = {}) => {
+  const body = JSON.parse(enrollmentBody(ctx.config.serverId, ctx.config.namespace, identity.id, identity.signingPublicKey, identity.publicKey, 'Raw'));
+  Object.entries(patch).forEach(([i, v]) => { body[i] = v; });
+  const text = JSON.stringify(body);
+  return http(ctx, 'POST', '/v1/devices', { body: JSON.stringify({ username: 'testuser', password, enrollment: [body, sign(null, Buffer.from(text), identity.signingKey).toString('base64')] }) });
+};
+it('rejects a weak signing key and a mismatching device id with 400 before the password is checked', async () => {
+  const ctx = await setup({ limits: { login: 100, session: 100, challenge: 100 } });
+  // A wrong password would answer 401 if scrypt ran first; 400 proves the structural checks come first and leak nothing.
+  expect((await enrollWith(ctx, createDeviceIdentity(), { password: 'wrong-wrong-wrong', patch: { 4: weakKey } })).status).toBe(400);
+  expect((await enrollWith(ctx, createDeviceIdentity(), { password: 'wrong-wrong-wrong', patch: { 3: createDeviceIdentity().id } })).status).toBe(400);
+  expect((await enrollWith(ctx, createDeviceIdentity(), { password: 'wrong-wrong-wrong' })).status).toBe(401);
+}, 30000);
+it('keeps failed session attempts out of the password backoff and gives them their own backoff', async () => {
+  let now = 1000; const ctx = await setup({ clock: () => now, limits: { login: 100, session: 100, challenge: 100, source: 1000, global: 1000 } }); const stranger = createDeviceIdentity();
+  for (let i = 0; i < 10; i++) expect((await sessionRaw(ctx, stranger)).status).toBe(401);
+  expect((await enrollRaw(ctx, createDeviceIdentity())).status).toBe(201); // no password backoff and no global failure budget spent
+  const blocked = await sessionRaw(ctx, stranger); expect(blocked.status).toBe(429); expect(blocked.headers.get('retry-after')).toBe('1');
+  now += 1000; expect((await sessionRaw(ctx, stranger)).status).toBe(401);
+}, 30000);
+it('spends the nonce before shape, token and length checks', async () => {
+  const ctx = await setup(); const a = await signedIn(ctx, 'A'); const identity = a.identity;
+  let nonce = await nonceOf(ctx);
+  expect((await http(ctx, 'POST', '/v1/session', { body: JSON.stringify({ nonce }) })).status).toBe(400);
+  expect((await sessionRaw(ctx, identity, { nonce })).status).toBe(401); // already spent
+  nonce = await nonceOf(ctx);
+  expect((await http(ctx, 'DELETE', '/v1/devices/' + '9'.repeat(64), { headers: { authorization: 'Bearer nope', 'x-shellherd-nonce': nonce } })).status).toBe(401);
+  expect((await sessionRaw(ctx, identity, { nonce })).status).toBe(401);
+  nonce = await nonceOf(ctx);
+  expect((await http(ctx, 'DELETE', '/v1/devices/' + '9'.repeat(64), { headers: { 'x-shellherd-nonce': nonce, 'content-length': '5' }, body: 'xxxxx' })).status).toBe(401);
+  expect((await sessionRaw(ctx, identity, { nonce })).status).toBe(401);
+  expect((await sessionRaw(ctx, identity)).status).toBe(200);
+});
+it('budgets device revocations like other writes', async () => {
+  const ctx = await setup({ clock: () => 1000, limits: { login: 100, session: 100, challenge: 100, deviceWrites: 2 } }); const a = await signedIn(ctx, 'A');
+  const token = bearer(await sessionRaw(ctx, a.identity)).authorization.slice(7);
+  for (let i = 0; i < 2; i++) expect((await revokeRaw(ctx, { signer: a.identity, token, id: '9'.repeat(64) })).status).toBe(404);
+  expect((await revokeRaw(ctx, { signer: a.identity, token, id: '9'.repeat(64) })).status).toBe(429);
+});

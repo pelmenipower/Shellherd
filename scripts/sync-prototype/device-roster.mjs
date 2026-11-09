@@ -106,7 +106,9 @@ export async function createDeviceRoster({ directory, serverId, namespace, clock
         ephemeral.set(id, entry); keys.set(id, key); return { entry: view(entry), created: true };
       }
       return serial(async () => {
-        check(!persistent.has(id) && !ephemeral.has(id), 409);
+        // A concurrent identical enrollment finished first: answer it idempotently, anything else clashes.
+        const raced = persistent.get(id); check(!ephemeral.has(id), 409);
+        if (raced) { check(raced.signingKey === signingKey && raced.noiseKey === noiseKey && raced.name === name && raced.revokedAt === null, 409); return { entry: view(raced), created: false }; }
         check([...persistent.values()].filter(e => e.revokedAt === null).length < MAX_ACTIVE, 429);
         const next = new Map(persistent); let dropped;
         if (next.size >= MAX_ENTRIES) {

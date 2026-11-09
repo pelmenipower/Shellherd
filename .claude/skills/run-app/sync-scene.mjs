@@ -48,9 +48,11 @@ function instance(label, runDirKey, portKey, runDirDefault, portDefault) {
     shot: name => call('ss', undefined, `?name=${name}`),
     // Clicks the first button of the open sync dialog whose text starts with the given label (the label is a catalog text).
     clickButton: label_ => call('eval', `const button = [...document.querySelectorAll('${DIALOG} button')].find(b => b.textContent.trim().startsWith(${JSON.stringify(label_)}) && !b.disabled); if (!button) throw new Error('Knopf fehlt oder gesperrt: ' + ${JSON.stringify(label_)}); button.click();`),
-    async waitFor(step, expression, timeout = 20000) {
+    async waitFor(step, expression, timeout = 20000, failOnAlert = false) {
       for (const end = Date.now() + timeout; ; await pause(250)) {
         if (await call('eval', `return !!(${expression})`)) return;
+        // A dialog error ends the wait at once, with the app's own text instead of a bare timeout.
+        if (failOnAlert) { const alert = await call('eval', `return document.querySelector('dialog.sync-lab-dialog [role=alert]')?.textContent?.trim() ?? ''`); if (alert) throw new Fail(`${label}: ${step}: Fehlermeldung im Dialog: ${alert}`); }
         if (Date.now() >= end) throw new Fail(`${label}: ${step} (Timeout nach ${timeout / 1000} s)`);
       }
     }
@@ -64,6 +66,12 @@ const log = message => console.log(message);
 const has = selector => `!!document.querySelector(${JSON.stringify(selector)})`;
 const dialogText = `(document.querySelector('${DIALOG}')?.textContent ?? '')`;
 const shots = [];
+
+// Waits until the sync button is enabled (no request running), then a moment longer so a vault save right after unlock can finish.
+async function settle(side) {
+  await side.waitFor('Abgleich-Knopf bereit', `[...document.querySelectorAll('${DIALOG} button')].some(b => b.textContent.trim().startsWith(${JSON.stringify(TEXT.syncNow)}) && !b.disabled)`, 20000, true);
+  await pause(1000);
+}
 
 // Opens the sync dialog from the settings dialog (header button with a vault, footer link on the welcome screen).
 async function openDialog(side) {
@@ -110,8 +118,9 @@ async function run(url) {
   await connect(A, url);
   await enroll(A, NAME_A, { shot: 'sync-enroll' });
   await A.waitFor('Vault-Name bei A (offener Vault)', `${dialogText}.includes(${JSON.stringify(TEXT.activeVault)})`);
+  await settle(A);
   await A.clickButton(TEXT.syncNow);
-  await A.waitFor('Wiederherstellungscode bei A', has(`${DIALOG} .sync-lab-code`));
+  await A.waitFor('Wiederherstellungscode bei A', has(`${DIALOG} .sync-lab-code`), 20000, true);
   const shown = await A.evaluate(`document.querySelector('${DIALOG} .sync-lab-code').textContent`);
   const code = hexOnly(shown);
   if (code.length !== 32 || !/^([0-9a-f]{4}-){7}[0-9a-f]{4}$/i.test(shown.trim())) throw new Fail(`A: Anzeige des Codes hat nicht die Form xxxx-…-xxxx (${shown.length} Zeichen)`);
@@ -122,7 +131,7 @@ async function run(url) {
   await A.waitFor('Code nach „notiert“ aus dem DOM', `!${has(`${DIALOG} .sync-lab-code`)}`);
   const leak = await A.evaluate(`(() => { const html = document.documentElement.outerHTML.toLowerCase(); const text = document.body.textContent.toLowerCase().replace(/[^0-9a-f]/g, ''); return html.includes(${JSON.stringify(code)}) || html.includes(${JSON.stringify(shown.trim().toLowerCase())}) || text.includes(${JSON.stringify(code)}); })()`);
   if (leak) throw new Fail('A: der Wiederherstellungscode steht nach „notiert“ noch im DOM');
-  await A.waitFor('Synchronisiert-Meldung bei A', `${dialogText}.includes(${JSON.stringify(TEXT.synced)})`);
+  await A.waitFor('Synchronisiert-Meldung bei A', `${dialogText}.includes(${JSON.stringify(TEXT.synced)})`, 20000, true);
   log('A: synchronisiert, Code nach „notiert“ nirgends mehr im DOM');
 
   // B: enroll, load the vault with code and a new password.
@@ -134,13 +143,13 @@ async function run(url) {
   await B.fill(`${DIALOG} input[id$="-new-password"]`, NEW_VAULT_PASSWORD);
   await B.fill(`${DIALOG} input[id$="-repeat-password"]`, NEW_VAULT_PASSWORD);
   await B.click(`${DIALOG} form button[type=submit]`);
-  await B.waitFor('Vault bei B offen (Dialog zu, Verbindungsliste)', `!${has(`${DIALOG}[open]`)} && ${has('.settings-button')} && [...document.querySelectorAll('.vault-tree-row')].some(row => row.textContent.includes('web-01'))`, 60000);
+  await B.waitFor('Vault bei B offen (Dialog zu, Verbindungsliste)', `!${has(`${DIALOG}[open]`)} && ${has('.settings-button')} && [...document.querySelectorAll('.vault-tree-row')].some(row => row.textContent.includes('web-01'))`, 60000, true);
   if (!fs.existsSync(path.join(B.runDir, 'profile', 'demo.term'))) throw new Fail('B: die Vault-Datei wurde nicht im Profil von B angelegt');
   log('B: Vault vom Server geladen, Verbindungsliste sichtbar');
 
   // A: a further sync refreshes the roster; two devices, then remove B.
   await A.clickButton(TEXT.syncNow);
-  await A.waitFor('Geräteliste mit zwei Geräten bei A', `document.querySelectorAll('${DIALOG} .sync-device-access li').length === 2`);
+  await A.waitFor('Geräteliste mit zwei Geräten bei A', `document.querySelectorAll('${DIALOG} .sync-device-access li').length === 2`, 20000, true);
   const rowB = `[...document.querySelectorAll('${DIALOG} .sync-device-access li')].find(li => li.querySelector('strong')?.textContent === ${JSON.stringify(NAME_B)})`;
   if (!await A.evaluate(`!!${rowB}`)) throw new Fail(`A: ${NAME_B} fehlt in der Geräteliste`);
   shots.push(await A.shot('sync-devices'));

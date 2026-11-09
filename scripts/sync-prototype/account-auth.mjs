@@ -33,6 +33,9 @@ export function accountAuth(account, clock = Date.now, limits = DEFAULT_LIMITS, 
     failCount++; const r = record(source) ?? { f: 0, last: now }; failures.delete(source);
     r.f++; r.last = now; failures.set(source, r); if (failures.size > limits.maxKeys) failures.delete(failures.keys().next().value);
   };
+  // Session and revocation proofs fail on their own budget: they must not feed the password backoff or the global password failure budget.
+  const sessionFailures = new Map(); const SESSION_FREE = 10;
+  const sessionRecord = source => { const now = clock(); const r = sessionFailures.get(source); if (r && (now < r.last || now - r.last >= FAILURE_MEMORY)) sessionFailures.delete(source); return sessionFailures.get(source); };
   const digest = token => createHash('sha256').update(token).digest('hex');
   const expire = () => { const now = clock(); for (const [key, session] of sessions) if (now < session.created || now >= session.expiresAt) sessions.delete(key); };
   return {
@@ -41,6 +44,17 @@ export function accountAuth(account, clock = Date.now, limits = DEFAULT_LIMITS, 
     hasSession(deviceId) { expire(); for (const session of sessions.values()) if (session.device === deviceId) return true; return false; },
     dropDevice(deviceId) { for (const [key, session] of sessions) if (session.device === deviceId) sessions.delete(key); },
     fail,
+    /** Throws 429 while the source is backing off after repeated failed session attempts. */
+    sessionGate(source) {
+      const r = sessionRecord(source); if (!r || r.f < SESSION_FREE) return;
+      const until = r.last + Math.min(60, 2 ** (r.f - SESSION_FREE)) * 1000; const now = clock();
+      check(now >= until, 429, Math.max(1, Math.ceil((until - now) / 1000)));
+    },
+    failSession(source) {
+      const now = clock(); const r = sessionRecord(source) ?? { f: 0, last: now }; sessionFailures.delete(source);
+      r.f++; r.last = now; sessionFailures.set(source, r); if (sessionFailures.size > limits.maxKeys) sessionFailures.delete(sessionFailures.keys().next().value);
+    },
+    clearSession(source) { sessionFailures.delete(source); },
     openSession(deviceId) {
       check(roster !== null, 500); expire();
       const own = [...sessions].filter(([, session]) => session.device === deviceId);

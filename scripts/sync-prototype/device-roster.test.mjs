@@ -127,6 +127,11 @@ it('serializes concurrent enrollments without losing one', async () => {
   await Promise.all(ids.map((id, i) => enroll(roster, id, 'c' + i)));
   expect(roster.list()).toHaveLength(6); expect((await reopen()).list()).toHaveLength(6);
 });
+it('answers 200 for the second of two concurrent identical persistent enrollments', async () => {
+  const { roster } = await setup(); const id = createDeviceIdentity();
+  const results = await Promise.all([enroll(roster, id, 'Same'), enroll(roster, id, 'Same')]);
+  expect(results.map(r => r.created).sort()).toEqual([false, true]);
+});
 it('refuses to start on an unsafe, foreign or non-canonical devices.json', async () => {
   const { roster, directory } = await setup(); await enroll(roster, createDeviceIdentity(), 'One'); const file = join(directory, 'devices.json');
   const text = await readFile(file, 'utf8'); const open = (extra = {}) => createDeviceRoster({ directory, serverId, namespace, ...extra });

@@ -1,5 +1,6 @@
 // Ephemeral, account-authenticated signaling. No endpoint grants OS access.
 import { createHash, createHmac, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { DEVICE_NAME } from './device-proof.mjs';
 const fail = (ok, status = 400) => { if (!ok) { const error = Error('Rendezvous request rejected'); error.status = status; throw error; } };
 const hex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const exact = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === keys.split(',').sort().join(',');
@@ -70,7 +71,7 @@ export function createRendezvous({ authorize, isActive, deviceOf, noiseKeyOf, cl
           devices.delete(ownDevice(owner).id); expire(); send(200, { removed: true }); return;
         }
         fail(request.method === 'PUT', 405);
-        fail(exact(body, 'challenge,name,proof,publicKey') && typeof body.name === 'string' && /^[^\x00-\x1f\x7f]{1,80}$/.test(body.name) && hex(body.challenge) && hex(body.proof));
+        fail(exact(body, 'challenge,name,proof,publicKey') && typeof body.name === 'string' && DEVICE_NAME.test(body.name) && hex(body.challenge) && hex(body.proof));
         const key = deviceId(body.publicKey);
         // Every PUT naming a challenge consumes it, even when the proof is wrong.
         const challenge = challenges.get(body.challenge); challenges.delete(body.challenge);

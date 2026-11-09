@@ -21,7 +21,8 @@ const PASSWORD = 'synthetic-rendezvous-demo';
 const RUN = Date.now().toString(36).slice(-5);
 const NAME_A = `Gerät A ${RUN}`;
 const NAME_B = `Gerät B ${RUN}`;
-const TEMPORARY_HINT = 'Temporäre Geräteidentität';
+// The hint text comes from the German catalog (the part before the colon), so the scene follows text changes.
+const TEMPORARY_HINT = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '../../../src/shared/locales/de-DE/remoteLab.json'), 'utf8')).identityTemporary.split(':')[0];
 const ENDED_REMOTE = 'Das andere Gerät hat die Verbindung beendet.';
 const ENDED_DECLINED = 'Das andere Gerät hat die Anfrage abgelehnt.';
 // Colours of the fake capture pattern (src/renderer/src/remote-capture-fake.ts), quadrant centres at 25 % / 75 %.

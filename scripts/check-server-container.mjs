@@ -70,7 +70,7 @@ try {
   assert.equal(health[0], 'CMD-SHELL'); await docker(['exec', name, '/bin/sh', '-c', health[1]]);
   await stop(); info = await start(volume);
   first.info.serverUrl = info.serverUrl; await assert.rejects(() => first.list(), error => error.status === 401);
-  const after = await signIn(info, firstIdentity); assert.deepEqual(await after.list(), [id]); // the enrollment lives in devices.json on the volume assert.equal(await after.get(id), wire);
+  const after = await signIn(info, firstIdentity); assert.deepEqual(await after.list(), [id]); assert.equal(await after.get(id), wire); // the enrollment lives in devices.json on the volume
   assert.deepEqual(await after.request('GET', '/v1/rendezvous/devices'), { devices: [] });
   console.log('PASS: account, roster and ciphertext survive container replacement; old tokens, presence and sessions do not.');
   await stop();

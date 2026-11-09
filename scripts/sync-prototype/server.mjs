@@ -13,8 +13,8 @@ import { createAccessRegistry } from './server-access.mjs';
 import { accountAuth } from './account-auth.mjs';
 import { validateSyncObject, isLegacyVaultObject } from './sync-object-wire.mjs';
 import { createDeviceRoster } from './device-roster.mjs';
-import { enrollmentBody, sessionProof, requestProofV2 } from './device-proof.mjs';
-import { createRendezvous } from './rendezvous.mjs';
+import { enrollmentBody, sessionProof, requestProofV2, signingKeyOf, ed25519Spki } from './device-proof.mjs';
+import { createRendezvous, deviceId } from './rendezvous.mjs';
 import { DEFAULT_LIMITS, createLimiter, sourceOf } from './rate-limit.mjs';
 const MAX = 1024 * 1024;
 const sha = data => createHash('sha256').update(data).digest('hex');
@@ -34,7 +34,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
   const keys = new Map();
   for (const device of devices) {
     check(ascii(device.id) && !keys.has(device.id));
-    keys.set(device.id, createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), base64(device.signingKey, 32)]), format: 'der', type: 'spki' }));
+    keys.set(device.id, createPublicKey({ key: ed25519Spki(base64(device.signingKey, 32)), format: 'der', type: 'spki' }));
   }
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const dirStat = await lstat(directory);
@@ -120,6 +120,8 @@ export async function createSyncServer({ directory, serverId, namespace, devices
           check(body.ephemeral === undefined || typeof body.ephemeral === 'boolean');
           const doc = body.enrollment; check(Array.isArray(doc) && doc.length === 2 && Array.isArray(doc[0]) && doc[0].length === 7 && typeof doc[1] === 'string');
           check(JSON.stringify(doc[0]) === enrollmentBody(...doc[0].slice(1)) && doc[0][1] === serverId && doc[0][2] === namespace);
+          // Cheap rejections (device id vs noise key, weak signing key) come before the expensive password check.
+          check(deviceId(doc[0][5]) === doc[0][3]); signingKeyOf(doc[0][4]);
         } catch (error) { login.fail(source); throw error; }
         roster.assertHealthy();
         await login.verifyPassword({ username: body.username, password: body.password }, source);
@@ -133,29 +135,35 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       }
       if (login && path === '/v1/session') {
         check(request.method === 'POST', 405);
-        const body = await readJson(4096, () => login.fail(source));
-        const reject = () => { login.fail(source); check(false, 401); };
-        if (!sameKeys(body, 'device,nonce,signature')) { login.fail(source); check(false); }
+        login.sessionGate(source);
+        const body = await readJson(4096, () => login.failSession(source));
         // The nonce is spent first and always, whatever fails next.
-        const fresh = consumeNonce(body.nonce);
+        const fresh = plain(body) ? consumeNonce(body.nonce) : false;
+        const reject = () => { login.failSession(source); check(false, 401); };
+        if (!sameKeys(body, 'device,nonce,signature')) { login.failSession(source); check(false); }
         const hex = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
         if (!fresh || !hex(body.device) || !hex(body.nonce) || !roster.isActive(body.device)) reject();
         let valid = false;
         try { valid = verify(null, Buffer.from(sessionProof(serverId, namespace, body.nonce, body.device)), roster.signingKeyOf(body.device), base64(body.signature, 64)); } catch { valid = false; }
         if (!valid) reject();
-        roster.touch(body.device); send(200, { ...login.openSession(body.device), device: body.device }); return;
+        login.clearSession(source); roster.touch(body.device); send(200, { ...login.openSession(body.device), device: body.device }); return;
       }
       const revocation = login ? /^\/v1\/devices\/([a-f0-9]{64})$/.exec(path)?.[1] : undefined;
       if (revocation) {
         check(request.method === 'DELETE', 405);
-        const key = login.authorize(request.headers.authorization);
-        const length = Number(request.headers['content-length'] ?? 0); check(Number.isSafeInteger(length) && length >= 0, 400); check(length <= 16384, 413); check(length === 0);
+        login.sessionGate(source);
         const device = request.headers['x-shellherd-device']; const nonce = request.headers['x-shellherd-nonce']; const signature = request.headers['x-shellherd-signature'];
-        const fresh = consumeNonce(nonce); let valid = false;
+        const fresh = consumeNonce(nonce); // spent first and always, whatever fails next
+        let key;
+        try { key = login.authorize(request.headers.authorization); } catch (error) { login.failSession(source); throw error; }
+        budget('device:' + login.deviceOf(key), limits.deviceWrites);
+        const length = Number(request.headers['content-length'] ?? 0); check(Number.isSafeInteger(length) && length >= 0, 400); check(length <= 16384, 413); check(length === 0);
+        let valid = false;
         try {
           valid = fresh && device === login.deviceOf(key) && verify(null, Buffer.from(requestProofV2(serverId, namespace, 'DELETE', request.url, nonce, device)), roster.signingKeyOf(device), base64(signature, 64));
         } catch { valid = false; }
-        check(valid, 401);
+        if (!valid) { login.failSession(source); check(false, 401); }
+        login.clearSession(source);
         check(login.authorize(request.headers.authorization) === key, 401); roster.assertHealthy();
         await roster.revoke(revocation); login.dropDevice(revocation); broker?.dropDevice(revocation);
         send(200, { revoked: true }); return;
