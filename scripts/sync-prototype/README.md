@@ -52,13 +52,7 @@ Der Rendezvous-Referenzclient (`rendezvous-client.mjs`) verwendet seit H2 einen 
 
 Die Integrationstests laden echte verschlüsselte Vault-Testdaten hoch, starten den Server neu und laden auf einem zweiten Client mit denselben Serverzugangsdaten. Nur das lokale Vault-Passwort kann die Datei öffnen; das Serverpasswort kann dies nicht. Serverseitige Dateien enthalten weder Test-Credentials noch Vault-Passwort oder Serverpasswort. Der zusätzliche Test `password-sync.test.mjs` prüft reale lokale Vault-Dateien mit verschlüsseltem Sync-Zustand über denselben Kontotransport, verlorene Upload-Bestätigungen, Offline-Merge und Server-Neustart. Kein Hintergrund-Sync produktiver `.term`-Dateien wird damit behauptet.
 
-Der sandboxed Electron-Test prüft Anmeldung, falsches Server- und Vault-Passwort, Passwortfeld-Löschung, Abbruch, manuellen Upload, erstmaligen Import in ein zweites isoliertes Profil, deaktivierte importierte Verbindungen und die deaktivierte Entwicklungsfunktion:
-
-```sh
-node scripts/sync-lab-smoke.mjs /pfad/zum/electron-checkout-wrapper
-```
-
-Screenshots: `/tmp/shellherd-sync-server-url.png`, `/tmp/shellherd-sync-server-ready.png`, `/tmp/shellherd-sync-vault-published.png` und `/tmp/shellherd-sync-vault-imported.png`.
+Die Szene `.claude/skills/run-app/sync-scene.mjs` prüft den Ablauf in der echten App (Skill `run-app`, Abschnitt „Sync-Szene“): zwei Instanzen gegen einen eigenen Testserver, Einschreibung, Wiederherstellungscode, erstmaliges Laden auf dem zweiten Gerät, Geräteliste und Entfernen. Ein Electron-Smoke-Skript gibt es nicht mehr (der frühere Passwort-Login existiert nicht).
 
 ## Manueller Linux-Dateisync und Wiederanlauf
 
