@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
+import { timingSafeEqual } from 'node:crypto';
 import { hashWire, ensure, stable } from '../sync-prototype/vault-sync-crypto';
 import { AppError } from '../../shared/errors';
-import { encryptVaultWithKey, unlockVault, unlockVaultWithKey } from './crypto';
+import { deriveKey, encryptVaultWithKey, unlockVault, unlockVaultWithKey } from './crypto';
 import type { UnlockedVault } from './crypto';
 import {
   backupVaultFile,
@@ -87,6 +88,20 @@ export class VaultSessionManager {
     const session = this.requireSession();
     if (session.filePath !== filePath || session.kdf.salt !== salt) throw new AppError('core.vaultLocked');
     return Buffer.from(session.key);
+  }
+
+  /** Constant-time check of a password against the session key; false for empty, core.vaultLocked if locked (also during derivation). */
+  public async matchesPassword(password: string): Promise<boolean> {
+    const session = this.requireSession();
+    if (password.length === 0) return false;
+    const { salt, memoryKiB, iterations, parallelism } = session.kdf;
+    const candidate = await deriveKey(password, Buffer.from(salt, 'base64'), memoryKiB, iterations, parallelism);
+    try {
+      if (this.activeSession !== session) throw new AppError('core.vaultLocked');
+      return candidate.length === session.key.length && timingSafeEqual(candidate, session.key);
+    } finally {
+      candidate.fill(0);
+    }
   }
 
   private open(filePath: string, unlocked: UnlockedVault): VaultSessionSnapshot {
