@@ -7,14 +7,14 @@
   "connect": "Connect",
   "username": "Username",
   "password": "Server password",
-  "signIn": "Sign in",
+  "signIn": "Enroll device",
   "signedInAs": "Signed in as {{username}}",
   "deviceName": "Name of this device",
   "goOnline": "Announce this device online",
   "goOffline": "Go offline",
   "online": "Online as {{name}} · sign-in valid until {{time}}",
   "fingerprintOwn": "Fingerprint of this device",
-  "identityTemporary": "Temporary device identity: this computer has no operating system key store. The fingerprint changes on the next start.",
+  "identityTemporary": "Temporary device identity: this computer has no operating-system key store. Fingerprint and enrollment last only until the next start.",
   "devices": "Online devices",
   "noDevices": "No other device is online.",
   "requestView": "View screen",
@@ -52,7 +52,7 @@
     "identity": "The stored device identity is damaged or unreadable. It was not replaced.",
     "locked": "Unlock your vault to announce this device online.",
     "connection": "The server cannot be reached.",
-    "authentication": "Sign-in failed or expired.",
+    "authentication": "Sign-in failed, expired, or this device was removed at the server.",
     "expired": "The request expired. Make it again.",
     "declined": "The other device declined the request.",
     "mismatch": "Device verification failed. Nothing was transferred.",
@@ -75,5 +75,8 @@
   "privateNetwork": {
     "label": "Private network (WireGuard/Tailscale): allow HTTP",
     "hint": "Only for a WireGuard or Tailscale address of this server. Outside such a tunnel the network could read the server password and data. Your vault password stays local."
-  }
+  },
+  "openSession": "Open session",
+  "enrolledHint": "This device is enrolled at the server; the server knows only its public key.",
+  "enrolledElsewhere": "This device is enrolled for this server at {{url}}. Enroll it here only if both addresses belong to your server."
 }

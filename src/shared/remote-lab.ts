@@ -11,7 +11,7 @@ export interface RemoteSignalPart { kind: 'offer' | 'answer' | 'bye'; part: numb
 export type RemoteLabCommand =
   | { kind: 'status' } | { kind: 'close' }
   | { kind: 'connect'; serverUrl: string; privateNetwork?: boolean }
-  | { kind: 'signIn'; username: string; password: string }
+  | { kind: 'signIn'; username: string; password: string; deviceName: string } | { kind: 'openSession' }
   | { kind: 'goOnline'; deviceName: string } | { kind: 'goOffline' }
   | { kind: 'request'; target: string; verification: string | null }
   | { kind: 'armCapture'; sessionId: string; verification: string | null }
@@ -32,7 +32,10 @@ export interface RemoteLabSession {
 export interface RemoteLabState {
   phase: 'idle' | 'serverReady' | 'signedIn' | 'online';
   server?: { serverUrl: string; serverId: string };
-  account?: { username: string; validUntil: number };
+  account?: { username: string; validUntil: number; deviceName: string };
+  enrolled?: { username: string; name: string };
+  /** Old serverUrl when this device is enrolled for the same serverId at another address. */
+  enrolledElsewhere?: string;
   identity?: { fingerprint: string; persistent: boolean };
   devices?: RemoteDevice[];
   session?: RemoteLabSession;
