@@ -1,10 +1,20 @@
 import type { VaultSyncResult } from './vault-sync';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, createPublicKey, randomBytes, sign, timingSafeEqual } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import { z } from 'zod';
+import type { RemoteIdentity, RemoteIdentityStore } from '../remote/identity';
+import { normalizeRecoveryCode } from '../../shared/recovery-code';
 import type { SyncLabReply, SyncLabRequest, SyncLabState } from '../../shared/sync-lab';
 import { normalizeSyncServerUrl } from '../../shared/sync-server-url.mjs';
+import type { SyncDevice } from './vault-sync-crypto';
 
 const token = z.string().uuid();
+const hex64 = /^[a-f0-9]{64}$/;
+// Same rule as DEVICE_NAME in scripts/sync-prototype/device-proof.mjs (the dev scripts are not imported into the bundle).
+// eslint-disable-next-line no-control-regex
+const DEVICE_NAME = /^[^\x00-\x1f\x7f]{1,80}$/;
+const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+const RENEW_MARGIN_MS = 60_000;
 const requestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('start'), clientId: token }).strict(),
   z.object({ kind: z.literal('status'), clientId: token }).strict(),
@@ -14,109 +24,273 @@ const requestSchema = z.discriminatedUnion('kind', [
 ]);
 export interface LabDriver { action(request: SyncLabRequest): SyncLabReply; close(): void }
 export interface EnrollmentDriver { begin(): Promise<NonNullable<SyncLabState['enrollment']>>; refresh(): Promise<NonNullable<SyncLabState['enrollment']>>; close(): void }
-export interface AccountDriver { login(username: string, password: string): Promise<unknown>; list(): Promise<unknown>; get?(id: string): Promise<string>; put?(wire: string): Promise<string>; remove?(id: string): Promise<boolean>; close(): void }
-export type SyncVaultRequest = { kind: 'synchronize'; recoveryCode?: string } | { kind: 'keepLocal'; reviewed: true; revision: string } | { kind: 'importVault'; password: string; recoveryCode?: string } | { kind: 'removeForeign'; ids: string[] };
-export type SyncVaultOutcome = VaultSyncResult | { removedForeign: number };
+export interface DeviceEntry { id: string; name: string; signingKey: string; enrolledAt: number; revokedAt: number | null; ephemeral: boolean }
+export interface AccountDriver {
+  enroll(identity: RemoteIdentity, input: { username: string; password: string; name: string; ephemeral: boolean }): Promise<unknown>;
+  openSession(identity: RemoteIdentity): Promise<{ signedIn: true; expiresAt: number; device: string }>;
+  devices(): Promise<DeviceEntry[]>; revoke(identity: RemoteIdentity, id: string): Promise<unknown>;
+  list(): Promise<unknown>; get?(id: string): Promise<string>; put?(wire: string): Promise<string>; remove?(id: string): Promise<boolean>; close(): void;
+}
+export type SyncVaultRequest = { kind: 'synchronize'; recoveryCode?: string } | { kind: 'keepLocal'; reviewed: true; revision: string }
+  | { kind: 'importVault'; password: string; recoveryCode: string } | { kind: 'removeForeign'; ids: string[] } | { kind: 'regenerateCode' };
+export type SyncVaultOutcome = VaultSyncResult | { removedForeign: number } | { recoveryCode: string };
 /** Keyed digest of the sign-in password so the later import password can be compared without keeping the password itself. */
 const digestOf = (key: Buffer, password: string): Buffer => createHmac('sha256', key).update(password.normalize('NFKC')).digest();
 type ServerInfo = NonNullable<SyncLabState['server']>;
+type Loaded = { identity: RemoteIdentity; persistent: boolean };
+type Failure = { code: 'connection' | 'unavailable' | 'identity' | 'authentication' | 'limit' | 'stale' };
+const failure = (code: Failure['code']): Failure & { host: true } => ({ code, host: true });
+const isFailure = (error: unknown): error is Failure & { host: true } => !!error && typeof error === 'object' && 'host' in error && error.host === true;
+const statusOf = (error: unknown): number | undefined => error && typeof error === 'object' && 'status' in error && typeof error.status === 'number' ? error.status : undefined;
+const syncCodes = { locked: 'syncLocked', changed: 'syncChanged', history: 'syncHistory', wrongVault: 'syncWrongVault', recovery: 'syncRecovery', limit: 'syncLimit', conflict: 'syncConflict', bindings: 'syncBindings', syncKey: 'syncKey', recoveryCode: 'syncRecoveryCode', migrate: 'syncMigrate' } as const;
+interface Connection {
+  owner: number; clientId: string; controller: AbortController; info?: ServerInfo; enrollment?: EnrollmentDriver; busy?: boolean; view?: SyncLabState['enrollment'];
+  account?: AccountDriver; signedIn?: SyncLabState['account']; sync?: SyncLabState['sync']; foreign?: string[]; passwordDigest?: { key: Buffer; digest: Buffer };
+  store?: RemoteIdentityStore; loaded?: Loaded; enrolled?: SyncLabState['enrolled']; enrolledElsewhere?: string; expiresAt?: number; roster?: DeviceEntry[]; devices?: SyncLabState['devices'];
+}
 export class SyncLabHost {
   #active?: { owner: number; clientId: string; driver: LabDriver };
-  #connection?: { owner: number; clientId: string; controller: AbortController; info?: ServerInfo; enrollment?: EnrollmentDriver; busy?: boolean; view?: SyncLabState['enrollment']; account?: AccountDriver; signedIn?: SyncLabState['account']; sync?: SyncLabState['sync']; foreign?: string[]; passwordDigest?: { key: Buffer; digest: Buffer } };
+  #connection?: Connection;
   constructor(private readonly createDriver?: () => LabDriver,
     private readonly probe?: (serverUrl: string, allowPrivateHttp: boolean, signal: AbortSignal) => Promise<ServerInfo>,
     private readonly createEnrollment?: (info: ServerInfo) => EnrollmentDriver,
     private readonly createAccount?: (info: ServerInfo, signal: AbortSignal) => AccountDriver,
-    private readonly syncVault?: (account: AccountDriver, info: ServerInfo, signal: AbortSignal, request: SyncVaultRequest) => Promise<SyncVaultOutcome | undefined>,
-    private readonly matchesVaultPassword?: (password: string) => Promise<boolean | undefined>) {}
+    private readonly syncVault?: (account: AccountDriver, info: ServerInfo, signal: AbortSignal, request: SyncVaultRequest, device: SyncDevice | undefined) => Promise<SyncVaultOutcome | undefined>,
+    private readonly matchesVaultPassword?: (password: string) => Promise<boolean | undefined>,
+    private readonly identity?: () => RemoteIdentityStore) {}
   get enabled(): boolean { return this.createDriver !== undefined; }
+  /** Renderer-visible state of a connection; never contains keys, tokens or the recovery code. */
+  #state(c: Connection): SyncLabState {
+    return {
+      phase: 'serverReady', server: c.info,
+      ...(c.view ? { enrollment: c.view } : {}), ...(c.signedIn ? { account: c.signedIn } : {}), ...(c.sync ? { sync: c.sync } : {}),
+      ...(c.enrolled ? { enrolled: c.enrolled } : {}), ...(c.enrolledElsewhere ? { enrolledElsewhere: c.enrolledElsewhere } : {}),
+      ...(c.loaded ? { identity: { fingerprint: c.loaded.identity.id, persistent: c.loaded.persistent } } : {}), ...(c.devices ? { devices: c.devices } : {}),
+    };
+  }
+  #live(c: Connection): void { if (this.#connection !== c) throw failure('stale'); }
+  #own(owner: number, clientId: string): Connection | undefined {
+    const c = this.#connection; return c?.info && c.owner === owner && c.clientId === clientId ? c : undefined;
+  }
+  /** Maps a failed server action: 401 drops the session (enrollment stays, B6), everything else is reported. */
+  #failed(c: Connection, error: unknown): SyncLabReply {
+    if (this.#connection !== c || (isFailure(error) && error.code === 'stale')) return { ok: false, code: 'stale' };
+    if (isFailure(error)) return { ok: false, code: error.code };
+    const status = statusOf(error);
+    if (status === 401) {
+      c.account?.close(); c.account = undefined; c.signedIn = undefined; c.expiresAt = undefined; c.roster = undefined; c.devices = undefined;
+      return { ok: false, code: 'authentication', state: this.#state(c) };
+    }
+    return { ok: false, code: status === 429 ? 'limit' : 'connection' };
+  }
+  /** Opens a device session; one retry on 401 with a fresh challenge, a second 401 forgets the enrollment (B6). */
+  async #open(c: Connection, account: AccountDriver): Promise<void> {
+    const identity = c.loaded!.identity;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const session = await account.openSession(identity); this.#live(c);
+        c.expiresAt = session.expiresAt; return;
+      } catch (error) {
+        this.#live(c);
+        if (statusOf(error) !== 401) throw error;
+        if (attempt === 1) {
+          c.store?.forgetEnrollment(c.info!.serverId); c.enrolled = undefined;
+          throw { status: 401, forgotten: true };
+        }
+      }
+    }
+  }
+  /** Renews the session shortly before it expires (B6). */
+  async #renew(c: Connection): Promise<void> {
+    if (c.expiresAt !== undefined && Date.now() >= c.expiresAt - RENEW_MARGIN_MS) await this.#open(c, c.account!);
+  }
+  /** Loads the roster fresh; the own entry must exist with the own signing key (B3). */
+  async #roster(c: Connection, strict: boolean): Promise<DeviceEntry[]> {
+    const list = await c.account!.devices(); this.#live(c);
+    const identity = c.loaded!.identity;
+    if (strict) { const own = list.find(item => item.id === identity.id); if (!own || own.signingKey !== identity.signingPublicKey) throw failure('connection'); }
+    c.roster = list;
+    c.devices = list.map(({ id, name, enrolledAt, revokedAt, ephemeral }) => ({ id, name, enrolledAt, revokedAt, ephemeral, self: id === identity.id }));
+    return list;
+  }
+  #deviceOf(identity: RemoteIdentity, list: DeviceEntry[]): SyncDevice {
+    const keys = new Map<string, KeyObject>(); const revoked = new Map<string, number | null>();
+    for (const item of list) {
+      revoked.set(item.id, item.revokedAt);
+      try { keys.set(item.id, createPublicKey({ key: Buffer.concat([SPKI_PREFIX, Buffer.from(item.signingKey, 'base64')]), format: 'der', type: 'spki' })); } catch { /* Unusable key: the author counts as unknown. */ }
+    }
+    return { id: identity.id, sign: data => sign(null, data, identity.signingKey), keyOf: id => keys.get(id), revokedAt: id => revoked.get(id) };
+  }
   async connect(owner: number, raw: unknown): Promise<SyncLabReply> {
-    if (!this.enabled || !this.probe) return { ok: false, code: 'unavailable' };
+    if (!this.enabled || !this.probe || !this.identity) return { ok: false, code: 'unavailable' };
     const parsed = z.object({ kind: z.literal('connect'), clientId: token, serverUrl: z.string().max(2048), privateNetwork: z.boolean().optional() }).strict().safeParse(raw);
     const url = parsed.success ? normalizeSyncServerUrl(parsed.data.serverUrl, { loopback: true, private: parsed.data.privateNetwork === true }) : null;
     if (!parsed.success || !url) return { ok: false, code: 'invalid' };
     if (this.#connection || this.#active) return { ok: false, code: 'stale' };
     const privateNetwork = parsed.data.privateNetwork === true;
-    const connection = { owner, clientId: parsed.data.clientId, controller: new AbortController(), info: undefined as ServerInfo | undefined };
+    const connection: Connection = { owner, clientId: parsed.data.clientId, controller: new AbortController() };
     this.#connection = connection;
     try {
       const info = await this.probe(url, privateNetwork, connection.controller.signal);
+      this.#live(connection);
+      if (info.authentication !== 'enrolled-device' || info.deviceSessions !== true) throw failure('unavailable');
+      try { connection.store = this.identity(); connection.loaded = connection.store.load(); } catch { throw failure('identity'); }
+      connection.info = info;
+      const e = connection.store.enrollment(info.serverId);
+      if (e) {
+        if (e.serverUrl === info.serverUrl && e.namespace === info.namespace) connection.enrolled = { username: e.username, name: e.name };
+        else connection.enrolledElsewhere = e.serverUrl; // Relay protection: never open a session for another URL (K10).
+      }
+      return { ok: true, state: this.#state(connection) };
+    } catch (error) {
       if (this.#connection !== connection) return { ok: false, code: 'stale' };
-      connection.info = info; return { ok: true, state: { phase: 'serverReady', server: info } };
-    } catch {
-      if (this.#connection !== connection) return { ok: false, code: 'stale' };
-      this.#connection = undefined; return { ok: false, code: 'connection' };
+      this.#connection = undefined;
+      return { ok: false, code: isFailure(error) && error.code !== 'stale' ? error.code : 'connection' };
     }
   }
   async signIn(owner: number, raw: unknown): Promise<SyncLabReply> {
     if (!this.enabled || !this.createAccount) return { ok: false, code: 'unavailable' };
-    const parsed = z.object({ kind: z.literal('signIn'), clientId: token, username: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/), password: z.string().min(1).max(1024) }).strict().safeParse(raw);
-    if (!parsed.success) return { ok: false, code: 'invalid' };
-    const current = this.#connection;
-    if (!current?.info || current.owner !== owner || current.clientId !== parsed.data.clientId || current.busy || current.signedIn) return { ok: false, code: 'stale' };
-    if (current.info.authentication !== 'password') return { ok: false, code: 'unavailable' };
+    const parsed = z.object({ kind: z.literal('signIn'), clientId: token, username: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/), password: z.string().min(1).max(1024), deviceName: z.string().max(1024) }).strict().safeParse(raw);
+    if (!parsed.success || !DEVICE_NAME.test(parsed.data.deviceName)) return { ok: false, code: 'invalid' };
+    const current = this.#own(owner, parsed.data.clientId);
+    if (!current?.info || !current.loaded || current.busy || current.signedIn) return { ok: false, code: 'stale' };
+    const { identity, persistent } = current.loaded; const { username, password, deviceName } = parsed.data;
     current.busy = true;
     try {
       // Never send the vault password to the server; undefined means the vault is locked, so no check is possible.
-      const same = await this.matchesVaultPassword?.(parsed.data.password);
-      if (this.#connection !== current) return { ok: false, code: 'stale' };
+      const same = await this.matchesVaultPassword?.(password); this.#live(current);
       if (same === true) return { ok: false, code: 'samePassword' };
-      current.account = this.createAccount(current.info, current.controller.signal);
-      await current.account.login(parsed.data.username, parsed.data.password);
-      if (this.#connection !== current) return { ok: false, code: 'stale' };
-      await current.account.list(); // Verify access, never upload a Vault as a side effect of login.
-      if (this.#connection !== current) return { ok: false, code: 'stale' };
-      { const key = randomBytes(32); current.passwordDigest = { key, digest: digestOf(key, parsed.data.password) }; } // Held after every login, checked or not (E3).
-      current.signedIn = { signedIn: true, username: parsed.data.username };
-      return { ok: true, state: { phase: 'serverReady', server: current.info, account: current.signedIn } };
+      const account = current.account = this.createAccount(current.info, current.controller.signal);
+      await account.enroll(identity, { username, password, name: deviceName, ephemeral: !persistent }); this.#live(current);
+      const session = await account.openSession(identity); this.#live(current);
+      current.expiresAt = session.expiresAt;
+      current.store!.rememberEnrollment({ serverId: current.info.serverId, namespace: current.info.namespace, serverUrl: current.info.serverUrl, username, name: deviceName, enrolledAt: Date.now() });
+      { const key = randomBytes(32); current.passwordDigest = { key, digest: digestOf(key, password) }; } // Held after every sign-in, checked or not (E3).
+      await account.list(); this.#live(current); // Verify access, never upload a Vault as a side effect of sign-in.
+      await this.#roster(current, false);
+      current.enrolled = { username, name: deviceName }; current.enrolledElsewhere = undefined;
+      current.signedIn = { signedIn: true, username, device: { fingerprint: identity.id, name: deviceName, persistent } };
+      return { ok: true, state: this.#state(current) };
     } catch (error) {
-      current.account?.close(); current.account = undefined;
-      return { ok: false, code: this.#connection !== current ? 'stale' : error && typeof error === 'object' && 'status' in error && error.status === 401 ? 'authentication' : 'connection' };
+      if (this.#connection === current) { current.account?.close(); current.account = undefined; current.expiresAt = undefined; current.roster = undefined; current.devices = undefined; }
+      if (this.#connection !== current || (isFailure(error) && error.code === 'stale')) return { ok: false, code: 'stale' };
+      const status = statusOf(error);
+      return { ok: false, code: isFailure(error) ? error.code : status === 401 ? 'authentication' : status === 429 ? 'limit' : 'connection' };
     } finally { current.busy = false; }
+  }
+  async openSession(owner: number, raw: unknown): Promise<SyncLabReply> {
+    if (!this.enabled || !this.createAccount) return { ok: false, code: 'unavailable' };
+    const parsed = z.object({ kind: z.literal('openSession'), clientId: token }).strict().safeParse(raw);
+    if (!parsed.success) return { ok: false, code: 'invalid' };
+    const current = this.#own(owner, parsed.data.clientId);
+    if (!current?.info || !current.loaded || !current.enrolled || current.busy || current.signedIn) return { ok: false, code: 'stale' };
+    const { identity, persistent } = current.loaded; const enrolled = current.enrolled;
+    current.busy = true;
+    try {
+      const account = current.account = this.createAccount(current.info, current.controller.signal);
+      await this.#open(current, account);
+      await account.list(); this.#live(current);
+      await this.#roster(current, false);
+      current.signedIn = { signedIn: true, username: enrolled.username, device: { fingerprint: identity.id, name: enrolled.name, persistent } };
+      return { ok: true, state: this.#state(current) };
+    } catch (error) {
+      if (this.#connection === current) { current.account?.close(); current.account = undefined; current.expiresAt = undefined; current.roster = undefined; current.devices = undefined; }
+      if (this.#connection !== current || (isFailure(error) && error.code === 'stale')) return { ok: false, code: 'stale' };
+      if (isFailure(error)) return { ok: false, code: error.code };
+      const status = statusOf(error);
+      return { ok: false, code: status === 401 ? 'authentication' : status === 429 ? 'limit' : 'connection', ...(status === 401 ? { state: this.#state(current) } : {}) };
+    } finally { current.busy = false; }
+  }
+  async devices(owner: number, raw: unknown): Promise<SyncLabReply> {
+    if (!this.enabled) return { ok: false, code: 'unavailable' };
+    const parsed = z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('listDevices'), clientId: token }).strict(),
+      z.object({ kind: z.literal('revokeDevice'), clientId: token, id: z.string().regex(hex64) }).strict(),
+    ]).safeParse(raw);
+    if (!parsed.success) return { ok: false, code: 'invalid' };
+    const current = this.#own(owner, parsed.data.clientId);
+    if (!current?.info || !current.loaded || !current.account || !current.signedIn || current.busy) return { ok: false, code: 'stale' };
+    const identity = current.loaded.identity;
+    current.busy = true;
+    try {
+      await this.#renew(current);
+      if (parsed.data.kind === 'revokeDevice') {
+        try { await current.account.revoke(identity, parsed.data.id); this.#live(current); }
+        catch (error) { this.#live(current); if (statusOf(error) !== 404) throw error; }
+        if (parsed.data.id === identity.id) {
+          current.store?.forgetEnrollment(current.info.serverId); this.#close(current);
+          return { ok: true, state: { phase: 'idle' } };
+        }
+      }
+      await this.#roster(current, false);
+      return { ok: true, state: this.#state(current) };
+    } catch (error) { return this.#failed(current, error); }
+    finally { current.busy = false; }
   }
   async performSync(owner: number, raw: unknown): Promise<SyncLabReply> {
     if (!this.enabled || !this.syncVault) return { ok: false, code: 'unavailable' };
     const parsed = z.discriminatedUnion('kind', [
-      z.object({ kind: z.literal('synchronize'), clientId: token }).strict(),
-      z.object({ kind: z.literal('keepLocal'), clientId: token, reviewed: z.literal(true), revision: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
-      z.object({ kind: z.literal('importVault'), clientId: token, password: z.string().min(1).max(1024) }).strict(),
+      z.object({ kind: z.literal('synchronize'), clientId: token, recoveryCode: z.string().max(64).optional() }).strict(),
+      z.object({ kind: z.literal('keepLocal'), clientId: token, reviewed: z.literal(true), revision: z.string().regex(hex64) }).strict(),
+      z.object({ kind: z.literal('importVault'), clientId: token, password: z.string().min(1).max(1024), recoveryCode: z.string().max(64) }).strict(),
       z.object({ kind: z.literal('removeForeign'), clientId: token }).strict(),
+      z.object({ kind: z.literal('regenerateCode'), clientId: token }).strict(),
     ]).safeParse(raw);
     if (!parsed.success) return { ok: false, code: 'invalid' };
+    const data = parsed.data;
+    let code: string | undefined;
+    if (data.kind === 'importVault' || (data.kind === 'synchronize' && data.recoveryCode !== undefined)) {
+      code = normalizeRecoveryCode(data.recoveryCode!) ?? undefined;
+      if (code === undefined) return { ok: false, code: 'invalid' };
+    }
     const current = this.#connection;
-    if (!current?.info || !current.account || !current.signedIn || current.owner !== owner || current.clientId !== parsed.data.clientId || current.busy) return { ok: false, code: 'stale' };
-    if (parsed.data.kind === 'keepLocal' && (!current.sync?.canKeepLocal || parsed.data.revision !== current.sync.conflictRevision)) return { ok: false, code: 'invalid' };
-    if (parsed.data.kind === 'removeForeign' && !current.foreign?.length) return { ok: false, code: 'invalid' };
-    if (parsed.data.kind === 'importVault') {
+    if (!current?.info || !current.loaded || !current.account || !current.signedIn || current.owner !== owner || current.clientId !== data.clientId || current.busy) return { ok: false, code: 'stale' };
+    if (data.kind === 'keepLocal' && (!current.sync?.canKeepLocal || data.revision !== current.sync.conflictRevision)) return { ok: false, code: 'invalid' };
+    if (data.kind === 'removeForeign' && !current.foreign?.length) return { ok: false, code: 'invalid' };
+    if (data.kind === 'importVault') {
       // The digest stays held across failed attempts; it is wiped only after a successful import or on close/reset.
       const held = current.passwordDigest;
       if (held) {
-        const same = timingSafeEqual(digestOf(held.key, parsed.data.password), held.digest);
-        if (same) return { ok: false, code: 'samePasswordImport', state: { phase: 'serverReady', server: current.info, account: current.signedIn, sync: current.sync } };
+        const same = timingSafeEqual(digestOf(held.key, data.password), held.digest);
+        if (same) return { ok: false, code: 'samePasswordImport', state: this.#state(current) };
       }
     }
     current.busy = true;
     try {
-      const request: SyncVaultRequest = parsed.data.kind === 'removeForeign' ? { kind: 'removeForeign', ids: current.foreign! } : parsed.data;
-      const result = await this.syncVault(current.account, current.info, current.controller.signal, request);
-      if (this.#connection !== current) return { ok: false, code: 'stale' };
-      if (parsed.data.kind === 'importVault' && result && 'snapshot' in result && result.snapshot) this.#wipe(current);
+      await this.#renew(current);
+      let device: SyncDevice | undefined;
+      if (data.kind !== 'removeForeign') device = this.#deviceOf(current.loaded.identity, await this.#roster(current, true)); // Fresh roster per run (B3).
+      const request: SyncVaultRequest = data.kind === 'removeForeign' ? { kind: 'removeForeign', ids: current.foreign! }
+        : data.kind === 'importVault' ? { kind: 'importVault', password: data.password, recoveryCode: code! }
+        : data.kind === 'synchronize' ? (code === undefined ? { kind: 'synchronize' } : { kind: 'synchronize', recoveryCode: code })
+        : data.kind === 'keepLocal' ? { kind: 'keepLocal', reviewed: true, revision: data.revision } : { kind: 'regenerateCode' };
+      const result = await this.syncVault(current.account, current.info, current.controller.signal, request, device);
+      this.#live(current);
+      if (data.kind === 'regenerateCode') {
+        // The code travels only in this one reply, never in held state (K13).
+        return { ok: true, state: this.#state(current), recoveryCode: (result as { recoveryCode: string }).recoveryCode };
+      }
+      let recoveryCode: string | undefined;
+      if (data.kind === 'importVault' && result && 'snapshot' in result && result.snapshot) this.#wipe(current);
       if (result && 'removedForeign' in result) {
         current.foreign = undefined; current.sync = { ...current.sync!, skipped: 0, removedForeign: result.removedForeign };
-      } else if (result) {
-        const { snapshot: _snapshot, foreign, ...summary } = result; current.sync = summary; current.foreign = foreign?.length ? foreign : undefined;
-      } else if (parsed.data.kind === 'removeForeign') { current.foreign = undefined; current.sync = { ...current.sync!, skipped: 0, removedForeign: 0 }; }
-      return { ok: true, state: { phase: 'serverReady', server: current.info, account: current.signedIn, sync: current.sync }, ...(result && 'snapshot' in result && result.snapshot ? { vaultChanged: result.snapshot } : {}) };
+      } else if (result && 'status' in result) {
+        const { snapshot: _snapshot, foreign, recoveryCode: issued, ...summary } = result; current.sync = summary; current.foreign = foreign?.length ? foreign : undefined; recoveryCode = issued;
+      } else if (data.kind === 'removeForeign') { current.foreign = undefined; current.sync = { ...current.sync!, skipped: 0, removedForeign: 0 }; }
+      return { ok: true, state: this.#state(current), ...(recoveryCode ? { recoveryCode } : {}), ...(result && 'snapshot' in result && result.snapshot ? { vaultChanged: result.snapshot } : {}) };
     } catch (error) {
-      if (this.#connection !== current) return { ok: false, code: 'stale' };
-      const codes = { locked: 'syncLocked', changed: 'syncChanged', history: 'syncHistory', wrongVault: 'syncWrongVault', recovery: 'syncRecovery', limit: 'syncLimit', conflict: 'syncConflict', bindings: 'syncBindings' } as const;
-      if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && Object.hasOwn(codes, error.code)) return { ok: false, code: codes[error.code as keyof typeof codes] };
-      return { ok: false, code: error && typeof error === 'object' && 'status' in error && error.status === 401 ? 'authentication' : 'connection' };
+      if (this.#connection === current && !isFailure(error) && error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && Object.hasOwn(syncCodes, error.code))
+        return { ok: false, code: syncCodes[error.code as keyof typeof syncCodes] };
+      return this.#failed(current, error);
     } finally { current.busy = false; }
   }
   #wipe(connection?: { passwordDigest?: { key: Buffer; digest: Buffer } }): void {
     const held = connection?.passwordDigest; if (!held) return;
     held.key.fill(0); held.digest.fill(0); connection!.passwordDigest = undefined;
+  }
+  #close(connection: Connection): void {
+    connection.controller.abort(); connection.enrollment?.close(); connection.account?.close(); this.#wipe(connection);
+    if (this.#connection === connection) this.#connection = undefined;
   }
   async authorize(owner: number, raw: unknown): Promise<SyncLabReply> {
     const parsed = z.object({ kind: z.enum(['requestAccess', 'refreshAccess']), clientId: token }).strict().safeParse(raw);
@@ -135,7 +309,7 @@ export class SyncLabHost {
         current.view = await current.enrollment.refresh();
       }
       if (this.#connection !== current) return { ok: false, code: 'stale' };
-      return { ok: true, state: { phase: 'serverReady', server: current.info, enrollment: current.view } };
+      return { ok: true, state: this.#state(current) };
     } catch { return { ok: false, code: this.#connection === current ? 'connection' : 'stale' }; }
     finally { current.busy = false; }
   }
@@ -153,11 +327,11 @@ export class SyncLabHost {
     }
     if (request.kind === 'close') {
       if (this.#active?.owner === owner && this.#active.clientId === request.clientId) this.reset();
-      if (this.#connection?.owner === owner && this.#connection.clientId === request.clientId) { this.#connection.controller.abort(); this.#connection.enrollment?.close(); this.#connection.account?.close(); this.#wipe(this.#connection); this.#connection = undefined; }
+      if (this.#connection?.owner === owner && this.#connection.clientId === request.clientId) this.#close(this.#connection);
       return { ok: true, state: { phase: 'idle' } };
     }
     if (request.kind === 'status' && this.#connection?.owner === owner && this.#connection.clientId === request.clientId && this.#connection.info)
-      return { ok: true, state: { phase: 'serverReady', server: this.#connection.info, enrollment: this.#connection.view, account: this.#connection.signedIn, sync: this.#connection.sync } };
+      return { ok: true, state: this.#state(this.#connection) };
     if (this.#active?.owner !== owner || this.#active.clientId !== request.clientId) return { ok: false, code: 'stale' };
     try { return this.#active.driver.action(request); }
     catch { this.reset(); return { ok: false, code: 'failed' }; }
