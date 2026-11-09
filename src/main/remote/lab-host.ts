@@ -573,7 +573,7 @@ export class RemoteLabHost {
         if (s.ended || this.#session !== s) return { ok: false, code: 'stale' };
         if ((error as { code?: unknown } | null)?.code === 'mismatch') { this.#end(s, 'failed'); return { ok: false, code: 'mismatch' }; }
         if (statusOf(error) === 404) { this.#end(s, 'remote', 'remote'); return { ok: false, code: 'stale' }; }
-        if (statusOf(error) === 429 && timers.now() < limit) continue; // Shared server limit: retry next round.
+        if (timers.now() < limit) continue; // 429 or a transient network error: keep polling until handshakeMs.
         return timeout();
       }
       if (s.ended || this.#session !== s) return { ok: false, code: 'stale' };

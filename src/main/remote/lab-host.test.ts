@@ -985,6 +985,7 @@ describe('RemoteLabHost: viewer verification (B7, B10)', () => {
   });
 });
 
+let channels0: FakeChannel | undefined;
 describe('RemoteLabHost: Noise handshake (T8)', () => {
   const PRIVATE = 'http://10.8.0.2:8787/';
   const info = (over: Record<string, unknown> = {}) => ({ serverUrl: PRIVATE, serverId: 'f'.repeat(64), namespace: 'n', authentication: 'password' as const, rendezvous: true, rendezvousProof: true, rendezvousNoise: true, ...over });
@@ -1051,6 +1052,21 @@ describe('RemoteLabHost: Noise handshake (T8)', () => {
     await t.clock.advance(REMOTE_LAB_LIMITS.handshakeMs + REMOTE_LAB_LIMITS.setupPollMs);
     expect(await accept).toEqual({ ok: false, code: 'connection' });
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+  });
+
+  it('agent: a transient network error during the handshake keeps polling until it recovers (m3)', async () => {
+    const t = setup();
+    t.handshake.rounds = 2;
+    await t.granted();
+    (t.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      const c = new FakeChannel(); c.rounds = 2; c.receiveError = new Error('ECONNRESET'); channels0 = c; return c;
+    });
+    const accept = t.act({ kind: 'accept', sessionId: SID });
+    await flush();
+    channels0!.receiveError = undefined;
+    await t.clock.advance(REMOTE_LAB_LIMITS.setupPollMs * 3);
+    expect(await accept).toMatchObject({ ok: true, state: { session: { state: 'connecting' } } });
+    expect(t.kinds('ended')).toEqual([]);
   });
 
   it('agent: decline during the handshake ends declined, never connects and frees the host (B6)', async () => {

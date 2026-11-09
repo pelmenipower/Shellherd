@@ -74,8 +74,8 @@ export class RendezvousPeer {
 const MAX_FRAMES = 4096; const MAX_FRAME_BYTES = 8208; const MAX_PLAIN = 8192;
 class RendezvousChannel {
   #outbox = []; #queued = 0; #sent = 0; #received = 0; #delivery = null; #failed = false; #closed = false;
-  #acceptPosted = false; #msg1Queued = false; #acceptedSeq = null; #acceptedSeen = false; #acceptedAcked = false;
-  #tx = null; #rx = null; #flushing = false; #receiving = false; #stage; #keys; #noise; #initiator;
+  #msg1Queued = false; #acceptedSeq = null; #acceptedSeen = false; #acceptedAcked = false;
+  #tx = null; #rx = null; #flushing = null; #receiving = false; #stage; #keys; #noise; #initiator;
   constructor(peer, session, fingerprint, scope) {
     check(hex(session.id) && hex(session.nonce) && hex(peer.store.info.serverId) && hex(session.from) && hex(session.to) && session.from !== session.to);
     check(['view', 'control'].includes(scope) && session.scope === scope && ['pending', 'active'].includes(session.state));
@@ -98,16 +98,25 @@ class RendezvousChannel {
     this.#queued = sequence; this.#outbox.push({ sequence, frame: Buffer.from(bytes).toString('base64') }); return sequence;
   }
   // Every outgoing frame is encrypted exactly once; retries resend the same string.
+  // One drain runs at a time; concurrent callers join it, so send() and receive() may overlap.
   async #flush() {
-    this.#assert(); check(!this.#flushing); this.#flushing = true;
-    try {
-      while (this.#outbox.length) {
-        const { sequence, frame } = this.#outbox[0];
-        const result = await this.peer.store.request('POST', this.#path('messages'), JSON.stringify({ sequence, frame }));
-        this.#assert(); check(result.sequence === sequence);
-        this.#outbox.shift(); this.#sent = sequence;
+    this.#assert(); check(!this.#failed);
+    for (;;) {
+      if (!this.#flushing) {
+        if (!this.#outbox.length) return;
+        this.#flushing = this.#drain().finally(() => { this.#flushing = null; });
       }
-    } finally { this.#flushing = false; }
+      await this.#flushing;
+      if (!this.#outbox.length) return;
+    }
+  }
+  async #drain() {
+    while (this.#outbox.length) {
+      const { sequence, frame } = this.#outbox[0];
+      const result = await this.peer.store.request('POST', this.#path('messages'), JSON.stringify({ sequence, frame }));
+      this.#assert(); check(result.sequence === sequence);
+      this.#outbox.shift(); this.#sent = sequence;
+    }
   }
   #verifyPeer() {
     let ok = false;
@@ -149,12 +158,12 @@ class RendezvousChannel {
   // Caller invokes this ONLY after local approval of peer fingerprint and scope.
   async accept() {
     this.#assert(); check(this.#initiator && !this.#failed);
-    await this.peer.store.request('POST', this.#path('accept'), '{}'); this.#acceptPosted = true;
+    await this.peer.store.request('POST', this.#path('accept'), '{}');
     if (!this.#msg1Queued) { this.#enqueue(this.#noise.send()); this.#msg1Queued = true; }
     await this.#flush();
   }
   async send(value) {
-    this.#assert(); check(this.ready && this.#outbox.length === 0 && !this.#flushing);
+    this.#assert(); check(this.#writable);
     const plain = Buffer.from(JSON.stringify({ kind: 'data', value })); 
     try { check(plain.length <= MAX_PLAIN); this.#enqueue(this.#tx.encrypt(plain)); } finally { plain.fill(0); }
     await this.#flush();
@@ -163,7 +172,7 @@ class RendezvousChannel {
   async receive() {
     this.#assert(); check(!this.#receiving && !this.#failed); this.#receiving = true;
     try {
-      if (this.#delivery) { const values = await this.#acknowledge(); await this.#flush(); return values; }
+      if (this.#delivery) { return await this.#acknowledgeThenFlush(); }
       await this.#flush();
       const result = await this.peer.store.request('GET', `${this.#path('messages')}?after=${this.#received}`);
       check(Array.isArray(result.messages) && result.messages.length <= 32);
@@ -175,8 +184,14 @@ class RendezvousChannel {
       // Retain the decrypted batch until an idempotent ACK succeeds, including when
       // the first ACK reached the server but its reply was lost.
       this.#delivery = { values: state.values, sequence, accepted: state.accepted };
-      const values = await this.#acknowledge(); await this.#flush(); return values;
+      return await this.#acknowledgeThenFlush();
     } finally { this.#receiving = false; }
+  }
+  // The ACK is already durable: acknowledged values must reach the caller even if the follow-up flush fails (retried later).
+  async #acknowledgeThenFlush() {
+    const values = await this.#acknowledge();
+    try { await this.#flush(); } catch (error) { if (!values.length) throw error; /* outbox retained; retry() or the next receive() resends */ }
+    return values;
   }
   async #acknowledge() {
     const { values, sequence, accepted } = this.#delivery;
@@ -201,7 +216,11 @@ class RendezvousChannel {
     this.#outbox = []; this.#delivery = null;
   }
   get ready() {
-    return !this.#closed && !this.#failed && performance.now() < this.deadline && this.#noise.complete && this.#outbox.length === 0
-      && (this.#initiator ? this.#acceptedSeq !== null && this.#sent >= this.#acceptedSeq : this.#acceptedAcked);
+    return this.#writable && this.#outbox.length === 0 && (!this.#initiator || this.#sent >= this.#acceptedSeq);
+  }
+  // Frames queue in order behind unsent ones, so writing does not require an empty outbox.
+  get #writable() {
+    return !this.#closed && !this.#failed && performance.now() < this.deadline && this.#noise.complete && this.#tx !== null
+      && (this.#initiator ? this.#acceptedSeq !== null : this.#acceptedAcked);
   }
 }

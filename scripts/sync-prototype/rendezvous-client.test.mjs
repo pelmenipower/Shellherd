@@ -207,3 +207,45 @@ it('disposes safely after message 1 and wipes both ciphers after the handshake',
   const spy = vi.spyOn(Cipher.prototype, '_clear'); b.dispose(); expect(spy).toHaveBeenCalledTimes(2);
   expect(() => b.dispose()).not.toThrow(); expect(b.ready).toBe(false);
 }, 20_000);
+const delayPosts = (peer, ms) => {
+  const original = peer.store.request.bind(peer.store);
+  vi.spyOn(peer.store, 'request').mockImplementation(async (...args) => {
+    if (args[0] === 'POST' && args[1].endsWith('/messages')) await new Promise(resolve => setTimeout(resolve, ms));
+    return original(...args);
+  });
+};
+it('lets receive() run while a send() POST is in flight without losing or duplicating values', async () => {
+  const { bob, a, b } = await pair(); await handshake(a, b);
+  await a.send('to-bob'); delayPosts(bob, 100);
+  const sending = b.send({ part: 'offer-1' });
+  expect(await b.receive()).toEqual(['to-bob']); await sending;
+  expect(await a.receive()).toEqual([{ part: 'offer-1' }]); expect(await a.receive()).toEqual([]);
+  expect(await b.receive()).toEqual([]); expect(b.ready).toBe(true);
+  await b.send('after'); expect(await a.receive()).toEqual(['after']);
+});
+it('keeps the order of parallel send() calls', async () => {
+  const { bob, a, b } = await pair(); await handshake(a, b); delayPosts(bob, 30);
+  await Promise.all([b.send(1), b.send(2), b.send(3)]);
+  const got = []; for (let i = 0; i < 3 && got.length < 3; i++) got.push(...await a.receive());
+  expect(got).toEqual([1, 2, 3]);
+});
+it('returns acknowledged values even when the follow-up flush fails, and a poisoned channel sends nothing', async () => {
+  const { bob, a, b } = await pair(); await handshake(a, b);
+  await a.send('to-bob');
+  const original = bob.store.request.bind(bob.store); let fail = true;
+  vi.spyOn(bob.store, 'request').mockImplementation(async (...args) => {
+    if (fail && args[0] === 'POST' && args[1].endsWith('/messages')) { fail = false; throw Error('offline'); }
+    return original(...args);
+  });
+  await expect(b.send('x')).rejects.toThrow('offline');
+  expect(await b.receive()).toEqual(['to-bob']); // the pending flush is retried, no loss
+  expect(await a.receive()).toEqual(['x']);
+});
+it('refuses to flush or retry once the channel is poisoned', async () => {
+  const { ctx, alice, bob, session, b } = await pair();
+  await b.accept(); await forgeResponder(ctx, alice, session, { keys: noiseKeyPair(createRendezvousIdentity().privateKey) });
+  await expect(b.receive()).rejects.toMatchObject({ code: 'mismatch' });
+  const posts = vi.spyOn(bob.store, 'request');
+  await expect(b.retry()).rejects.toThrow();
+  expect(posts.mock.calls.filter(call => call[0] === 'POST')).toHaveLength(0);
+});
