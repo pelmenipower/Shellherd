@@ -18,9 +18,9 @@ export interface PermissionDetails {
 function isScreenCapture(permission: string, details: PermissionDetails, kind: 'request' | 'check'): boolean {
   if (permission === 'display-capture') return true;
   if (permission !== 'media') return false;
-  // Camera/mic carry DEVICE_* types; desktop audio is never allowed.
+  // Camera/mic carry DEVICE_* types; desktop audio is never allowed. The check only passes for video (E1).
   if (kind === 'request') return !details.mediaTypes?.some(t => t === 'audio' || t === 'video');
-  return details.mediaType !== 'audio';
+  return details.mediaType === 'video';
 }
 
 /** Deny-by-default; screen capture passes only after native consent for the current session, in the main frame. */

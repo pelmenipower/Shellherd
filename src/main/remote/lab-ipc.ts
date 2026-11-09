@@ -61,7 +61,7 @@ export async function confirmCaptureDialog(owner: number, prompt: CapturePrompt,
     });
     return response === 1 && !signal.aborted ? 'accepted' : 'declined';
   } catch {
-    return 'declined';
+    return 'unavailable';
   }
 }
 
