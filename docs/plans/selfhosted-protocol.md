@@ -139,3 +139,24 @@ Der erste technische Schritt nach diesem Entwurf ist ein isolierter Interoperabi
 6. Protokollzusammensetzung vor Implementierungsfreigabe unabhängig reviewen. Ein späterer externer Gesamtaudit bleibt zusätzlich erforderlich.
 
 Block 1 ist damit als Entscheidungsentwurf ausgearbeitet. Die Abnahme bleibt bis zu Kodierung, Interoperabilitätsnachweis und Review offen. Block 2 darf noch keine ungeprüften produktiven Secrets übernehmen.
+
+## Rendezvous-Kanal (H2, Entwicklungsprototyp)
+
+Der Fernzugriff-Kanal (`rendezvous-client.mjs`) nutzt `Noise_XX_25519_ChaChaPoly_BLAKE2b` (`noise-handshake` 4.2.0, exakt gepinnt). Kein Downgrade, kein Profilwechsel. Das ist ein Entwicklungsprototyp ohne Sicherheitsfreigabe.
+
+- **Statische Schlüssel:** Der vorhandene X25519-Geräteschlüssel, roh aus dem PKCS8-Export. Der Fingerabdruck bleibt die Geräte-ID. Der Schlüssel der Gegenseite (`rs`) kommt aus dem Handshake und wird gegen den erwarteten Fingerabdruck geprüft: beim Initiator sofort nach Nachricht 2 und vor dem Senden von Nachricht 3, beim Responder nach Nachricht 3. Abweichung: Fehler `mismatch`, nichts wird bereit.
+- **Prologue:** JSON-Array in fester Feldreihenfolge `[Prologue-Kennung 'shellherd-rendezvous-noise-v1', Profil, Server-ID, Sitzungs-ID, Nonce, Scope, from, to]`. Jede Abweichung lässt den Handshake scheitern.
+- **Rollen:** Initiator ist die freigebende Seite (`session.to`, nach erteilter Zustimmung), Responder der Betrachter (`session.from`). Der Initiator beginnt den Handshake erst nach `accept()` und sendet danach `accepted` (mit Scope); der Responder nimmt vor `accepted` keine Daten an.
+- **Frame-Format:** `{ sequence, frame }` mit `frame` als Base64 von 1 bis 8208 Byte, Sequenz lückenlos je Richtung, höchstens 4096 Frames je Richtung. Handshake-Frames haben exakte Längen 32 (Nachricht 1), 96 (2) und 64 (3) mit leerer Payload. Transportframes tragen JSON `{kind:'accepted',scope}` oder `{kind:'data',value}` bis 8192 Byte, ChaCha20-Poly1305 mit leerem AD, Schlüssel direkt aus dem Handshake (keine eigene HKDF-Stufe). Das alte Format `{ciphertext,nonce,sequence,tag}` wird abgelehnt.
+- **Outbox-Regel:** Jeder ausgehende Frame wird genau einmal verschlüsselt und mit fester Sequenz in der Outbox gehalten, bis der Server ihn bestätigt. Wiederholungen senden denselben String (Server-Idempotenz über Digest, anderer Inhalt gleicher Sequenz: 409). Ein Fehler beim Verarbeiten eingehender Frames vergiftet den Kanal; Netzwerkfehler tun das nicht.
+- **Aufräumen:** `dispose` nullt Schlüsselmaterial, auch bei unvollständigem Handshake, und wirft nie.
+
+### Kompaktierung (H2)
+
+Jede Version kann `compacts` tragen (IDs entfernter Versionen, höchstens 256, eindeutig, nie die eigene ID oder ein eigener Parent). Ohne Kompaktierung bleibt das Dokument bytegleich zu H1.
+
+- **Auslöser:** Nach erfolgreichem Sync mit genau einem Kopf, ohne ausstehende Änderung und mehr als 32 Versionen. Die jüngsten 16 Versionen (Breitensuche ab dem Kopf) bleiben, der Rest wird entfernt.
+- **Ablauf:** Zusammenfassungsversion `C` (Inhalt des Kopfs, Parent = Kopf, `compacts` = neu entfernte plus bereits kompaktierte IDs) hochladen und quittieren, danach die entfernten Objekte am Server löschen, dann lokal bereinigen. Jede Abbruchstelle endet ohne `history`; ein späterer Lauf repariert Reste (Löschen veralteter Server-Objekte).
+- **Graph:** Ein fehlender Parent ist nur erlaubt, wenn er kompaktiert ist, sonst `history`. Köpfe sind Versionen, die weder Parent einer vorhandenen Version noch kompaktiert sind. Die Basis zweier Köpfe umfasst auch lokal vorhandene Vorfahren, die die Gegenseite kompaktiert hat. Neu geladene, schon kompaktierte Objekte („Zombies“) werden verworfen und nie als empfangen gezählt.
+- **Grenzen:** Wird die Liste bei 256 gekürzt, kann nach sehr langer Abwesenheit ein `history`-Fehlalarm kommen; der Ausweg ist Neu-Laden. Zwei Köpfe ohne berechenbare Basis bleiben ein Konflikt ohne Auflösungsweg. Signierte Tombstones gibt es nicht; Zurückhalten noch nie gesehener Objekte bleibt unerkennbar (H3).
+- **Fremde Objekte:** `Fremde Objekte entfernen` löscht ausschließlich Objekte, die sich unter dem Vault-Schlüssel nicht AEAD-öffnen lassen. Lesbare Objekte, auch mit unbekanntem Schema, bleiben.

@@ -751,13 +751,14 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 
 1. Both devices: Settings → `Set up remote access (development)`, enter the server address, `Connect`, sign in with username and server password. The vault must be unlocked. The server password must not be the vault password: Shellherd checks this before sending and reports “The server password must not be your vault password. Nothing was sent to the server.”
 2. Choose a device name and `Announce this device online`. Under `Fingerprint of this device` the dialog shows this device's fingerprint.
-3. On the viewing device, the other device appears under `Online devices`, at first without a fingerprint. On the other device read its `Fingerprint of this device` and type the first 12 characters into the field `First 12 characters of the fingerprint from the other device` (case and spaces do not matter). Only then is `View screen` active. Read the fingerprint only from the other device's screen, never from the server or your own dialog.
-4. The other device asks `Share your screen?` in the Shellherd window. On first contact you type there the first 12 characters of the requester's fingerprint, read from the requester's screen. The fingerprint is not shown in this window. `Share screen` is locked for the first second and active only with 12 valid characters.
-5. After the click Shellherd asks once more in a system dialog, with the requester's full fingerprint in groups of eight, the buttons `Decline` and `Share screen` and the note that the entire primary screen is shared. Only this click releases the capture. While the picture is running, a bar shows who is watching, with `End`.
+3. On the viewing device, the other device appears under `Online devices`, at first without a fingerprint. On the other device read its `Fingerprint of this device` and type the first 16 characters (the first two groups) into the field `First 16 characters of the fingerprint from the other device (the first two groups)` (case and spaces do not matter). Only then is `View screen` active. Read the fingerprint only from the other device's screen, never from the server or your own dialog.
+4. The other device asks `Share your screen?` in the Shellherd window. On first contact you type there the first 16 characters of the requester's fingerprint, read from the requester's screen. The fingerprint is not shown in this window. `Share screen` is locked for the first second and active only with 16 valid characters.
+5. After the click Shellherd asks once more in a system dialog, with the requester's full fingerprint in groups of eight, the buttons `Decline` and `Share screen` and the note that the entire primary screen is shared. Only this click releases the capture. After that the dialog shows `Establishing the encrypted connection…` until the encrypted channel is up (20 s at most, otherwise a connection error). While the picture is running, a bar shows who is watching, with `End`.
 6. Either side can end at any time (`End connection` or `End`). Locking the vault also ends the connection.
 
 **Verification and pins:**
 
+- Signalling (offer, answer, candidates) runs through an encrypted channel between the two devices: Noise XX (`Noise_XX_25519_ChaChaPoly_BLAKE2b`) with the static device keys, ephemeral keys per session (forward secrecy) and a fixed prologue of server ID, session, nonce and purpose. The server only relays frames and sees no plaintext. The handshake confirms the other device's key against the verified fingerprint (full 256 bits); if it does not match, the session ends with an error before anything is sent. A server without this mechanism (`rendezvousNoise`) is rejected, there is no downgrade.
 - A device counts as verified only after the typed check succeeded. Shellherd then remembers name and fingerprint, shows `Verified on …` and asks for no field again. Verified devices are listed with their full fingerprint.
 - If the fingerprint of a known name changes, Shellherd reports “The fingerprint of … has changed. Verify it again.” and asks for the field again.
 - Three wrong entries per session decline the request (`Verification failed three times. The request was declined.`).
@@ -767,14 +768,15 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 **Limits:**
 
 - View only. Mouse and keyboard are not transmitted.
-- Same network (LAN) only, no TURN relay. Only direct connections over host candidates exist; behind NAT or across separate networks setup fails with “No direct connection possible”.
+- Same network (LAN) only, no TURN relay. Signalling through the server also works over WireGuard or Tailscale (see “Private network”); the picture connection itself stays limited to direct host candidates. Only direct connections over host candidates exist; behind NAT or across separate networks setup fails with “No direct connection possible”.
 - A session lasts five minutes at most; after that a new request is needed.
 - Lock screen, UAC prompts and the sign-in screen are not transmitted.
 - On Linux there is no window protection: the Shellherd window is visible in the picture, too. On Wayland the system shows its own picker for what is shared.
 - Emergency brake: if the window does not end a share cleanly within two seconds, Shellherd reloads the window. That ends any running capture but also resets the state of that window.
 - The device identity is only persistent with an operating system key store. Without one it is temporary and the fingerprint changes on the next start. This also applies when the identity file cannot be written.
 - Restoring an older valid identity file brings back old pins. A file in the old format resets all pins to unverified. The pins cannot be forged that way.
-- Foreign objects in the account that are not a vault of this account are skipped by the sync and reported. They still use the server quota (100 objects, 32 MiB) until a later compaction (H2) removes them.
+- Foreign objects in the account that are not a vault of this account are skipped by the sync and reported. They still use the server quota (100 objects, 32 MiB) until you remove them deliberately (see “Private network and sync lab (development)”).
+- Existing pins from before the 16-character version (48 bits) stay valid and verified. The handshake nevertheless compares the full fingerprint.
 - So far only a test picture has been transmitted (scene with fake capture). Real capture (Wayland portal, Windows) has not been checked manually, and neither has the window protection on Windows and macOS during sharing.
 - The `remote-scene.mjs` scene and real tests need a network interface with a LAN address on each device; loopback alone is not enough for WebRTC.
 
@@ -782,7 +784,24 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 
 - The typed check protects against a malicious server with an honest renderer: if the server substitutes a foreign key for a device, that device's fingerprint does not match the typed input and the request fails.
 - It does not protect against a compromised renderer. The renderer knows the fingerprint and can fill the field itself. The native dialog with the full fingerprint secures the regular flow: screen sharing goes through permission and screen-source handlers in the main process, which release nothing without the dialog's consent for the current session. Remaining risk: a fully compromised renderer cannot click the dialog, but it can trigger a capture at any time and thereby open the dialog itself. Whether anything is shared is then decided solely by the person at the computer in the dialog.
-- The check compares 12 hex characters, that is 48 bits. Whoever runs the server knows the fingerprints of all devices and can precompute a key with the same start for one device. That takes 2^48 key generations and is feasible with large computing power. Against such an operator the prefix is not enough. If in doubt, compare the full fingerprint. A solution is planned for H2 (pinning the Noise static key).
+- The typed check compares 16 hex characters, that is 64 bits. Whoever runs the server knows the fingerprints of all devices and can precompute a key with the same start for one device. That takes 2^64 key generations, clearly more expensive than with the former 48 bits, but no proof against an attacker with very large computing power. In addition the Noise handshake confirms the other device's key against the full fingerprint. A previously pinned 48-bit device stays valid; a pin theoretically ground in the lab in the meantime would be “confirmed” by the handshake. If in doubt, remove the pin and verify again.
+- The media permission rules are tightened only in the check: while a share is armed, the main process reports only `video` as allowed for media checks. The request itself runs through the dialog as before, because `getDisplayMedia` and a legacy `getUserMedia` with a desktop source cannot be told apart in the handler in Electron 44. Remaining risk: after consent has been given, a compromised renderer can still request another source or desktop audio for that session. What remains are consent per session, main frame only, CSP and the emergency brake.
+
+## Private network and sync lab (development)
+
+**Private network (WireGuard/Tailscale):** In the remote access and sync dialogs the option `Private network (WireGuard/Tailscale): allow HTTP` allows HTTP for the address of a private tunnel (10/8, 172.16/12, 192.168/16, 100.64/10, IPv6 `fc00::/7`; no names, no `fe80::`, no public addresses). The option is meant only for a WireGuard or Tailscale address of this server: outside such a tunnel the network could read the server password and data. Your vault password stays local. Without the tick HTTP stays allowed only for `127.0.0.1` and `::1`. Server operation is described in the server README (`compose.wireguard.yaml`).
+
+**Compaction:** Every version carries its predecessors. If after a successful run the sync has exactly one head, no pending change and more than 32 versions, it uploads a summary of the head, keeps the newest 16 versions and removes the rest on the server. The summary lists the removed versions as a cumulative list (at most 256 entries, the oldest drop first). The dialog reports the result (`{{count}} older versions were compacted and removed from the server.`).
+
+- A device that returns after a long absence with a locally present, since compacted version merges over the compacted base instead of reporting a history error.
+- If it returns after such a long absence that the list has already cut off the common base, a history message appears. Reloading from the server then helps.
+- If an account has two heads with no computable common base, it stays a conflict without a resolution path, as before, and no compaction runs.
+- An H1 server without delete lets the account keep growing with an H2 client until the server answers 507. Update server and clients together.
+- Every sign-in of the account holds the right to delete (token, 15 min). Whoever abuses it can remove objects. The sync detects deletion of already confirmed objects (history message). Objects never seen before can be withheld unnoticed.
+
+**Remove foreign objects:** A server account holds exactly one vault. If the sync reports foreign objects, `Remove foreign objects` removes only objects that cannot be read with your vault password (Linux, vault unlocked). Readable objects, including those of newer clients, are kept. The result reads `{{count}} foreign objects were removed.` (with zero, nothing is deleted).
+
+**Import with the same password:** If during import on a new device the vault password is also the server password, the import is cancelled: “The vault password is also your server password, and that one was already sent to the server. The import was cancelled. Change the vault password on the source device and rotate the server password.”
 
 ## Process boundaries and lifecycle
 
