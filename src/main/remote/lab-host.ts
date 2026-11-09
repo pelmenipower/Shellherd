@@ -39,8 +39,8 @@ export interface RemoteDeps {
   isUnlocked(): boolean;
   /** Constant-time check against the unlocked vault; rejects (any error) when the vault is locked. */
   matchesVaultPassword(password: string): Promise<boolean>;
-  /** Native consent in main; resolves false on decline, abort or missing parent window. Never throws. */
-  confirmCapture(owner: number, prompt: CapturePrompt, signal: AbortSignal): Promise<boolean>;
+  /** Native consent in main: 'declined' on a real refusal or abort, 'unavailable' when no dialog could be shown (no window). Never throws. */
+  confirmCapture(owner: number, prompt: CapturePrompt, signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'>;
   /** Renderer did not ack 'stopped' in time: kill its process and reload. */
   emergency(owner: number): void;
 }
@@ -137,11 +137,17 @@ export class RemoteLabHost {
     }
   }
 
-  /** For the permission handler: owner matches, agent session armed and in 'consent' or 'granted'. */
-  captureArmed(webContentsId: number): boolean {
+  /** Id of the agent session of this owner whose native consent was given (state 'granted' and later), else null. */
+  grantedSession(webContentsId: number): string | null {
     const s = this.#session;
-    return !!s && this.#binding?.owner === webContentsId && s.role === 'agent' && s.armed && !s.ended && (s.state === 'consent' || s.state === 'granted');
+    return s && this.#binding?.owner === webContentsId && s.owner === webContentsId && s.role === 'agent' && s.captured && !s.ended ? s.id : null;
   }
+
+  /** For the permission handlers: native consent was given for the current session of this owner. */
+  captureGranted(webContentsId: number): boolean { return this.grantedSession(webContentsId) !== null; }
+
+  /** True only while exactly this session is still the granted one of this owner. */
+  isGranted(webContentsId: number, sessionId: string): boolean { return this.grantedSession(webContentsId) === sessionId; }
 
   /** Display-media gate: runs the native consent once per session; resolves the session id after consent -> 'granted', else null. */
   async requestCapture(webContentsId: number): Promise<string | null> {
@@ -150,11 +156,14 @@ export class RemoteLabHost {
     if (!deps || !s || this.#binding?.owner !== webContentsId || s.owner !== webContentsId) return null;
     if (s.role !== 'agent' || s.state !== 'consent' || !s.armed || s.prompting || !deps.isUnlocked() || deps.timers.now() >= s.deadline) return null;
     s.prompting = true;
-    let ok = false;
-    try { ok = await deps.confirmCapture(s.owner, { name: s.peer.name, fingerprint: s.peer.id, verified: s.verified || s.peer.known?.verified === true }, s.abort.signal); }
-    catch { ok = false; }
+    let result: 'accepted' | 'declined' | 'unavailable' = 'declined';
+    try { result = await deps.confirmCapture(s.owner, { name: s.peer.name, fingerprint: s.peer.id, verified: s.verified || s.peer.known?.verified === true }, s.abort.signal); }
+    catch { result = 'declined'; }
+    s.prompting = false;
     if (s.ended || this.#session !== s) return null;
-    if (!ok) { this.#mute(s.peer.id); this.#end(s, 'declined'); return null; }
+    // No dialog was shown (missing window): no refusal happened, so neither mute nor end; the request may retry.
+    if (result === 'unavailable') return null;
+    if (result !== 'accepted') { this.#mute(s.peer.id); this.#end(s, 'declined'); return null; }
     const locked = !deps.isUnlocked();
     if (locked || deps.timers.now() >= s.deadline) { this.#end(s, locked ? 'locked' : 'expired'); return null; }
     s.state = 'granted'; s.captured = true;

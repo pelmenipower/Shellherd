@@ -3,11 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 const appOn = vi.fn();
 vi.mock('electron', () => ({ app: { on: (...a: unknown[]) => appOn(...a) } }));
 
-import { decidePermission, registerPermissionHandlers, type PermissionContext } from './permissions';
+import { decidePermission, decidePermissionRequest, registerPermissionHandlers, type PermissionContext } from './permissions';
 
-const ctx = (over: Partial<PermissionContext> = {}, armed = true): PermissionContext => ({
+const ctx = (over: Partial<PermissionContext> = {}, granted = true): PermissionContext => ({
   remoteLabEnabled: true,
-  captureArmed: () => armed,
+  captureGranted: () => granted,
+  requestCapture: async () => granted,
   ...over,
 });
 
@@ -19,13 +20,13 @@ const OTHER = [
 ];
 
 describe('decidePermission', () => {
-  it.each(OTHER)('denies %s even when armed', p => {
+  it.each(OTHER)('denies %s even when granted', p => {
     for (const kind of ['request', 'check'] as const) {
       expect(decidePermission(p, { isMainFrame: true }, 1, kind, ctx())).toBe(false);
     }
   });
 
-  it('display-capture only with lab + main frame + armed', () => {
+  it('display-capture only with lab + main frame + granted', () => {
     const d = { isMainFrame: true };
     expect(decidePermission('display-capture', d, 1, 'request', ctx())).toBe(true);
     expect(decidePermission('display-capture', d, 1, 'check', ctx())).toBe(true);
@@ -35,13 +36,13 @@ describe('decidePermission', () => {
     expect(decidePermission('display-capture', d, 1, 'request', ctx({}, false))).toBe(false);
   });
 
-  it('passes the web contents id to captureArmed', () => {
-    const captureArmed = vi.fn(() => true);
-    decidePermission('display-capture', { isMainFrame: true }, 7, 'request', ctx({ captureArmed }));
-    expect(captureArmed).toHaveBeenCalledWith(7);
+  it('passes the web contents id to captureGranted', () => {
+    const captureGranted = vi.fn(() => true);
+    decidePermission('display-capture', { isMainFrame: true }, 7, 'request', ctx({ captureGranted }));
+    expect(captureGranted).toHaveBeenCalledWith(7);
   });
 
-  it('media request: camera/mic denied, empty list follows armed', () => {
+  it('media request: camera/mic denied, empty list follows granted', () => {
     const d = { isMainFrame: true };
     expect(decidePermission('media', { ...d, mediaTypes: ['video'] }, 1, 'request', ctx())).toBe(false);
     expect(decidePermission('media', { ...d, mediaTypes: ['audio'] }, 1, 'request', ctx())).toBe(false);
@@ -52,7 +53,7 @@ describe('decidePermission', () => {
     expect(decidePermission('media', { ...d, mediaTypes: [] }, 1, 'request', ctx({ remoteLabEnabled: false }))).toBe(false);
   });
 
-  it('media check: audio denied, others follow armed', () => {
+  it('media check: audio denied, others follow granted', () => {
     const d = { isMainFrame: true };
     expect(decidePermission('media', { ...d, mediaType: 'audio' }, 1, 'check', ctx())).toBe(false);
     expect(decidePermission('media', { ...d, mediaType: 'video' }, 1, 'check', ctx())).toBe(true);
@@ -66,8 +67,60 @@ describe('decidePermission', () => {
   });
 });
 
+describe('consent gate', () => {
+  // A host double: consent is per session and not given before the dialog was accepted.
+  const host = (accept: boolean) => {
+    let granted = false;
+    const requestCapture = vi.fn(async () => { if (accept) granted = true; return accept; });
+    const c: PermissionContext = { remoteLabEnabled: true, captureGranted: () => granted, requestCapture };
+    return { c, requestCapture, newSession: () => { granted = false; } };
+  };
+  const d = { isMainFrame: true, mediaTypes: [] };
+
+  it('media with an empty list is false without consent, true after it, false for a new session', async () => {
+    const h = host(true);
+    expect(decidePermission('media', d, 1, 'request', h.c)).toBe(false);
+    expect(decidePermission('media', { isMainFrame: true, mediaType: 'video' }, 1, 'check', h.c)).toBe(false);
+    expect(await decidePermissionRequest('media', d, 1, h.c)).toBe(true);
+    expect(decidePermission('media', d, 1, 'request', h.c)).toBe(true);
+    expect(decidePermission('media', { isMainFrame: true, mediaType: 'video' }, 1, 'check', h.c)).toBe(true);
+    h.newSession();
+    expect(decidePermission('media', d, 1, 'request', h.c)).toBe(false);
+  });
+
+  it('asks the dialog once: a granted session passes without a new dialog', async () => {
+    const h = host(true);
+    expect(await decidePermissionRequest('display-capture', d, 1, h.c)).toBe(true);
+    expect(await decidePermissionRequest('display-capture', d, 1, h.c)).toBe(true);
+    expect(h.requestCapture).toHaveBeenCalledTimes(1);
+  });
+
+  it('a declined or failing dialog denies; other permissions and audio never open the dialog', async () => {
+    const no = host(false);
+    expect(await decidePermissionRequest('media', d, 1, no.c)).toBe(false);
+    const boom = host(true);
+    boom.c.requestCapture = async () => { throw new Error('x'); };
+    expect(await decidePermissionRequest('media', d, 1, boom.c)).toBe(false);
+    const h = host(true);
+    expect(await decidePermissionRequest('geolocation', d, 1, h.c)).toBe(false);
+    expect(await decidePermissionRequest('media', { isMainFrame: true, mediaTypes: ['audio'] }, 1, h.c)).toBe(false);
+    expect(await decidePermissionRequest('media', { isMainFrame: true, mediaTypes: ['video'] }, 1, h.c)).toBe(false);
+    expect(await decidePermissionRequest('media', { isMainFrame: false, mediaTypes: [] }, 1, h.c)).toBe(false);
+    expect(await decidePermissionRequest('media', d, null, h.c)).toBe(false);
+    expect(await decidePermissionRequest('media', d, 1, { ...h.c, remoteLabEnabled: false })).toBe(false);
+    expect(h.requestCapture).not.toHaveBeenCalled();
+  });
+
+  it('desktop audio stays denied even when granted', () => {
+    const h = host(true);
+    h.c.captureGranted = () => true;
+    expect(decidePermission('media', { isMainFrame: true, mediaTypes: ['audio'] }, 1, 'request', h.c)).toBe(false);
+    expect(decidePermission('media', { isMainFrame: true, mediaType: 'audio' }, 1, 'check', h.c)).toBe(false);
+  });
+});
+
 describe('registerPermissionHandlers', () => {
-  it('registers all handlers and blocks device pickers', () => {
+  it('registers all handlers and blocks device pickers', async () => {
     appOn.mockClear();
     const on = vi.fn();
     const setPermissionRequestHandler = vi.fn();
@@ -79,9 +132,9 @@ describe('registerPermissionHandlers', () => {
     const req = setPermissionRequestHandler.mock.calls[0][0];
     const cb = vi.fn();
     req({ id: 3 }, 'display-capture', cb, { isMainFrame: true });
-    expect(cb).toHaveBeenCalledWith(true);
+    await vi.waitFor(() => expect(cb).toHaveBeenCalledWith(true));
     req({ id: 3 }, 'geolocation', cb, { isMainFrame: true });
-    expect(cb).toHaveBeenLastCalledWith(false);
+    await vi.waitFor(() => expect(cb).toHaveBeenLastCalledWith(false));
 
     const check = setPermissionCheckHandler.mock.calls[0][0];
     expect(check({ id: 3 }, 'display-capture', 'o', { isMainFrame: true })).toBe(true);

@@ -1,15 +1,13 @@
+// Must stay the first import: zod's config has to be set before any module parses.
+import './zod-jitless';
 import { i18n } from './i18n';
 import '@fontsource-variable/inter';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { z } from 'zod';
 import App from './App';
 import { SecondaryWindow } from './SecondaryWindow';
 import { reportActivity } from './activity';
 import './styles.css';
-
-// zod's JIT probe (new Function) would trip script-src 'self'; the lazy probe needs this before the first parse.
-z.config({ jitless: true });
 
 // Language changes come from the main process; a reload with stale argv heals itself via getLanguage.
 window.desktopApi.onLocaleChanged(state => { void i18n.changeLanguage(state.effective); });

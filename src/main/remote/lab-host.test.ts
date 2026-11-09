@@ -80,7 +80,7 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
   } as unknown as RemotePeer & { request: ReturnType<typeof vi.fn>; channel: ReturnType<typeof vi.fn> };
   const unlocked = { value: true };
   const emergency = vi.fn();
-  const confirmCapture = vi.fn(async (_owner: number, _prompt: unknown, _signal: AbortSignal) => true);
+  const confirmCapture = vi.fn(async (_owner: number, _prompt: unknown, _signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'> => 'accepted');
   const deps: RemoteDeps = {
     probe: overrides.probe ?? (async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'demo', authentication: 'password', rendezvous: true, rendezvousProof: true })),
     createAccount: () => account,
@@ -303,13 +303,13 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect(t.confirmCapture).not.toHaveBeenCalled();
     await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX });
     expect(await t.host.requestCapture(OWNER + 1)).toBeNull();
-    let release!: (ok: boolean) => void;
-    t.confirmCapture.mockImplementationOnce(() => new Promise<boolean>(r => { release = r; }));
+    let release!: (result: 'accepted' | 'declined') => void;
+    t.confirmCapture.mockImplementationOnce(() => new Promise<'accepted' | 'declined'>(r => { release = r; }));
     const first = t.host.requestCapture(OWNER);
     expect(await t.host.requestCapture(OWNER)).toBeNull();
     expect(t.confirmCapture).toHaveBeenCalledTimes(1);
     expect(t.confirmCapture).toHaveBeenCalledWith(OWNER, { name: 'Büro', fingerprint: B, verified: true }, expect.any(AbortSignal));
-    release(true);
+    release('accepted');
     expect(await first).toBe(SID);
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'granted' } } });
     expect(await t.host.requestCapture(OWNER)).toBeNull();
@@ -318,7 +318,7 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
   it('requestCapture: false declines, mutes the device and ends the session', async () => {
     const t = setup();
     await t.armed();
-    t.confirmCapture.mockResolvedValueOnce(false);
+    t.confirmCapture.mockResolvedValueOnce('declined');
     expect(await t.host.requestCapture(OWNER)).toBeNull();
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
     t.handlers().onSessions([wire({ id: SID2 })]);
@@ -335,7 +335,7 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
     const l = setup();
     await l.armed();
-    l.confirmCapture.mockImplementationOnce(async () => { l.unlocked.value = false; return true; });
+    l.confirmCapture.mockImplementationOnce(async () => { l.unlocked.value = false; return 'accepted' as const; });
     expect(await l.host.requestCapture(OWNER)).toBeNull();
     expect(l.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'locked' }]);
   });
@@ -344,7 +344,7 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     const t = setup();
     await t.armed();
     let signal!: AbortSignal;
-    t.confirmCapture.mockImplementationOnce((_o, _p, s) => new Promise<boolean>(r => { signal = s; s.addEventListener('abort', () => r(false)); }));
+    t.confirmCapture.mockImplementationOnce((_o, _p, s) => new Promise<'declined'>(r => { signal = s; s.addEventListener('abort', () => r('declined')); }));
     const pending = t.host.requestCapture(OWNER);
     await t.clock.advance(55_000);
     expect(signal.aborted).toBe(true);
@@ -365,7 +365,7 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
       const t = setup();
       await t.armed();
       let signal!: AbortSignal;
-      t.confirmCapture.mockImplementationOnce((_o, _p, s) => new Promise<boolean>(r => { signal = s; s.addEventListener('abort', () => r(false)); }));
+      t.confirmCapture.mockImplementationOnce((_o, _p, s) => new Promise<'declined'>(r => { signal = s; s.addEventListener('abort', () => r('declined')); }));
       const pending = t.host.requestCapture(OWNER);
       await end(t);
       await flush();
@@ -374,17 +374,31 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     }
   });
 
-  it('captureArmed is true in consent (armed) and granted, false otherwise and after the end', async () => {
+  it('captureGranted is false before the native consent, true after it, false for other owners and after the end', async () => {
     const t = setup();
     await t.consent();
-    expect(t.host.captureArmed(OWNER)).toBe(false);
+    expect(t.host.captureGranted(OWNER)).toBe(false);
     await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX });
-    expect(t.host.captureArmed(OWNER)).toBe(true);
-    expect(t.host.captureArmed(OWNER + 1)).toBe(false);
+    expect(t.host.captureGranted(OWNER)).toBe(false);
+    expect(t.host.isGranted(OWNER, SID)).toBe(false);
     expect(await t.host.requestCapture(OWNER)).toBe(SID);
-    expect(t.host.captureArmed(OWNER)).toBe(true);
+    expect(t.host.captureGranted(OWNER)).toBe(true);
+    expect(t.host.grantedSession(OWNER)).toBe(SID);
+    expect(t.host.isGranted(OWNER, SID)).toBe(true);
+    expect(t.host.isGranted(OWNER, SID2)).toBe(false);
+    expect(t.host.captureGranted(OWNER + 1)).toBe(false);
     await t.act({ kind: 'stop', sessionId: SID });
-    expect(t.host.captureArmed(OWNER)).toBe(false);
+    expect(t.host.captureGranted(OWNER)).toBe(false);
+  });
+
+  it('requestCapture: no dialog shown (unavailable) neither mutes nor ends the session', async () => {
+    const t = setup();
+    await t.armed();
+    t.confirmCapture.mockResolvedValueOnce('unavailable');
+    expect(await t.host.requestCapture(OWNER)).toBeNull();
+    expect(t.kinds('ended')).toEqual([]);
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'consent' } } });
+    expect(await t.host.requestCapture(OWNER)).toBe(SID);
   });
 
   it('decline works in granted; a vanishing request ends a granted session with remote', async () => {
@@ -410,7 +424,7 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect(t.kinds('ended')).toEqual([]);
     expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(12) })).toEqual({ ok: false, code: 'mismatch' });
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'mismatch' }]);
-    expect(t.host.captureArmed(OWNER)).toBe(false);
+    expect(t.host.captureGranted(OWNER)).toBe(false);
     t.handlers().onSessions([wire({ id: SID2 })]);
     await flush();
     expect(t.deletes()).toContain(`/v1/rendezvous/sessions/${SID2}`);

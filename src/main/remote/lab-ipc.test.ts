@@ -20,14 +20,16 @@ const flush = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0)
 
 describe('display media gate', () => {
   const requestCapture = vi.fn();
-  const captureArmed = vi.fn();
+  const grantedSession = vi.fn();
+  const isGranted = vi.fn();
   const callback = vi.fn();
-  const make = (fake = false) => createDisplayMediaHandler({ requestCapture, captureArmed }, { fake });
+  const make = (fake = false) => createDisplayMediaHandler({ requestCapture, grantedSession, isGranted }, { fake });
   beforeEach(() => {
     vi.clearAllMocks();
     fromFrame.mockReturnValue({ id: 7, mainFrame: frame });
     getSources.mockResolvedValue([{ id: 'screen:0' }]);
-    captureArmed.mockReturnValue(true);
+    grantedSession.mockReturnValue(null);
+    isGranted.mockReturnValue(true);
     requestCapture.mockResolvedValue('s1');
   });
 
@@ -59,10 +61,19 @@ describe('display media gate', () => {
   });
 
   it('denies when the grant lapsed while sources were read', async () => {
-    captureArmed.mockReturnValue(false);
+    isGranted.mockReturnValue(false);
     make()({ frame, videoRequested: true } as never, callback);
     await flush();
     expect(callback).toHaveBeenCalledWith({});
+  });
+
+  it('uses an already granted session without a second dialog, and checks that very session after reading sources', async () => {
+    grantedSession.mockReturnValue('s1');
+    make()({ frame, videoRequested: true } as never, callback);
+    await flush();
+    expect(requestCapture).not.toHaveBeenCalled();
+    expect(isGranted).toHaveBeenCalledWith(7, 's1');
+    expect(callback).toHaveBeenCalledWith({ video: { id: 'screen:0' } });
   });
 
   it('answers {} in fake mode after consent without sources', async () => {
@@ -103,37 +114,37 @@ describe('confirmCaptureDialog', () => {
 
   it('shows a modal warning with decline first and accepts only the second button', async () => {
     const signal = new AbortController().signal;
-    expect(await confirmCaptureDialog(3, prompt, signal)).toBe(true);
+    expect(await confirmCaptureDialog(3, prompt, signal)).toBe('accepted');
     const [win, options] = showMessageBox.mock.calls[0] as [unknown, Record<string, unknown>];
     expect(win).toBe(parent);
     expect(options).toMatchObject({ type: 'warning', defaultId: 0, cancelId: 0, noLink: true, signal });
     expect(options.buttons).toHaveLength(2);
     expect(options.detail).toContain('abcdef01 23456789 abcdef01 23456789');
     showMessageBox.mockResolvedValue({ response: 0 });
-    expect(await confirmCaptureDialog(3, prompt, signal)).toBe(false);
+    expect(await confirmCaptureDialog(3, prompt, signal)).toBe('declined');
   });
 
   it('does not show a dialog without a parent window or with an aborted signal', async () => {
     fromWebContents.mockReturnValue(null);
-    expect(await confirmCaptureDialog(3, prompt, new AbortController().signal)).toBe(false);
+    expect(await confirmCaptureDialog(3, prompt, new AbortController().signal)).toBe('unavailable');
     fromWebContents.mockReturnValue({ isDestroyed: () => true });
-    expect(await confirmCaptureDialog(3, prompt, new AbortController().signal)).toBe(false);
+    expect(await confirmCaptureDialog(3, prompt, new AbortController().signal)).toBe('unavailable');
     fromId.mockReturnValue(undefined);
-    expect(await confirmCaptureDialog(3, prompt, new AbortController().signal)).toBe(false);
+    expect(await confirmCaptureDialog(3, prompt, new AbortController().signal)).toBe('unavailable');
     fromId.mockReturnValue({ id: 3 });
     fromWebContents.mockReturnValue(parent);
     const abort = new AbortController();
     abort.abort();
-    expect(await confirmCaptureDialog(3, prompt, abort.signal)).toBe(false);
+    expect(await confirmCaptureDialog(3, prompt, abort.signal)).toBe('unavailable');
     expect(showMessageBox).not.toHaveBeenCalled();
   });
 
   it('is false when aborted during the dialog or when the dialog throws', async () => {
     const abort = new AbortController();
     showMessageBox.mockImplementation(async () => { abort.abort(); return { response: 1 }; });
-    expect(await confirmCaptureDialog(3, prompt, abort.signal)).toBe(false);
+    expect(await confirmCaptureDialog(3, prompt, abort.signal)).toBe('declined');
     showMessageBox.mockRejectedValue(Error('x'));
-    expect(await confirmCaptureDialog(3, prompt, new AbortController().signal)).toBe(false);
+    expect(await confirmCaptureDialog(3, prompt, new AbortController().signal)).toBe('declined');
   });
 
   it('reads showMessageBox at call time', async () => {

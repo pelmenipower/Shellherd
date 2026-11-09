@@ -23,10 +23,10 @@ const timers: PresenceTimers = {
   now: () => Date.now(),
 };
 
-export interface CaptureHost { captureArmed(webContentsId: number): boolean; requestCapture(webContentsId: number): Promise<string | null> }
+export interface CaptureHost { grantedSession(webContentsId: number): string | null; isGranted(webContentsId: number, sessionId: string): boolean; requestCapture(webContentsId: number): Promise<string | null> }
 type CaptureCallback = (streams: Streams) => void;
 
-/** Display-media gate: native consent for an armed session in the main frame of its owner, then the primary screen. */
+/** Display-media gate: native consent (once per session) in the main frame of its owner, then the primary screen. */
 export function createDisplayMediaHandler(host: CaptureHost, options: { fake: boolean }): (request: DisplayMediaRequestHandlerHandlerRequest, callback: CaptureCallback) => void {
   return (request, callback) => {
     const reply = (streams: Streams): void => { try { callback(streams); } catch { /* frame destroyed meanwhile */ } };
@@ -34,22 +34,23 @@ export function createDisplayMediaHandler(host: CaptureHost, options: { fake: bo
     const contents = frame ? webContents.fromFrame(frame) : undefined;
     if (!contents || request.frame !== contents.mainFrame || !request.videoRequested) return reply({});
     const run = async (): Promise<void> => {
-      const id = await host.requestCapture(contents.id);
+      // Normally the permission request already ran the dialog; reaching this without it asks here, once per session.
+      const id = host.grantedSession(contents.id) ?? await host.requestCapture(contents.id);
       if (id === null || options.fake) return reply({});
       const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
-      reply(sources[0] && host.captureArmed(contents.id) ? { video: sources[0] } : {});
+      reply(sources[0] && host.isGranted(contents.id, id) ? { video: sources[0] } : {});
     };
     run().catch(() => reply({}));
   };
 }
 
-/** Native consent; the renderer cannot click it. Aborts with the session; false on any problem. */
-export async function confirmCaptureDialog(owner: number, prompt: CapturePrompt, signal: AbortSignal): Promise<boolean> {
+/** Native consent; the renderer cannot click it. Aborts with the session; 'unavailable' only when no dialog could be shown. */
+export async function confirmCaptureDialog(owner: number, prompt: CapturePrompt, signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'> {
   try {
     const target = webContents.fromId(owner);
     const parent = target ? BrowserWindow.fromWebContents(target) : null;
     // Without a parent macOS would ignore the signal.
-    if (!parent || parent.isDestroyed() || signal.aborted) return false;
+    if (!parent || parent.isDestroyed() || signal.aborted) return 'unavailable';
     const { response } = await dialog.showMessageBox(parent, {
       type: 'warning',
       title: mainT('dialogs.remoteConsent.title'),
@@ -58,9 +59,9 @@ export async function confirmCaptureDialog(owner: number, prompt: CapturePrompt,
       buttons: [mainT('dialogs.remoteConsent.decline'), mainT('dialogs.remoteConsent.confirm')],
       defaultId: 0, cancelId: 0, noLink: true, signal,
     });
-    return response === 1 && !signal.aborted;
+    return response === 1 && !signal.aborted ? 'accepted' : 'declined';
   } catch {
-    return false;
+    return 'declined';
   }
 }
 

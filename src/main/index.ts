@@ -264,7 +264,7 @@ app.whenReady().then(async () => {
   let syncVaultChanged: (snapshot: import('./vault/session').VaultSessionSnapshot) => void = () => {};
   syncLabHost = await registerSyncLabIpc({ sessions: vaultSessionManager, onSynced: snapshot => syncVaultChanged(snapshot) });
   remoteLabHost = await registerRemoteLabIpc({ isUnlocked: () => vaultSessionManager.isUnlocked(), matchesVaultPassword: p => vaultSessionManager.matchesPassword(p) });
-  registerPermissionHandlers(session.defaultSession, { remoteLabEnabled: remoteLabHost.enabled, captureArmed: id => remoteLabHost?.captureArmed(id) ?? false });
+  registerPermissionHandlers(session.defaultSession, { remoteLabEnabled: remoteLabHost.enabled, captureGranted: id => remoteLabHost?.captureGranted(id) ?? false, requestCapture: async id => (await remoteLabHost?.requestCapture(id)) != null });
   // Protection goes on at once but comes off only after the renderer had time to stop its tracks (R11).
   let unprotectTimer: ReturnType<typeof setTimeout> | undefined;
   const applySharingWindow = (sharing: boolean): void => {

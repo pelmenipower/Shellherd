@@ -781,7 +781,7 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 **What the check protects, and what it does not:**
 
 - The typed check protects against a malicious server with an honest renderer: if the server substitutes a foreign key for a device, that device's fingerprint does not match the typed input and the request fails.
-- It does not protect against a compromised renderer. The renderer knows the fingerprint and can fill the field itself. Only the native dialog with the full fingerprint protects against that, because only there a click outside the renderer decides about the capture.
+- It does not protect against a compromised renderer. The renderer knows the fingerprint and can fill the field itself. The native dialog with the full fingerprint secures the regular flow: screen sharing goes through permission and screen-source handlers in the main process, which release nothing without the dialog's consent for the current session. Remaining risk: a fully compromised renderer cannot click the dialog, but it can trigger a capture at any time and thereby open the dialog itself. Whether anything is shared is then decided solely by the person at the computer in the dialog.
 - The check compares 12 hex characters, that is 48 bits. Whoever runs the server knows the fingerprints of all devices and can precompute a key with the same start for one device. That takes 2^48 key generations and is feasible with large computing power. Against such an operator the prefix is not enough. If in doubt, compare the full fingerprint. A solution is planned for H2 (pinning the Noise static key).
 
 ## Process boundaries and lifecycle

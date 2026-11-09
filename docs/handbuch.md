@@ -804,7 +804,7 @@ Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_REMOTE_LAB=1` (unabh�
 **Was die Prüfung schützt, und was nicht:**
 
 - Die getippte Prüfung schützt gegen einen bösartigen Server bei ehrlichem Renderer: Schiebt er einem Gerät einen fremden Schlüssel unter, passt dessen Fingerabdruck nicht zur getippten Eingabe, und die Anfrage scheitert.
-- Gegen einen kompromittierten Renderer schützt sie nicht. Dieser kennt den Fingerabdruck und kann das Feld selbst füllen. Dagegen schützt allein der native Dialog mit dem vollen Fingerabdruck, denn nur dort entscheidet ein Klick außerhalb des Renderers über die Aufnahme.
+- Gegen einen kompromittierten Renderer schützt sie nicht. Dieser kennt den Fingerabdruck und kann das Feld selbst füllen. Der native Dialog mit dem vollen Fingerabdruck sichert den regulären Ablauf ab: Die Bildschirmfreigabe läuft über Berechtigungs- und Bildschirmquellen-Handler im Hauptprozess, die ohne Zustimmung des Dialogs für die aktuelle Sitzung nichts freigeben. Verbleibendes Risiko: Ein vollständig kompromittierter Renderer kann den Dialog nicht anklicken, aber er kann die Aufnahme jederzeit auslösen und damit den Dialog selbst aufrufen. Ob freigegeben wird, entscheidet dann allein die Person vor dem Rechner im Dialog.
 - Die Prüfung vergleicht 12 Hex-Zeichen, also 48 Bit. Wer den Server betreibt, kennt die Fingerabdrücke aller Geräte und kann vorab rechnen, um für ein Gerät einen Schlüssel mit gleichem Anfang zu finden. Das erfordert 2^48 Schlüsselerzeugungen und ist mit großer Rechenleistung machbar. Gegen einen solchen Betreiber reicht das Präfix nicht. Bei Verdacht vergleiche den vollständigen Fingerabdruck. Eine Lösung ist für H2 vorgesehen (Pinning der Noise-Statik).
 
 ## Prozessgrenzen und Lebenszyklus

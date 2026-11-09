@@ -113,7 +113,7 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
         {!viewerSession && <section className="remote-lab-devices" aria-labelledby={`${id}-devices`}>
           <h3 id={`${id}-devices`}>{t('remoteLab:devices')}</h3>
           {(state.devices ?? []).length === 0 ? <p className="remote-lab-caption">{t('remoteLab:noDevices')}</p> : <ul className="remote-lab-device-list">
-            {(state.devices ?? []).map(device => {
+            {(state.devices ?? []).map((device, index) => {
               const verified = device.known?.verified === true;
               const verification = verified ? null : normalizeVerification(typed[device.id] ?? '');
               return <li key={device.id} className="remote-lab-device">
@@ -123,8 +123,8 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
                   <p className="remote-lab-caption">{t('remoteLab:verify.verified', { date: formatDateTime(device.known?.verifiedAt ?? device.known?.firstSeen ?? 0, 'short') })}</p>
                   <code className="remote-lab-fingerprint">{grouped(device.id)}</code>
                 </> : <>
-                  <label htmlFor={`${id}-verify-${device.id}`}>{t('remoteLab:verify.label')}</label>
-                  <input id={`${id}-verify-${device.id}`} className="remote-lab-verify" maxLength={23} autoComplete="off" spellCheck={false} inputMode="text"
+                  <label htmlFor={`${id}-verify-${index}`}>{t('remoteLab:verify.label')}</label>
+                  <input id={`${id}-verify-${index}`} className="remote-lab-verify" maxLength={23} autoComplete="off" spellCheck={false} inputMode="text"
                     value={typed[device.id] ?? ''} disabled={busy} onChange={event => setTyped(current => ({ ...current, [device.id]: event.target.value }))} />
                   <p className="remote-lab-caption">{t('remoteLab:verify.hint')}</p>
                 </>}
