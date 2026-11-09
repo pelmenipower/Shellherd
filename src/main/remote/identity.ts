@@ -1,4 +1,4 @@
-import type { KeyObject } from 'node:crypto'
+import { createHmac, timingSafeEqual, type KeyObject } from 'node:crypto'
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { dirname } from 'node:path'
@@ -21,16 +21,37 @@ const MAX_FILE_BYTES = 64 * 1024
 const MAX_KNOWN = 64
 const MAX_NAME = 80
 
-const knownSchema = z.object({
+const knownV1Schema = z.object({
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   name: z.string().max(MAX_NAME),
   firstSeen: z.number().finite(),
   lastSeen: z.number().finite()
 })
-const fileSchema = z.object({
+const knownSchema = knownV1Schema.extend({
+  verified: z.boolean(),
+  verifiedAt: z.number().finite().optional()
+})
+const MAC_KEY_BYTES = 32
+const MAC_DOMAIN = 'shellherd-remote-identity-v2'
+
+function computeMac(macKey: Buffer, identity: string, devices: KnownDevice[]): Buffer {
+  const message = JSON.stringify([
+    MAC_DOMAIN,
+    identity,
+    devices.map(d => [d.fingerprint, d.name, d.firstSeen, d.lastSeen, d.verified, d.verifiedAt ?? null])
+  ])
+  return createHmac('sha256', macKey).update(message).digest()
+}
+const fileSchemaV1 = z.object({
   version: z.literal(1),
   identity: z.string().min(1),
-  knownDevices: z.array(knownSchema).max(MAX_KNOWN)
+  knownDevices: z.array(knownV1Schema).max(MAX_KNOWN)
+})
+const fileSchemaV2 = z.object({
+  version: z.literal(2),
+  identity: z.string().min(1),
+  knownDevices: z.array(knownSchema).max(MAX_KNOWN),
+  mac: z.string().regex(/^[a-f0-9]{64}$/)
 })
 type KnownDevice = z.infer<typeof knownSchema>
 
@@ -76,6 +97,7 @@ export class RemoteIdentityStore {
   private loaded?: { identity: RemoteIdentity; persistent: boolean }
   private known_: KnownDevice[] = []
   private encrypted = ''
+  private macKey: Buffer = Buffer.alloc(0)
 
   constructor(
     private readonly file: string,
@@ -96,20 +118,42 @@ export class RemoteIdentityStore {
     return this.loaded
   }
 
-  known(fingerprint: string): { firstSeen: number } | undefined {
+  known(fingerprint: string): { firstSeen: number; verified: boolean; verifiedAt?: number } | undefined {
     const entry = this.known_.find(item => item.fingerprint === fingerprint)
-    return entry ? { firstSeen: entry.firstSeen } : undefined
+    if (!entry) return undefined
+    return entry.verifiedAt === undefined
+      ? { firstSeen: entry.firstSeen, verified: entry.verified }
+      : { firstSeen: entry.firstSeen, verified: entry.verified, verifiedAt: entry.verifiedAt }
   }
 
-  remember(fingerprint: string, name: string, now: number): void {
+  /** True when fingerprint itself is not verified and a verified entry with the same name has another fingerprint. */
+  renamed(fingerprint: string, name: string): boolean {
+    if (this.known_.some(item => item.fingerprint === fingerprint && item.verified)) return false
+    const shortName = name.slice(0, MAX_NAME)
+    return this.known_.some(item => item.verified && item.name === shortName && item.fingerprint !== fingerprint)
+  }
+
+  /** verified=true marks the pin verified (verifiedAt=now on first verification); false never downgrades. */
+  remember(fingerprint: string, name: string, now: number, verified = false): void {
     if (!this.loaded) return
     const entry = this.known_.find(item => item.fingerprint === fingerprint)
     const shortName = name.slice(0, MAX_NAME)
     if (entry) {
       entry.lastSeen = now
       entry.name = shortName
+      if (verified && !entry.verified) {
+        entry.verified = true
+        entry.verifiedAt = now
+      }
     } else {
-      this.known_.push({ fingerprint, name: shortName, firstSeen: now, lastSeen: now })
+      this.known_.push({
+        fingerprint,
+        name: shortName,
+        firstSeen: now,
+        lastSeen: now,
+        verified,
+        ...(verified ? { verifiedAt: now } : {})
+      })
     }
     if (this.known_.length > MAX_KNOWN) {
       const oldest = this.known_.reduce((a, b) => (b.lastSeen < a.lastSeen ? b : a))
@@ -122,9 +166,8 @@ export class RemoteIdentityStore {
     const identity = this.generate()
     if (!this.cipher.available()) return { identity, persistent: false }
     try {
-      this.encrypted = this.cipher
-        .encrypt(identity.privateKey.export({ format: 'der', type: 'pkcs8' }) as Buffer)
-        .toString('base64')
+      this.macKey = randomBytes(MAC_KEY_BYTES)
+      this.encrypted = this.seal(identity)
       this.write()
       return { identity, persistent: true }
     } catch {
@@ -133,17 +176,47 @@ export class RemoteIdentityStore {
     }
   }
 
+  private seal(identity: RemoteIdentity): string {
+    const pkcs8 = identity.privateKey.export({ format: 'der', type: 'pkcs8' }) as Buffer
+    return this.cipher.encrypt(Buffer.concat([pkcs8, this.macKey])).toString('base64')
+  }
+
   private read(size: number): { identity: RemoteIdentity; persistent: boolean } {
     if (size > MAX_FILE_BYTES || !this.cipher.available()) fail()
     try {
-      const parsed = fileSchema.parse(JSON.parse(readFileSync(this.file, 'utf8')))
-      const identity = this.derive(this.cipher.decrypt(Buffer.from(parsed.identity, 'base64')))
-      this.encrypted = parsed.identity
-      this.known_ = parsed.knownDevices
-      return { identity, persistent: true }
+      const raw: unknown = JSON.parse(readFileSync(this.file, 'utf8'))
+      const version = (raw as { version?: unknown } | null)?.version
+      return version === 2 ? this.readV2(fileSchemaV2.parse(raw)) : this.migrateV1(fileSchemaV1.parse(raw))
     } catch {
       return fail()
     }
+  }
+
+  private readV2(parsed: z.infer<typeof fileSchemaV2>): { identity: RemoteIdentity; persistent: boolean } {
+    const plain = this.cipher.decrypt(Buffer.from(parsed.identity, 'base64'))
+    if (plain.length <= MAC_KEY_BYTES) return fail()
+    const macKey = Buffer.from(plain.subarray(-MAC_KEY_BYTES))
+    const identity = this.derive(plain.subarray(0, -MAC_KEY_BYTES))
+    const expected = computeMac(macKey, parsed.identity, parsed.knownDevices)
+    const actual = Buffer.from(parsed.mac, 'hex')
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return fail()
+    this.macKey = macKey
+    this.encrypted = parsed.identity
+    this.known_ = parsed.knownDevices
+    return { identity, persistent: true }
+  }
+
+  /** v1 -> v2: entries become unverified, then exactly one atomic v2 write (kept in RAM if it fails). */
+  private migrateV1(parsed: z.infer<typeof fileSchemaV1>): { identity: RemoteIdentity; persistent: boolean } {
+    const plain = this.cipher.decrypt(Buffer.from(parsed.identity, 'base64'))
+    const identity = this.derive(plain)
+    // A v2 blob (pkcs8 || macKey) must not pass as v1.
+    if (!(identity.privateKey.export({ format: 'der', type: 'pkcs8' }) as Buffer).equals(plain)) return fail()
+    this.macKey = randomBytes(MAC_KEY_BYTES)
+    this.encrypted = this.seal(identity)
+    this.known_ = parsed.knownDevices.map(item => ({ ...item, verified: false }))
+    this.save()
+    return { identity, persistent: true }
   }
 
   private save(): void {
@@ -156,7 +229,8 @@ export class RemoteIdentityStore {
 
   private write(): void {
     mkdirSync(dirname(this.file), { recursive: true })
-    writeAtomic(this.file, JSON.stringify({ version: 1, identity: this.encrypted, knownDevices: this.known_ }))
+    const mac = computeMac(this.macKey, this.encrypted, this.known_).toString('hex')
+    writeAtomic(this.file, JSON.stringify({ version: 2, identity: this.encrypted, knownDevices: this.known_, mac }))
   }
 }
 

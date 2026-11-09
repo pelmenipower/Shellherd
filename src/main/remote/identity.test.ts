@@ -1,5 +1,5 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -69,7 +69,8 @@ describe('RemoteIdentityStore', () => {
 
   it.each([
     ['corrupt json', () => '{nope'],
-    ['version 2', () => JSON.stringify({ version: 2, identity: 'AA', knownDevices: [] })],
+    ['version 2 without mac', () => JSON.stringify({ version: 2, identity: 'AA', knownDevices: [] })],
+    ['version 3', () => JSON.stringify({ version: 3, identity: 'AA', knownDevices: [], mac: 'a'.repeat(64) })],
     ['invalid knownDevices', () => JSON.stringify({ version: 1, identity: 'AA', knownDevices: [{ fingerprint: 'x' }] })],
     ['oversized', () => ' '.repeat(64 * 1024 + 1)]
   ])('throws identity and keeps the file for %s', (_name, content) => {
@@ -109,12 +110,12 @@ describe('RemoteIdentityStore', () => {
       expect(s.known(fp(1))).toBeUndefined()
       s.remember(fp(1), 'Laptop', 100)
       s.remember(fp(1), 'Laptop 2', 200)
-      expect(s.known(fp(1))).toEqual({ firstSeen: 100 })
+      expect(s.known(fp(1))).toEqual({ firstSeen: 100, verified: false })
       const reloaded = store()
       reloaded.load()
-      expect(reloaded.known(fp(1))).toEqual({ firstSeen: 100 })
+      expect(reloaded.known(fp(1))).toEqual({ firstSeen: 100, verified: false })
       const saved = JSON.parse(readFileSync(file, 'utf8'))
-      expect(saved.knownDevices).toEqual([{ fingerprint: fp(1), name: 'Laptop 2', firstSeen: 100, lastSeen: 200 }])
+      expect(saved.knownDevices).toEqual([{ fingerprint: fp(1), name: 'Laptop 2', firstSeen: 100, lastSeen: 200, verified: false }])
     })
 
     it('does nothing before load', () => {
@@ -143,12 +144,130 @@ describe('RemoteIdentityStore', () => {
       expect(JSON.parse(readFileSync(file, 'utf8')).knownDevices).toHaveLength(64)
     })
 
+    it('sets verifiedAt once and never downgrades', () => {
+      const s = store()
+      s.load()
+      s.remember(fp(1), 'A', 100)
+      s.remember(fp(1), 'A', 200, true)
+      s.remember(fp(1), 'A', 300, true)
+      s.remember(fp(1), 'A', 400, false)
+      expect(s.known(fp(1))).toEqual({ firstSeen: 100, verified: true, verifiedAt: 200 })
+      s.remember(fp(2), 'B', 500, true)
+      expect(s.known(fp(2))).toEqual({ firstSeen: 500, verified: true, verifiedAt: 500 })
+      const reloaded = store()
+      reloaded.load()
+      expect(reloaded.known(fp(1))).toEqual({ firstSeen: 100, verified: true, verifiedAt: 200 })
+    })
+
+    it('detects a renamed device', () => {
+      const s = store()
+      s.load()
+      s.remember(fp(1), 'Laptop', 1, true)
+      s.remember(fp(3), 'Phone', 1)
+      expect(s.renamed(fp(2), 'Laptop')).toBe(true)
+      expect(s.renamed(fp(1), 'Laptop')).toBe(false)
+      expect(s.renamed(fp(2), 'Other')).toBe(false)
+      expect(s.renamed(fp(4), 'Phone')).toBe(false)
+    })
+
     it('keeps a RAM list without writing in non-persistent mode', () => {
       const s = store(cipher(false))
       s.load()
       s.remember(fp(1), 'x', 7)
-      expect(s.known(fp(1))).toEqual({ firstSeen: 7 })
+      expect(s.known(fp(1))).toEqual({ firstSeen: 7, verified: false })
       expect(readdirSync(dir)).toEqual([])
     })
+  })
+
+  describe('file format v2', () => {
+    it('round-trips with version 2 and a mac', () => {
+      const s = store()
+      s.load()
+      s.remember(fp(1), 'A', 1, true)
+      const saved = JSON.parse(readFileSync(file, 'utf8'))
+      expect(saved.version).toBe(2)
+      expect(saved.mac).toMatch(/^[a-f0-9]{64}$/)
+      const again = store()
+      again.load()
+      expect(again.known(fp(1))?.verified).toBe(true)
+    })
+
+    it('rejects tampered knownDevices without touching the file', () => {
+      const s = store()
+      s.load()
+      s.remember(fp(1), 'A', 1)
+      const saved = JSON.parse(readFileSync(file, 'utf8'))
+      saved.knownDevices[0].verified = true
+      writeFileSync(file, JSON.stringify(saved))
+      const before = readFileSync(file)
+      expect(() => store().load()).toThrow('identity')
+      expect(readFileSync(file).equals(before)).toBe(true)
+    })
+
+    it('rejects a tampered mac', () => {
+      store().load()
+      const saved = JSON.parse(readFileSync(file, 'utf8'))
+      saved.mac = (saved.mac[0] === 'a' ? 'b' : 'a') + saved.mac.slice(1)
+      writeFileSync(file, JSON.stringify(saved))
+      expect(() => store().load()).toThrow('identity')
+    })
+  })
+
+  describe('migration from v1', () => {
+    const writeV1 = (): string => {
+      const { identity } = store(cipher(false)).load()
+      const pkcs8 = identity.privateKey.export({ format: 'der', type: 'pkcs8' }) as Buffer
+      writeFileSync(
+        file,
+        JSON.stringify({
+          version: 1,
+          identity: cipher().encrypt(pkcs8).toString('base64'),
+          knownDevices: [{ fingerprint: fp(1), name: 'Old', firstSeen: 5, lastSeen: 6 }]
+        })
+      )
+      return identity.id
+    }
+
+    it('migrates to v2 with verified false and the same fingerprint', () => {
+      const id = writeV1()
+      const s = store()
+      expect(s.load().identity.id).toBe(id)
+      expect(s.known(fp(1))).toEqual({ firstSeen: 5, verified: false })
+      expect(readdirSync(dir)).toEqual(['remote-identity.json'])
+      expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(2)
+      const again = store()
+      expect(again.load().identity.id).toBe(id)
+      expect(again.known(fp(1))?.verified).toBe(false)
+    })
+
+    it('rejects a v1 file holding a v2 blob', () => {
+      store().load()
+      const saved = JSON.parse(readFileSync(file, 'utf8'))
+      writeFileSync(file, JSON.stringify({ version: 1, identity: saved.identity, knownDevices: [] }))
+      const before = readFileSync(file)
+      expect(() => store().load()).toThrow('identity')
+      expect(readFileSync(file).equals(before)).toBe(true)
+    })
+
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+      'keeps v2 in RAM when the migration write fails and writes it on the next remember',
+      () => {
+        const id = writeV1()
+        const before = readFileSync(file)
+        chmodSync(dir, 0o500)
+        const s = store()
+        try {
+          expect(s.load().identity.id).toBe(id)
+          expect(readFileSync(file).equals(before)).toBe(true)
+        } finally {
+          chmodSync(dir, 0o700)
+        }
+        s.remember(fp(2), 'New', 9)
+        expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(2)
+        const again = store()
+        expect(again.load().identity.id).toBe(id)
+        expect(again.known(fp(2))).toBeDefined()
+      }
+    )
   })
 })
