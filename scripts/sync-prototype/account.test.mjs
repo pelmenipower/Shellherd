@@ -198,7 +198,8 @@ it('evicts the oldest idle temporary device at 8 and answers 429 when all have s
   await devices[3].store.logout();
   const ninth = createDeviceIdentity(); expect((await enrollRaw(ctx, ninth, { ephemeral: true })).status).toBe(201);
   expect((await sessionRaw(ctx, devices[3].identity)).status).toBe(401);
-});
+  // Ten password checks (scrypt N=2^17) exceed the 5 s default under full-suite load.
+}, 30_000);
 it('persists across restart: persistent entries stay, temporary ones are lost', async () => {
   const ctx = await setup(); const p = await signedIn(ctx, 'P'); const e = await signedIn(ctx, 'E', { ephemeral: true });
   await ctx.server.close(); const next = await createSyncServer(ctx.config); cleanup.push(() => next.close());
