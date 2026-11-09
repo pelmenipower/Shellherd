@@ -3,6 +3,9 @@ import {
   externalizeDepsPlugin,
 } from 'electron-vite';
 import react from '@vitejs/plugin-react';
+import { contentSecurityPolicy } from './src/renderer/csp';
+
+let cspMode: 'development' | 'production' = 'production';
 
 export default defineConfig({
   main: {
@@ -22,6 +25,17 @@ export default defineConfig({
   },
 
   renderer: {
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: 'shellherd-csp',
+        configResolved(c) { cspMode = c.command === 'serve' ? 'development' : 'production'; },
+        transformIndexHtml: () => [{
+          tag: 'meta',
+          attrs: { 'http-equiv': 'Content-Security-Policy', content: contentSecurityPolicy(cspMode) },
+          injectTo: 'head-prepend',
+        }],
+      },
+    ],
   },
 });
