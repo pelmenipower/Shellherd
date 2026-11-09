@@ -69,12 +69,70 @@ als eine einzige Quelle. Deshalb setzt `compose.yaml` aktiv
 `X-Forwarded-For` als Quelle. Das ist nur sicher, solange der Port wie
 vorgegeben auf `127.0.0.1` gebunden ist und ausschließlich der Proxy ihn
 erreicht. Das Flag entfernen, wenn der Server direkt ohne Proxy betrieben wird
-(etwa nur im WireGuard-Netz); sonst könnten Clients ihre Quelle per Header
-fälschen.
+(etwa nur im WireGuard-Netz, siehe „Privates Netz“); sonst könnten Clients ihre
+Quelle per Header fälschen.
 
 Optional und außerhalb dieses Repos kann fail2ban wiederholte 429-Antworten oder
 Fehlanmeldungen auf Firewall-Ebene sperren. Gegen verteilte Floods hilft nur ein
-privates Netz (WireGuard/Tailscale), siehe H2.
+privates Netz (Tailscale/WireGuard), siehe nächster Abschnitt.
+
+## Privates Netz
+
+Ein privates Netz nimmt den Server aus dem öffentlichen Internet. Dann erreichen
+nur Mitglieder des Netzes den Port. Zwei Wege, in dieser Reihenfolge empfohlen:
+
+### Tailscale `serve` (zuerst)
+
+Der Port bleibt wie in `compose.yaml` an `127.0.0.1` gebunden, `TRUSTED_PROXY=1`
+bleibt gesetzt. `tailscale serve` übernimmt TLS (Tailnet-Zertifikat) und leitet
+lokal weiter:
+
+```sh
+tailscale serve --bg 8787
+```
+
+Die Server-URL für die Clients ist dann `https://<host>.<tailnet>.ts.net/`; die
+Option „Privates Netz“ ist dafür nicht nötig. Annahme, noch im Lab einmal real
+zu prüfen: `tailscale serve` setzt `X-Forwarded-For`, so dass die Limits pro
+Quelle je Tailnet-Gerät greifen. Ohne diesen Header erscheinen alle Clients als
+eine Quelle. Kein `tailscale funnel`, denn das würde den Server öffentlich machen.
+
+### WireGuard
+
+Der Server lauscht ausschließlich auf der WireGuard-Adresse des Hosts und
+verwendet kein TLS. Verschlüsselung und Peer-Authentifizierung übernimmt der
+Tunnel. Dafür dient die eigenständige Datei `compose.wireguard.yaml`. Sie ist
+keine Override-Datei, denn Compose hängt `ports` nur an und behielte
+`127.0.0.1` und den Proxy-Modus. Sie enthält dieselben Härtungen wie
+`compose.yaml` (schreibgeschütztes Root-Dateisystem, `cap_drop: [ALL]`,
+`no-new-privileges`, Limits, Volume), aber **kein** `TRUSTED_PROXY`:
+
+```sh
+export SHELLHERD_BIND_ADDR=10.8.0.1   # WireGuard-Adresse des Hosts
+docker compose -f server/compose.wireguard.yaml build
+docker compose -f server/compose.wireguard.yaml run --rm server init
+docker compose -f server/compose.wireguard.yaml up -d
+curl --fail http://10.8.0.1:8787/v1/info
+```
+
+`SHELLHERD_BIND_ADDR` ist Pflicht; ohne Wert bricht Compose ab. Beide Dateien
+verwenden denselben Projektnamen und damit dasselbe Volume `server-data`. Nicht
+beide Varianten gleichzeitig starten (genau eine Instanz pro Datenvolume).
+Hinweise:
+
+- Das WireGuard-Interface muss vor Docker aktiv sein, sonst scheitert der Start
+  mit `cannot assign requested address`. Unter systemd `wg-quick@…` vor
+  `docker.service` ordnen; `restart: unless-stopped` ersetzt das nicht sicher.
+- Die Quelladresse bleibt mit iptables-DNAT erhalten, die Limits pro Quelle
+  greifen dann je Tunnel-IP. Mit dem Userland-Proxy von Docker ist das nicht
+  der Fall und alle Clients wären eine Quelle. Im Lab prüfen.
+- Kein `TRUSTED_PROXY`, kein Reverse-Proxy davor.
+- Im Desktop-Client die Option „Privates Netz“ aktivieren. Nur dann akzeptiert
+  er `http://` zu einer numerischen privaten Adresse (`10/8`, `172.16/12`,
+  `192.168/16`, `100.64/10`, IPv6 `fc00::/7`). Namen, `169.254/16`, Link-Local
+  und öffentliche Adressen bleiben abgelehnt.
+- Klartext-HTTP im Tunnel ist nur so vertrauenswürdig wie der Tunnel. Die
+  Fernsteuerungskanäle sind zusätzlich Ende-zu-Ende verschlüsselt.
 
 ## Image aktualisieren
 
@@ -156,7 +214,12 @@ Ein alter Serverbackupstand beweist gegenüber Clients keinen neuesten Stand.
 
 Die bestehende API bleibt kompatibel: `GET /v1/info`, `POST /v1/login`,
 `POST /v1/logout` und die authentifizierten Vault-Objektendpunkte. `/v1/info`
-meldet zusätzlich `rendezvous: true`. Alle folgenden Endpunkte verlangen
+meldet zusätzlich `rendezvous: true` und `rendezvousNoise: true` (Noise-Frames,
+siehe unten). Clients lehnen Server ohne `rendezvousNoise` ab; es gibt keinen
+Rückfall auf ein älteres Protokoll. `DELETE /v1/vaults/<namespace>/objects/<id>`
+(64 Hex-Zeichen) entfernt ein Vault-Objekt, ausschließlich bei Anmeldung mit dem
+Serverkonto (im Gerätemodus 405); Antwort `{removed: true}`, unbekannte ID 404.
+Alle folgenden Endpunkte verlangen
 `Authorization: Bearer …` aus der Anmeldung:
 
 | Methode und Pfad | Funktion |
@@ -170,7 +233,7 @@ meldet zusätzlich `rendezvous: true`. Alle folgenden Endpunkte verlangen
 | `GET /v1/rendezvous/sessions/:id` | Eigene Sitzung abrufen |
 | `POST /v1/rendezvous/sessions/:id/accept` | `{}`; ausschließlich am Ziel annehmen |
 | `DELETE /v1/rendezvous/sessions/:id` | Ablehnen oder beenden, beide Teilnehmer |
-| `POST /v1/rendezvous/sessions/:id/messages` | Verschlüsselten Frame einstellen |
+| `POST /v1/rendezvous/sessions/:id/messages` | `{sequence, frame}` einstellen; `frame` ist ein Base64-Noise-Frame (1 bis 8208 Byte) |
 | `GET /v1/rendezvous/sessions/:id/messages?after=N` | Nicht quittierte Frames lesen |
 | `POST /v1/rendezvous/sessions/:id/ack` | `{through: N}` quittieren |
 
@@ -181,14 +244,44 @@ Anfragen laufen nach 60 Sekunden ab, angenommene Sitzungen nach fünf Minuten.
 Danach neu anfragen und lokal freigeben. Maximal vier Sitzungen pro Gerät und
 64 insgesamt. Kein automatischer Zugriff nach Wiederanmeldung.
 
-Nachrichten enthalten ausschließlich `{sequence, nonce, ciphertext, tag}`.
-Maximal 8 KiB verschlüsselter Inhalt, 32 offene Frames pro Richtung. Reihenfolge
-ist streng; exakte Retries der letzten 32 Frames sind idempotent, auch nach
+Nachrichten enthalten ausschließlich `{sequence, frame}`. `frame` ist ein
+Base64-kodierter Noise-Frame von 1 bis 8208 Byte (8 KiB Nutzlast plus
+Handshake-/Tag-Overhead), `sequence` höchstens 4294967295. Maximal 32 offene Frames pro Richtung.
+Reihenfolge ist streng; exakte Retries der letzten 32 Frames sind idempotent, auch nach
 Quittierung. Quittierung erfolgt erst nach erfolgreicher Entschlüsselung. Es
 gibt keine unbegrenzten Warteschlangen oder freien Proxyziele. Globales
 Requestlimit: 600/Minute, daher mit mindestens fünf Sekunden Pollingintervall
 und wenigen aktiven Geräten beginnen. Das ist ein Signalisierungsrelay, kein
 für Video oder Massendaten freigegebener Relaydienst.
+
+## Kompaktierung der Vault-Historie
+
+Jede Synchronisation legt eine neue unveränderliche Version an. Damit der Server
+nicht unbegrenzt wächst, kompaktiert der Desktop-Client die **eigene** Historie
+nach erfolgreichem Sync:
+
+- Es bleiben die 16 jüngsten Generationen ab dem einzigen Kopf (`SYNC_RETAIN = 16`).
+  Die Kompaktierung beginnt erst bei mehr als 32 vorhandenen Versionen
+  (`SYNC_COMPACT_AT = 32`), nur bei genau einem Kopf und ohne offene lokale Änderung.
+- Der Client schreibt eine neue Version, die in `compacts` kumulativ die IDs aller
+  entfernten Versionen nennt (höchstens 256 Einträge), lädt sie hoch und löscht
+  die älteren Objekte per `DELETE …/objects/:id`. Andere Geräte erkennen anhand
+  von `compacts`, dass fehlende Vorgänger gewollt fehlen, und löschen übrig
+  gebliebene Objekte bei ihrem nächsten Sync nach. Ein Abbruch mittendrin ist
+  folgenlos: der nächste Lauf setzt fort.
+- Ein Serverkonto enthält genau einen Vault. Der Client löscht nie Objekte, die er
+  als Teil derselben Historie lesen kann, außer durch diese Kompaktierung.
+  Objekte, die sich mit dem entsperrten Vault-Schlüssel nicht öffnen lassen
+  (anderer Vault im selben Konto), löscht er nur auf ausdrücklichen Auftrag des
+  Kontoinhabers im Sync-Dialog („Fremde Objekte entfernen“), nach erneutem
+  Lesen und nur wenn sie tatsächlich unlesbar sind.
+- Löschen verlangt die Anmeldung mit dem Serverkonto. Ein Gerät im Gerätemodus
+  erhält 405.
+- **Vor der ersten Kompaktierung alle Geräte mit Sync-Lab gemeinsam auf denselben
+  Stand der App aktualisieren.** Ein altes Gerät kennt `compacts` nicht, würde
+  fehlende Vorgänger als Historienbruch werten und den Sync verweigern.
+- Kompaktierung ersetzt kein Backup: gelöschte Versionen sind nicht
+  wiederherstellbar, außer aus einer Serversicherung (siehe „Backup und Wiederherstellung“).
 
 ## Ende-zu-Ende-Prüfung im Referenzclient
 
@@ -196,34 +289,44 @@ für Video oder Massendaten freigegebener Relaydienst.
 `createRendezvousIdentity`. Ein Peer verwendet einen angemeldeten `AccountStore`.
 Die Identität bleibt lokal. Das Beispiel erzeugt sie neu im RAM; dauerhafte
 Agentidentitäten benötigen später einen geschützten lokalen Schlüsselspeicher.
+Das Paket `noise-handshake` (mit `sodium-*`) wird nur vom Client geladen; der
+Server und sein Image enthalten keine Kryptobibliothek und sehen nur Frames.
 
-Vor `peer.channel(session, peerPublicKey, expectedFingerprint, scope)` den
-vollständigen SHA-256-Fingerprint des öffentlichen X25519-Schlüssels unabhängig
-vergleichen. **Nicht** automatisch einen Wert aus der Server-Geräteliste als
-vertrauenswürdig übernehmen. Gerätenamen und Online-Status sind keine
-Identitätsnachweise. Ein Konto-Inhaber kann Anfragen erzeugen und öffentliche
+Der Kanal ist ein Noise-XX-Handshake (`Noise_XX_25519_ChaChaPoly_BLAKE2b`,
+Prolog `shellherd-rendezvous-noise-v1`) über die Server-Nachrichten. Die
+statischen Schlüssel beider Seiten sind die X25519-Geräteschlüssel. Danach
+laufen die Nutzdaten verschlüsselt mit den Transportschlüsseln des Handshakes.
+Nach dem Handshake wird die Sitzung durch eine authentisierte, verschlüsselte
+Annahme des Ziels bestätigt.
+
+`peer.channel(session, expectedFingerprint, scope)` übernimmt den Schlüssel der
+Gegenseite nicht aus der Geräteliste. Er entsteht erst im Handshake; `channel`
+vergleicht den daraus abgeleiteten Fingerprint mit `expectedFingerprint` und
+bricht bei Abweichung mit `code: 'mismatch'` ab. Der erwartete Wert muss daher
+**unabhängig** (anderer Kanal, Mensch zu Mensch) beschafft werden, **nicht**
+automatisch aus der Server-Geräteliste. Gerätenamen und Online-Status sind keine
+Identitätsnachweise. In der App genügt der Vergleich der ersten 16 Hex-Zeichen
+(zwei Gruppen) des Fingerabdrucks; der Client prüft dann gegen den vollständigen
+Wert aus dem Handshake. Ein Konto-Inhaber kann Anfragen erzeugen und öffentliche
 Gerätemetadaten sehen; Kontoanmeldung allein autorisiert keine Fernsteuerung.
 
 Das Ziel ruft `channel.accept()` erst nach bewusster lokaler Zustimmung auf.
-Die anfragende Seite muss `channel.receive()` ausführen und eine authentisierte,
-verschlüsselte Annahme erhalten, bevor `channel.send(value)` erlaubt ist. Ein
-vom Server gefälschter Status reicht nicht. HKDF-SHA256 bindet den X25519-Schlüssel
-an Server-ID, Sitzung und eine lokal erzeugte Anfragenonce. Das Ziel ergänzt
-bei jeder lokalen Zustimmung eine zweite frische Nonce für den eigentlichen
-Nachrichtenschlüssel; eine alte Zustimmung oder alte Daten können dadurch
-nicht einfach als neue Sitzung wiederholt werden. AES-256-GCM bindet Teilnehmer,
-Umfang und Sequenz.
-Frames einer anderen Sitzung oder Richtung können nicht übernommen werden.
-`retry()` wiederholt einen fehlgeschlagenen Sendeversuch mit demselben Frame.
-`receive()` kann nach verlorener Quittierungsantwort ohne doppelte Auslieferung
-wiederholt werden. `close()` beendet die Sitzung, `dispose()` verwirft lokal den
-abgeleiteten Schlüssel.
+Beide Seiten treiben den Handshake mit `channel.receive()` voran (typisch zwei
+Runden), bis `channel.ready` gilt. Erst danach ist `channel.send(value)` erlaubt.
+Ein vom Server gefälschter Status reicht nicht. Frames einer anderen Sitzung
+oder Richtung, Wiederholungen und Umordnung scheitern an Sequenz und Noise-Zustand.
+Ein Verarbeitungsfehler vergiftet den Kanal; weitere `receive()`-Aufrufe werfen
+sofort. `retry()` wiederholt einen fehlgeschlagenen Sendeversuch mit demselben
+Frame. `receive()` kann nach verlorener Quittierungsantwort ohne doppelte
+Auslieferung wiederholt werden. `close()` beendet die Sitzung, `dispose()`
+verwirft lokal die abgeleiteten Schlüssel.
 
-Dies ist ein begrenztes Referenzprotokoll ohne unabhängigen Review und ohne
-Forward-Secrecy-Zusage bei späterem Verlust des statischen Geräteschlüssels.
+Noise XX liefert Forward Secrecy: Ein späterer Verlust des statischen
+Geräteschlüssels entschlüsselt aufgezeichneten Verkehr früherer Sitzungen nicht.
+Der Handshake ist ein begrenztes Referenzprotokoll ohne unabhängigen Review.
 Der Server kann Verbindungen verhindern, Nachrichten zurückhalten und Metadaten
 sehen. Er kann mit lokal geprüften Gegenstellenschlüsseln keine gültigen
-Nachrichten oder Zustimmung erzeugen. `view`/`control` werden kryptografisch
+Nachrichten oder Zustimmung erzeugen. `view`/`control` werden an die Sitzung
 gebunden; erst der spätere Agent muss die erlaubten OS-Aktionen durchsetzen.
 Weder unbeaufsichtigter Zugriff noch Bildschirm-/Eingabedaten produktiver
 Systeme werden durch diesen Referenzclient freigegeben.
