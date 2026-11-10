@@ -4,25 +4,18 @@ import type { KeyObject } from 'node:crypto';
 import { argon2id } from 'hash-wasm';
 import { EncryptedVaultFileSchema } from '../../shared/vault/schema';
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
+import { SyncFailure } from './sync-core';
 import { normalizeRecoveryCode } from '../../shared/recovery-code';
 import { normalizeSyncServerUrl } from '../../shared/sync-server-url.mjs';
+export { SyncFailure, ensure, hashWire, stable } from './sync-core';
+import { ensure, hashWire, stable } from './sync-core';
 /** Signing side of this device plus the roster view used to check author stamps; lives in main only. */
 export interface SyncDevice { id: string; sign(data: Buffer): Buffer; keyOf(id: string): KeyObject | undefined; revokedAt(id: string): number | null | undefined }
 export interface SyncContext { serverId: string; namespace: string; device?: SyncDevice }
-export class SyncFailure extends Error {
-  constructor(public readonly code: 'locked' | 'changed' | 'history' | 'conflict' | 'bindings' | 'wrongVault' | 'recovery' | 'limit' | 'syncKey' | 'recoveryCode' | 'migrate' | 'foreignKey' | 'otherServer' | 'platform' | 'rotated' | 'rotateBlocked' | 'rotateRaced' | 'inviteKey') { super(`Vault sync rejected: ${code}`); }
-}
 export const SYNC_OBJECT_FORMAT = 'shellherd-sync-object';
 export const SYNC_EPOCH_MAX = 1_000_000;
 const OBJECT_MAX = 1048576; const OBJECT_PLAIN_MAX = 768 * 1024;
 type ObjectKind = 'version' | 'keybox';
-export function ensure(ok: unknown, code: SyncFailure['code'] = 'history'): asserts ok { if (!ok) throw new SyncFailure(code); }
-export const hashWire = (wire: string) => createHash('sha256').update(wire).digest('hex');
-export function stable(value: unknown): string {
-  if (Array.isArray(value)) return '[' + value.map(stable).join(',') + ']';
-  if (value && typeof value === 'object') return '{' + Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => JSON.stringify(k) + ':' + stable(v)).join(',') + '}';
-  return JSON.stringify(value);
-}
 export function samePortable(a: unknown, b: unknown): boolean {
   const strip = (value: unknown) => { const copy = structuredClone(value) as { document?: { updatedAt?: string }; updatedAt?: string }; if (copy.document) delete copy.document.updatedAt; else delete copy.updatedAt; return copy; };
   return stable(strip(a)) === stable(strip(b));

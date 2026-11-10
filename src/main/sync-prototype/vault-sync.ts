@@ -58,7 +58,7 @@ const adoptsSchema = z.array(hex64).max(ADOPTS_MAX).refine(a => new Set(a).size 
 const keyboxSchema = z.object({ kind: z.literal('shellherd-sync-keybox-v2'), method: z.enum(['recovery', 'invite']), epoch: epochSchema, syncKey: base64(32), createdBy: hex64.nullable(), adopts: adoptsSchema }).strict();
 const invitesSchema = z.array(z.object({ id: hex64, at: z.number().refine(Number.isSafeInteger).refine(n => n >= 0) }).strict()).max(INVITES_MAX);
 const pendingSchema = z.object({ before: z.string(), after: z.string(), localHeads: ids, working: z.unknown(), projection: z.unknown() }).strict();
-const stateSchema = z.object({ kind: z.literal('shellherd-sync-state-v3'), epoch: epochSchema, syncKey: base64(32), adopts: adoptsSchema, keybox: hex64.optional(), invites: invitesSchema.optional(), versions: z.array(z.string().max(1048576)).max(100), acked: ids, localHeads: ids, working: z.unknown(), projection: z.unknown(), pending: pendingSchema.optional() }).strict();
+const stateSchema = z.object({ kind: z.literal('shellherd-sync-state-v3'), epoch: epochSchema, syncKey: base64(32), adopts: adoptsSchema, keybox: hex64.optional(), /** Objects of a rolled back rotation whose delete failed; the next sync removes them before anything else (m4). */ rollback: ids.optional(), invites: invitesSchema.optional(), versions: z.array(z.string().max(1048576)).max(100), acked: ids, localHeads: ids, working: z.unknown(), projection: z.unknown(), pending: pendingSchema.optional() }).strict();
 type State = z.infer<typeof stateSchema>;
 /** An inner v2 checkpoint (no epochs) is a migration case, not a schema error (K5). */
 function parseState(raw: unknown): State {
@@ -173,7 +173,7 @@ function sealKeybox(syncKey: Buffer, code: string, method: KeyboxMethod, epoch: 
   const wrap = method === 'invite' ? inviteWrapKey(code, context, epoch) : keyboxWrapKey(code, context, epoch);
   try { return sealSyncObject('keybox', { kind: 'shellherd-sync-keybox-v2', method, epoch, syncKey: syncKey.toString('base64'), createdBy: context.device?.id ?? null, adopts }, wrap, context, epoch); } finally { wrap.fill(0); }
 }
-interface OpenedKeybox { id: string; syncKey: Buffer; adopts: string[] }
+interface OpenedKeybox { id: string; syncKey: Buffer; adopts: string[]; createdBy: string | null; method: KeyboxMethod }
 /** Tries every keybox of the epoch (sorted by id, at most the 100-object account quota) with the code; the caller zeroes the returned key (B10). */
 function openKeyboxes(wires: Map<string, string>, ids: string[], secret: CodeSecret, epoch: number, context: SyncContext): OpenedKeybox | undefined {
   const wrap = secret.method === 'invite' ? inviteWrapKey(secret.code, context, epoch) : keyboxWrapKey(secret.code, context, epoch);
@@ -181,7 +181,7 @@ function openKeyboxes(wires: Map<string, string>, ids: string[], secret: CodeSec
     for (const id of [...ids].sort().slice(0, 100)) {
       try {
         const doc = keyboxSchema.parse(openSyncObject(wires.get(id)!, 'keybox', wrap, context, epoch));
-        if (doc.method === secret.method && doc.epoch === epoch) return { id, syncKey: Buffer.from(doc.syncKey, 'base64'), adopts: doc.adopts };
+        if (doc.method === secret.method && doc.epoch === epoch) return { id, syncKey: Buffer.from(doc.syncKey, 'base64'), adopts: doc.adopts, createdBy: doc.createdBy, method: doc.method };
       } catch { /* not this code */ }
     }
     return undefined;
@@ -200,6 +200,19 @@ function openTarget(envs: Map<string, Envelope | null>, wires: Map<string, strin
     if (stale) { stale.syncKey.fill(0); ensure(false, 'rotated'); }
   }
   throw new SyncFailure(codeFailure(secret.method));
+}
+/**
+ * A code alone proves nothing about a higher epoch: a leaked old recovery code can wrap a keybox for any epoch (M1).
+ * With a device context the epoch is accepted only if its keybox names a pinned, not revoked device and a readable version
+ * of the epoch carries a valid author stamp of exactly that device. Without a device context there is no roster to judge by.
+ * An enrollment keybox is made by the inviting device, which need not have written a version yet; there any valid stamp of a pinned, active device counts.
+ * Throws `foreignKey` before anything is written; the caller discards the key.
+ */
+function vetEpoch(graph: Graph, opened: OpenedKeybox): void {
+  const device = graph.context.device; if (!device) return;
+  const active = (id: string): boolean => device.keyOf(id) !== undefined && (device.revokedAt(id) ?? null) === null;
+  const by = opened.createdBy; ensure(by !== null && active(by), 'foreignKey');
+  ensure([...graph.values.keys()].some(id => { const author = graph.value(id).author?.device; return author !== undefined && active(author) && (opened.method === 'invite' || author === by) && graph.stance(id) === 'ok'; }), 'foreignKey');
 }
 /** After uploading a keybox: false if another keybox or any version envelope of this or a newer epoch showed up (a concurrent bootstrap or a foreign writer). Older epochs are leftovers of a rotation and ignored (B2). */
 async function confirmKeybox(remote: VaultRemote, own: string, allowed: Set<string>, ignored: Set<string>, epoch: number, check: () => void): Promise<boolean> {
@@ -253,6 +266,12 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
     let stateIn: State | undefined = raw === undefined ? undefined : parseState(raw);
     const knownEpoch = stateIn?.epoch;
     if (stateIn) { syncKey = Buffer.from(stateIn.syncKey, 'base64'); graphIn = new Graph(versionKey(syncKey, context, stateIn.epoch), context, stateIn.epoch, lease.snapshot.vault.id); stateIn = validateState(stateIn, graphIn); }
+    // A rolled back rotation left objects of a newer epoch behind: remove them first, or every device would see `rotated` for good (m4).
+    if (stateIn?.rollback?.length) {
+      ensure(remote.remove, 'rotated');
+      for (const id of stateIn.rollback) { check(); await remote.remove(id); }
+      check(); delete stateIn.rollback; await checkpoint.write(stateIn); check();
+    }
     const listing = listingIds.parse(await remote.list()); check();
     const known = graphIn;
     const wires = await fetchNew(remote, listing, id => known?.values.has(id) ?? false, check);
@@ -260,7 +279,7 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
     const envs = new Map<string, Envelope | null>(listing.map(id => [id, wires.has(id) ? parseSyncEnvelope(wires.get(id)!) : { kind: 'version' as const, epoch: knownEpoch! }]));
     const idsOf = (pick: (e: Envelope) => boolean): string[] => listing.filter(id => { const e = envs.get(id); return e !== null && e !== undefined && pick(e); });
     const ignored = new Set(listing.filter(id => envs.get(id) === null));
-    let recoveryCode: string | undefined; let inviteKeybox: string | undefined; let pulled: ReturnType<typeof pull> | undefined; let recoveredSnapshot: VaultSessionSnapshot | undefined;
+    let joinedKeybox: OpenedKeybox | undefined; let recoveryCode: string | undefined; let inviteKeybox: string | undefined; let pulled: ReturnType<typeof pull> | undefined; let recoveredSnapshot: VaultSessionSnapshot | undefined;
     // While the pending marker stands, no code for this sync key ever left the device, so nobody else can read our objects:
     // take them back (best effort) and drop the checkpoint; the local Vault holds the data. The next run can take the rival's code (R2).
     const abortBootstrap = async (own: string, uploaded: string[] = []): Promise<never> => {
@@ -280,7 +299,7 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
     if (!stateIn) {
       if (secret !== undefined) {
         const { epoch, opened } = openTarget(envs, wires, secret, context, 0);
-        syncKey = opened.syncKey; if (secret.method === 'invite') inviteKeybox = opened.id;
+        syncKey = opened.syncKey; joinedKeybox = opened; if (secret.method === 'invite') inviteKeybox = opened.id;
         stateIn = { kind: 'shellherd-sync-state-v3', epoch, syncKey: syncKey.toString('base64'), adopts: opened.adopts, versions: [], acked: [], localHeads: [], working: local.portable, projection: local.portable };
         graphIn = new Graph(versionKey(syncKey, context, epoch), context, epoch, lease.snapshot.vault.id);
       } else {
@@ -303,7 +322,7 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
       const adopted = new Graph(versionKey(opened.syncKey, context, epoch), context, epoch, lease.snapshot.vault.id);
       const inEpoch = listing.filter(id => { const e = envs.get(id); return e === null || e?.epoch === epoch; });
       try {
-        pulled = pull(inEpoch, wires, adopted, []);
+        pulled = pull(inEpoch, wires, adopted, []); vetEpoch(adopted, opened);
         ensure(adopted.heads().length === 1, 'conflict'); const head = adopted.heads()[0];
         const oldGraph = graphIn!; const heads = stateIn.localHeads; const own = new Set(opened.adopts);
         // Local edits since the last sync, on top of the old working copy.
@@ -345,6 +364,7 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
     const lower = idsOf(e => e.epoch < state.epoch);
     const current = listing.filter(id => { const e = envs.get(id); return e === null || e?.epoch === state.epoch; });
     const { received, skipped, foreign, stale, quarantined, unknownAuthors } = pulled ?? pull(current, wires, graph, state.acked); check();
+    if (joinedKeybox && state.epoch > 1) vetEpoch(graph, joinedKeybox); // A device joining by code has no earlier epoch to compare with (M1).
     const outcome = (status: VaultSyncResult['status'], g: Graph, conflicts = 0, canKeepLocal = false, approvals = 0): VaultSyncResult => ({
       ...baseOutcome(status, g, conflicts, canKeepLocal, approvals, skipped), ...(foreign.length ? { foreign } : {}),
       ...(recoveryCode ? { recoveryCode } : {}), ...(unknownAuthors ? { unknownAuthors } : {}), ...(quarantined ? { quarantined } : {}),
@@ -503,7 +523,7 @@ export async function importSyncedVault(sessions: VaultSessionManager, remote: V
   try {
     // Objects of other epochs are ignored, not foreign.
     const { skipped, foreign, quarantined, unknownAuthors } = pull(listing.filter(id => { const e = envs.get(id); return e === null || e?.epoch === epoch; }), wires, graph, []); check();
-    ensure(graph.values.size > 0, 'history'); ensure(graph.heads().length === 1, 'conflict');
+    ensure(graph.values.size > 0, 'history'); if (epoch > 1) vetEpoch(graph, opened); ensure(graph.heads().length === 1, 'conflict');
     const outcome = (status: VaultSyncResult['status'], g: Graph, conflicts = 0, canKeepLocal = false, approvals = 0): VaultSyncResult => ({
       ...baseOutcome(status, g, conflicts, canKeepLocal, approvals, skipped), ...(foreign.length ? { foreign } : {}), ...(unknownAuthors ? { unknownAuthors } : {}), ...(quarantined ? { quarantined } : {}),
     });
@@ -586,7 +606,7 @@ export async function rotateSyncKey(sessions: VaultSessionManager, remote: Vault
     const raw = await checkpoint.read(); check(); ensure(raw !== undefined, 'syncKey');
     const state = stateForKeyWork(raw); syncKey = Buffer.from(state.syncKey, 'base64'); const epoch = state.epoch;
     oldGraph = new Graph(versionKey(syncKey, context, epoch), context, epoch, lease.snapshot.vault.id); validateState(state, oldGraph); const graph = oldGraph;
-    ensure(!state.pending && !state.keybox, 'rotateBlocked');
+    ensure(!state.pending && !state.keybox && !state.rollback, 'rotateBlocked');
     const local = splitVaultForSync(lease.snapshot.vault); const heads = graph.heads();
     ensure(samePortable(local.portable, state.projection), 'rotateBlocked');
     ensure(heads.length === 1 && stable(state.localHeads) === stable(heads), 'rotateBlocked');
@@ -625,8 +645,10 @@ export async function rotateSyncKey(sessions: VaultSessionManager, remote: Vault
     const raced = listing2.some(id => { const e = envs2.get(id); return !own.has(id) && e !== null && e !== undefined && e.epoch >= next; });
     const overtaken = unseenVersions(listing2, envs2).unseen;
     if (raced || overtaken) {
-      for (const id of [keyboxId, root]) { try { await remote.remove!(id); } catch { /* best effort */ } }
-      await checkpoint.write(before, { ignoreAbort: true });
+      const left: string[] = [];
+      for (const id of [keyboxId, root]) { try { await remote.remove!(id); } catch { left.push(id); } }
+      // Objects that could not be deleted stay on the list; the next sync removes them before it looks at the account (m4).
+      await checkpoint.write(left.length ? { ...before, rollback: left } : before, { ignoreAbort: true });
       throw new SyncFailure(raced ? 'rotateRaced' : 'rotateBlocked');
     }
     // The old epoch goes only now. An abort from here on keeps the marker: the next sync shows a fresh code.
@@ -651,7 +673,7 @@ export async function createInvite(sessions: VaultSessionManager, remote: VaultR
     checkpoint = await lockSyncState(lease.snapshot.filePath, lease.key, lease.kdf, context, check);
     const raw = await checkpoint.read(); check(); ensure(raw !== undefined, 'syncKey');
     const state = stateForKeyWork(raw); syncKey = Buffer.from(state.syncKey, 'base64');
-    ensure(!state.keybox, 'rotateBlocked'); // The marker means no code has left this device yet (K8).
+    ensure(!state.keybox && !state.rollback, 'rotateBlocked'); // The marker means no code has left this device yet (K8).
     const listing = listingIds.parse(await remote.list()); check();
     graph = new Graph(versionKey(syncKey, context, state.epoch), context, state.epoch, lease.snapshot.vault.id); validateState(state, graph);
     const wires = await fetchNew(remote, listing, id => graph!.values.has(id), check);

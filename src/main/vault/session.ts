@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
-import { hashWire, ensure, stable } from '../sync-prototype/vault-sync-crypto';
+import { hashWire, ensure, stable } from '../sync-prototype/sync-core';
 import { AppError } from '../../shared/errors';
 import { deriveKey, encryptVaultWithKey, unlockVault, unlockVaultWithKey } from './crypto';
 import type { UnlockedVault } from './crypto';

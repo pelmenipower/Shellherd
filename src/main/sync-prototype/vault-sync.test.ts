@@ -16,6 +16,7 @@ import { hashWire, inviteWrapKey, keyboxWrapKey, openSyncObject, parseSyncEnvelo
 import type { SyncContext, SyncDevice } from './vault-sync-crypto';
 import { backupVaultFile } from '../vault/storage';
 import { lockSyncState } from './vault-sync-state';
+import { splitVaultForSync } from './vault-merge';
 const it = linuxIt.runIf(process.platform === 'linux');
 vi.mock('../vault/storage', async original => {
   const actual = await original<typeof import('../vault/storage')>();
@@ -465,6 +466,25 @@ it('rotation rolls back with rotateBlocked when B uploads a version between the 
   for (const [id, wire] of f.data) if (parseSyncEnvelope(wire)!.epoch === 2) throw Error(`epoch 2 object ${id} left behind`);
   for (const id of oldIds) expect(f.data.has(id)).toBe(true);
 }, 30000);
+it('a rolled back rotation whose delete fails leaves a rollback list that the next sync works off, no dead end (m4)', async () => {
+  const f = await fixture(password, true); await publish(f); await importB(f);
+  await f.b.save({ ...f.b.getSnapshot().vault, name: 'From B' }); let broken = true;
+  const racing: VaultRemote = { ...f.remote, async put(wire) {
+    const id = await f.remote.put(wire);
+    if (kindOf(wire) === 'version' && parseSyncEnvelope(wire)!.epoch === 2) await synchronizeVault(f.b, epochView(f, 1), context, signal());
+    return id;
+  }, async remove(id) { if (broken) throw Error('network'); return f.remote.remove!(id); } };
+  await expect(rotateSyncKey(f.a, racing, context, signal())).rejects.toMatchObject({ code: 'rotateBlocked' });
+  const state = await checkpointOf(f.a); expect(state).toMatchObject({ epoch: 1 }); expect((state as { rollback: string[] }).rollback).toHaveLength(2);
+  expect([...f.data.values()].some(wire => parseSyncEnvelope(wire)!.epoch === 2)).toBe(true);
+  // While the delete keeps failing the run stops (no `rotated` dead end, state kept).
+  await expect(synchronizeVault(f.a, racing, context, signal())).rejects.toThrow('network');
+  broken = false;
+  expect(await synchronizeVault(f.a, f.remote, context, signal())).toMatchObject({ status: 'synced' });
+  expect([...f.data.values()].some(wire => parseSyncEnvelope(wire)!.epoch === 2)).toBe(false);
+  expect(await checkpointOf(f.a)).not.toHaveProperty('rollback');
+  expect(await synchronizeVault(f.b, f.remote, context, signal())).toMatchObject({ status: 'synced' });
+}, 60000);
 it('rotation rolls back with rotateRaced when another device rotates meanwhile', async () => {
   const f = await fixture(password, true); await publish(f); const rival = await fixture(password, true); await publish(rival); await rotateSyncKey(rival.a, rival.remote, context, signal());
   const [rivalBoxId, rivalBox] = keyboxes(rival.data)[0]; let first = true;
@@ -933,3 +953,56 @@ it('reports platform instead of limit on a non-linux platform (A2)', async () =>
     await expect(importSyncedVault(f.b, f.remote, context, { recoveryCode: 'a'.repeat(32) }, newPassword, signal(), async () => undefined)).rejects.toMatchObject({ code: 'platform' });
   } finally { spy.mockRestore(); }
 });
+
+// ---- M1: a new epoch is adopted only if a known, active device made it ----
+/** An attacker who knows `oldCode` builds epoch `epoch` with their own key; `author` is the stamp of the root (or none). */
+function forgedEpoch(f: Fixture, oldCode: string, epoch: number, createdBy: string | null, author?: { id: string; privateKey: KeyObject }): Map<string, string> {
+  const attackerKey = randomBytes(32); const portable = splitVaultForSync(f.a.getSnapshot().vault).portable;
+  const wrap = keyboxWrapKey(oldCode, context, epoch);
+  const keybox = sealSyncObject('keybox', { kind: 'shellherd-sync-keybox-v2', method: 'recovery', epoch, syncKey: attackerKey.toString('base64'), createdBy, adopts: [] }, wrap, context, epoch);
+  const document: Record<string, unknown> = { kind: 'shellherd-sync-version-v2', parents: [], portable };
+  if (author) {
+    const at = Date.now(); const message = JSON.stringify(['shellherd-sync-author-v2', context.serverId, context.namespace, epoch, [], [], hashWire(stable(portable)), author.id, at]);
+    document.author = { device: author.id, at, signature: sign(null, Buffer.from(message), author.privateKey).toString('base64') };
+  }
+  const root = sealSyncObject('version', document, versionKey(attackerKey, context, epoch), context, epoch);
+  return new Map([[hashWire(keybox), keybox], [hashWire(root), root]]);
+}
+async function rotatedPair() {
+  const roster: Roster = { keys: new Map(), revoked: new Map() }; const A = makeDevice('a', roster); const B = makeDevice('b', roster); const X = makeDevice('c', roster);
+  const f = await fixture(password, true); await publish(f, withDevice(A.dev)); await importB(f, 'b.term', newPassword, withDevice(B.dev));
+  const { recoveryCode } = await rotateSyncKey(f.a, f.remote, withDevice(A.dev), signal());
+  return { roster, A, B, X, f, recoveryCode };
+}
+it('adopts a rotation made by a pinned device (M1)', async () => {
+  const { f, B, recoveryCode } = await rotatedPair();
+  expect(await synchronizeVault(f.b, f.remote, withDevice(B.dev), signal(), { recoveryCode })).toMatchObject({ status: 'synced' });
+  expect(await checkpointOf(f.b, withDevice(B.dev))).toMatchObject({ epoch: 2 });
+}, 60000);
+it('rejects a forged higher epoch built with a leaked old code, without author, with a foreign author or with a mismatching createdBy, and writes nothing (M1)', async () => {
+  const { f, A, B, X } = await rotatedPair(); const oldCode = f.code!;
+  const unknown = makeDevice('d', { keys: new Map(), revoked: new Map() });
+  const variants = [forgedEpoch(f, oldCode, 3, A.id), forgedEpoch(f, oldCode, 3, null), forgedEpoch(f, oldCode, 3, A.id, X), forgedEpoch(f, oldCode, 3, A.id, unknown)];
+  for (const forged of variants) {
+    for (const [id, wire] of forged) f.data.set(id, wire);
+    const before = new Map(f.data); const state = await checkpointOf(f.b, withDevice(B.dev)); const vaultName = f.b.getSnapshot().vault.name;
+    await expect(synchronizeVault(f.b, f.remote, withDevice(B.dev), signal(), { recoveryCode: oldCode })).rejects.toMatchObject({ code: 'foreignKey' });
+    expect(f.data).toEqual(before); expect(await checkpointOf(f.b, withDevice(B.dev))).toEqual(state); expect(f.b.getSnapshot().vault.name).toBe(vaultName);
+    for (const id of forged.keys()) f.data.delete(id);
+  }
+}, 90000);
+it('rejects a rotation whose author was revoked, even with a backdated stamp (M1)', async () => {
+  const { f, A, B, roster, recoveryCode } = await rotatedPair();
+  roster.revoked.set(A.id, Date.now() + 60_000);
+  const before = new Map(f.data);
+  await expect(synchronizeVault(f.b, f.remote, withDevice(B.dev), signal(), { recoveryCode })).rejects.toMatchObject({ code: 'foreignKey' });
+  expect(f.data).toEqual(before); expect(await checkpointOf(f.b, withDevice(B.dev))).toMatchObject({ epoch: 1 });
+}, 60000);
+it('a fresh device importing a forged epoch with a leaked old code is rejected, a legit rotated epoch imports (M1)', async () => {
+  const { f, A, B, recoveryCode } = await rotatedPair();
+  const forged = forgedEpoch(f, f.code!, 3, A.id); for (const [id, wire] of forged) f.data.set(id, wire);
+  const fresh = new VaultSessionManager(); cleanup.push(() => fresh.lock());
+  await expect(importSyncedVault(fresh, f.remote, withDevice(B.dev), { recoveryCode: f.code! }, newPassword, signal(), async () => join(f.directory, 'x.term'))).rejects.toMatchObject({ code: 'foreignKey' });
+  for (const id of forged.keys()) f.data.delete(id);
+  expect(await importSyncedVault(fresh, f.remote, withDevice(B.dev), { recoveryCode }, newPassword, signal(), async () => join(f.directory, 'y.term'))).toMatchObject({ status: 'synced' });
+}, 60000);
