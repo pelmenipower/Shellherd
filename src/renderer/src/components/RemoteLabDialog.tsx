@@ -62,7 +62,7 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
     try { await action(); }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
-  const connect = (): Promise<void> => run(() => controller.act(privateNetwork ? { kind: 'connect', serverUrl: normalized ?? '', privateNetwork: true } : { kind: 'connect', serverUrl: normalized ?? '' }));
+  const connect = (): Promise<void> => { setConfirmedElsewhere(false); return run(() => controller.act(privateNetwork ? { kind: 'connect', serverUrl: normalized ?? '', privateNetwork: true } : { kind: 'connect', serverUrl: normalized ?? '' })); };
   const signIn = (): Promise<void> => {
     const serverPassword = password; setPassword('');
     const request = { kind: 'signIn' as const, username, password: serverPassword, deviceName: normalizeDeviceName(deviceName) };
@@ -81,9 +81,9 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
   const nameValid = isDeviceName(normalizeDeviceName(deviceName));
   const ownFingerprint = state.identity ? grouped(state.identity.fingerprint) : '';
   return <dialog ref={dialog} className="confirm-dialog remote-lab-dialog" aria-labelledby={`${id}-title`}
-    aria-describedby={`${id}-notice`} onCancel={event => { event.preventDefault(); onClose(); }}>
+    aria-describedby={`${id}-notice`} onCancel={event => { event.preventDefault(); setConfirmedElsewhere(false); onClose(); }}>
     <header className="remote-lab-heading"><div><span className="remote-lab-badge">{t('remoteLab:badge')}</span><h2 id={`${id}-title`}>{t('remoteLab:title')}</h2></div>
-      <button ref={closeButton} type="button" className="secondary-button" onClick={onClose}>{t('common:actions.close')}</button></header>
+      <button ref={closeButton} type="button" className="secondary-button" onClick={() => { setConfirmedElsewhere(false); onClose(); }}>{t('common:actions.close')}</button></header>
     <p id={`${id}-notice`} className="remote-lab-notice">{t('remoteLab:notice')}</p>
     {view.error && <p className="field-error" role="alert">{t(errorKey(view.error))}</p>}
     {view.ended && !session && <p className="remote-lab-ended" role="status">{t(endKey(view.ended))}</p>}

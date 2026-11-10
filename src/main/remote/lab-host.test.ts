@@ -628,6 +628,14 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect(t.emergency).not.toHaveBeenCalled();
   });
 
+  it('a receipt before the session end withdraws the capture grant (m3)', async () => {
+    const t = setup();
+    await t.granted();
+    expect(t.host.captureGranted(OWNER)).toBe(true);
+    expect((await t.act({ kind: 'stopped', sessionId: SID })).ok).toBe(true);
+    expect(t.host.captureGranted(OWNER)).toBe(false);
+  });
+
   it('emergency brake: reset("locked") then stopped without a binding answers idle and cancels', async () => {
     const t = setup();
     await t.granted();

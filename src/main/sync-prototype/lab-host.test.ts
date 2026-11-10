@@ -462,6 +462,14 @@ describe('private network, import digest and foreign objects', () => {
       await ready(); fill.mockClear(); h.host.closeOwner(1); expect(fill).toHaveBeenCalledTimes(2);
     } finally { fill.mockRestore(); }
   });
+  it('keeps the rest as skipped after a default-mode removal and clears it with the versions opt-in (m5)', async () => {
+    const ids = ['f'.repeat(64), 'e'.repeat(64)];
+    const syncVault = vi.fn().mockResolvedValueOnce({ ...sync, skipped: 2, foreign: ids, snapshot: undefined }).mockResolvedValueOnce({ removedForeign: 1 }).mockResolvedValueOnce({ removedForeign: 1 });
+    const host = await setup(syncVault);
+    await host.performSync(1, { kind: 'synchronize', clientId });
+    expect(await host.performSync(1, { kind: 'removeForeign', clientId })).toMatchObject({ ok: true, state: { sync: { skipped: 1, removedForeign: 1 } } });
+    expect(await host.performSync(1, { kind: 'removeForeign', clientId, versions: true })).toMatchObject({ ok: true, state: { sync: { skipped: 0 } } });
+  });
   it('keeps foreign ids out of the state and removes them only when known', async () => {
     const foreignId = 'f'.repeat(64);
     const syncVault = vi.fn()

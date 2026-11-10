@@ -154,6 +154,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
     if (kind === 'importVault' || (kind === 'synchronize' && typed !== null)) { setCodeInput(''); }
     if (kind === 'importVault') { setNewPassword(''); setRepeatPassword(''); }
     await exec(draft, reply => { if (reply.vaultChanged) onVaultChanged(reply.vaultChanged); });
+    if (kind === 'removeForeign' && mounted.current) setRemoveVersions(false); // The destructive opt-in holds for one run only (m4).
   }
   const errorText = error && ({
     unavailable: t('syncLab:errors.unavailable'), invalid: t('syncLab:errors.invalid'), stale: t('syncLab:errors.stale'),

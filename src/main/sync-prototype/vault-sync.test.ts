@@ -690,6 +690,28 @@ it('picks the vault of the newest version independent of the listing order (C10)
   }
   expect(names).toEqual(['Second', 'Second']);
 }, 60000);
+it('ignores an unverified author.at when picking the import vault (N1)', async () => {
+  const roster: Roster = { keys: new Map(), revoked: new Map() }; const A = makeDevice('a', roster); const ctx = withDevice(A.dev);
+  const f = await fixture(password, true); await publish(f, ctx);
+  const other = structuredClone(f.a.getSnapshot().vault); other.id = 'second-vault-id'; other.name = 'Second';
+  const sm = new VaultSessionManager(); cleanup.push(() => sm.lock());
+  const path = await writeEncryptedVaultFile(join(f.directory, 's.term'), await encryptVault(other, password)); await sm.unlock(path, password);
+  const { splitVaultForSync } = await import('./vault-merge'); const portable = splitVaultForSync(sm.getSnapshot().vault).portable;
+  const author = { device: 'd'.repeat(64), at: Number.MAX_SAFE_INTEGER, signature: Buffer.alloc(64).toString('base64') };
+  const forged = sealSyncObject('version', { kind: 'shellherd-sync-version-v2', parents: [], portable, author }, f.key!, ctx); f.data.set(hashWire(forged), forged);
+  const target = new VaultSessionManager(); cleanup.push(() => target.lock());
+  const r = await importSyncedVault(target, f.remote, ctx, f.code!, newPassword, signal(), async () => join(f.directory, 'n1.term'));
+  expect(r!.snapshot!.vault.name).not.toBe('Second');
+}, 60000);
+it('retries a single failing remove after the first old keybox is gone (N5)', async () => {
+  const f = await fixture(password, true); await publish(f);
+  // A second old keybox, so that a removal follows the first one.
+  const wrap = keyboxWrapKey('1'.repeat(32), context); const extra = sealSyncObject('keybox', { kind: 'shellherd-sync-keybox-v1', method: 'recovery', syncKey: f.key!.toString('base64'), createdBy: null }, wrap, context); f.data.set(hashWire(extra), extra);
+  let calls = 0;
+  const flaky: VaultRemote = { ...f.remote, async remove(id) { calls++; if (calls === 2) throw Error('network'); return f.remote.remove!(id); } };
+  const { recoveryCode } = await regenerateRecoveryCode(f.a, flaky, context, signal());
+  expect(recoveryCode).toMatch(/^[0-9a-f]{32}$/); expect(calls).toBe(3); expect(keyboxes(f.data)).toHaveLength(1);
+}, 30000);
 it('reports platform instead of limit on a non-linux platform (A2)', async () => {
   const f = await fixture(password, true); const spy = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
   try {

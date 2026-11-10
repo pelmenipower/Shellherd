@@ -160,7 +160,7 @@ export class RemoteLabHost {
   /** Id of the agent session of this owner whose native consent was given (state 'granted' and later), else null. */
   grantedSession(webContentsId: number): string | null {
     const s = this.#session;
-    return s && this.#binding?.owner === webContentsId && s.owner === webContentsId && s.role === 'agent' && s.captured && !s.ended ? s.id : null;
+    return s && this.#binding?.owner === webContentsId && s.owner === webContentsId && s.role === 'agent' && s.captured && !s.acked && !s.ended ? s.id : null; // An early receipt withdraws the grant (m3).
   }
 
   /** For the permission handlers: native consent was given for the current session of this owner. */
@@ -253,7 +253,7 @@ export class RemoteLabHost {
       this.#loaded = loaded;
       const e = store.enrollment(info.serverId, info.serverUrl);
       if (e && e.namespace === info.namespace) this.#enrolled = { username: e.username, name: e.name };
-      else this.#elsewhere = e?.serverUrl ?? store.enrolledElsewhere(info.serverId, info.serverUrl);
+      else if (!e) this.#elsewhere = store.enrolledElsewhere(info.serverId, info.serverUrl); // Same origin, new namespace: server reset, enroll normally (N7).
       this.#info = info; this.#phase = 'serverReady';
       return this.#ok();
     } catch {

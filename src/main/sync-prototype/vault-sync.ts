@@ -365,6 +365,18 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
   } finally { try { await checkpoint?.close(); } finally { lease.key.fill(0); syncKey?.fill(0); graphIn?.key.fill(0); } }
 }
 
+/** With a device context, `author.at` counts only when the signature of a known, not yet revoked roster device verifies; else -1 (N1). */
+function trustedAt(raw: z.infer<typeof versionSchema>, context: SyncContext): number {
+  const device = context.device; const author = raw.author; if (!author) return -1;
+  if (!device) return author.at; // No roster to verify against (device-less context).
+  const key = device.keyOf(author.device); if (!key) return -1;
+  try {
+    if (!verify(null, authorMessage(context, raw.parents, raw.compacts, hashWire(stable(raw.portable)), author.device, author.at), key, Buffer.from(author.signature, 'base64'))) return -1;
+  } catch { return -1; }
+  const revoked = device.revokedAt(author.device);
+  return typeof revoked === 'number' && author.at >= revoked ? -1 : author.at;
+}
+
 /** Id of the vault whose readable version has the largest `author.at` (missing = -1); ties go to the smaller object id (C10). */
 function newestVaultId(wires: Map<string, string>, syncKey: Buffer, context: SyncContext): string | undefined {
   const key = versionKey(syncKey, context); let best: { id: string; at: number; vault: string } | undefined;
@@ -374,7 +386,7 @@ function newestVaultId(wires: Map<string, string>, syncKey: Buffer, context: Syn
       let vault: string; let at: number;
       try {
         const raw = versionSchema.parse(openSyncObject(wire, 'version', key, context)); const portable = validatePortableVault(raw.portable);
-        if (typeof portable.document.id !== 'string') continue; vault = portable.document.id; at = raw.author?.at ?? -1;
+        if (typeof portable.document.id !== 'string') continue; vault = portable.document.id; at = trustedAt(raw, context);
       } catch (error) { if (error instanceof SyncFailure && error.code === 'limit') throw error; continue; }
       if (!best || at > best.at || (at === best.at && id < best.id)) best = { id, at, vault };
     }
@@ -479,7 +491,10 @@ export async function regenerateRecoveryCode(sessions: VaultSessionManager, remo
       if (id === own) continue;
       const wire = await remote.get(id); guard(); ensure(hashWire(wire) === id);
       if (parseSyncEnvelope(wire)?.kind !== 'keybox') continue;
-      await remote.remove(id); removed = true; // A failure other than 404 (false) propagates: the code stays unreturned.
+      // A failure other than 404 (false) propagates and the code stays unreturned; once the old code is dead, retry first so a blip cannot leave no valid code (N5).
+      for (let attempt = 0; ; attempt++) {
+        try { await remote.remove(id); removed = true; break; } catch (error) { if (!removed || attempt >= 2) throw error; }
+      }
     }
     const state = raw as { keybox?: string };
     if (state.keybox !== undefined) { const { keybox: _pending, ...rest } = state; await checkpoint.write(rest, { ignoreAbort: removed }); guard(); }

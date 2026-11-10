@@ -141,7 +141,8 @@ export class SyncLabHost {
       const e = connection.store.enrollment(info.serverId, info.serverUrl);
       if (e && e.namespace === info.namespace) connection.enrolled = { username: e.username, name: e.name };
       // Relay protection: never open a session for another URL without explicit confirmation (K10, C1).
-      else connection.enrolledElsewhere = e?.serverUrl ?? connection.store.enrolledElsewhere(info.serverId, info.serverUrl);
+      // Same origin with another namespace (server reset): not another address, so enroll normally and replace the entry (N7).
+      else if (!e) connection.enrolledElsewhere = connection.store.enrolledElsewhere(info.serverId, info.serverUrl);
       return { ok: true, state: this.#state(connection) };
     } catch (error) {
       if (this.#connection !== connection) return { ok: false, code: 'stale' };
@@ -281,7 +282,10 @@ export class SyncLabHost {
       let recoveryCode: string | undefined;
       if (data.kind === 'importVault' && result && 'snapshot' in result && result.snapshot) this.#wipe(current);
       if (result && 'removedForeign' in result) {
-        current.foreign = undefined; current.sync = { ...current.sync!, skipped: 0, removedForeign: result.removedForeign };
+        // Default mode keeps unreadable versions: only an opt-in removal clears them; otherwise the rest stays foreign (m5).
+        const all = data.kind === 'removeForeign' && data.versions === true; const rest = all ? 0 : Math.max(0, (current.sync?.skipped ?? 0) - result.removedForeign);
+        if (rest === 0) current.foreign = undefined;
+        current.sync = { ...current.sync!, skipped: rest, removedForeign: result.removedForeign };
       } else if (result && 'status' in result) {
         const { snapshot: _snapshot, foreign, recoveryCode: issued, ...summary } = result; current.sync = summary; current.foreign = foreign?.length ? foreign : undefined; recoveryCode = issued;
       } else if (data.kind === 'removeForeign') { current.foreign = undefined; current.sync = { ...current.sync!, skipped: 0, removedForeign: 0 }; }
