@@ -12,6 +12,6 @@ RUN mkdir /data && chown node:node /data && chmod 0700 /data
 USER node
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:8787/v1/info', {signal:AbortSignal.timeout(3000)}).then(async r=>{if(!r.ok || !(await r.json()).rendezvous)process.exit(1)}).catch(()=>process.exit(1))"
+  CMD node -e "const http=require('node:http');const o=process.env.SHELLHERD_SERVER_SOCKET?{socketPath:process.env.SHELLHERD_SERVER_SOCKET,path:'/v1/info'}:'http://127.0.0.1:8787/v1/info';const q=http.get(o,r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>{try{process.exit(r.statusCode===200&&JSON.parse(b).rendezvous===true?0:1)}catch{process.exit(1)}})});q.setTimeout(3000,()=>process.exit(1));q.on('error',()=>process.exit(1))"
 ENTRYPOINT ["node", "server/main.mjs"]
 CMD ["serve"]

@@ -8,7 +8,7 @@ import { createAccount, accountAuth, generatePassword } from './account-auth.mjs
 import { createSyncServer } from './server.mjs';
 import { AccountStore } from './account-transport.mjs';
 import { probeSyncServer, boundedJson } from './http-common.mjs';
-import { createDeviceIdentity, enrollmentBody, requestProofV2, sessionProof } from './device-proof.mjs';
+import { createDeviceIdentity, enrollmentBody, requestProofV3, sessionProof } from './device-proof.mjs';
 import { encryptVault } from '../../src/main/vault/crypto.ts';
 import { exampleVault } from '../../src/shared/vault/example.ts';
 // Persistence prototype relies on Linux permissions, directory fsync and process semantics.
@@ -20,8 +20,9 @@ afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn()
 
 const b64 = (n, fill) => Buffer.alloc(n, fill).toString('base64');
 /** A well-formed sync object envelope (the server cannot tell it from real ciphertext). */
-const syncObject = (n, size = 100, kind = 'version') => JSON.stringify({ format: 'shellherd-sync-object', version: 1, kind, cipher: { algorithm: 'aes-256-gcm', nonce: b64(12, 2), authTag: b64(16, 3) }, payload: b64(size, n) });
+const syncObject = (n, size = 100, kind = 'version') => JSON.stringify({ format: 'shellherd-sync-object', version: 2, kind, epoch: 1, cipher: { algorithm: 'aes-256-gcm', nonce: b64(12, 2), authTag: b64(16, 3) }, payload: b64(size, n) });
 const legacy = (n, size = 100) => JSON.stringify({ format: 'terminus-encrypted-vault', version: 1, kdf: { algorithm: 'argon2id', salt: b64(16, 1), memoryKiB: 65536, iterations: 3, parallelism: 1 }, cipher: { algorithm: 'aes-256-gcm', nonce: b64(12, 2), authTag: b64(16, 3) }, payload: b64(size, n) });
+const EMPTY_SHA = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 const sha = value => createHash('sha256').update(value).digest('hex');
 
 async function setup(options = {}) {
@@ -60,7 +61,7 @@ const sessionRaw = async (ctx, identity, { nonce, signer = identity, device = id
 const bearer = result => ({ authorization: `Bearer ${result.json.token}` });
 async function revokeRaw(ctx, { signer, token, id, deviceHeader = signer.id, path = '/v1/devices/' + id, signedPath = path, body }) {
   const nonce = await nonceOf(ctx);
-  const signature = sign(null, Buffer.from(requestProofV2(ctx.config.serverId, ctx.config.namespace, ctx.origin, 'DELETE', signedPath, nonce, signer.id)), signer.signingKey).toString('base64');
+  const signature = sign(null, Buffer.from(requestProofV3(ctx.config.serverId, ctx.config.namespace, ctx.origin, 'DELETE', signedPath, nonce, signer.id, EMPTY_SHA)), signer.signingKey).toString('base64');
   return http(ctx, 'DELETE', path, { headers: { authorization: `Bearer ${token}`, 'x-shellherd-device': deviceHeader, 'x-shellherd-nonce': nonce, 'x-shellherd-signature': signature }, body });
 }
 
@@ -188,7 +189,7 @@ it('lists devices with signing keys, sorted, and without trusting a client-side 
   let now = 1000; const ctx = await setup({ clock: () => now }); const a = await signedIn(ctx, 'A'); now += 5; const b = await signedIn(ctx, 'B', { ephemeral: true });
   const listed = await http(ctx, 'GET', '/v1/devices', { headers: bearer(await sessionRaw(ctx, a.identity)) });
   expect(listed.json.devices.map(d => d.name)).toEqual(['A', 'B']);
-  expect(listed.json.devices[0]).toEqual({ id: a.identity.id, name: 'A', signingKey: a.identity.signingPublicKey, enrolledAt: 1000, revokedAt: null, ephemeral: false, self: true });
+  expect(listed.json.devices[0]).toEqual({ id: a.identity.id, name: 'A', signingKey: a.identity.signingPublicKey, enrolledAt: 1000, revokedAt: null, enrolledBy: null, ephemeral: false, self: true });
   expect(listed.json.devices[1]).toMatchObject({ id: b.identity.id, ephemeral: true, self: false });
   expect(await a.store.devices()).toHaveLength(2);
 });
@@ -259,7 +260,7 @@ it('revokes with a device-bound proof: header, path, body and nonce checks', asy
   expect((await sessionRaw(ctx, b.identity)).status).toBe(401);
   await expect(b.store.list()).rejects.toMatchObject({ status: 401 }); // its existing token died with the revocation
   const nonce = await nonceOf(ctx); // a spent nonce cannot be reused
-  const sig = sign(null, Buffer.from(requestProofV2(ctx.config.serverId, ctx.config.namespace, ctx.origin, 'DELETE', '/v1/devices/' + target, nonce, a.identity.id)), a.identity.signingKey).toString('base64');
+  const sig = sign(null, Buffer.from(requestProofV3(ctx.config.serverId, ctx.config.namespace, ctx.origin, 'DELETE', '/v1/devices/' + target, nonce, a.identity.id, EMPTY_SHA)), a.identity.signingKey).toString('base64');
   const headers = { authorization: `Bearer ${token}`, 'x-shellherd-device': a.identity.id, 'x-shellherd-nonce': nonce, 'x-shellherd-signature': sig };
   expect((await http(ctx, 'DELETE', '/v1/devices/' + target, { headers })).status).toBe(200); expect((await http(ctx, 'DELETE', '/v1/devices/' + target, { headers })).status).toBe(401);
 });
@@ -443,7 +444,7 @@ it('binds enrollment, session and revocation proofs to the server origin (same s
   const session = await sessionRaw(b, d); expect(session.status).toBe(200);
   // Same for a DELETE proof.
   const n2 = await nonceOf(b); const path = '/v1/devices/' + peer.id;
-  const bad = sign(null, Buffer.from(requestProofV2(serverId, 'account', a.origin, 'DELETE', path, n2, d.id)), d.signingKey).toString('base64');
+  const bad = sign(null, Buffer.from(requestProofV3(serverId, 'account', a.origin, 'DELETE', path, n2, d.id, EMPTY_SHA)), d.signingKey).toString('base64');
   expect((await http(b, 'DELETE', path, { headers: { ...bearer(session), 'x-shellherd-device': d.id, 'x-shellherd-nonce': n2, 'x-shellherd-signature': bad } })).status).toBe(401);
   expect((await revokeRaw(b, { signer: d, token: session.json.token, id: peer.id })).status).toBe(200);
 });

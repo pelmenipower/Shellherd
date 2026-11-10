@@ -12,6 +12,8 @@ import { originOk } from '../scripts/sync-prototype/device-proof.mjs';
 import { parseTrustedProxies } from '../scripts/sync-prototype/rate-limit.mjs';
 const check = (ok, hint) => { if (!ok) throw Object.assign(Error('Invalid server configuration'), hint ? { hint } : {}); };
 const POLICIES = ['generated', 'custom'];
+const ENROLLMENTS = ['password', 'invite-only'];
+const CONFIG_KEYS = new Set(['account', 'namespace', 'serverId', 'passwordPolicy', 'enrollment']);
 export async function readConfig(path) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -20,9 +22,9 @@ export async function readConfig(path) {
     const buffer = Buffer.alloc(16385); let used = 0;
     while (used < buffer.length) { const { bytesRead } = await file.read(buffer, used, buffer.length - used, used); if (!bytesRead) break; used += bytesRead; }
     check(used <= 16384); const config = JSON.parse(buffer.subarray(0, used).toString('utf8'));
-    const keys = config && typeof config === 'object' ? Object.keys(config).sort().join(',') : '';
-    check(keys === 'account,namespace,serverId' || keys === 'account,namespace,passwordPolicy,serverId');
-    check(config.account !== null && typeof config.account === 'object' && (config.passwordPolicy === undefined || POLICIES.includes(config.passwordPolicy))); return config;
+    const keys = config && typeof config === 'object' && !Array.isArray(config) ? Object.keys(config) : [];
+    check(keys.every(key => CONFIG_KEYS.has(key)) && ['account', 'namespace', 'serverId'].every(key => keys.includes(key)));
+    check(config.account !== null && typeof config.account === 'object' && (config.passwordPolicy === undefined || POLICIES.includes(config.passwordPolicy)) && (config.enrollment === undefined || ENROLLMENTS.includes(config.enrollment))); return config;
   } finally { await file.close(); }
 }
 async function privateDirectory(dataDirectory) {
@@ -36,12 +38,12 @@ export async function cleanDataDirectory(dataDirectory) {
     try { const stat = await lstat(join(dataDirectory, file)); if (stat.isFile() && Date.now() - stat.mtimeMs > 3600_000) await unlink(join(dataDirectory, file)); } catch { /* best effort */ }
   }
 }
-export async function startServer({ dataDirectory, port = 8787, host = '127.0.0.1', origin = null, trustedProxy = false }) {
-  check(Number.isInteger(port) && port >= 0 && port <= 65535);
+export async function startServer({ dataDirectory, port = 8787, host = '127.0.0.1', origin = null, trustedProxy = false, socket = null }) {
+  check(Number.isInteger(port) && port >= 0 && port <= 65535 && (socket === null || (typeof socket === 'string' && socket.startsWith('/'))));
   await privateDirectory(dataDirectory); await cleanDataDirectory(dataDirectory);
-  const { account, serverId, namespace } = await readConfig(join(dataDirectory, 'server.json'));
-  const service = await createSyncServer({ account, serverId, namespace, directory: join(dataDirectory, 'objects'), origin, initialPasswordFile: join(dataDirectory, INITIAL_PASSWORD_FILE), rendezvous: true, trustedProxy });
-  try { await service.listen(port, host); return service; }
+  const { account, serverId, namespace, enrollment } = await readConfig(join(dataDirectory, 'server.json'));
+  const service = await createSyncServer({ account, serverId, namespace, directory: join(dataDirectory, 'objects'), origin, initialPasswordFile: join(dataDirectory, INITIAL_PASSWORD_FILE), rendezvous: true, trustedProxy: socket === null ? trustedProxy : false, enrollment: enrollment ?? 'password' });
+  try { if (socket === null) await service.listen(port, host); else await service.listenSocket(socket); return service; }
   catch (error) { await service.close(); throw error; }
 }
 // The policy describes the account password; without a known policy the marker is dropped (the server then warns at start).
@@ -58,7 +60,7 @@ async function offlineRoster(dataDirectory) {
 const iso = ms => new Date(ms).toISOString();
 export async function listDevices(dataDirectory) {
   const roster = await offlineRoster(dataDirectory);
-  return roster.list().map(device => [device.id, device.name, iso(device.enrolledAt), device.revokedAt === null ? '-' : iso(device.revokedAt), ...(device.ephemeral ? ['ephemeral'] : [])].join('\t'));
+  return roster.list().map(device => [device.id, device.name, iso(device.enrolledAt), device.revokedAt === null ? '-' : iso(device.revokedAt), device.enrolledBy === null ? 'password' : `invite:${device.enrolledBy}`, ...(device.ephemeral ? ['ephemeral'] : [])].join('\t'));
 }
 export async function revokeDevice(dataDirectory, id) {
   check(typeof id === 'string' && /^[a-f0-9]{64}$/.test(id), 'revoke-device takes a 64-character lowercase hex device id (see list-devices)');
@@ -72,23 +74,38 @@ export function serveConfig(env) {
   check(typeof rawOrigin === 'string' && rawOrigin !== '', 'Set SHELLHERD_SERVER_ORIGIN to the public origin of this server, e.g. https://sync.example.home');
   const origin = rawOrigin.endsWith('/') ? rawOrigin.slice(0, -1) : rawOrigin;
   check(originOk(origin), 'SHELLHERD_SERVER_ORIGIN must be an origin without path, in lowercase and without the default port, e.g. https://sync.example.home (plain http only for loopback or private addresses)');
+  const socket = env.SHELLHERD_SERVER_SOCKET;
+  if (socket !== undefined) {
+    check(typeof socket === 'string' && socket.startsWith('/') && !socket.includes('\0'), 'SHELLHERD_SERVER_SOCKET must be an absolute path, e.g. /run/shellherd/server.sock');
+    return { port: 8787, host: '127.0.0.1', origin, trustedProxy: false, socket };
+  }
   const port = Number(env.SHELLHERD_SERVER_PORT ?? 8787); check(Number.isInteger(port) && port > 0 && port <= 65535, 'SHELLHERD_SERVER_PORT must be a port number');
   const host = env.SHELLHERD_SERVER_HOST ?? '127.0.0.1';
   const trustedProxy = env.SHELLHERD_SERVER_TRUSTED_PROXY === undefined ? false : env.SHELLHERD_SERVER_TRUSTED_PROXY;
   if (trustedProxy !== false) parseTrustedProxies(trustedProxy); // fails with a hint; createSyncServer parses it again
   return { port, host, origin, trustedProxy };
 }
-// Run only with the server stopped. Preserve the namespace and all vault objects.
-export async function replaceAccount(dataDirectory, account, passwordPolicy) {
-  check(passwordPolicy === undefined || POLICIES.includes(passwordPolicy));
-  accountAuth(account); const config = await readConfig(join(dataDirectory, 'server.json'));
+// Atomic write of server.json (tmp, fsync, rename, directory fsync).
+async function writeConfig(dataDirectory, config) {
   const temporary = join(dataDirectory, randomBytes(16).toString('hex') + '.account-tmp');
   try {
     const file = await open(temporary, 'wx', 0o600);
-    try { await file.writeFile(JSON.stringify(withPolicy({ ...config, account }, passwordPolicy))); await file.sync(); } finally { await file.close(); }
+    try { await file.writeFile(JSON.stringify(config)); await file.sync(); } finally { await file.close(); }
     await rename(temporary, join(dataDirectory, 'server.json'));
     const dir = await open(dataDirectory, 'r'); try { await dir.sync(); } finally { await dir.close(); }
   } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+}
+// Run only with the server stopped. Preserve the namespace, the enrollment switch and all vault objects.
+export async function replaceAccount(dataDirectory, account, passwordPolicy) {
+  check(passwordPolicy === undefined || POLICIES.includes(passwordPolicy));
+  accountAuth(account); const config = await readConfig(join(dataDirectory, 'server.json'));
+  await writeConfig(dataDirectory, withPolicy({ ...config, account }, passwordPolicy));
+}
+// Run only with the server stopped. Keeps every other key.
+export async function setEnrollment(dataDirectory, mode) {
+  check(ENROLLMENTS.includes(mode));
+  const config = await readConfig(join(dataDirectory, 'server.json'));
+  await writeConfig(dataDirectory, { ...config, enrollment: mode });
 }
 async function main() {
   process.umask(0o077);
@@ -112,11 +129,21 @@ async function main() {
   }
   if (mode === 'list-devices') { for (const line of await listDevices(dataDirectory)) console.log(line); return; }
   if (mode === 'revoke-device') { await revokeDevice(dataDirectory, process.argv[3]); console.log('Device revoked.'); return; }
+  if (mode === 'lock-enrollment' || mode === 'unlock-enrollment') {
+    check(process.argv.length === 3); await privateDirectory(dataDirectory);
+    await setEnrollment(dataDirectory, mode === 'lock-enrollment' ? 'invite-only' : 'password');
+    console.log(mode === 'lock-enrollment'
+      ? 'Enrollment set to invite-only: new devices need an enrollment code. Start the server to apply.'
+      : 'Enrollment set to password: the server password can enroll new devices again. Start the server to apply.');
+    return;
+  }
   check(mode === 'serve');
-  const { port, host, origin, trustedProxy } = serveConfig(process.env);
-  const service = await startServer({ dataDirectory, port, host, origin, trustedProxy });
+  const { port, host, origin, trustedProxy, socket = null } = serveConfig(process.env);
+  if (socket !== null && ['SHELLHERD_SERVER_PORT', 'SHELLHERD_SERVER_HOST', 'SHELLHERD_SERVER_TRUSTED_PROXY'].some(name => process.env[name] !== undefined)) console.error('Note: SHELLHERD_SERVER_PORT, SHELLHERD_SERVER_HOST and SHELLHERD_SERVER_TRUSTED_PROXY are ignored while SHELLHERD_SERVER_SOCKET is set.');
+  const service = await startServer({ dataDirectory, port, host, origin, trustedProxy, socket });
+  if ((await readConfig(join(dataDirectory, 'server.json'))).enrollment !== 'invite-only' && service.activeDevices() > 0) console.error('Warning: password enrollment is open although devices are enrolled; run lock-enrollment to accept new devices only with an enrollment code.');
   if ((await readConfig(join(dataDirectory, 'server.json'))).passwordPolicy === undefined) console.error('Warning: this account predates the H3.1 password policy; its password may be shorter than 20 characters. Run rotate-password.');
-  console.log(`Shellherd storage and rendezvous listening on ${host}:${port}`);
+  console.log(socket === null ? `Shellherd storage and rendezvous listening on ${host}:${port}` : `Shellherd storage and rendezvous listening on unix socket ${socket}`);
   let stopping = false;
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
     if (stopping) return; stopping = true;
