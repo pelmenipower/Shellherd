@@ -106,8 +106,8 @@ node .claude/skills/run-app/sync-scene.mjs
 
 - **Release-Build (K18):** Nach `npm run dist*` enthält `out/` den Lab-Code nicht (`SHELLHERD_RELEASE=1`, Build-Konstante `__SHELLHERD_LABS__`). `sync-scene.mjs` (Chunk mit `SyncLabHost`) und `remote-scene.mjs` (`RemoteLabHost`) brechen dann mit Exit-Code 2 und der Meldung `out/ ohne Lab-Code (Release-Build). Neu bauen: npx electron-vite build` ab. Vor den Szenen also neu bauen.
 - **Ablauf (H4, K17):**
-  1. **Vorab-Abgleich:** Ein frischer Demo-Vault wird vom ersten Abgleich neu geschrieben, das schließt den Dialog und nähme den Code mit. Die Szene gleicht A deshalb zuerst gegen einen Wegwerf-Server ab (zweiter `createSyncServer`) und löscht danach den Sync-Zustand.
-  2. A: Einstellungen → Selfhosted Sync → Server-URL → Einschreiben mit **Serverpasswort** (Hinweis „Temporäre Geräteidentität“ sichtbar) → „Jetzt synchronisieren“ → Wiederherstellungscode in `.sync-lab-code` (Form `xxxx-…`) → „Ich habe den Code notiert“ → Code nirgends mehr im DOM.
+  1. A: Einstellungen → Selfhosted Sync → Server-URL → Einschreiben mit **Serverpasswort** (Hinweis „Temporäre Geräteidentität“ sichtbar) → „Jetzt synchronisieren“ → Wiederherstellungscode in `.sync-lab-code` (Form `xxxx-…`) → „Ich habe den Code notiert“ → Code nirgends mehr im DOM.
+  2. Ein frischer Demo-Vault wird vom ersten Abgleich neu geschrieben. Der Dialog hält diese Änderung zurück, bis der Code notiert ist, und schließt sich danach. Die Szene öffnet ihn wieder, verbindet und klickt „Sitzung öffnen“.
   3. A: „Gerät einladen“ → Anmeldecode (Shot `sync-invite`) → „Ich habe den Code übertragen“ → Code weg.
   4. B: „Mit Anmeldecode“ → Code und Gerätename (kein Passwortfeld) → angemeldet, **kein Codefeld** beim Laden, nur das neue Vault-Passwort (`synthetic-new-vault-pass`) → „Vault vom Server laden“ → Verbindungsliste mit `web-01`.
   5. Die Szene schreibt mit `AccountStore` ein drittes synthetisches Gerät per Passwort ein. A gleicht ab: der Hinweis „Neues Gerät“ erscheint für dieses Gerät, nicht für das von A eingeladene B (Shot `sync-new-device`), A bestätigt.
