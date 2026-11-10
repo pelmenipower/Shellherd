@@ -1,11 +1,11 @@
 // Enrollment, session and request proofs for enrolled devices. Ed25519 signs tagged JSON arrays (domain separation).
-import { createPublicKey, generateKeyPairSync } from 'node:crypto';
+import { createPublicKey, generateKeyPairSync, hkdfSync } from 'node:crypto';
 import { deviceId } from './rendezvous.mjs';
 import { isDeviceName } from './device-name.mjs';
 import { normalizeSyncServerUrl } from '../../src/shared/sync-server-url.mjs';
 export const DEVICE_ENROLLMENT = 'shellherd-device-enrollment-v2';
 export const DEVICE_SESSION = 'shellherd-device-session-v2';
-export const DEVICE_REQUEST = 'shellherd-device-request-v3';
+export const DEVICE_REQUEST = 'shellherd-device-request-v4';
 const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const check = ok => { if (!ok) throw Error('Device proof input rejected'); };
 const hex64 = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -42,9 +42,14 @@ export function sessionProof(serverId, namespace, origin, nonce, deviceIdValue) 
   check(hex64(serverId) && namespaceOk(namespace) && originOk(origin) && hex64(nonce) && hex64(deviceIdValue));
   return JSON.stringify([DEVICE_SESSION, serverId, namespace, origin, nonce, deviceIdValue]);
 }
-export function requestProofV2(serverId, namespace, origin, method, path, nonce, deviceIdValue) {
-  check(hex64(serverId) && namespaceOk(namespace) && originOk(origin) && ['GET', 'POST', 'PUT', 'DELETE'].includes(method) && typeof path === 'string' && path.startsWith('/v1/') && hex64(nonce) && hex64(deviceIdValue));
-  return JSON.stringify([DEVICE_REQUEST, serverId, namespace, origin, method, path, nonce, deviceIdValue]);
+export function requestProofV3(serverId, namespace, origin, method, path, nonce, deviceIdValue, bodySha256Hex) {
+  check(hex64(serverId) && namespaceOk(namespace) && originOk(origin) && ['GET', 'POST', 'PUT', 'DELETE'].includes(method) && typeof path === 'string' && path.startsWith('/v1/') && hex64(nonce) && hex64(deviceIdValue) && hex64(bodySha256Hex));
+  return JSON.stringify([DEVICE_REQUEST, serverId, namespace, origin, method, path, nonce, deviceIdValue, bodySha256Hex]);
+}
+/** Enrollment secret derived from an enrollment code; bound to server, namespace and origin (relay protection). */
+export function inviteEnrollSecret(code, serverId, namespace, origin) {
+  check(typeof code === 'string' && /^[a-f0-9]{32}$/.test(code) && hex64(serverId) && namespaceOk(namespace) && originOk(origin));
+  return Buffer.from(hkdfSync('sha256', Buffer.from(code, 'hex'), Buffer.from(JSON.stringify([serverId, namespace, origin])), 'shellherd-invite-enroll-v1', 32)).toString('hex');
 }
 /** Scripts/tests/smoke/scenes only (Node crypto). Same shape as the main-process RemoteIdentity. */
 export function createDeviceIdentity() {

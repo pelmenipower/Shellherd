@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { windowRegistry } from '../windows';
 import { SyncLabHost } from './lab-host';
 import type { AccountDriver } from './lab-host';
-import { synchronizeVault, importSyncedVault, removeForeignObjects, regenerateRecoveryCode } from './vault-sync';
+import { synchronizeVault, importSyncedVault, removeForeignObjects, rotateSyncKey, createInvite } from './vault-sync';
 import type { VaultRemote } from './vault-sync';
 import type { VaultSessionManager, VaultSessionSnapshot } from '../vault/session';
 import { mainT } from '../i18n';
@@ -37,21 +37,23 @@ export function buildSyncLabHost(transport: TransportModule, account: AccountMod
       if (remote.remove) vaultRemote.remove = (id: string) => remote.remove!(id);
       const context = device ? { ...info, device } : info;
       if (request.kind === 'removeForeign') return { removedForeign: await removeForeignObjects(options.sessions, vaultRemote, info, request.ids, signal, { versions: request.versions === true }) };
-      if (request.kind === 'importVault') return importSyncedVault(options.sessions, vaultRemote, context, request.recoveryCode, request.password, signal, async () => {
+      if (request.kind === 'importVault') return importSyncedVault(options.sessions, vaultRemote, context, 'inviteCode' in request ? { inviteCode: request.inviteCode } : { recoveryCode: request.recoveryCode }, request.password, signal, async () => {
         const parent = windowRegistry.main(); if (!parent || signal.aborted) return undefined;
         const result = await dialog.showSaveDialog(parent, { title: mainT('dialogs.vaultSave.title'), defaultPath: 'synced-vault.term', filters: [{ name: mainT('dialogs.vaultFilter'), extensions: ['term'] }] });
         return result.canceled ? undefined : result.filePath;
       });
-      if (request.kind === 'regenerateCode') return regenerateRecoveryCode(options.sessions, vaultRemote, context, signal);
+      if (request.kind === 'rotateKey') return rotateSyncKey(options.sessions, vaultRemote, context, signal);
+      if (request.kind === 'createInvite') return createInvite(options.sessions, vaultRemote, context, request.origin, signal);
       return synchronizeVault(options.sessions, vaultRemote, context, signal, {
         keepLocalRevision: request.kind === 'keepLocal' ? request.revision : undefined,
         recoveryCode: request.kind === 'synchronize' ? request.recoveryCode : undefined,
+        inviteCode: request.kind === 'synchronize' ? request.inviteCode : undefined,
       });
     }, vaultPasswordMatcher(options.sessions), options.identity ? () => options.identity! : undefined);
 }
 
 /** Dispatcher guard (K16): only known kinds pass; the handlers validate each request strictly. */
-const kindSchema = z.object({ kind: z.enum(['status', 'close', 'connect', 'signIn', 'openSession', 'listDevices', 'revokeDevice', 'synchronize', 'keepLocal', 'importVault', 'removeForeign', 'regenerateCode']) }).passthrough();
+const kindSchema = z.object({ kind: z.enum(['status', 'close', 'connect', 'signIn', 'signInWithInvite', 'openSession', 'listDevices', 'revokeDevice', 'acknowledgeDevice', 'synchronize', 'keepLocal', 'importVault', 'removeForeign', 'invite', 'rotateKey']) }).passthrough();
 
 /** Account transport scripts are loaded only in an explicitly enabled dev checkout. */
 export async function registerSyncLabIpc(options: { sessions?: VaultSessionManager; identity?: RemoteIdentityStore; onSynced?: (snapshot: VaultSessionSnapshot) => void } = {}): Promise<SyncLabHost> {
@@ -71,7 +73,7 @@ export async function registerSyncLabIpc(options: { sessions?: VaultSessionManag
     const parsed = kindSchema.safeParse(request);
     if (!parsed.success) return { ok: false, code: 'invalid' } satisfies SyncLabReply;
     const kind = parsed.data.kind; const owner = event.sender.id;
-    if (kind === 'synchronize' || kind === 'keepLocal' || kind === 'importVault' || kind === 'removeForeign' || kind === 'regenerateCode') {
+    if (kind === 'synchronize' || kind === 'keepLocal' || kind === 'importVault' || kind === 'removeForeign' || kind === 'invite' || kind === 'rotateKey') {
       return host.performSync(owner, request).then(reply => {
         if (reply.ok && reply.vaultChanged) options.onSynced?.(reply.vaultChanged);
         return reply;
@@ -79,8 +81,9 @@ export async function registerSyncLabIpc(options: { sessions?: VaultSessionManag
     }
     if (kind === 'connect') return host.connect(owner, request);
     if (kind === 'signIn') return host.signIn(owner, request);
+    if (kind === 'signInWithInvite') return host.signInWithInvite(owner, request);
     if (kind === 'openSession') return host.openSession(owner, request);
-    if (kind === 'listDevices' || kind === 'revokeDevice') return host.devices(owner, request);
+    if (kind === 'listDevices' || kind === 'revokeDevice' || kind === 'acknowledgeDevice') return host.devices(owner, request);
     return host.request(owner, request);
   });
   return host;

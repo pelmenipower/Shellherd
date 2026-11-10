@@ -17,6 +17,7 @@ shellherd.example.org {
     }
     @api path /v1/*
     handle @api {
+        # Alternative with the unix socket (compose.socket.yaml): reverse_proxy unix//run/shellherd/server.sock
         reverse_proxy 127.0.0.1:8787 {
             transport http {
                 dial_timeout 2s

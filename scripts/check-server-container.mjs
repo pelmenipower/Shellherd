@@ -62,6 +62,15 @@ try {
   }
   async function signIn(currentInfo, identity) { const store = new AccountStore(currentInfo); stores.push(store); await store.openSession(identity); return store; }
   const { store: first, identity: firstIdentity } = await enroll(info); const { store: second, identity: secondIdentity } = await enroll(info);
+  // Enrollment code: the first device invites, a third one enrolls with the code alone and the roster names the issuer.
+  async function enrollByInvite(issuerStore, issuerIdentity, currentInfo) {
+    const secret = randomBytes(32).toString('hex'); await issuerStore.invite(issuerIdentity, { secret, object: null });
+    const store = new AccountStore(currentInfo); stores.push(store); const identity = createDeviceIdentity();
+    assert.equal((await store.enrollWithInvite(identity, { secret, name: 'synthetic-device-' + ++devices, ephemeral: false })).username, 'container-test');
+    await store.openSession(identity); return { store, identity };
+  }
+  const guest = await enrollByInvite(first, firstIdentity, info);
+  assert.equal((await first.devices()).find(d => d.id === guest.identity.id).enrolledBy, firstIdentity.id);
   const alice = new RendezvousPeer(first, firstIdentity); const bob = new RendezvousPeer(second, secondIdentity);
   await alice.register('synthetic-client'); await bob.register('synthetic-target');
   const session = await alice.request(bob.identity.id);
@@ -74,7 +83,7 @@ try {
   const nonce = randomBytes(12); const key = randomBytes(32);
   const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(Buffer.from('shellherd-container-check'));
   const payload = Buffer.concat([cipher.update('SYNTHETIC_PRIVATE_VAULT_CONTENT'), cipher.final()]);
-  const wire = JSON.stringify({ format: 'shellherd-sync-object', version: 1, kind: 'version', cipher: { algorithm: 'aes-256-gcm', nonce: nonce.toString('base64'), authTag: cipher.getAuthTag().toString('base64') }, payload: payload.toString('base64') });
+  const wire = JSON.stringify({ format: 'shellherd-sync-object', version: 2, kind: 'version', epoch: 1, cipher: { algorithm: 'aes-256-gcm', nonce: nonce.toString('base64'), authTag: cipher.getAuthTag().toString('base64') }, payload: payload.toString('base64') });
   const id = await first.put(wire);
   // Exercise the actual image HEALTHCHECK command before stopping.
   const health = JSON.parse(await docker(['inspect', name]))[0].Config.Healthcheck.Test;
@@ -101,6 +110,22 @@ try {
   assert.equal(await (await enroll(info, newPassword)).store.get(id), wire);
   assert.equal(await (await signIn(info, firstIdentity)).get(id), wire); // enrolled devices keep working without the password
   console.log('PASS: atomic account rotation rejects the old password for new enrollments and retains server identity, roster and encrypted objects.');
+  // Offline switch to invite-only: the password form is refused after the restart, an enrollment code still works.
+  await stop();
+  const lock = "import {setEnrollment} from './server/main.mjs'; await setEnrollment('/data','invite-only');";
+  await docker(['run', '--rm', '--network', 'none', '--read-only', ...volumeMount(restored), '--entrypoint', 'node', image, '--input-type=module', '-e', lock]);
+  info = await start(restored); assert.equal(info.enrollment, 'invite-only');
+  await assert.rejects(() => enroll(info, newPassword), error => error.status === 403);
+  const owner = await signIn(info, firstIdentity); const late = await enrollByInvite(owner, firstIdentity, info);
+  assert.equal((await owner.devices()).find(d => d.id === late.identity.id).enrolledBy, firstIdentity.id);
+  console.log('PASS: offline lock-enrollment: password enrollment is refused with 403, enrollment codes still enroll devices.');
+  // The socket override must remove the published port and set the socket variable. Older Compose versions without !reset only get a hint.
+  try {
+    const socketCompose = JSON.parse(await docker(['compose', '-f', fileURLToPath(new URL('../server/compose.yaml', import.meta.url)), '-f', fileURLToPath(new URL('../server/compose.socket.yaml', import.meta.url)), 'config', '--format', 'json'], { env: { ...process.env, SHELLHERD_SERVER_ORIGIN: 'https://shellherd.example.org' } }));
+    assert.equal(socketCompose.services.server.environment.SHELLHERD_SERVER_SOCKET, '/run/shellherd/server.sock');
+    if (socketCompose.services.server.ports?.length) console.warn('Hint: this Docker Compose version does not apply !reset, the socket override keeps the published port.');
+    else console.log('PASS: compose.socket.yaml sets the socket variable and publishes no port.');
+  } catch (error) { if (error?.code === 'ERR_ASSERTION') throw error; console.warn('Hint: compose.socket.yaml could not be rendered with this Docker Compose version: ' + error.message); }
 } finally {
   for (const channel of channels) channel.dispose(); for (const store of stores) store.close();
   await stop(); for (const item of volumes) await docker(['volume', 'rm', item]);

@@ -176,6 +176,8 @@ describe('RemoteLabHost: setup', () => {
     await a.act({ kind: 'connect', serverUrl: URL });
     (a.account.enroll as ReturnType<typeof vi.fn>).mockRejectedValueOnce(Object.assign(new Error('x'), { status: 401 }));
     expect(await a.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'authentication' });
+    (a.account.enroll as ReturnType<typeof vi.fn>).mockRejectedValueOnce(Object.assign(new Error('x'), { status: 403 }));
+    expect(await a.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'enrollmentLocked' });
     (a.account.enroll as ReturnType<typeof vi.fn>).mockRejectedValueOnce(Object.assign(new Error('x'), { status: 429 }));
     expect(await a.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'limit' });
     (a.account.enroll as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('x'));

@@ -1,4 +1,4 @@
-/** Recovery code helpers; pure (no node:*) so the renderer can import them. */
+/** Recovery and enrollment code helpers (both are 128-bit codes in the same format); pure (no node:*) so the renderer can import them. */
 export const RECOVERY_CODE_HEX = 32;
 export const RECOVERY_CODE_INPUT_MAX = 64;
 const CODE = /^[0-9a-f]{32}$/;

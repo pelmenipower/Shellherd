@@ -62,7 +62,8 @@
     "scope": "Steuerung wird noch nicht unterstützt. Nur Ansehen ist möglich.",
     "limit": "Zu viele Anfragen oder Geräte. Warte kurz und versuche es erneut.",
     "samePassword": "Das Serverpasswort darf nicht dein Vault-Passwort sein. Es wurde nichts an den Server gesendet.",
-    "enrolledElsewhere": "Dieses Gerät ist für diesen Server unter einer anderen Adresse angemeldet. Bestätige die Neuanmeldung ausdrücklich."
+    "enrolledElsewhere": "Dieses Gerät ist für diesen Server unter einer anderen Adresse angemeldet. Bestätige die Neuanmeldung ausdrücklich.",
+    "enrollmentLocked": "Dieser Server nimmt neue Geräte nur mit Anmeldecode an. Melde dieses Gerät zuerst im Sync-Lab mit einem Anmeldecode an."
   },
   "verify": {
     "label": "Erste 16 Zeichen des Fingerabdrucks vom anderen Gerät (die ersten zwei Gruppen)",
