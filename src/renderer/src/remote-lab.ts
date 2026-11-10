@@ -14,6 +14,7 @@ export const REMOTE_ERROR_KEYS = {
   mismatch: 'remoteLab:errors.mismatch',
   signal: 'remoteLab:errors.signal',
   media: 'remoteLab:errors.media',
+  mediaWindow: 'remoteLab:errors.mediaWindow',
   peer: 'remoteLab:errors.peer',
   scope: 'remoteLab:errors.scope',
   limit: 'remoteLab:errors.limit',

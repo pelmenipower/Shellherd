@@ -20,7 +20,6 @@ function grouped(fingerprint: string): string {
 export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSessionController; onClose: () => void }) {
   const { t } = useT(); const id = useId();
   const dialog = useRef<HTMLDialogElement>(null); const closeButton = useRef<HTMLButtonElement>(null);
-  const video = useRef<HTMLVideoElement>(null);
   const mounted = useRef(false); const pending = useRef(false);
   const [view, setView] = useState<RemoteView>(controller.view);
   const [busy, setBusy] = useState(false);
@@ -54,7 +53,6 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
     const handle = setTimeout(() => setWaiting(true), WAITING_DELAY_MS);
     return () => clearTimeout(handle);
   }, [requesting]);
-  useEffect(() => { if (video.current) video.current.srcObject = view.stream ?? null; }, [view.stream]);
 
   async function run(action: () => Promise<RemoteLabReply>): Promise<void> {
     if (pending.current) return;
@@ -157,13 +155,9 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
         </section>}
       </>}
     </section>}
-    {viewerSession?.state === 'connecting' && !view.stream && <p className="remote-lab-caption" role="status">{t('remoteLab:connecting')}</p>}
+    {viewerSession?.state === 'connecting' && <p className="remote-lab-caption" role="status">{t('remoteLab:connecting')}</p>}
     {requesting && waiting && <p className="remote-lab-caption" role="status">{t('remoteLab:waiting')}</p>}
-    {viewerSession && view.stream && <section className="remote-lab-viewer">
-      <video ref={video} className="remote-lab-video" autoPlay muted playsInline />
-      <p className="remote-lab-caption" role="status">{t('remoteLab:viewing', { name: viewerSession.peer.name, time: formatDateTime(viewerSession.expiresAt, 'time') })}</p>
-      <button type="button" className="secondary-button" onClick={() => controller.stop()}>{t('remoteLab:stop')}</button>
-    </section>}
-    {viewerSession && !view.stream && <button type="button" className="secondary-button" onClick={() => controller.stop()}>{t('remoteLab:stop')}</button>}
+    {viewerSession?.state === 'active' && <p className="remote-lab-caption" role="status">{t('remoteLab:viewerWindow')}</p>}
+    {viewerSession && <button type="button" className="secondary-button" onClick={() => controller.stop()}>{t('remoteLab:stop')}</button>}
   </dialog>;
 }
