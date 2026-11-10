@@ -1,6 +1,7 @@
 // Run against linux-unpacked, an extracted DEB, or an AppImage. No system Node is used by the app.
 import { _electron as electron } from 'playwright-core';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, access } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import assert from 'node:assert/strict';
@@ -10,7 +11,7 @@ const executablePath = resolve(process.argv[2] ?? 'dist/linux-unpacked/shellherd
 const profile = await mkdtemp(join(tmpdir(), 'shellherd-smoke-'));
 let app;
 try {
-  app = await electron.launch({ executablePath, args: [`--user-data-dir=${join(profile, 'user-data')}`], env: { ...process.env, XDG_CONFIG_HOME: join(profile, 'config') }, timeout: 30_000 });
+  app = await electron.launch({ executablePath, args: [`--user-data-dir=${join(profile, 'user-data')}`], env: { ...process.env, XDG_CONFIG_HOME: join(profile, 'config'), SHELLHERD_SYNC_LAB: '1', SHELLHERD_REMOTE_LAB: '1', SHELLHERD_REMOTE_CAPTURE_FAKE: '1' }, timeout: 30_000 });
   const window = await app.firstWindow();
   await window.waitForLoadState('domcontentloaded');
   const caps = await window.evaluate(() => window.desktopApi.capabilities);
@@ -18,12 +19,29 @@ try {
   assert.equal(caps.rdp, false);
   assert.equal(caps.windowsHello, false);
   assert.ok(caps.localShells.includes('bash'));
+  // Packaged builds must ignore the lab flags even when the environment requests them.
+  const labs = await window.evaluate(() => ({ sync: window.desktopApi.syncLabEnabled, remote: window.desktopApi.remoteLabEnabled, fake: window.desktopApi.remoteCaptureFake }));
+  assert.deepEqual(labs, { sync: false, remote: false, fake: false }, 'Lab flags must stay off in a packaged build');
   const sandboxed = await app.evaluate(({ BrowserWindow }) => {
     const preferences = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
     return preferences.sandbox && preferences.contextIsolation && !preferences.nodeIntegration;
   });
   assert.ok(sandboxed, 'Renderer sandbox must be enabled');
   assert.ok((await window.locator('body').innerText()).includes('Shellherd'));
+  // Fuse probes: ELECTRON_RUN_AS_NODE and NODE_OPTIONS must have no effect on the packaged binary.
+  const run = (args, env, ms) => new Promise((res) => {
+    const child = spawn(executablePath, args, { env: { ...process.env, ...env, XDG_CONFIG_HOME: join(profile, 'probe-config') }, stdio: 'ignore' });
+    const timer = setTimeout(() => child.kill('SIGKILL'), ms);
+    child.on('exit', (code) => { clearTimeout(timer); res(code); });
+    child.on('error', () => { clearTimeout(timer); res(null); });
+  });
+  const code = await run(['-e', 'process.exit(7)'], { ELECTRON_RUN_AS_NODE: '1' }, 15_000);
+  assert.notEqual(code, 7, 'ELECTRON_RUN_AS_NODE must not turn the binary into Node');
+  const marker = join(profile, 'marker.txt');
+  const hook = join(profile, 'marker.cjs');
+  await writeFile(hook, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran');`);
+  await run([`--user-data-dir=${join(profile, 'probe-data')}`], { NODE_OPTIONS: `--require=${hook}` }, 10_000);
+  await assert.rejects(access(marker), 'NODE_OPTIONS must not be honoured');
   console.log('Linux application opened successfully with isolated, sandboxed renderer.');
 } finally {
   await app?.close();
