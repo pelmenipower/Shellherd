@@ -71,10 +71,11 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
   const known = vi.fn((_id: string): { firstSeen: number; verified: boolean; verifiedAt?: number } | undefined => undefined);
   const renamed = vi.fn((_id: string, _name: string) => false);
   const load = vi.fn(() => ({ identity: { id: SELF, publicKey: 'pk-self', privateKey: {} } as unknown as RemoteIdentity, persistent: true }));
-  const enrollment = vi.fn((_serverId: string): Enrollment | undefined => undefined);
+  const enrollment = vi.fn((_serverId: string, _serverUrl: string): Enrollment | undefined => undefined);
+  const enrolledElsewhere = vi.fn((_serverId: string, _serverUrl: string): string | undefined => undefined);
   const rememberEnrollment = vi.fn();
   const forgetEnrollment = vi.fn();
-  const store = { load, known, remember, renamed, enrollment, rememberEnrollment, forgetEnrollment } as unknown as RemoteIdentityStore;
+  const store = { load, known, remember, renamed, enrollment, enrolledElsewhere, rememberEnrollment, forgetEnrollment } as unknown as RemoteIdentityStore;
   const account: RemoteAccount & { getImpl?: () => Promise<unknown> } = {
     enroll: vi.fn(async () => ({})),
     openSession: vi.fn(async () => ({ signedIn: true as const, expiresAt: 5_000_000, device: 'Laptop' })),
@@ -136,7 +137,7 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     return channels[channels.length - 1]!;
   };
   const deletes = (): string[] => requests.filter(r => r.method === 'DELETE').map(r => r.path);
-  return { host, handshake, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, enrollment, rememberEnrollment, forgetEnrollment, emergency, confirmCapture, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
+  return { host, handshake, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, enrollment, enrolledElsewhere, rememberEnrollment, forgetEnrollment, emergency, confirmCapture, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
 }
 
 describe('RemoteLabHost: setup', () => {
@@ -259,13 +260,37 @@ describe('RemoteLabHost: setup', () => {
     expect((await t.act({ kind: 'goOnline', deviceName: '' })).ok).toBe(true);
   });
 
-  it('K10: an enrollment on another URL shows enrolledElsewhere and allows no openSession', async () => {
+  it('K10: an enrollment on another origin shows enrolledElsewhere and allows no openSession', async () => {
     const t = setup();
-    t.enrollment.mockReturnValue({ serverId: 'f'.repeat(64), namespace: 'demo', serverUrl: 'https://old.example/', username: 'demo', name: 'Laptop', enrolledAt: 1 });
+    t.enrolledElsewhere.mockReturnValue('https://old.example/');
     const reply = await t.act({ kind: 'connect', serverUrl: URL });
     expect(reply).toMatchObject({ ok: true, state: { enrolledElsewhere: 'https://old.example/' } });
+    expect(t.enrolledElsewhere).toHaveBeenCalledWith('f'.repeat(64), URL);
     expect((reply as { state: { enrolled?: unknown } }).state.enrolled).toBeUndefined();
     expect(await t.act({ kind: 'openSession' })).toEqual({ ok: false, code: 'stale' });
+  });
+
+  it('K29: signIn on an elsewhere-enrolled device needs confirmElsewhere; the old entry is kept', async () => {
+    const t = setup();
+    t.enrolledElsewhere.mockReturnValue('https://old.example/');
+    await t.act({ kind: 'connect', serverUrl: URL });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'enrolledElsewhere' });
+    expect(t.account.enroll).not.toHaveBeenCalled();
+    expect(t.rememberEnrollment).not.toHaveBeenCalled();
+    expect((await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop', confirmElsewhere: true })).ok).toBe(true);
+    expect(t.account.enroll).toHaveBeenCalledTimes(1);
+    expect(t.forgetEnrollment).not.toHaveBeenCalled();
+  });
+
+  it('device names follow isDeviceName: a code-like name is invalid, listed devices with such names are dropped', async () => {
+    const t = setup();
+    await t.act({ kind: 'connect', serverUrl: URL });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'ab12 cd34' })).toEqual({ ok: false, code: 'invalid' });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'x'.repeat(65) })).toEqual({ ok: false, code: 'invalid' });
+    const u = setup();
+    await u.goOnline();
+    u.handlers().onDevices([device(B, 'Büro'), device('c'.repeat(64), 'abcdef12 34')]);
+    expect(await u.act({ kind: 'status' })).toMatchObject({ ok: true, state: { devices: [{ id: B, name: 'Büro' }] } });
   });
 
   it('openSession: one 401 is retried, two 401 forget the enrollment (B6)', async () => {
@@ -282,7 +307,7 @@ describe('RemoteLabHost: setup', () => {
     await u.act({ kind: 'connect', serverUrl: URL });
     (u.account.openSession as ReturnType<typeof vi.fn>).mockRejectedValue(Object.assign(new Error('x'), { status: 401 }));
     expect(await u.act({ kind: 'openSession' })).toEqual({ ok: false, code: 'authentication' });
-    expect(u.forgetEnrollment).toHaveBeenCalledWith('f'.repeat(64));
+    expect(u.forgetEnrollment).toHaveBeenCalledWith('f'.repeat(64), URL);
     expect((await u.act({ kind: 'status' }) as { state: { enrolled?: unknown } }).state.enrolled).toBeUndefined();
   });
 

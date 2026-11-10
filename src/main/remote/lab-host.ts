@@ -2,6 +2,7 @@
 // external (server, account, peer, presence, identity, timers) is injected. Deadlines use the local clock only.
 import type { KeyObject } from 'node:crypto';
 import { z } from 'zod';
+import { isDeviceName } from '../../shared/device-name';
 import { compareText } from '../../shared/format';
 import { REMOTE_LAB_LIMITS } from '../../shared/remote-lab';
 import type {
@@ -59,7 +60,7 @@ const requestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('status'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('close'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('connect'), clientId: uuid, serverUrl: z.string().max(2048), privateNetwork: z.boolean().optional() }).strict(),
-  z.object({ kind: z.literal('signIn'), clientId: uuid, username: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/), password: z.string().min(1).max(1024), deviceName: z.string().max(1024) }).strict(),
+  z.object({ kind: z.literal('signIn'), clientId: uuid, username: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/), password: z.string().min(1).max(1024), deviceName: z.string().max(1024), confirmElsewhere: z.literal(true).optional() }).strict(),
   z.object({ kind: z.literal('openSession'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('goOnline'), clientId: uuid, deviceName: z.string().max(1024) }).strict(),
   z.object({ kind: z.literal('goOffline'), clientId: uuid }).strict(),
@@ -75,9 +76,8 @@ const wireSchema = z.object({
   id: z.string().regex(hex64), from: z.string().regex(hex64), to: z.string().regex(hex64), nonce: z.string().regex(/^[a-f0-9]{1,128}$/),
   scope: z.string().max(32), state: z.string().max(32), expiresAt: z.number().finite(),
 });
-const deviceSchema = z.object({ id: z.string().regex(hex64), name: z.string().min(1).max(L.deviceName), publicKey: z.string().max(256) });
+const deviceSchema = z.object({ id: z.string().regex(hex64), name: z.string().refine(isDeviceName), publicKey: z.string().max(256) });
 const frameSchema = z.object({ part: z.unknown() }).strict();
-const NAME = /^[^\x00-\x1f\x7f]{1,80}$/;
 
 interface Sess {
   id: string; role: 'viewer' | 'agent'; peer: RemoteDevice; wire: RemoteSessionWire;
@@ -144,7 +144,7 @@ export class RemoteLabHost {
       case 'status': return this.#ok();
       case 'close': this.#teardown('stopped'); return { ok: true, state: { phase: 'idle' } };
       case 'connect': return this.#exclusive(() => this.#connect(owner, req.clientId, req.serverUrl, req.privateNetwork === true));
-      case 'signIn': return this.#exclusive(() => this.#signIn(req.username, req.password, req.deviceName));
+      case 'signIn': return this.#exclusive(() => this.#signIn(req.username, req.password, req.deviceName, req.confirmElsewhere));
       case 'openSession': return this.#exclusive(() => this.#openSession());
       case 'goOnline': return this.#exclusive(() => this.#goOnline(req.deviceName));
       case 'goOffline': return this.#exclusive(() => this.#goOffline());
@@ -251,9 +251,9 @@ export class RemoteLabHost {
       let loaded: { identity: RemoteIdentity; persistent: boolean };
       try { loaded = store.load(); } catch { this.#binding = undefined; this.#lastSent = undefined; return { ok: false, code: 'identity' }; }
       this.#loaded = loaded;
-      const e = store.enrollment(info.serverId);
-      if (e && e.serverUrl === info.serverUrl && e.namespace === info.namespace) this.#enrolled = { username: e.username, name: e.name };
-      else if (e) this.#elsewhere = e.serverUrl;
+      const e = store.enrollment(info.serverId, info.serverUrl);
+      if (e && e.namespace === info.namespace) this.#enrolled = { username: e.username, name: e.name };
+      else this.#elsewhere = e?.serverUrl ?? store.enrolledElsewhere(info.serverId, info.serverUrl);
       this.#info = info; this.#phase = 'serverReady';
       return this.#ok();
     } catch {
@@ -263,10 +263,12 @@ export class RemoteLabHost {
     }
   }
 
-  async #signIn(username: string, password: string, deviceName: string): Promise<RemoteLabReply> {
+  async #signIn(username: string, password: string, deviceName: string, confirmElsewhere?: true): Promise<RemoteLabReply> {
     if (this.#phase !== 'serverReady' || !this.#info || !this.#loaded) return { ok: false, code: 'stale' };
     if (!this.deps!.isUnlocked()) return { ok: false, code: 'locked' };
-    if (!NAME.test(deviceName)) return { ok: false, code: 'invalid' };
+    if (!isDeviceName(deviceName)) return { ok: false, code: 'invalid' };
+    // Another address already holds an enrollment for this server ID: enrolling here needs an explicit confirmation (K29).
+    if (this.#elsewhere && confirmElsewhere !== true) return { ok: false, code: 'enrolledElsewhere' };
     const gen = this.#gen;
     let same: boolean;
     try { same = await this.deps!.matchesVaultPassword(password); } catch { return { ok: false, code: 'locked' }; }
@@ -309,7 +311,7 @@ export class RemoteLabHost {
         if (this.#gen !== gen) return { ok: false, code: 'stale' };
         if (statusOf(error) === 401 && attempt === 0) continue;
         if (statusOf(error) === 401) {
-          this.deps!.identity().forgetEnrollment(info.serverId);
+          this.deps!.identity().forgetEnrollment(info.serverId, info.serverUrl);
           this.#enrolled = undefined;
           this.#publish();
         }
@@ -327,7 +329,7 @@ export class RemoteLabHost {
     if (!loaded) return { ok: false, code: 'stale' };
     // An empty name falls back to the name given at enrollment.
     if (name === '' && this.#enrolled) name = this.#enrolled.name;
-    if (!NAME.test(name)) return { ok: false, code: 'invalid' };
+    if (!isDeviceName(name)) return { ok: false, code: 'invalid' };
     const gen = this.#gen;
     const store = this.deps!.identity();
     const peer = this.deps!.createPeer(account, loaded.identity);

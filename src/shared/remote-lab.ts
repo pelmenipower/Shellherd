@@ -5,13 +5,13 @@ export interface RemoteKnown { firstSeen: number; verified: boolean; verifiedAt?
 export interface RemoteDevice { id: string; name: string; known?: RemoteKnown; changed?: true }
 export type RemoteEndReason = 'stopped' | 'remote' | 'expired' | 'locked' | 'declined' | 'failed' | 'scope' | 'mismatch';
 export type RemoteErrorCode = 'unavailable' | 'invalid' | 'stale' | 'identity' | 'locked' | 'connection' | 'authentication' | 'expired'
-  | 'declined' | 'mismatch' | 'signal' | 'media' | 'peer' | 'scope' | 'limit' | 'samePassword';
+  | 'declined' | 'mismatch' | 'signal' | 'media' | 'peer' | 'scope' | 'limit' | 'samePassword' | 'enrolledElsewhere';
 /** Wire part inside the E2EE channel. 'bye' is host-internal and never crosses IPC. */
 export interface RemoteSignalPart { kind: 'offer' | 'answer' | 'bye'; part: number; of: number; data: string }
 export type RemoteLabCommand =
   | { kind: 'status' } | { kind: 'close' }
   | { kind: 'connect'; serverUrl: string; privateNetwork?: boolean }
-  | { kind: 'signIn'; username: string; password: string; deviceName: string } | { kind: 'openSession' }
+  | { kind: 'signIn'; username: string; password: string; deviceName: string; confirmElsewhere?: true } | { kind: 'openSession' }
   | { kind: 'goOnline'; deviceName: string } | { kind: 'goOffline' }
   | { kind: 'request'; target: string; verification: string | null }
   | { kind: 'armCapture'; sessionId: string; verification: string | null }
@@ -49,7 +49,7 @@ export type RemoteLabEvent =
   | { kind: 'error'; code: RemoteErrorCode };
 export type RemoteLabReply = { ok: true; state: RemoteLabState } | { ok: false; code: RemoteErrorCode };
 export const REMOTE_LAB_LIMITS = {
-  deviceName: 80, signalPart: 6144, signalParts: 4, sdp: 24576,
+  deviceName: 64, signalPart: 6144, signalParts: 4, sdp: 24576,
   requestMs: 60000, consentMs: 55000, sessionMs: 300000,
   setupPollMs: 1000, activePollMs: 5000, gatherMs: 2000, acceptDelayMs: 1000, byeMs: 2000,
   verificationHex: 16, verificationAttempts: 3, muteMs: 600000, handshakeMs: 20000,
