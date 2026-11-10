@@ -1,0 +1,8 @@
+html, body { margin: 0; height: 100%; background: var(--color-bg-stage); color: var(--color-text); font-family: var(--font-ui); font-size: var(--fs-md); }
+#stage { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; padding: var(--space-8); gap: var(--space-8); }
+#video { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: var(--color-bg-stage); }
+#status { margin: 0; color: var(--color-text-muted); font-size: var(--fs-sm); }
+#status:empty { display: none; }
+#stop { align-self: flex-start; padding: var(--space-6) var(--space-12); color: var(--color-text); background: var(--color-bg-raised); border: 1px solid var(--color-border-control); border-radius: var(--radius-md); font: inherit; cursor: pointer; }
+#stop:focus-visible { outline: var(--focus-outline); }
+#stop[hidden] { display: none; }

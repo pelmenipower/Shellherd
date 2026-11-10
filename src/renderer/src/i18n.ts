@@ -13,7 +13,7 @@ const countFormatter: FormatterModule = { type: 'formatter', init: () => {}, add
     typeof value === 'number' && COUNT_KEYS.has(String(options?.interpolationkey)) ? formatNumber(value) : value };
 
 function initialLocale(): Locale {
-  const value = typeof window === 'undefined' ? undefined : window.desktopApi?.initialLocale;
+  const value = typeof window === 'undefined' ? undefined : window.desktopApi?.initialLocale ?? window.remoteMedia?.locale;
   return isLocale(value) ? value : 'de-DE';
 }
 function applyLocale(locale: Locale): void {
