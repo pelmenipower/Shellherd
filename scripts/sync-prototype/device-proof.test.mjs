@@ -44,3 +44,10 @@ it('creates an identity whose id matches the X25519 key and whose signatures ver
   const signature = sign(null, Buffer.from('x'), identity.signingKey);
   expect(signature).toHaveLength(64); expect(verify(null, Buffer.from('x'), signingKeyOf(identity.signingPublicKey), signature)).toBe(true);
 });
+it('keeps the SPKI prefix in lab-host.ts identical to device-proof.mjs', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const pick = async path => (await readFile(new URL(path, import.meta.url), 'utf8')).match(/SPKI_PREFIX = Buffer\.from\('([0-9a-f]+)', 'hex'\)/)?.[1];
+  const expected = '302a300506032b6570032100';
+  expect(await pick('./device-proof.mjs')).toBe(expected);
+  expect(await pick('../../src/main/sync-prototype/lab-host.ts')).toBe(expected);
+});

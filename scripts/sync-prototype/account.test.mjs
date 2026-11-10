@@ -511,5 +511,6 @@ it('removes stale temp files at start, keeps fresh ones, and skips unreadable ob
   expect(files).not.toContain(old); expect(files).not.toContain(oldRoster); expect(files).toContain(fresh); void odd;
   expect(errors.mock.calls.flat().join('\n')).toContain('Skipping unreadable object ' + badName); expect(errors.mock.calls.flat().join('\n')).not.toContain('SYNTHETIC_UNREADABLE_CONTENT');
   const { store } = await signedIn(ctx); expect(await store.list()).toEqual([]); // not counted, not listed
+  expect(await store.remove('e'.repeat(64))).toBe(true); expect(await readdir(ctx.directory)).not.toContain(badName); // quarantined file can be removed
   errors.mockRestore();
 });

@@ -87,7 +87,7 @@ it('writes the generated password atomically with mode 0600 next to the config',
   expect((await readdir(dir)).sort()).toEqual(['initial-password.txt', 'server.json']);
 });
 it('removes setup temp files older than an hour from the data directory only', async () => {
-  const { dir } = await data(); const hex = () => randomBytes(16).toString('hex'); const old = [hex() + '.account-tmp', hex() + '.password-setup']; const fresh = hex() + '.account-tmp';
+  const { dir } = await data(); const hex = () => randomBytes(16).toString('hex'); const old = [hex() + '.account-tmp', hex() + '.password-setup', hex() + '.pw-tmp']; const fresh = hex() + '.account-tmp';
   const past = new Date(Date.now() - 2 * 3600_000);
   for (const name of [...old, fresh, 'keep.txt']) await writeFile(join(dir, name), 'x', { mode: 0o600 });
   for (const name of old) await utimes(join(dir, name), past, past); await utimes(join(dir, 'keep.txt'), past, past);

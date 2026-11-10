@@ -16,9 +16,6 @@ try {
   let password;
   if (useGenerated) {
     password = generatePassword();
-    // The generated password never goes to stdout (container logs, scrollback): it lands in a 0600 file next to the config.
-    passwordFile = await writeInitialPassword(target, password);
-    process.stdout.write(`Serverpasswort liegt in ${passwordFile} (nur für dich lesbar). Die Datei wird nach der ersten Geräteanmeldung gelöscht.\n`);
   } else {
     muted = true; process.stdout.write('Serverpasswort (mindestens 20 Zeichen, NICHT das Vault-Passwort): ');
     password = await terminal.question(''); process.stdout.write('\nServerpasswort wiederholen: ');
@@ -27,6 +24,12 @@ try {
   }
   const account = await createAccount(username, password);
   const handle = await open(target, 'wx', 0o600); created = true;
+  if (useGenerated) {
+    // The generated password never goes to stdout (container logs, scrollback): it lands in a 0600 file next to the config.
+    // Written only after the exclusive create succeeded, so a repeated init cannot replace the live account's file.
+    passwordFile = await writeInitialPassword(target, password);
+    process.stdout.write(`Serverpasswort liegt in ${passwordFile} (nur für dich lesbar). Die Datei wird nach der ersten Geräteanmeldung gelöscht.\n`);
+  }
   try { await handle.writeFile(JSON.stringify({ serverId: randomBytes(32).toString('hex'), namespace: randomBytes(16).toString('hex'), passwordPolicy: useGenerated ? 'generated' : 'custom', account })); await handle.sync(); }
   finally { await handle.close(); }
   success = true; console.log('Serverkonfiguration mit Passwort-Hash erstellt. Keine Vault-Schlüssel gespeichert.');

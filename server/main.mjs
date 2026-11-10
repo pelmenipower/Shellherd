@@ -32,7 +32,7 @@ async function privateDirectory(dataDirectory) {
 /** Removes leftover setup/rotation temp files older than one hour. */
 export async function cleanDataDirectory(dataDirectory) {
   for (const file of await readdir(dataDirectory)) {
-    if (!/^[a-f0-9]{32}\.(account-tmp|password-setup)$/.test(file)) continue;
+    if (!/^[a-f0-9]{32}\.(account-tmp|password-setup|pw-tmp)$/.test(file)) continue;
     try { const stat = await lstat(join(dataDirectory, file)); if (stat.isFile() && Date.now() - stat.mtimeMs > 3600_000) await unlink(join(dataDirectory, file)); } catch { /* best effort */ }
   }
 }

@@ -49,7 +49,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
   if (roster) roster.hasSession = id => login.hasSession(id);
   const broker = rendezvous ? createRendezvous({ authorize: header => login.authorize(header), isActive: key => login.isActive(key), deviceOf: key => login.deviceOf(key), noiseKeyOf: id => roster.noiseKeyOf(id), clock, serverId }) : null;
   const access = await createAccessRegistry({ directory, serverId, namespace, devices, keys, adminPublicKey, adminDevices, clock, fault: accessFault });
-  const objects = new Map(); let total = 0; let busy = false; let uncertain = false;
+  const objects = new Map(); const quarantined = new Set(); let total = 0; let busy = false; let uncertain = false;
   function opaque(wire) {
     check(Buffer.byteLength(wire) <= MAX); const tuple = JSON.parse(wire);
     check(Array.isArray(tuple) && tuple.length === 5 && JSON.stringify(tuple) === wire);
@@ -84,7 +84,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
     if (!/^[a-f0-9]{64}\.blob$/.test(file)) { check(file.endsWith('.tmp') || file.endsWith('.access-tmp') || file.endsWith('.devices-tmp'), 500); continue; }
     const id = file.slice(0, -5);
     let wire;
-    try { wire = await readObject(id); } catch { console.error(`Skipping unreadable object ${file}`); continue; }
+    try { wire = await readObject(id); } catch { console.error(`Skipping unreadable object ${file}`); quarantined.add(id); continue; }
     objects.set(id, Buffer.byteLength(wire)); total += Buffer.byteLength(wire);
   }
   check(objects.size <= 100 && total <= 32 * MAX, 500);
@@ -276,10 +276,11 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       }
       if (request.method === 'DELETE') {
         const id = path.slice(collection.length + 1);
-        check(!uncertain, 503); check(!busy, 409); check(objects.has(id), 404); busy = true;
+        check(!uncertain, 503); check(!busy, 409); check(objects.has(id) || quarantined.has(id), 404); busy = true;
         try {
           await unlink(join(directory, id + '.blob')).catch(error => { if (error.code !== 'ENOENT') throw error; });
-          total -= objects.get(id); objects.delete(id);
+          // Skipped (unreadable) objects are removable too, so they do not hold a file slot forever.
+          if (objects.has(id)) { total -= objects.get(id); objects.delete(id); } else quarantined.delete(id);
           try { const dir = await open(directory, 'r'); try { await dir.sync(); } finally { await dir.close(); } }
           catch (error) { uncertain = true; throw error; }
           send(200, { removed: true });
