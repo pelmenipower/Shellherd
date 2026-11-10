@@ -136,7 +136,8 @@ export class SyncLabHost {
         enrolledVia: by === null ? 'password' as const : 'invite' as const, ...(issuer !== undefined ? { invitedBy: issuer } : {}) };
     });
   }
-  #deviceOf(identity: RemoteIdentity, list: EffectiveDevice[]): SyncDevice {
+  /** `pending` are roster entries with an open notice: the server may have added them, so they do not vouch for a key epoch (R1). */
+  #deviceOf(identity: RemoteIdentity, list: EffectiveDevice[], pending: ReadonlySet<string> = new Set()): SyncDevice {
     const keys = new Map<string, KeyObject>(); const revoked = new Map<string, number | null>();
     for (const item of list) {
       revoked.set(item.id, item.revokedAt);
@@ -145,7 +146,7 @@ export class SyncLabHost {
         keys.set(item.id, createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw]), format: 'der', type: 'spki' }));
       } catch { /* Unusable or weak key: the author counts as unknown. */ }
     }
-    return { id: identity.id, sign: data => sign(null, data, identity.signingKey), keyOf: id => keys.get(id), revokedAt: id => revoked.get(id) };
+    return { id: identity.id, sign: data => sign(null, data, identity.signingKey), keyOf: id => keys.get(id), revokedAt: id => revoked.get(id), trusted: id => !pending.has(id) };
   }
   async connect(owner: number, raw: unknown): Promise<SyncLabReply> {
     if (!this.enabled || !this.probe || !this.identity) return { ok: false, code: 'unavailable' };
@@ -355,7 +356,10 @@ export class SyncLabHost {
       // Renewal and roster failures are connection problems, never the sync limit (R4).
       try {
         await this.#renew(current);
-        if (data.kind !== 'removeForeign') device = this.#deviceOf(current.loaded.identity, await this.#roster(current, true)); // Fresh roster per run (B3).
+        if (data.kind !== 'removeForeign') {
+          const list = await this.#roster(current, true); // Fresh roster per run (B3).
+          device = this.#deviceOf(current.loaded.identity, list, new Set(current.hints?.newDevices.map(item => item.id) ?? []));
+        }
       } catch (error) { return this.#failed(current, error); }
       const request: SyncVaultRequest = data.kind === 'removeForeign' ? { kind: 'removeForeign', ids: current.foreign!, ...(data.versions ? { versions: true as const } : {}) }
         : data.kind === 'importVault' ? (code !== undefined ? { kind: 'importVault', password: data.password, recoveryCode: code } : { kind: 'importVault', password: data.password, inviteCode: current.inviteCode!.toString('hex') })

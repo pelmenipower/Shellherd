@@ -203,16 +203,15 @@ function openTarget(envs: Map<string, Envelope | null>, wires: Map<string, strin
 }
 /**
  * A code alone proves nothing about a higher epoch: a leaked old recovery code can wrap a keybox for any epoch (M1).
- * With a device context the epoch is accepted only if its keybox names a pinned, not revoked device and a readable version
- * of the epoch carries a valid author stamp of exactly that device. Without a device context there is no roster to judge by.
- * An enrollment keybox is made by the inviting device, which need not have written a version yet; there any valid stamp of a pinned, active device counts.
- * Throws `foreignKey` before anything is written; the caller discards the key.
+ * With a device context the epoch is accepted only if a readable version of it carries a valid author stamp of a device
+ * that is known, not revoked and acknowledged by the user (R1: the server can add roster entries at will). The stamp binds
+ * the epoch, so any such device proves it held the epoch's key; the rotator itself may have been revoked or compacted away
+ * since (R2). Without a device context there is no roster to judge by. Throws `foreignKey` before anything is written.
  */
-function vetEpoch(graph: Graph, opened: OpenedKeybox): void {
+function vetEpoch(graph: Graph, _opened: OpenedKeybox): void {
   const device = graph.context.device; if (!device) return;
-  const active = (id: string): boolean => device.keyOf(id) !== undefined && (device.revokedAt(id) ?? null) === null;
-  const by = opened.createdBy; ensure(by !== null && active(by), 'foreignKey');
-  ensure([...graph.values.keys()].some(id => { const author = graph.value(id).author?.device; return author !== undefined && active(author) && (opened.method === 'invite' || author === by) && graph.stance(id) === 'ok'; }), 'foreignKey');
+  const vouches = (id: string): boolean => device.keyOf(id) !== undefined && (device.revokedAt(id) ?? null) === null && (device.trusted?.(id) ?? true);
+  ensure([...graph.values.keys()].some(id => { const author = graph.value(id).author?.device; return author !== undefined && vouches(author) && graph.stance(id) === 'ok'; }), 'foreignKey');
 }
 /** After uploading a keybox: false if another keybox or any version envelope of this or a newer epoch showed up (a concurrent bootstrap or a foreign writer). Older epochs are leftovers of a rotation and ignored (B2). */
 async function confirmKeybox(remote: VaultRemote, own: string, allowed: Set<string>, ignored: Set<string>, epoch: number, check: () => void): Promise<boolean> {

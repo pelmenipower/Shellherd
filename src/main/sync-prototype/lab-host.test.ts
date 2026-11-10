@@ -1,3 +1,4 @@
+import type { SyncDevice } from './vault-sync-crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSync, verify } from 'node:crypto';
 import { SyncLabHost, weakEd25519 } from './lab-host';
@@ -717,6 +718,20 @@ describe('H4 key epochs: enrollment code, roster pins, rotation', () => {
     expect(ack.state.newDevices).toEqual([expect.objectContaining({ id: other.id, ownInvite: true })]); // The own invitation still waits.
     expect(pinOf(h).pins.find(p => p.id === third.id)).toMatchObject({ acknowledged: true });
     expect(((await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: other.id })) as any).state.newDevices).toBeUndefined();
+  });
+  it('does not let an unacknowledged new device vouch for a key epoch (R1)', async () => {
+    const third = generateRemoteIdentity();
+    const syncVault = vi.fn(async () => ({ status: 'synced' as const, versions: 1, received: 0, sent: 0 }));
+    const h = harness({ syncVault }); await h.signedIn();
+    await h.host.devices(1, { kind: 'listDevices', clientId }); // First run pins the roster silently.
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(third, { name: 'Stranger' })]);
+    await h.host.performSync(1, { kind: 'synchronize', clientId });
+    const deviceOf = (): SyncDevice => (syncVault.mock.calls.at(-1) as unknown as [unknown, unknown, unknown, unknown, SyncDevice])[4];
+    expect(deviceOf().trusted?.(third.id)).toBe(false);
+    expect(deviceOf().trusted?.(h.identity.id)).toBe(true);
+    await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: third.id });
+    await h.host.performSync(1, { kind: 'synchronize', clientId });
+    expect(deviceOf().trusted?.(third.id)).toBe(true);
   });
   it('refuses to acknowledge an id without an open notice and keeps a local revocation (m2)', async () => {
     const other = generateRemoteIdentity();

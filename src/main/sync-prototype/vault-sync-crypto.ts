@@ -10,7 +10,8 @@ import { normalizeSyncServerUrl } from '../../shared/sync-server-url.mjs';
 export { SyncFailure, ensure, hashWire, stable } from './sync-core';
 import { ensure, hashWire, stable } from './sync-core';
 /** Signing side of this device plus the roster view used to check author stamps; lives in main only. */
-export interface SyncDevice { id: string; sign(data: Buffer): Buffer; keyOf(id: string): KeyObject | undefined; revokedAt(id: string): number | null | undefined }
+/** `trusted` is false for roster entries the user has not acknowledged yet (a server can add devices at will); absent means all trusted. */
+export interface SyncDevice { id: string; sign(data: Buffer): Buffer; keyOf(id: string): KeyObject | undefined; revokedAt(id: string): number | null | undefined; trusted?(id: string): boolean }
 export interface SyncContext { serverId: string; namespace: string; device?: SyncDevice }
 export const SYNC_OBJECT_FORMAT = 'shellherd-sync-object';
 export const SYNC_EPOCH_MAX = 1_000_000;
