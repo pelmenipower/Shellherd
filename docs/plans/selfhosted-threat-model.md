@@ -1,6 +1,6 @@
 # Block 0: Bedrohungsmodell und Sicherheitsabnahme
 
-Stand: 2026-11-10 (H4). Arbeitsentwurf; Anforderungen, keine bereits implementierten Garantien. Der aktuelle Umsetzungsstand steht in den Abschnitten „Stand der Befunde“ bis „Stand H4“; die Sicherheitsregeln und Abnahmetests weiter unten sind Anforderungen, keine Zusagen.
+Stand: 2026-11-10 (H5). Arbeitsentwurf; Anforderungen, keine bereits implementierten Garantien. Der aktuelle Umsetzungsstand steht in den Abschnitten „Stand der Befunde“ bis „Stand H5“; die Sicherheitsregeln und Abnahmetests weiter unten sind Anforderungen, keine Zusagen.
 Übergeordneter [Arbeitsplan](selfhosted-e2ee.md).
 
 Ergänzung aus Block 1: [Protokoll- und Offline-Sync-Entwurf](selfhosted-protocol.md). Die lokale Datei bleibt offline führend; Clients konsolidieren konkurrierende Änderungen nach Wiederverbindung. Prototypbeschränkungen zu Recovery, Verwaltungsautorität und Publikationsfreigaben stehen im Block-1-Entwurf.
@@ -14,7 +14,7 @@ Härtung H1 setzt diese Befunde um (Spec `docs/superpowers/specs/2026-11-09-secu
 | M1 | Rate-Limits | Behoben im Server: Limits pro Quelle (`SHELLHERD_SERVER_TRUSTED_PROXY=1` hinter dem Proxy), Backoff bei Anmeldefehlern, Verbindungslimit je Adresse direkt am Port. Seit H3.1 nimmt `SHELLHERD_SERVER_TRUSTED_PROXY` eine Adresse oder CIDR-Liste statt `1` (siehe „Stand H3.1“). Gegen verteilte Floods hilft nur ein privates Netz (WireGuard/Tailscale, H2). |
 | M2 | Fingerabdruck-Vergleich per Checkbox | Behoben: getippte Prüfung beidseitig (seit H2 16 Hex-Zeichen = 64 Bit, vorher 12), Pinning geprüfter Geräte, genau ein DTLS-Fingerabdruck. 2^64 Schlüsselerzeugungen gegen einen rechenstarken Betreiber sind teuer, aber kein Beweis; zusätzlich bestätigt der Noise-Handshake den Schlüssel gegen den vollen Fingerabdruck (256 Bit). H1-Pins (48 Bit) bleiben gültig. Die Prüfung schützt gegen einen bösartigen Server bei ehrlichem Renderer, nicht gegen einen kompromittierten Renderer. |
 | M3 | Serverpasswort gleich Vault-Passwort | Behoben (H1), seit H3 für den Normalbetrieb geschlossen: Das Passwort geht nur noch bei der Einschreibung eines Geräts über die Leitung (einmal je Gerät), danach nie wieder; die Anmeldung prüft per Argon2id, dass beide verschieden sind, bevor etwas gesendet wird. Die Importprüfung greift nur, wenn in derselben Verbindung mit Passwort eingeschrieben wurde (nach einer passwortlosen Sitzung gibt es keinen Digest). |
-| M4 | Aufnahme ohne native Zustimmung, keine Permission-Handler, keine CSP, Tracks nicht erzwingbar beendbar | Behoben: Permission- und Display-Media-Handler im Main geben eine Bildschirmquelle nur nach Zustimmung im nativen Dialog für die aktuelle Sitzung frei (auch `getUserMedia` mit Desktop-Quelle läuft über denselben Dialog; Desktop-Audio bleibt gesperrt). Restrisiko: Ein kompromittierter Renderer kann den Dialog auslösen, aber nicht bestätigen; Permission-Handler deny-by-default, CSP, Notbremse per Fensterneuladen nach 2 s. Wayland-Portal und Windows-Capture sind nicht manuell geprüft. H2: Nur der `media`-Check ist verschärft (nur `video`); die Anfrage-Regel bleibt, weil `getDisplayMedia` und Legacy-Desktop-`getUserMedia` in Electron 44 im Handler nicht unterscheidbar sind. Der Legacy-Desktop-Pfad nach erteilter Zustimmung (andere Quelle, Desktop-Audio) bleibt Restrisiko (M4-Rest); es bleiben Zustimmung je Sitzung, nur Hauptframe, CSP und Notbremse. |
+| M4 | Aufnahme ohne native Zustimmung, keine Permission-Handler, keine CSP, Tracks nicht erzwingbar beendbar | Behoben: Permission- und Display-Media-Handler im Main geben eine Bildschirmquelle nur nach Zustimmung im nativen Dialog für die aktuelle Sitzung frei (auch `getUserMedia` mit Desktop-Quelle läuft über denselben Dialog; Desktop-Audio bleibt gesperrt). Restrisiko: Ein kompromittierter Renderer kann den Dialog auslösen, aber nicht bestätigen; Permission-Handler deny-by-default, CSP, Notbremse per Fensterneuladen nach 2 s. Wayland-Portal und Windows-Capture sind nicht manuell geprüft. H2: Nur der `media`-Check ist verschärft (nur `video`); die Anfrage-Regel bleibt, weil `getDisplayMedia` und Legacy-Desktop-`getUserMedia` in Electron 44 im Handler nicht unterscheidbar sind. Der Legacy-Desktop-Pfad nach erteilter Zustimmung (andere Quelle, Desktop-Audio) bleibt Restrisiko (M4-Rest); es bleiben Zustimmung je Sitzung, nur Hauptframe, CSP und Notbremse. **Seit H5 neu gefasst:** Aufnahme und Verbindung laufen in einem eigenen Medienfenster; die Notbremse (Fensterneuladen) entfällt, Beenden zerstört das Fenster samt Prozess. M4-Rest gilt für das Agentenfenster als geschlossen (siehe „Stand H5“). |
 | N1 | Fremdes Objekt blockiert den Sync | Behoben: übersprungen und gezählt; Client-Limits 100/32 MiB wie der Server. Seit H2 entfernt „Fremde Objekte entfernen“ nur nicht lesbare Objekte (AEAD-Öffnung unter dem Vault-Schlüssel), sonst belegen sie weiter das Kontingent. |
 | N2 | Registrierung ohne Besitznachweis | Behoben: Challenge mit statisch-ephemerem X25519-DH bei jeder Registrierung. |
 | N3 | Kanal ohne Forward Secrecy (statisch-statisches DH) | Behoben (H2): Noise XX mit ephemeren Schlüsseln, Prologue mit Server-ID, Sitzung, Nonce, Zweck und Rollen; der Schlüssel der Gegenseite kommt aus dem Handshake, nicht vom Server. Kein Downgrade: ein Server ohne `rendezvousNoise` wird abgelehnt. |
@@ -36,7 +36,7 @@ Härtung H2 (Spec `docs/superpowers/specs/2026-11-09-secure-channel-design.md`, 
 | Privates Netz | Option für HTTP zu WireGuard-/Tailscale-Adressen (10/8, 172.16/12, 192.168/16, 100.64/10, `fc00::/7`). Im fremden WLAN lägen Serverpasswort, Token und Chiffrat im Klartext; der Hinweistext sagt das. Ein kompromittierter Renderer kann `privateNetwork: true` ohne Klick senden, das gleicht der freien URL-Wahl und wird angenommen. Gegen verteilte Floods hilft das private Netz. 100.64/10 ist nur wegen Tailscale erlaubt: Bei Provider-CGNAT liegen fremde Kunden im selben Bereich und könnten mitlesen (R-H31-8, siehe „Stand H3.1“). |
 | Kompaktierung | Aufbewahrung der jüngsten 16 Versionen, kumulative `compacts`-Liste (höchstens 256), Löschen per `DELETE`. `history` erkennt das Löschen bereits bestätigter Objekte. |
 | Löschrecht per Konto | Grenze: Jede Anmeldung des Kontos (Token, 15 min) darf Objekte löschen. Das betrifft die Verfügbarkeit. Löschen oder Zurückhalten noch nie gesehener Objekte bleibt unerkennbar (Freeze; auch nach H3 unverändert, siehe I3). |
-| M4-Rest | Legacy-Desktop-`getUserMedia` nach erteilter Zustimmung bleibt offen (E1). |
+| M4-Rest | Legacy-Desktop-`getUserMedia` nach erteilter Zustimmung bleibt offen (E1). **Seit H5:** für das Agentenfenster geschlossen (E3), siehe „Stand H5“. |
 | Native Addon | `sodium-native` ist nur unter Linux x64 ausgeführt; fehlt es, ist der Fernzugriff nicht verfügbar. |
 | Bibliotheks-Interna | Das Löschen von Schlüsselmaterial in `dispose` nutzt Felder von `noise-handshake` 4.2.0 (exakt gepinnt). Restbytes der HKDF-Ausgabe und JS-Strings bleiben bis zur GC im Speicher. |
 | H1-Server | Ein Server ohne `DELETE` lässt das Konto mit H2-Clients bis 507 wachsen. Server und Clients gemeinsam aktualisieren. |
@@ -133,6 +133,36 @@ Härtung H4 (Spec `docs/superpowers/specs/2026-11-10-key-epochs-design.md`, Vali
 - **Keine automatische Rotation beim Entfernen:** Sie ist ein eigener Klick mit Rückfrage und verlangt einen sauberen, vollständig abgeglichenen Stand (sonst `syncRotateBlocked`). Nach jedem Entfernen eines fremden Geräts, auch eines temporären, empfiehlt die App sie.
 - **CI-Szene:** Die Sync-Szene läuft im Linux-Job unter `xvfb-run`; sie kann flaky sein und fliegt dann aus der CI (die Szene bleibt manuell).
 - **Nicht in H4:** TOTP (endgültig nein), Per-Gerät-Keybox über X25519, Fernansicht-Isolation (V5, V6, V8) und gemeinsamer `DeviceSessionClient` (A11) gehören nach H5; die restlichen Fuses brauchen den Windows-Signaturtest.
+
+## Stand H5 (Isolation der Fernansicht)
+
+Härtung H5 (Spec `docs/superpowers/specs/2026-11-10-remote-isolation-design.md`, Validierungs-Anhang `…-validation.md` geht vor). Leitsatz: **Das privilegierte Hauptfenster verarbeitet keine Daten der Gegenseite und nimmt nichts auf.**
+
+| Gegenstand | Stand |
+| --- | --- |
+| V5 Fensterisolation | **Behoben:** Aufnahme (Agent), Bildanzeige (Viewer) und die WebRTC-Verbindung laufen in einem eigenen Medienfenster mit eigener Partition, `sandbox`, ohne `desktopApi`, mit eigenem Preload (`remote-media.cjs`) und eigener CSP. Das Hauptfenster zeigt nur Zustimmung und Status. Das Fenster endet mit der Sitzung, mit der Sperre des Vaults und mit dem Hauptfenster; Beenden zerstört es samt Renderer-Prozess. Pro Prozess lebt höchstens ein Medienfenster. |
+| V6 Fensterschutz unter Windows | **Implementiert, Laufzeit ungeprüft:** Unter Windows nimmt Shellherd seine Fenster und RDP-Flächen aus dem übertragenen Bild aus; der Schutz fällt erst, wenn alle Agentenfenster wirklich beendet sind (fail-closed). Es gibt keinen Test auf einem echten Windows-Rechner; ein Rezept steht im Handbuch („Manuell prüfen (Windows)“). Vor Windows 10 2004 gibt es nur `WDA_MONITOR` (schwarze Fläche), der Child-Modus verlässt sich auf die Affinität des Electron-Fensters. |
+| V8 Doppelklick | **Behoben:** Der Knopf `Bildschirm freigeben` ist nach dem Klick gesperrt (`armed`), der Systemdialog erscheint frühestens nach 550 ms. Die Szene prüft beides (Sperre sichtbar, Zeitstempel im Recorder). |
+| M4-Rest | **Für das Agentenfenster geschlossen (E3):** Das Medienfenster hat vor der Aufnahme noch keine Daten der Gegenseite verarbeitet (das Angebot entsteht erst nach der Zustimmung, die Antwort folgt später). Danach ist der einmalige Grant verbraucht, weitere Anforderungen sind abgelehnt. |
+| B1 Absender-IPC | **Als Fund behoben:** Das Medienfenster hätte fast die gesamte Vault-, SSH-, Kube-, RDP- und Zwischenablage-IPC erreicht, und `closeOwnerSessions` hätte seine Sitzungen nie aufgeräumt. Privilegierte IPC nimmt jetzt nur Absender aus der Fensterregistry an. |
+| B2 Preload | Beide Preloads sind eigenständig (keine Chunks, kein `require("./`); die Szene prüft das vor dem Lauf. |
+
+**Restrisiken (H5):**
+
+- **GPU- und Netzwerkprozess:** V5 isoliert den Renderer. Videodekodierung kann je nach Hardware im GPU-Prozess laufen, den das Hauptfenster teilt; ein Decoder-Fehler dort ist nicht isoliert.
+- **Eigenes WebRTC:** Ein kompromittiertes Medienfenster kann eine eigene `RTCPeerConnection` zu einer beliebigen Adresse öffnen (die CSP greift dort nicht, es gibt keinen Netzfilter für die Medien-Session). Es hat dabei nur das Bild, das es ohnehin sieht oder sendet, und keinen Vault-Zugriff.
+- **Pfad B:** Die Quellen-ID wählt die Seite. Sie ist zu diesem Zeitpunkt nicht angreifbar (E3), ein Fehler in der eigenen Seitenlogik könnte aber eine andere Quelle wählen.
+- **Speicher der Partition:** Wird nur best effort geleert.
+- **Sprache und Theme:** Kein Wechsel im offenen Medienfenster.
+- **Wayland:** Portal und Laufzeit ungeprüft; `captureMs` (20 s) kann eine langsame Auswahl abbrechen.
+- **Frühes Ende:** Endet die Sitzung genau zwischen dem erzwungenen Renderer-Absturz und dem Prozessende, können bereits gepufferte RTP-Pakete noch abgehen (Millisekunden).
+- **Nachweis:** `remote-scene.mjs` prüft Pixel (Fake-Capture) bzw. nur `videoWidth > 0` (echte Aufnahme unter X11), das Ende bei Beenden und bei Fensterschluss und eine leere CSP-Konsole in allen Fenstern.
+
+**Offen (nicht in H5):**
+
+- Laufzeittest V6 unter Windows.
+- A11 (gemeinsamer `DeviceSessionClient`, H6).
+- Inspect- und asar-Fuses (brauchen den Windows-Signaturtest).
 
 ## Umfang der ersten Ausbaustufe
 

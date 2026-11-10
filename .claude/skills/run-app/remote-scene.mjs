@@ -4,7 +4,9 @@
 // SHELLHERD_REMOTE_LAB=1 SHELLHERD_REMOTE_CAPTURE_FAKE=1 (A on 9333, B on 9336 with its own SHELLHERD_RUN_DIR), an unlocked
 // demo vault in each (`demo-setup.mjs`), and a non-loopback network interface (WebRTC uses host candidates only).
 // Env: A_RUN_DIR/A_PORT (default <tmp>/shellherd-run, 9333), B_RUN_DIR/B_PORT (default <tmp>/shellherd-run-b, 9336),
-// REMOTE_SERVER_URL (default http://127.0.0.1:8788). Synthetic data only; no real vault or profile is touched.
+// REMOTE_SERVER_URL (default http://127.0.0.1:8788). The video runs in B's media window (remote-media.html), not in the
+// main window. With SHELLHERD_REMOTE_CAPTURE_FAKE=0 on both drivers (real capture, X11/xvfb) set the same variable for the
+// scene: it then only requires videoWidth > 0 instead of the test pattern (K20). Synthetic data only; no real vault or profile is touched.
 // Both devices enroll (device name in the sign-in form; the identity is temporary under --password-store=basic, so the
 // server holds the enrollment in RAM only). A repeated run needs fresh instances (restart both drivers, keep the fake):
 // the decline mutes B at A for 10 minutes and blocks the pair at the server for 30 s, and every new instance enrolls as
@@ -34,6 +36,12 @@ const PATTERN = [
 ];
 const TOLERANCE = 48;
 const END_WITHIN_MS = 8000;
+const REAL_CAPTURE = process.env.SHELLHERD_REMOTE_CAPTURE_FAKE === '0'; // K20: no pattern check, videoWidth > 0 only
+const MAIN_SHARING_TITLE = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '../../../src/shared/locales/de-DE/main.json'), 'utf8')).window.mainSharing;
+const MAIN_TITLE = 'Shellherd';
+const ARMED_HINT = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '../../../src/shared/locales/de-DE/remoteLab.json'), 'utf8')).consent.armedHint;
+const ENDED_STOPPED = 'Verbindung beendet.';
+const MEDIA_PAGE = 'remote-media.html';
 const CONNECT_WITHIN_MS = 8000; // consent -> encrypted channel (connecting) or running share
 
 class Fail extends Error { constructor(message, code = 1) { super(message); this.code = code; } }
@@ -76,6 +84,19 @@ const LAB = 'dialog.remote-lab-dialog';
 const text = (instanceRef, selector) => instanceRef.evaluate(`document.querySelector(${JSON.stringify(selector)})?.textContent?.trim() ?? ''`);
 const has = selector => `!!document.querySelector(${JSON.stringify(selector)})`;
 const shots = [];
+
+const windowUrls = side => side.call('windows');
+const mediaWindows = async side => (await windowUrls(side)).filter(url => url.includes(MEDIA_PAGE));
+// The main window is index.html without role=secondary (K19); `use?i=` needs the index from /windows.
+const isMainUrl = url => url.includes('index.html') && !url.includes('role=secondary');
+async function useWindow(side, predicate, label) {
+  const index = (await windowUrls(side)).findIndex(predicate);
+  if (index < 0) throw new Fail(`${side.label}: Fenster „${label}“ fehlt`);
+  await side.call('use', undefined, `?i=${index}`);
+}
+// Main-process view of the main window only (by URL): title and content protection.
+const mainWindowState = side => side.main(`const main = electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed() && w.webContents.getURL().includes('index.html') && !w.webContents.getURL().includes('role=secondary'));
+  return { platform: process.platform, titles: main.map(w => w.getTitle()), flags: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected()) };`);
 
 function hasNonLoopbackInterface() {
   return Object.values(os.networkInterfaces()).flat().some(entry => entry && !entry.internal && !entry.address.startsWith('169.254.') && !entry.address.startsWith('fe80:'));
@@ -124,7 +145,7 @@ async function closeDialogs(side) {
 
 // Draws the viewer video into a canvas and compares the four pattern points.
 const PIXEL_CHECK = `(() => {
-  const video = document.querySelector('${LAB} video');
+  const video = document.querySelector('video');
   if (!video || !(video.readyState >= 2 && video.videoWidth > 0)) return null;
   const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   const context = canvas.getContext('2d'); context.drawImage(video, 0, 0);
@@ -142,7 +163,7 @@ async function recordNativeDialogs() {
   await A.main(`globalThis.__shellherdDialogs = [];
     electron.dialog.showMessageBox = async (first, second) => {
       const options = second ?? first;
-      globalThis.__shellherdDialogs.push({ type: options.type, title: options.title, message: options.message, detail: options.detail, buttons: options.buttons });
+      globalThis.__shellherdDialogs.push({ type: options.type, title: options.title, message: options.message, detail: options.detail, buttons: options.buttons, at: Date.now() });
       return { response: Math.max(0, (options.buttons?.length ?? 1) - 1), checkboxChecked: false };
     }; return true;`);
 }
@@ -150,7 +171,7 @@ async function recordNativeDialogs() {
 // After consent B must show "connecting" (encrypted channel being established) or the share must already run, within 8 s.
 async function awaitConnecting(consentAt) {
   const CONNECTING = 'Verschlüsselte Verbindung wird aufgebaut';
-  const connectingAtB = `[...document.querySelectorAll('${LAB} .remote-lab-caption')].some(p => p.textContent.includes(${JSON.stringify(CONNECTING)})) || !!document.querySelector('${LAB} video')`;
+  const connectingAtB = `[...document.querySelectorAll('${LAB} .remote-lab-caption')].some(p => p.textContent.includes(${JSON.stringify(CONNECTING)}))`;
   for (;; await pause(100)) {
     if (await B.evaluate(`!!(${connectingAtB})`)) { log(`B: „${CONNECTING} …“ oder Bild nach ${Date.now() - consentAt} ms`); return; }
     if (await A.evaluate(has('.remote-share-bar'))) { log(`A: Freigabe aktiv nach ${Date.now() - consentAt} ms`); return; }
@@ -191,10 +212,48 @@ async function prepareConsent(fingerprintOfB, { verified }) {
 }
 
 // out/ from `npm run dist*` (SHELLHERD_RELEASE=1) has no lab chunk; the scene would only time out (K18).
+// Also B2: the two preloads are self-contained (no chunks, no relative require) and the media page exists.
 function requireLabBuild() {
-  const dir = path.join(import.meta.dirname, '../../../out/main');
+  const root = path.join(import.meta.dirname, '../../../out');
+  const dir = path.join(root, 'main');
   const files = fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).filter(file => String(file).endsWith('.js')) : [];
   if (!files.some(file => fs.readFileSync(path.join(dir, String(file)), 'utf8').includes('RemoteLabHost'))) throw new Fail('out/ ohne Lab-Code (Release-Build). Neu bauen: npx electron-vite build', 2);
+  const preload = path.join(root, 'preload');
+  if (!fs.existsSync(path.join(preload, 'remote-media.cjs')) || !fs.existsSync(path.join(root, 'renderer', MEDIA_PAGE))) throw new Fail('out/ ohne Medienfenster (remote-media.cjs / remote-media.html). Neu bauen: npx electron-vite build', 2);
+  if (fs.existsSync(path.join(preload, 'chunks'))) throw new Fail('out/preload/chunks existiert (B2: Preload muss eigenständig sein). Neu bauen: npx electron-vite build', 2);
+  for (const file of fs.readdirSync(preload).filter(name => name.endsWith('.cjs')))
+    if (fs.readFileSync(path.join(preload, file), 'utf8').includes('require("./')) throw new Fail(`out/preload/${file} enthält require("./ (B2)`, 2);
+}
+
+// B's viewer window shows up within 10 s; the video (and the pattern, unless real capture) is checked there.
+async function awaitViewerVideo(check = true) {
+  for (const end = Date.now() + 10000; !(await mediaWindows(B)).length; await pause(250))
+    if (Date.now() >= end) throw new Fail(`B: kein Fenster ${MEDIA_PAGE} binnen 10 s`);
+  await useWindow(B, url => url.includes(MEDIA_PAGE), 'Fernansicht');
+  await B.waitFor('Video bei B (readyState >= 2, Breite > 0)', `(() => { const v = document.querySelector('video'); return v && v.readyState >= 2 && v.videoWidth > 0; })()`, 20000);
+  if (!check) return;
+  if (REAL_CAPTURE) { log('B: Video im Fernansichtsfenster hat Breite > 0 (echte Aufnahme, keine Pixelprüfung)'); return; }
+  const points = await B.evaluate(PIXEL_CHECK);
+  if (!points) throw new Fail('B: Video verschwand vor der Pixelprüfung');
+  for (const point of points) {
+    if (point.got.some((channel, i) => Math.abs(channel - point.rgb[i]) > TOLERANCE))
+      throw new Fail(`B: Testmuster falsch bei (${point.x * 100} %, ${point.y * 100} %): erwartet ${point.rgb}, erhalten ${point.got}`);
+  }
+  log('B: Testmuster im Video des Fernansichtsfensters stimmt (4 Punkte)');
+}
+
+async function awaitNoMediaWindow(side, within, when) {
+  for (const end = Date.now() + within; (await mediaWindows(side)).length; await pause(100))
+    if (Date.now() >= end) throw new Fail(`${side.label}: Fenster ${MEDIA_PAGE} existiert ${when} nach ${within / 1000} s noch`);
+}
+
+// Protection is lifted with a delay so the renderer can stop its tracks first; wait up to 4 s for protection and title.
+async function awaitUnprotected(when) {
+  let after = await mainWindowState(A);
+  for (const give = Date.now() + 4000; (after.flags.some(Boolean) || after.titles.some(title => title !== MAIN_TITLE)) && Date.now() < give;) { await pause(200); after = await mainWindowState(A); }
+  if (after.flags.some(Boolean)) throw new Fail(`A: Fensterschutz ${when} noch aktiv (${JSON.stringify(after.flags)})`);
+  if (after.titles.some(title => title !== MAIN_TITLE)) throw new Fail(`A: Titel des Hauptfensters ${when} noch mit Freigabe (${JSON.stringify(after.titles)})`);
+  log(`A: Leiste weg, Fensterschutz und Titel zurückgesetzt (${when})`);
 }
 
 async function run() {
@@ -217,50 +276,66 @@ async function run() {
   shots.push(await A.shot('remote-consent'));
   const consentAt = Date.now();
   await A.click(`${CONSENT} .primary-button`);
+  // Double-click lock: while the capture is armed the button stays disabled and the hint is shown.
+  await A.waitFor('Doppelklick-Sperre (Knopf gesperrt, Hinweis „Systemdialog erscheint gleich“)', `(() => { const d = document.querySelector('${CONSENT}'); return d && d.querySelector('.primary-button')?.disabled && d.textContent.includes(${JSON.stringify(ARMED_HINT)}); })()`, 3000);
+  log('A: nach dem Klick ist „Bildschirm freigeben“ gesperrt, der Hinweis zum Systemdialog steht da');
+  shots.push(await A.shot('remote-armed'));
   await awaitConnecting(consentAt);
   await A.waitFor('Leiste „Bildschirm wird angesehen“', has('.remote-share-bar'));
   const dialogs = await A.main('return globalThis.__shellherdDialogs');
   if (dialogs.length !== 1) throw new Fail(`A: erwartet genau einen nativen Dialog, aufgezeichnet ${dialogs.length}`);
   if (!dialogs[0].detail?.includes(fingerprintB)) throw new Fail('A: der native Dialog nennt den gruppierten Fingerabdruck von B nicht');
   if (JSON.stringify(dialogs[0].buttons) !== JSON.stringify(['Ablehnen', 'Bildschirm freigeben'])) throw new Fail(`A: Knöpfe des nativen Dialogs: ${JSON.stringify(dialogs[0].buttons)}`);
-  log('A: nativer Dialog mit vollem Fingerabdruck von B und den Knöpfen Ablehnen / Bildschirm freigeben');
+  // V8: the system dialog opens no earlier than 550 ms after the click (the lock above is the visible half of it).
+  if (!(dialogs[0].at - consentAt >= 550)) throw new Fail(`A: Systemdialog ${dialogs[0].at - consentAt} ms nach dem Klick (erwartet ≥ 550 ms, V8)`);
+  log(`A: nativer Dialog ${dialogs[0].at - consentAt} ms nach dem Klick, mit vollem Fingerabdruck von B und den Knöpfen Ablehnen / Bildschirm freigeben`);
   shots.push(await A.shot('remote-bar'));
-  // setContentProtection is a no-op on Linux (isContentProtected() stays false), so
-  // there the scene checks the sharing window title; elsewhere the protection flag.
-  const sharingState = await A.main(`return { platform: process.platform, flags: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected()), titles: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.getTitle()) };`);
+  // The agent runs in its own media window: exactly one remote-media.html window while sharing.
+  const agentWindows = await mediaWindows(A);
+  if (agentWindows.length !== 1) throw new Fail(`A: erwartet genau ein Fenster ${MEDIA_PAGE} während der Freigabe, gefunden ${agentWindows.length}`);
+  // K19: only the main window counts. setContentProtection is a no-op on Linux (isContentProtected() stays false),
+  // so there the scene checks the main window title; elsewhere the protection flag of all windows.
+  const sharingState = await mainWindowState(A);
   if (sharingState.platform === 'linux') {
-    if (!sharingState.titles.some(title => title !== 'Shellherd' && title.startsWith('Shellherd'))) throw new Fail(`A: Fenstertitel zeigt die Freigabe nicht (${JSON.stringify(sharingState.titles)})`);
-    log(`A: Leiste sichtbar, Titel „${sharingState.titles[0]}“ (Fensterschutz unter Linux nicht verfügbar)`);
+    if (sharingState.titles.length !== 1 || sharingState.titles[0] !== MAIN_SHARING_TITLE) throw new Fail(`A: Titel des Hauptfensters ist nicht „${MAIN_SHARING_TITLE}“ (${JSON.stringify(sharingState.titles)})`);
+    log(`A: Leiste sichtbar, Titel des Hauptfensters „${sharingState.titles[0]}“ (Fensterschutz unter Linux nicht verfügbar)`);
   } else {
     if (!sharingState.flags.length || !sharingState.flags.every(Boolean)) throw new Fail(`A: Fensterschutz nicht aktiv während der Freigabe (${JSON.stringify(sharingState.flags)})`);
     log('A: Leiste sichtbar, Fenster geschützt');
   }
 
-  await B.waitFor('Video bei B (readyState >= 2, Breite > 0)', `(() => { const v = document.querySelector('${LAB} video'); return v && v.readyState >= 2 && v.videoWidth > 0; })()`, 20000);
-  const points = await B.evaluate(PIXEL_CHECK);
-  if (!points) throw new Fail('B: Video verschwand vor der Pixelprüfung');
-  for (const point of points) {
-    if (point.got.some((channel, i) => Math.abs(channel - point.rgb[i]) > TOLERANCE))
-      throw new Fail(`B: Testmuster falsch bei (${point.x * 100} %, ${point.y * 100} %): erwartet ${point.rgb}, erhalten ${point.got}`);
-  }
+  await awaitViewerVideo();
   shots.push(await B.shot('remote-viewer'));
-  log('B: Testmuster im Video stimmt (4 Punkte)');
+  await useWindow(B, isMainUrl, 'Hauptfenster');
 
-  // End at A; B must notice within 8 s.
+  // End at A; B must notice within 8 s and A's media window must be gone within 2 s.
   const stoppedAt = Date.now();
   await A.click('.remote-share-bar button');
   await B.waitFor(`Ende-Text bei B (≤ ${END_WITHIN_MS / 1000} s)`, `document.querySelector('${LAB} .remote-lab-ended')?.textContent.includes(${JSON.stringify(ENDED_REMOTE)})`, END_WITHIN_MS);
   log(`B: Ende nach ${Date.now() - stoppedAt} ms`);
   await A.waitFor('Leiste verschwunden', `!${has('.remote-share-bar')}`, 5000);
-  // Protection is lifted with a delay (up to 2 s) so the renderer can stop its tracks first; wait up to 4 s.
-  const readAfter = () => A.main(`return { flags: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.isContentProtected()), titles: electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => w.getTitle()) };`);
-  let after = await readAfter();
-  for (const give = Date.now() + 4000; after.flags.some(Boolean) && Date.now() < give;) { await pause(200); after = await readAfter(); }
-  if (after.flags.some(Boolean)) throw new Fail(`A: Fensterschutz nach dem Beenden noch aktiv (${JSON.stringify(after.flags)})`);
-  if (after.titles.some(title => title !== 'Shellherd')) throw new Fail(`A: Fenstertitel nach dem Beenden noch mit Freigabe (${JSON.stringify(after.titles)})`);
-  log('A: Leiste weg, Fensterschutz und Titel zurückgesetzt');
+  await awaitNoMediaWindow(A, 2000, 'nach dem Beenden');
+  await awaitUnprotected('nach dem Beenden');
+  await awaitNoMediaWindow(B, 2000, 'nach dem Beenden');
 
-  // Decline path (second run: both pins are verified now, so neither side sees a field).
+  // Viewer closes its window (verified pins now, so no field). B shows "stopped", A loses the bar.
+  await request(fingerprintA, { verified: true });
+  await prepareConsent(fingerprintB, { verified: true });
+  await pause(1100);
+  await A.click(`${CONSENT} .primary-button`);
+  await A.waitFor('Leiste „Bildschirm wird angesehen“ (dritte Anfrage)', has('.remote-share-bar'), 20000);
+  await awaitViewerVideo(false);
+  await useWindow(B, isMainUrl, 'Hauptfenster');
+  const closedAt = Date.now();
+  await B.main(`const w = electron.BrowserWindow.getAllWindows().find(w => !w.isDestroyed() && w.webContents.getURL().includes(${JSON.stringify(MEDIA_PAGE)})); if (!w) throw new Error('kein Fernansichtsfenster'); w.close(); return true;`);
+  await B.waitFor('Ende-Text „Verbindung beendet.“ bei B', `[...document.querySelectorAll('${LAB} .remote-lab-ended')].some(p => p.textContent.trim() === ${JSON.stringify(ENDED_STOPPED)})`, END_WITHIN_MS);
+  log(`B: „${ENDED_STOPPED}“ nach ${Date.now() - closedAt} ms`);
+  await A.waitFor(`Leiste bei A verschwunden (≤ ${END_WITHIN_MS / 1000} s)`, `!${has('.remote-share-bar')}`, END_WITHIN_MS);
+  log(`B schließt das Fernansichtsfenster: B zeigt „${ENDED_STOPPED}“, A verliert die Leiste nach ${Date.now() - closedAt} ms`);
+  await awaitNoMediaWindow(A, 2000, 'nach Fensterende');
+  await awaitUnprotected('nach Fensterende');
+
+  // Decline path (pins are verified, so neither side sees a field). It comes last: it mutes B at A for 10 minutes.
   await request(fingerprintA, { verified: true });
   await prepareConsent(fingerprintB, { verified: true });
   await pause(300);
@@ -268,18 +343,19 @@ async function run() {
   await B.waitFor(`Ablehnen-Text bei B (≤ ${END_WITHIN_MS / 1000} s)`, `document.querySelector('${LAB} .remote-lab-ended')?.textContent.includes(${JSON.stringify(ENDED_DECLINED)}) || document.querySelector('${LAB} [role=alert]')?.textContent.includes(${JSON.stringify(ENDED_DECLINED)})`, END_WITHIN_MS);
   log('B: Ablehnung angezeigt');
 
-  // No Content-Security-Policy violation in either window since the start.
+  // No Content-Security-Policy violation in any window of either instance since the start (the driver collects all windows).
   for (const side of [A, B]) {
     const violations = (await side.call('console')).filter(message => message.text.includes('Content Security Policy'));
-    if (violations.length) throw new Fail(`${side.label}: CSP-Meldung in der Konsole: ${violations[0].text}`);
+    if (violations.length) throw new Fail(`${side.label}: CSP-Meldung in der Konsole: ${violations[0].text} (${violations[0].url})`);
   }
-  log('A und B: keine CSP-Meldung in der Konsole');
+  log('A und B: keine CSP-Meldung in der Konsole (alle Fenster)');
 }
 
 // Both devices go offline again, whatever happened.
 async function cleanup() {
   for (const side of [A, B]) {
     try {
+      await useWindow(side, isMainUrl, 'Hauptfenster'); // a failed run may leave the driver on the media window
       if (await side.evaluate(has(`${LAB}[open]`)) === false) {
         if (await side.evaluate(has('.remote-share-bar'))) await side.click('.remote-share-bar button');
         if (await side.evaluate(has('dialog.remote-consent-dialog[open]'))) await side.click('dialog.remote-consent-dialog .secondary-button');
@@ -298,7 +374,7 @@ catch (error) {
   code = error instanceof Fail ? error.code : 1;
   console.error(`FEHLER: ${error.message}`);
   if (shots.length) console.error(`Screenshots bis dahin:\n${shots.join('\n')}`);
-  if (code === 1) for (const side of [A, B]) { try { console.error(`${side.label} Fehlerbild: ${await side.shot(`remote-failed-${side.label.toLowerCase()}`)}`); } catch { /* driver gone */ } }
+  if (code === 1) for (const side of [A, B]) { try { await useWindow(side, isMainUrl, 'Hauptfenster'); console.error(`${side.label} Fehlerbild: ${await side.shot(`remote-failed-${side.label.toLowerCase()}`)}`); } catch { /* driver gone */ } }
 } finally {
   if (code !== 2 && code !== 3) await cleanup();
 }

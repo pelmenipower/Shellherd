@@ -776,8 +776,8 @@ Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_REMOTE_LAB=1` (unabh�
 2. `Dieses Gerät online melden` (der Name aus der Einschreibung wird verwendet). Der Dialog zeigt unter `Fingerabdruck dieses Geräts` den Fingerabdruck dieses Geräts.
 3. Am ansehenden Gerät erscheint das andere Gerät unter `Online-Geräte`, zunächst ohne Fingerabdruck. Lies am anderen Gerät dessen `Fingerabdruck dieses Geräts` ab und tippe die ersten 16 Zeichen (die ersten zwei Gruppen) in das Feld `Erste 16 Zeichen des Fingerabdrucks vom anderen Gerät (die ersten zwei Gruppen)` (Groß- und Kleinschreibung und Leerzeichen sind egal). Erst dann ist `Bildschirm ansehen` aktiv. Den Fingerabdruck liest du nur vom Bildschirm des anderen Geräts ab, nie vom Server, aus dem eigenen Dialog oder aus einem Gerätenamen.
 4. Am anderen Gerät fragt `Bildschirm freigeben?` im Fenster von Shellherd. Beim ersten Kontakt tippst du dort die ersten 16 Zeichen des Fingerabdrucks des Anfragenden, abgelesen auf dessen Bildschirm. Der Fingerabdruck steht im Fenster nicht. `Bildschirm freigeben` ist in der ersten Sekunde gesperrt und erst mit 16 gültigen Zeichen aktiv.
-5. Nach dem Klick fragt Shellherd in einem Systemdialog noch einmal, mit dem vollen Fingerabdruck des Anfragenden in Achtergruppen, den Knöpfen `Ablehnen` und `Bildschirm freigeben` und dem Hinweis, dass der gesamte Hauptbildschirm übertragen wird. Erst dieser Klick gibt die Aufnahme frei. Danach zeigt der Dialog `Verschlüsselte Verbindung wird aufgebaut …`, bis der verschlüsselte Kanal steht (höchstens 20 s, sonst Verbindungsfehler). Solange das Bild läuft, zeigt eine Leiste, wer zusieht, mit `Beenden`.
-6. Beide Seiten können jederzeit beenden (`Verbindung beenden` bzw. `Beenden`). Sperren des Vaults beendet die Verbindung ebenfalls.
+5. Nach dem Klick ist `Bildschirm freigeben` gesperrt (kein Doppelklick), und der Dialog sagt: „Der Systemdialog erscheint gleich. Bestätige dort noch einmal.“ Der Systemdialog erscheint frühestens nach etwa einer halben Sekunde, mit dem vollen Fingerabdruck des Anfragenden in Achtergruppen, den Knöpfen `Ablehnen` und `Bildschirm freigeben` und dem Hinweis, dass der gesamte Hauptbildschirm übertragen wird. Erst dieser Klick gibt die Aufnahme frei. Die Aufnahme und die Verbindung laufen in einem eigenen Fenster ohne Zugriff auf deinen Vault. Am ansehenden Gerät zeigt der Dialog `Verschlüsselte Verbindung wird aufgebaut …`, bis der verschlüsselte Kanal steht (höchstens 20 s, sonst Verbindungsfehler); das Bild erscheint dann im Fenster „Fernansicht“, ohne Vault-Zugriff. Am freigebenden Gerät zeigt eine Leiste im Hauptfenster, wer zusieht, mit `Beenden`.
+6. Beide Seiten können jederzeit beenden (`Verbindung beenden` bzw. `Beenden`). Schließt das ansehende Gerät das Fenster „Fernansicht“, endet die Verbindung ebenfalls, und das freigebende Gerät verliert die Leiste. Sperren des Vaults beendet die Verbindung ebenfalls.
 
 **Prüfung und Pins:**
 
@@ -794,8 +794,9 @@ Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_REMOTE_LAB=1` (unabh�
 - Nur im selben Netz (LAN), ohne TURN-Relay. Die Signalisierung über den Server funktioniert auch über WireGuard oder Tailscale (siehe „Privates Netz“), die Bildverbindung selbst bleibt auf direkte Host-Kandidaten beschränkt. Es gibt nur direkte Verbindungen über Host-Kandidaten; hinter NAT oder über getrennte Netze scheitert der Aufbau mit „Keine direkte Verbindung möglich“.
 - Eine Sitzung dauert höchstens fünf Minuten, danach ist eine neue Anfrage nötig.
 - Sperrbildschirm, UAC-Abfragen und Anmeldemaske werden nicht übertragen.
-- Unter Linux gibt es keinen Fensterschutz: Auch das Shellherd-Fenster ist im Bild sichtbar. Unter Wayland zeigt das System eine eigene Auswahl, was freigegeben wird.
-- Notbremse: Beendet das Fenster eine Freigabe nicht innerhalb von zwei Sekunden sauber, lädt Shellherd das Fenster neu. Das beendet jede laufende Aufnahme, setzt aber auch den Zustand dieses Fensters zurück.
+- Unter Linux gibt es keinen Fensterschutz: Auch das Shellherd-Fenster ist im Bild sichtbar; der Titel des Hauptfensters zeigt „Shellherd – Bildschirm wird angesehen“. Unter Wayland zeigt das System eine eigene Auswahl, was freigegeben wird.
+- Unter Windows nimmt Shellherd seine Fenster und RDP-Flächen aus dem übertragenen Bild aus (V6). Das ist implementiert, aber die Laufzeit unter Windows ist ungeprüft (Rezept unten). Vor Windows 10 Version 2004 gibt es nur eine schwarze Fläche statt der Ausnahme, und der Child-Modus verlässt sich auf die Fensterzuordnung von Electron.
+- Beenden schließt das Fenster der Fernansicht bzw. der Freigabe sofort und beendet dessen Prozess; dein Hauptfenster bleibt unberührt.
 - Die Geräteidentität bleibt nur mit Schlüsselablage des Betriebssystems erhalten. Ohne sie ist sie temporär, und der Fingerabdruck ändert sich beim nächsten Start. Das gilt auch, wenn die Identitätsdatei nicht geschrieben werden kann.
 - Ein Rückspielen einer älteren gültigen Identitätsdatei bringt alte Pins zurück. Eine Datei im alten Format stuft alle Pins auf ungeprüft zurück. Fälschen lassen sich die Pins damit nicht.
 - Eine bestehende Bildverbindung läuft nach dem Entfernen eines Geräts weiter, weil sie direkt zwischen den Geräten besteht (höchstens bis zum Ende der Sitzung nach fünf Minuten). Neue Anfragen des entfernten Geräts lehnt der Server ab.
@@ -803,7 +804,8 @@ Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_REMOTE_LAB=1` (unabh�
 - Die Namensregel erkennt nur eine kleine Tabelle von Lookalikes. Lateinische Verwechslungen (`O`/`0`, `l`/`1`) und Trenn-Buchstaben außerhalb von 0–9 und a–f lassen sich nicht ausschließen. Verlasse dich auf den Fingerabdruck am anderen Gerät, nie auf den Namen.
 - Fremde Objekte im Konto, die kein Vault dieses Kontos sind, überspringt der Sync und meldet sie. Sie belegen weiter das Serverkontingent (100 Objekte, 32 MiB), bis du sie bewusst entfernst (siehe „Privates Netz und Sync-Lab (Entwicklung)“).
 - Bestehende Pins aus der Zeit vor dem 16-Zeichen-Stand (48 Bit) bleiben gültig und geprüft. Die Prüfung beim Handshake vergleicht trotzdem den vollen Fingerabdruck.
-- Bisher wurde nur ein Testbild übertragen (Szene mit Fake-Capture). Echtes Capture (Wayland-Portal, Windows) ist nicht manuell geprüft, ebenso nicht der Fensterschutz unter Windows und macOS während der Freigabe.
+- Bisher wurde nur ein Testbild übertragen (Szene mit Fake-Capture); echtes Capture prüft die Szene unter X11 nur auf ein Bild mit Breite (`SHELLHERD_REMOTE_CAPTURE_FAKE=0`). Echtes Capture unter dem Wayland-Portal und unter Windows ist nicht manuell geprüft, ebenso nicht der Fensterschutz unter Windows und macOS während der Freigabe.
+- Kein Netzfilter für das Medienfenster: Ein kompromittiertes Medienfenster könnte per eigenem WebRTC nur senden, was es ohnehin sieht, und hat keinen Vault-Zugriff. Die Videodekodierung kann je nach Hardware im GPU-Prozess laufen, den es mit dem Hauptfenster teilt.
 - Für die Szene `remote-scene.mjs` und echte Tests braucht jedes Gerät eine Netzwerkschnittstelle mit LAN-Adresse; Loopback allein reicht für WebRTC nicht.
 
 **Was die Prüfung schützt, und was nicht:**
@@ -811,7 +813,21 @@ Nur in einem ungepackten Entwicklungs-Build mit `SHELLHERD_REMOTE_LAB=1` (unabh�
 - Die getippte Prüfung schützt gegen einen bösartigen Server bei ehrlichem Renderer: Schiebt er einem Gerät einen fremden Schlüssel unter, passt dessen Fingerabdruck nicht zur getippten Eingabe, und die Anfrage scheitert.
 - Gegen einen kompromittierten Renderer schützt sie nicht. Dieser kennt den Fingerabdruck und kann das Feld selbst füllen. Der native Dialog mit dem vollen Fingerabdruck sichert den regulären Ablauf ab: Die Bildschirmfreigabe läuft über Berechtigungs- und Bildschirmquellen-Handler im Hauptprozess, die ohne Zustimmung des Dialogs für die aktuelle Sitzung nichts freigeben. Verbleibendes Risiko: Ein vollständig kompromittierter Renderer kann den Dialog nicht anklicken, aber er kann die Aufnahme jederzeit auslösen und damit den Dialog selbst aufrufen. Ob freigegeben wird, entscheidet dann allein die Person vor dem Rechner im Dialog.
 - Die getippte Prüfung vergleicht 16 Hex-Zeichen, also 64 Bit. Wer den Server betreibt, kennt die Fingerabdrücke aller Geräte und kann vorab rechnen, um für ein Gerät einen Schlüssel mit gleichem Anfang zu finden. Das erfordert 2^64 Schlüsselerzeugungen, ist also deutlich teurer als bei den früheren 48 Bit, aber kein Beweis gegen einen Angreifer mit sehr großer Rechenleistung. Dafür bestätigt der Noise-Handshake den Schlüssel des anderen Geräts gegen den vollen Fingerabdruck. Ein früher gepinntes 48-Bit-Gerät bleibt gültig; ein in der Zwischenzeit im Lab theoretisch erzeugter Pin würde vom Handshake „bestätigt“. Wer Zweifel hat, entfernt den Pin und prüft neu.
-- Die Berechtigungsregeln für Medien sind nur im Check verschärft: Der Main-Prozess meldet für Medien-Checks nur `video` als erlaubt, solange eine Freigabe gerüstet ist. Die Anfrage selbst läuft wie zuvor über den Dialog, weil `getDisplayMedia` und ein Legacy-`getUserMedia` mit Desktop-Quelle in Electron 44 im Handler nicht zu unterscheiden sind. Restrisiko: Nach erteilter Zustimmung kann ein kompromittierter Renderer für diese Sitzung weiter eine andere Quelle oder Desktop-Audio anfordern. Es bleiben Zustimmung je Sitzung, nur Hauptframe, CSP und Notbremse.
+- Aufnahme und Verbindung laufen nicht mehr im Hauptfenster, sondern in einem eigenen Medienfenster mit eigener Partition, ohne `desktopApi` und ohne Vault-Zugriff. Nur dieses Fenster darf aufnehmen, genau einmal und erst nach der Zustimmung. Das Hauptfenster sieht keine Daten der Gegenseite.
+- Grenze (M4-Rest, nur noch für das Medienfenster): Das Medienfenster ist vor der Aufnahme nicht angreifbar, weil es bis dahin keine Daten der Gegenseite verarbeitet hat: Das Angebot entsteht erst nach der Zustimmung, die Antwort folgt später. Danach ist die Freigabe verbraucht, weitere Anforderungen lehnt der Main-Prozess ab. Es bleiben Zustimmung je Sitzung, nur Hauptframe und die CSP. Auf der Seite, die das Bild ansieht, gilt dasselbe für das Fenster „Fernansicht“.
+- Die Systemdialog-Verzögerung (V8) verhindert, dass ein Doppelklick die Bestätigung im Systemdialog auslöst: Der Systemdialog erscheint frühestens nach rund 550 ms, und der Knopf im Hauptfenster ist bis dahin gesperrt.
+
+### Manuell prüfen (Windows)
+
+Der Fensterschutz unter Windows (V6) ist implementiert, aber die Laufzeit wurde noch nicht auf einem echten Windows-Rechner geprüft. So prüfst du ihn:
+
+1. Starte Shellherd mit `SHELLHERD_REMOTE_LAB=1` unter Windows 10 ab Version 2004 oder Windows 11, entsperre den Vault und öffne einen RDP-Tab.
+2. Gib den Bildschirm für ein zweites Gerät frei (Ablauf oben).
+3. Am ansehenden Gerät dürfen weder Shellherd-Fenster noch die RDP-Fläche zu sehen sein: Sie fehlen im Bild (Windows 10 ab 2004) bzw. sind schwarz (ältere Version).
+4. Alternativ prüfst du es lokal: Sperre den Vault, starte während der Freigabe das Snipping Tool oder OBS und nimm den Bildschirm auf. Die Aufnahme darf Shellherd nicht zeigen.
+5. Nach `Beenden` muss Shellherd in einer neuen Aufnahme wieder sichtbar sein.
+
+Melde das Ergebnis (Windows-Version, Pfad, Auffälligkeiten) als Befund.
 
 ## Privates Netz und Sync-Lab (Entwicklung)
 
@@ -881,6 +897,7 @@ Jedes andere Gerät meldet beim nächsten Abgleich `Der Sync-Schlüssel wurde au
 - Main: verschlüsselte Dateien, Vault-Session-Key, `ssh2`, Host-Key-Prüfung.
 - Preload: explizite, typisierte IPC-Methoden; Events ohne Electron-Eventobjekt.
 - Renderer: React und xterm.js; kein Node-, Dateisystem- oder Socket-Zugriff.
+- Medienfenster (Fernzugriff, nur Entwicklung): eigene Partition, kein `desktopApi`, eigener Preload (`remote-media.cjs`). Es endet mit der Sitzung, mit der Sperre des Vaults und mit dem Hauptfenster.
 - SSH-Anfragen verwenden gespeicherte Connection-IDs und besitzgebundene Session-IDs.
 - Ausgabe pausiert bei ausstehenden xterm-Bestätigungen; Eingaben und Scrollback
   sind begrenzt. Terminalausgabe wird nicht auf Platte protokolliert.
