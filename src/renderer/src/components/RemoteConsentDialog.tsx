@@ -13,6 +13,11 @@ function grouped(fingerprint: string): string {
   try { return groupFingerprint(fingerprint); } catch { return fingerprint; }
 }
 
+/** The field empties only when a failed attempt was counted; losing the counter on success (host marks it verified) keeps the input. */
+export function attemptsDropped(previous: number | undefined, next: number | undefined): boolean {
+  return previous !== undefined && next !== undefined && next < previous;
+}
+
 export function RemoteConsentDialog({ controller, session }: { controller: RemoteSessionController; session: RemoteLabSession }) {
   const { t } = useT(); const id = useId();
   const dialog = useRef<HTMLDialogElement>(null); const decline = useRef<HTMLButtonElement>(null);
@@ -30,7 +35,11 @@ export function RemoteConsentDialog({ controller, session }: { controller: Remot
     return () => { clearTimeout(unlock); clearInterval(tick); };
   }, [session.id]);
   // A failed attempt (the host counts them) empties the field.
-  useEffect(() => { setTyped(''); }, [session.attemptsLeft]);
+  const lastAttempts = useRef(session.attemptsLeft);
+  useEffect(() => {
+    if (attemptsDropped(lastAttempts.current, session.attemptsLeft)) setTyped('');
+    lastAttempts.current = session.attemptsLeft;
+  }, [session.attemptsLeft]);
   const declineRequest = (): void => { void controller.act({ kind: 'decline', sessionId: session.id }); };
   const verified = session.peer.known?.verified === true;
   const verification = verified ? null : normalizeVerification(typed);
@@ -50,7 +59,7 @@ export function RemoteConsentDialog({ controller, session }: { controller: Remot
     </> : <>
       <label htmlFor={`${id}-verify`}>{t('remoteLab:verify.label')}</label>
       <input id={`${id}-verify`} className="remote-lab-verify" maxLength={23} autoComplete="off" spellCheck={false} inputMode="text"
-        value={typed} disabled={session.state !== 'consent'} onChange={event => setTyped(event.target.value)} />
+        value={typed} disabled={session.state !== 'consent' || session.armed === true} onChange={event => setTyped(event.target.value)} />
       <p className="remote-lab-caption">{t('remoteLab:verify.hint')}</p>
     </>}
     {session.peer.changed && <p className="remote-lab-warning">{t('remoteLab:verify.changed', { name: session.peer.name })}</p>}

@@ -147,7 +147,7 @@ export class MediaPeer {
     for (const part of splitSignal(kind, sdp)) {
       if (this.pc !== pc || this.done) return;
       const reply: RemoteMediaReply = await this.api.action({ kind: 'signal', part });
-      if (!reply.ok) { this.close(); return; }
+      if (!reply.ok) { this.fail('signal'); return; }
     }
   }
 

@@ -2,8 +2,6 @@ import type { DesktopApi } from '../../shared/ipc';
 import type { RemoteEndReason, RemoteErrorCode, RemoteLabCommand, RemoteLabEvent, RemoteLabReply, RemoteLabState } from '../../shared/remote-lab';
 
 export interface RemoteView { state: RemoteLabState; error?: RemoteErrorCode; ended?: RemoteEndReason }
-/** Kept for API compatibility with the tests; the main window no longer runs timers of its own. */
-export interface ControllerTimers { setTimeout(fn: () => void, ms: number): unknown; clearTimeout(handle: unknown): void }
 
 /**
  * Main-window view of a remote session. Capture and WebRTC live in the isolated media window,
@@ -19,9 +17,7 @@ export class RemoteSessionController {
 
   constructor(
     private readonly api: Pick<DesktopApi, 'remoteLabAction' | 'onRemoteLabEvent'>,
-    private readonly clientId: string,
-    // Reserved for future use; the controller has no timers today.
-    _timers?: ControllerTimers
+    private readonly clientId: string
   ) {
     this.unsubscribe = api.onRemoteLabEvent(event => this.onEvent(event));
   }

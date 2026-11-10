@@ -143,7 +143,7 @@ Härtung H5 (Spec `docs/superpowers/specs/2026-11-10-remote-isolation-design.md`
 | V5 Fensterisolation | **Behoben:** Aufnahme (Agent), Bildanzeige (Viewer) und die WebRTC-Verbindung laufen in einem eigenen Medienfenster mit eigener Partition, `sandbox`, ohne `desktopApi`, mit eigenem Preload (`remote-media.cjs`) und eigener CSP. Das Hauptfenster zeigt nur Zustimmung und Status. Das Fenster endet mit der Sitzung, mit der Sperre des Vaults und mit dem Hauptfenster; Beenden zerstört es samt Renderer-Prozess. Pro Prozess lebt höchstens ein Medienfenster. |
 | V6 Fensterschutz unter Windows | **Implementiert, Laufzeit ungeprüft:** Unter Windows nimmt Shellherd seine Fenster und RDP-Flächen aus dem übertragenen Bild aus; der Schutz fällt erst, wenn alle Agentenfenster wirklich beendet sind (fail-closed). Es gibt keinen Test auf einem echten Windows-Rechner; ein Rezept steht im Handbuch („Manuell prüfen (Windows)“). Vor Windows 10 2004 gibt es nur `WDA_MONITOR` (schwarze Fläche), der Child-Modus verlässt sich auf die Affinität des Electron-Fensters. |
 | V8 Doppelklick | **Behoben:** Der Knopf `Bildschirm freigeben` ist nach dem Klick gesperrt (`armed`), der Systemdialog erscheint frühestens nach 550 ms. Die Szene prüft beides (Sperre sichtbar, Zeitstempel im Recorder). |
-| M4-Rest | **Für das Agentenfenster geschlossen (E3):** Das Medienfenster hat vor der Aufnahme noch keine Daten der Gegenseite verarbeitet (das Angebot entsteht erst nach der Zustimmung, die Antwort folgt später). Danach ist der einmalige Grant verbraucht, weitere Anforderungen sind abgelehnt. |
+| M4-Rest | **Für das Agentenfenster geschlossen (E3):** Nach `hello` mit leerem `peerName` hat das Medienfenster vor der Aufnahme keine Daten der Gegenseite im Agentenfenster verarbeitet (das Angebot entsteht erst nach der Zustimmung, die Antwort folgt später). Danach ist der einmalige Grant verbraucht, weitere Anforderungen sind abgelehnt. |
 | B1 Absender-IPC | **Als Fund behoben:** Das Medienfenster hätte fast die gesamte Vault-, SSH-, Kube-, RDP- und Zwischenablage-IPC erreicht, und `closeOwnerSessions` hätte seine Sitzungen nie aufgeräumt. Privilegierte IPC nimmt jetzt nur Absender aus der Fensterregistry an. |
 | B2 Preload | Beide Preloads sind eigenständig (keine Chunks, kein `require("./`); die Szene prüft das vor dem Lauf. |
 
@@ -156,7 +156,7 @@ Härtung H5 (Spec `docs/superpowers/specs/2026-11-10-remote-isolation-design.md`
 - **Sprache und Theme:** Kein Wechsel im offenen Medienfenster.
 - **Wayland:** Portal und Laufzeit ungeprüft; `captureMs` (20 s) kann eine langsame Auswahl abbrechen.
 - **Frühes Ende:** Endet die Sitzung genau zwischen dem erzwungenen Renderer-Absturz und dem Prozessende, können bereits gepufferte RTP-Pakete noch abgehen (Millisekunden).
-- **Nachweis:** `remote-scene.mjs` prüft Pixel (Fake-Capture) bzw. nur `videoWidth > 0` (echte Aufnahme unter X11), das Ende bei Beenden und bei Fensterschluss und eine leere CSP-Konsole in allen Fenstern.
+- **Nachweis:** `remote-scene.mjs` prüft Pixel (Fake-Capture). Die Szene kann echtes Capture unter X11 prüfen (`SHELLHERD_REMOTE_CAPTURE_FAKE=0`); dieser Lauf steht noch aus. In einer Wayland-Sitzung (auch über XWayland) liefert die Bildschirmaufnahme derzeit kein Bild bzw. hängt; geprüft ist nur der Fake-Modus. Die Szene prüft ferner das Ende bei Beenden und bei Fensterschluss und eine leere CSP-Konsole in allen Fenstern.
 
 **Offen (nicht in H5):**
 

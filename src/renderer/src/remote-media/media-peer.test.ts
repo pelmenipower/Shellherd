@@ -102,6 +102,17 @@ describe('MediaPeer agent', () => {
     expect(t.actions).toEqual([{ kind: 'failed', code: 'signal' }]);
   });
 
+  it('reports exactly one failed signal when the host rejects a signal part', async () => {
+    const t = setup({ reply: { ok: false, code: 'stale' } as RemoteMediaReply });
+    t.emit(hello('agent'));
+    await t.peer.capture();
+    t.emit({ kind: 'accepted' });
+    await flush();
+    t.pcs[0]!.complete();
+    await flush();
+    expect(t.actions.filter(a => a.kind === 'failed')).toEqual([{ kind: 'failed', code: 'signal' }]);
+  });
+
   it('stops waiting for ICE gathering after gatherMs', async () => {
     const t = setup();
     t.emit(hello('agent'));

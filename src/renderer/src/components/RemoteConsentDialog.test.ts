@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RemoteLabSession } from '../../../shared/remote-lab';
 import type { RemoteSessionController } from '../remote-peer';
-import { RemoteConsentDialog } from './RemoteConsentDialog';
+import { RemoteConsentDialog, attemptsDropped } from './RemoteConsentDialog';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -34,5 +34,18 @@ describe('RemoteConsentDialog', () => {
     expect(render('win32')).not.toContain('Der Systemdialog erscheint gleich');
     const button = (markup: string): string => /<button[^>]*primary-button[^>]*>/.exec(markup)![0];
     expect(button(armed)).toContain('disabled');
+  });
+  it('clears the typed value only when a failed attempt was counted', () => {
+    expect(attemptsDropped(3, 2)).toBe(true);
+    // Arming a correct value makes the host drop the counter: the input must stay.
+    expect(attemptsDropped(3, undefined)).toBe(false);
+    expect(attemptsDropped(undefined, undefined)).toBe(false);
+    expect(attemptsDropped(2, 2)).toBe(false);
+  });
+  it('locks the verification field while armed', () => {
+    const field = (markup: string): string => /<input[^>]*remote-lab-verify[^>]*>/.exec(markup)![0];
+    const peer = { id: 'p', name: 'Büro' };
+    expect(field(render('linux', { peer, armed: true }))).toContain('disabled');
+    expect(field(render('linux', { peer }))).not.toContain('disabled');
   });
 });
