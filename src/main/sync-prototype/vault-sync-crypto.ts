@@ -5,6 +5,7 @@ import { argon2id } from 'hash-wasm';
 import { EncryptedVaultFileSchema } from '../../shared/vault/schema';
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import { normalizeRecoveryCode } from '../../shared/recovery-code';
+import { normalizeSyncServerUrl } from '../../shared/sync-server-url.mjs';
 /** Signing side of this device plus the roster view used to check author stamps; lives in main only. */
 export interface SyncDevice { id: string; sign(data: Buffer): Buffer; keyOf(id: string): KeyObject | undefined; revokedAt(id: string): number | null | undefined }
 export interface SyncContext { serverId: string; namespace: string; device?: SyncDevice }
@@ -100,11 +101,12 @@ function codeKey(code: string, context: SyncContext, epoch: number, info: string
 }
 export function keyboxWrapKey(code: string, context: SyncContext, epoch: number): Buffer { return codeKey(code, context, epoch, 'shellherd-sync-keybox-recovery-v2', 'recoveryCode'); }
 export function inviteWrapKey(code: string, context: SyncContext, epoch: number): Buffer { return codeKey(code, context, epoch, 'shellherd-sync-keybox-invite-v1', 'inviteKey'); }
-/** The only value of an enrollment code the server sees; `origin` must be canonical (`https://host[:port]`, no slash). */
+/** The only value of an enrollment code the server sees; `origin` must be canonical (no slash; HTTPS, or loopback/private HTTP like the server). */
 export function inviteEnrollSecret(code: string, context: SyncContext, origin: string): string {
   const normalized = normalizeRecoveryCode(code); ensure(normalized !== null, 'inviteKey');
   const { serverId, namespace } = bound(context);
-  let canonicalOrigin = false; try { canonicalOrigin = typeof origin === 'string' && new URL(origin).protocol === 'https:' && new URL(origin).origin === origin; } catch { /* not a URL */ }
+  // Same rule as the server's originOk (device-proof.mjs): canonical origin, HTTPS or loopback/private HTTP.
+  const canonicalOrigin = typeof origin === 'string' && normalizeSyncServerUrl(origin + '/', { loopback: true, private: true }) === origin + '/';
   ensure(canonicalOrigin, 'wrongVault');
   const bytes = Buffer.from(normalized, 'hex');
   try { return Buffer.from(hkdfSync('sha256', bytes, Buffer.from(JSON.stringify([serverId, namespace, origin])), 'shellherd-invite-enroll-v1', 32)).toString('hex'); } finally { bytes.fill(0); }

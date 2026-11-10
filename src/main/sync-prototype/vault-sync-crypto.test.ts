@@ -25,6 +25,9 @@ it('uses the fixed HKDF vectors of the validation appendix', () => {
   expect(() => inviteEnrollSecret('xyz', context, 'https://sync.example.net')).toThrowError(expect.objectContaining({ code: 'inviteKey' }));
   expect(() => inviteEnrollSecret(code, context, 'https://sync.example.net/')).toThrowError(expect.objectContaining({ code: 'wrongVault' }));
   expect(() => inviteEnrollSecret(code, context, 'http://sync.example.net')).toThrowError(expect.objectContaining({ code: 'wrongVault' }));
+  // Same origin rule as the server (device-proof.mjs originOk): loopback and private HTTP are allowed, public HTTP is not.
+  expect(inviteEnrollSecret(code, context, 'http://127.0.0.1:8787')).toMatch(/^[0-9a-f]{64}$/);
+  expect(inviteEnrollSecret(code, context, 'http://10.8.0.1:8787')).toMatch(/^[0-9a-f]{64}$/);
 });
 it('keeps inviteEnrollSecret in parity with device-proof.mjs', async () => {
   const { inviteEnrollSecret: script } = await proofModule;
