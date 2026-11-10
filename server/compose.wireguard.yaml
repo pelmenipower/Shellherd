@@ -1,6 +1,6 @@
 # Standalone variant for operation inside a private WireGuard network.
 # Not an override file: Compose would append `ports` and keep 127.0.0.1 and proxy mode.
-# Usage: SHELLHERD_BIND_ADDR=10.8.0.1 docker compose -f server/compose.wireguard.yaml up -d
+# Usage: SHELLHERD_BIND_ADDR=10.8.0.1 SHELLHERD_SERVER_ORIGIN=http://10.8.0.1:8787 docker compose -f server/compose.wireguard.yaml up -d
 services:
   server:
     build:
@@ -17,6 +17,9 @@ services:
     pids_limit: 64
     mem_limit: 512m
     cpus: 1.0
+    environment:
+      # Origin clients use (plain http is accepted for private addresses). Proofs are bound to it.
+      SHELLHERD_SERVER_ORIGIN: ${SHELLHERD_SERVER_ORIGIN:?Origin des Servers setzen, z. B. http://10.8.0.1:8787}
     # No SHELLHERD_SERVER_TRUSTED_PROXY: there is no proxy, clients must not be able to spoof their source.
     ports:
       - "${SHELLHERD_BIND_ADDR:?WireGuard-Adresse des Hosts (z. B. 10.8.0.1) in SHELLHERD_BIND_ADDR setzen}:8787:8787"

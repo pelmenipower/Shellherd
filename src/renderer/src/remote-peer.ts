@@ -28,6 +28,8 @@ interface Local {
   pc?: RTCPeerConnection;
   stream?: MediaStream;
   collector: SignalCollector;
+  /** Viewer: the first complete offer was taken; a second one fails the session (V1). */
+  offered?: boolean;
 }
 
 export class RemoteSessionController {
@@ -104,7 +106,7 @@ export class RemoteSessionController {
       pc.onconnectionstatechange = () => this.onConnectionState(local);
       for (const track of stream.getTracks()) {
         track.onended = () => { if (this.local === local) this.stop(); };
-        pc.addTrack(track, stream);
+        pc.addTransceiver(track, { direction: 'sendonly', streams: [stream] });
       }
       await pc.setLocalDescription(await pc.createOffer());
       await this.gather(pc);
@@ -227,6 +229,8 @@ export class RemoteSessionController {
         await local.pc?.setRemoteDescription({ type: 'answer', sdp: message.data });
         return;
       }
+      if (local.offered) throw new Error('signal');
+      local.offered = true;
       await this.answer(local, message.data);
     } catch {
       this.fail(local, 'signal');
@@ -242,6 +246,8 @@ export class RemoteSessionController {
       this.update({ stream: event.streams[0] ?? new MediaStream([event.track]) });
     };
     await pc.setRemoteDescription({ type: 'offer', sdp: offer });
+    // View-only: never send media back (V4). Set after SRD, so the offer's transceiver is the one that is changed.
+    for (const transceiver of pc.getTransceivers()) transceiver.direction = 'recvonly';
     await pc.setLocalDescription(await pc.createAnswer());
     await this.gather(pc);
     if (this.local !== local) return;

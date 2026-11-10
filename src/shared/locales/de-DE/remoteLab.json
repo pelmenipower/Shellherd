@@ -61,11 +61,12 @@
     "peer": "Keine direkte Verbindung möglich. Beide Geräte müssen im selben Netz sein.",
     "scope": "Steuerung wird noch nicht unterstützt. Nur Ansehen ist möglich.",
     "limit": "Zu viele Anfragen oder Geräte. Warte kurz und versuche es erneut.",
-    "samePassword": "Das Serverpasswort darf nicht dein Vault-Passwort sein. Es wurde nichts an den Server gesendet."
+    "samePassword": "Das Serverpasswort darf nicht dein Vault-Passwort sein. Es wurde nichts an den Server gesendet.",
+    "enrolledElsewhere": "Dieses Gerät ist für diesen Server unter einer anderen Adresse angemeldet. Bestätige die Neuanmeldung ausdrücklich."
   },
   "verify": {
     "label": "Erste 16 Zeichen des Fingerabdrucks vom anderen Gerät (die ersten zwei Gruppen)",
-    "hint": "Lies sie auf dem anderen Gerät unter „Fingerabdruck dieses Geräts“ ab.",
+    "hint": "Lies sie auf dem anderen Gerät unter „Fingerabdruck dieses Geräts“ ab, nie aus einem Gerätenamen.",
     "verified": "Geprüft am {{date}}",
     "changed": "Der Fingerabdruck von {{name}} hat sich geändert. Prüfe ihn erneut."
   },
@@ -78,5 +79,7 @@
   },
   "openSession": "Sitzung öffnen",
   "enrolledHint": "Dieses Gerät ist am Server angemeldet; der Server kennt nur seinen öffentlichen Schlüssel.",
-  "enrolledElsewhere": "Dieses Gerät ist für diesen Server unter {{url}} angemeldet. Melde es hier nur an, wenn beide Adressen zu deinem Server gehören."
+  "enrolledElsewhere": "Dieses Gerät ist für diesen Server unter {{url}} angemeldet. Ein fremder Server kann sich als dein Server ausgeben, indem er dieselbe Server-ID meldet. Melde dieses Gerät hier nur an, wenn du sicher bist, dass beide Adressen zu deinem Server gehören.",
+  "enrolledElsewhereConfirm": "Ich habe die Adresse geprüft und melde dieses Gerät hier neu an.",
+  "deviceNameHint": "1–64 Zeichen: Buchstaben, Ziffern, Leerzeichen und - _ . , ( ) '. Keine Folge von 8 oder mehr Zeichen aus 0–9 und a–f, auch nicht durch Leerzeichen getrennt, weil sie wie ein Prüfcode aussieht."
 }

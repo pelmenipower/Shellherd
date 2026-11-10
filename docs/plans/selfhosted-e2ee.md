@@ -1,5 +1,7 @@
 # Selfhosting, E2EE-Sync und Fernzugriff
 
+> Historienvermerk (H3.1): Dieser Stand ist überholt. `SHELLHERD_SERVER_TRUSTED_PROXY` nimmt jetzt die IP des Proxys (z. B. das Gateway des Projektnetzes) statt `1`, und `SHELLHERD_SERVER_PUBLIC_URL` wird abgelehnt; maßgeblich ist `SHELLHERD_SERVER_ORIGIN` (siehe `server/README.md`).
+
 Status: Plan mit isolierten Entwicklungsprototypen. Keine produktive Integration oder Sicherheitsfreigabe.
 
 Stand 2026-11-06: Ein [separater Storage-/Rendezvous-Server](../../server/README.md)

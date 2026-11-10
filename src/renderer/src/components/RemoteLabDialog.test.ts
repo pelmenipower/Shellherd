@@ -28,4 +28,14 @@ describe('RemoteLabDialog sign-in', () => {
     expect(markup).toContain('https://old.example');
     expect(markup).toContain('Temporäre Geräteidentität');
   });
+  it('shows the name rule, caps the name at 64 and disables sign-in for a code-like name', () => {
+    const markup = render({ phase: 'serverReady', server });
+    expect(markup).toContain('maxLength="64"');
+    expect(markup).toContain('Prüfcode');
+  });
+  it('asks for an explicit confirmation when enrolled at another address', () => {
+    const markup = render({ phase: 'serverReady', server, enrolledElsewhere: 'https://old.example' });
+    expect(markup).toContain('type="checkbox"');
+    expect(markup).toContain('Ich habe die Adresse geprüft');
+  });
 });

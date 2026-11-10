@@ -1,5 +1,7 @@
 # Handoff: Selfhosting, Docker und Rendezvous
 
+> Historienvermerk (H3.1): Dieser Stand ist überholt. `SHELLHERD_SERVER_TRUSTED_PROXY` nimmt jetzt die IP des Proxys (z. B. das Gateway des Projektnetzes) statt `1`, und `SHELLHERD_SERVER_PUBLIC_URL` wird abgelehnt; maßgeblich ist `SHELLHERD_SERVER_ORIGIN` (siehe `server/README.md`).
+
 Erstellt am 2026-11-07 (Europe/Berlin). Letzte Implementierung und Laufzeittests
 am 2026-11-06. Git-Arbeitsstand am 2026-11-07 erneut geprüft.
 

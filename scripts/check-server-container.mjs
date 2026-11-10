@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { createAccount } from './sync-prototype/account-auth.mjs';
 import { AccountStore } from './sync-prototype/account-transport.mjs';
@@ -12,8 +13,8 @@ import { createDeviceIdentity } from './sync-prototype/device-proof.mjs';
 const image = 'shellherd-server:local'; const suffix = randomBytes(8).toString('hex');
 const name = `shellherd-server-test-${suffix}`; const volume = `${name}-data`; const restored = `${name}-restored`;
 const volumes = []; const stores = []; const channels = []; let running = false;
-const docker = (args, { input, binary = false } = {}) => new Promise((resolve, reject) => {
-  const child = spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'] }); const output = []; const errors = []; let bytes = 0;
+const docker = (args, { input, binary = false, env } = {}) => new Promise((resolve, reject) => {
+  const child = spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'], env }); const output = []; const errors = []; let bytes = 0;
   child.on('error', reject); child.stdin.on('error', () => {});
   child.stdout.on('data', chunk => { bytes += chunk.length; if (bytes > 16 * 1024 * 1024) child.kill(); else output.push(chunk); });
   child.stderr.on('data', chunk => { if (errors.reduce((n, value) => n + value.length, 0) < 65536) errors.push(chunk); });
@@ -21,12 +22,19 @@ const docker = (args, { input, binary = false } = {}) => new Promise((resolve, r
   child.stdin.end(input);
 });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+// The server needs its public origin at start, so the host port is chosen first and published to exactly that port.
+const freePort = () => new Promise((resolve, reject) => {
+  const probe = createServer(); probe.once('error', reject);
+  probe.listen(0, '127.0.0.1', () => { const { port } = probe.address(); probe.close(() => resolve(port)); });
+});
+let devices = 0;
 async function start(dataVolume) {
-  await docker(['run', '-d', '--name', name, '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--user', '1000:1000', '--memory', '512m', '--pids-limit', '64', '--cpus', '1', '-p', '127.0.0.1::8787', '--mount', `type=volume,src=${dataVolume},dst=/data`, '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m', image]); running = true;
+  const hostPort = await freePort();
+  await docker(['run', '-d', '--name', name, '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--user', '1000:1000', '--memory', '512m', '--pids-limit', '64', '--cpus', '1', '-p', `127.0.0.1:${hostPort}:8787`, '-e', `SHELLHERD_SERVER_ORIGIN=http://127.0.0.1:${hostPort}`, '--mount', `type=volume,src=${dataVolume},dst=/data`, '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m', image]); running = true;
   const details = JSON.parse(await docker(['inspect', name]))[0];
   assert.equal(details.Config.User, '1000:1000'); assert.equal(details.HostConfig.ReadonlyRootfs, true);
-  const port = details.NetworkSettings.Ports['8787/tcp'][0]; assert.equal(port.HostIp, '127.0.0.1');
-  const serverUrl = `http://127.0.0.1:${port.HostPort}/`;
+  const port = details.NetworkSettings.Ports['8787/tcp'][0]; assert.equal(port.HostIp, '127.0.0.1'); assert.equal(port.HostPort, String(hostPort));
+  const serverUrl = `http://127.0.0.1:${hostPort}/`;
   for (let attempt = 0; attempt < 50; attempt++) {
     try { return await probeSyncServer(serverUrl, { allowLoopbackHttp: true }); }
     catch (error) { if (attempt === 49) throw error; await pause(100); }
@@ -36,8 +44,11 @@ async function stop() { if (running) { await docker(['rm', '-f', name]); running
 const volumeMount = dataVolume => ['--mount', `type=volume,src=${dataVolume},dst=/data`];
 try {
   await docker(['image', 'inspect', image]);
-  const compose = JSON.parse(await docker(['compose', '-f', fileURLToPath(new URL('../server/compose.yaml', import.meta.url)), 'config', '--format', 'json']));
+  const compose = JSON.parse(await docker(['compose', '-f', fileURLToPath(new URL('../server/compose.yaml', import.meta.url)), 'config', '--format', 'json'], { env: { ...process.env, SHELLHERD_SERVER_ORIGIN: 'https://shellherd.example.org' } }));
   assert.equal(compose.services.server.read_only, true); assert.equal(compose.services.server.ports[0].host_ip, '127.0.0.1');
+  assert.equal(compose.services.server.environment.SHELLHERD_SERVER_ORIGIN, 'https://shellherd.example.org');
+  // The trusted proxy is the gateway of the fixed project network: both must stay the same address.
+  assert.equal(compose.services.server.environment.SHELLHERD_SERVER_TRUSTED_PROXY, compose.networks.default.ipam.config[0].gateway);
   for (const item of [volume, restored]) { await docker(['volume', 'create', item]); volumes.push(item); }
   const password = randomBytes(32).toString('hex');
   const config = { account: await createAccount('container-test', password), serverId: randomBytes(32).toString('hex'), namespace: 'container-test' };
@@ -47,7 +58,7 @@ try {
   // Enroll a device with the account password (needed once), or sign an enrolled one in with its key alone.
   async function enroll(currentInfo, enrollPassword = password, identity = createDeviceIdentity()) {
     const store = new AccountStore(currentInfo); stores.push(store);
-    await store.enroll(identity, { username: 'container-test', password: enrollPassword, name: 'synthetic-' + identity.id.slice(0, 8), ephemeral: false }); await store.openSession(identity); return { store, identity };
+    await store.enroll(identity, { username: 'container-test', password: enrollPassword, name: 'synthetic-device-' + ++devices, ephemeral: false }); await store.openSession(identity); return { store, identity };
   }
   async function signIn(currentInfo, identity) { const store = new AccountStore(currentInfo); stores.push(store); await store.openSession(identity); return store; }
   const { store: first, identity: firstIdentity } = await enroll(info); const { store: second, identity: secondIdentity } = await enroll(info);

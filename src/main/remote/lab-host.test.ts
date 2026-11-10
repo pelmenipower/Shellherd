@@ -71,10 +71,11 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
   const known = vi.fn((_id: string): { firstSeen: number; verified: boolean; verifiedAt?: number } | undefined => undefined);
   const renamed = vi.fn((_id: string, _name: string) => false);
   const load = vi.fn(() => ({ identity: { id: SELF, publicKey: 'pk-self', privateKey: {} } as unknown as RemoteIdentity, persistent: true }));
-  const enrollment = vi.fn((_serverId: string): Enrollment | undefined => undefined);
+  const enrollment = vi.fn((_serverId: string, _serverUrl: string): Enrollment | undefined => undefined);
+  const enrolledElsewhere = vi.fn((_serverId: string, _serverUrl: string): string | undefined => undefined);
   const rememberEnrollment = vi.fn();
   const forgetEnrollment = vi.fn();
-  const store = { load, known, remember, renamed, enrollment, rememberEnrollment, forgetEnrollment } as unknown as RemoteIdentityStore;
+  const store = { load, known, remember, renamed, enrollment, enrolledElsewhere, rememberEnrollment, forgetEnrollment } as unknown as RemoteIdentityStore;
   const account: RemoteAccount & { getImpl?: () => Promise<unknown> } = {
     enroll: vi.fn(async () => ({})),
     openSession: vi.fn(async () => ({ signedIn: true as const, expiresAt: 5_000_000, device: 'Laptop' })),
@@ -84,8 +85,9 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
   const peer = {
     identity: { id: SELF, publicKey: 'pk-self', privateKey: {} },
     request: vi.fn(async (target: string) => wire({ from: SELF, to: target })),
+    forget: vi.fn(),
     channel: vi.fn(() => { const c = new FakeChannel(); c.rounds = handshake.rounds; channels.push(c); return c; }),
-  } as unknown as RemotePeer & { request: ReturnType<typeof vi.fn>; channel: ReturnType<typeof vi.fn> };
+  } as unknown as RemotePeer & { request: ReturnType<typeof vi.fn>; forget: ReturnType<typeof vi.fn>; channel: ReturnType<typeof vi.fn> };
   const unlocked = { value: true };
   const emergency = vi.fn();
   const confirmCapture = vi.fn(async (_owner: number, _prompt: unknown, _signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'> => 'accepted');
@@ -135,7 +137,7 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     return channels[channels.length - 1]!;
   };
   const deletes = (): string[] => requests.filter(r => r.method === 'DELETE').map(r => r.path);
-  return { host, handshake, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, enrollment, rememberEnrollment, forgetEnrollment, emergency, confirmCapture, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
+  return { host, handshake, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, enrollment, enrolledElsewhere, rememberEnrollment, forgetEnrollment, emergency, confirmCapture, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
 }
 
 describe('RemoteLabHost: setup', () => {
@@ -258,13 +260,37 @@ describe('RemoteLabHost: setup', () => {
     expect((await t.act({ kind: 'goOnline', deviceName: '' })).ok).toBe(true);
   });
 
-  it('K10: an enrollment on another URL shows enrolledElsewhere and allows no openSession', async () => {
+  it('K10: an enrollment on another origin shows enrolledElsewhere and allows no openSession', async () => {
     const t = setup();
-    t.enrollment.mockReturnValue({ serverId: 'f'.repeat(64), namespace: 'demo', serverUrl: 'https://old.example/', username: 'demo', name: 'Laptop', enrolledAt: 1 });
+    t.enrolledElsewhere.mockReturnValue('https://old.example/');
     const reply = await t.act({ kind: 'connect', serverUrl: URL });
     expect(reply).toMatchObject({ ok: true, state: { enrolledElsewhere: 'https://old.example/' } });
+    expect(t.enrolledElsewhere).toHaveBeenCalledWith('f'.repeat(64), URL);
     expect((reply as { state: { enrolled?: unknown } }).state.enrolled).toBeUndefined();
     expect(await t.act({ kind: 'openSession' })).toEqual({ ok: false, code: 'stale' });
+  });
+
+  it('K29: signIn on an elsewhere-enrolled device needs confirmElsewhere; the old entry is kept', async () => {
+    const t = setup();
+    t.enrolledElsewhere.mockReturnValue('https://old.example/');
+    await t.act({ kind: 'connect', serverUrl: URL });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop' })).toEqual({ ok: false, code: 'enrolledElsewhere' });
+    expect(t.account.enroll).not.toHaveBeenCalled();
+    expect(t.rememberEnrollment).not.toHaveBeenCalled();
+    expect((await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'Laptop', confirmElsewhere: true })).ok).toBe(true);
+    expect(t.account.enroll).toHaveBeenCalledTimes(1);
+    expect(t.forgetEnrollment).not.toHaveBeenCalled();
+  });
+
+  it('device names follow isDeviceName: a code-like name is invalid, listed devices with such names are dropped', async () => {
+    const t = setup();
+    await t.act({ kind: 'connect', serverUrl: URL });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'ab12 cd34' })).toEqual({ ok: false, code: 'invalid' });
+    expect(await t.act({ kind: 'signIn', username: 'demo', password: 'pw', deviceName: 'x'.repeat(65) })).toEqual({ ok: false, code: 'invalid' });
+    const u = setup();
+    await u.goOnline();
+    u.handlers().onDevices([device(B, 'Büro'), device('c'.repeat(64), 'abcdef12 34')]);
+    expect(await u.act({ kind: 'status' })).toMatchObject({ ok: true, state: { devices: [{ id: B, name: 'Büro' }] } });
   });
 
   it('openSession: one 401 is retried, two 401 forget the enrollment (B6)', async () => {
@@ -281,7 +307,7 @@ describe('RemoteLabHost: setup', () => {
     await u.act({ kind: 'connect', serverUrl: URL });
     (u.account.openSession as ReturnType<typeof vi.fn>).mockRejectedValue(Object.assign(new Error('x'), { status: 401 }));
     expect(await u.act({ kind: 'openSession' })).toEqual({ ok: false, code: 'authentication' });
-    expect(u.forgetEnrollment).toHaveBeenCalledWith('f'.repeat(64));
+    expect(u.forgetEnrollment).toHaveBeenCalledWith('f'.repeat(64), URL);
     expect((await u.act({ kind: 'status' }) as { state: { enrolled?: unknown } }).state.enrolled).toBeUndefined();
   });
 
@@ -600,6 +626,14 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect((await t.act({ kind: 'stopped', sessionId: SID })).ok).toBe(true);
     await t.clock.advance(5000);
     expect(t.emergency).not.toHaveBeenCalled();
+  });
+
+  it('a receipt before the session end withdraws the capture grant (m3)', async () => {
+    const t = setup();
+    await t.granted();
+    expect(t.host.captureGranted(OWNER)).toBe(true);
+    expect((await t.act({ kind: 'stopped', sessionId: SID })).ok).toBe(true);
+    expect(t.host.captureGranted(OWNER)).toBe(false);
   });
 
   it('emergency brake: reset("locked") then stopped without a binding answers idle and cancels', async () => {
@@ -1237,5 +1271,205 @@ describe('RemoteLabHost: Noise handshake (T8)', () => {
     await t.clock.advance(REMOTE_LAB_LIMITS.setupPollMs);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
     expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'mismatch' }]);
+  });
+});
+
+describe('V1: one message per session', () => {
+  it('viewer: a second complete offer ends failed before it is emitted', async () => {
+    const t = setup();
+    const channel = await t.viewing();
+    channel.inbox.push([{ part: part('offer') }]);
+    await t.clock.advance(1000);
+    expect(t.kinds('signal')).toHaveLength(1);
+    channel.inbox.push([{ part: part('offer') }]);
+    await t.clock.advance(5000);
+    expect(t.kinds('signal')).toHaveLength(1);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+  });
+
+  it('viewer: any part after the first complete message ends failed, even in the same batch', async () => {
+    const t = setup();
+    const channel = await t.viewing();
+    channel.inbox.push([{ part: part('offer', 1, 1, 'a') }, { part: part('offer', 1, 2, 'b') }]);
+    await t.clock.advance(1000);
+    expect(t.kinds('signal')).toHaveLength(1);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+  });
+
+  it('viewer: a bye after the message is still a normal remote end', async () => {
+    const t = setup();
+    const channel = await t.viewing();
+    channel.inbox.push([{ part: part('offer') }]);
+    await t.clock.advance(1000);
+    channel.inbox.push([{ part: part('bye', 1, 1, '') }]);
+    await t.clock.advance(5000);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'remote' }]);
+  });
+
+  it('agent: a second complete answer ends failed before it is emitted', async () => {
+    const t = setup();
+    const channel = await t.accepted();
+    channel.inbox.push([{ part: part('answer') }]);
+    await t.clock.advance(5000);
+    expect(t.kinds('signal')).toHaveLength(1);
+    channel.inbox.push([{ part: part('answer') }]);
+    await t.clock.advance(5000);
+    expect(t.kinds('signal')).toHaveLength(1);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+  });
+});
+
+describe('V2: early stopped receipt', () => {
+  it('a receipt before the session end cancels the later emergency brake', async () => {
+    const t = setup();
+    await t.granted();
+    // accept is not processed (other client): stale, the renderer still stops its tracks and acknowledges.
+    expect(await t.act({ kind: 'accept', sessionId: SID }, OWNER, '00000000-0000-4000-8000-000000000002')).toEqual({ ok: false, code: 'stale' });
+    expect((await t.act({ kind: 'stopped', sessionId: SID })).ok).toBe(true);
+    await t.clock.advance(REMOTE_LAB_LIMITS.consentMs + 1000);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'expired' }]);
+    await t.clock.advance(REMOTE_LAB_LIMITS.byeMs + 5000);
+    expect(t.emergency).not.toHaveBeenCalled();
+  });
+
+  it('a receipt of a foreign owner or for a session that never captured is stale', async () => {
+    const t = setup();
+    await t.armed();
+    expect(await t.act({ kind: 'stopped', sessionId: SID })).toEqual({ ok: false, code: 'stale' });
+    expect(await t.host.action(OWNER + 1, { kind: 'stopped', clientId: CLIENT, sessionId: SID })).toEqual({ ok: false, code: 'stale' });
+    expect(await t.host.requestCapture(OWNER)).toBe(SID);
+    expect(await t.host.action(OWNER + 1, { kind: 'stopped', clientId: CLIENT, sessionId: SID })).toEqual({ ok: false, code: 'stale' });
+    await t.act({ kind: 'stop', sessionId: SID });
+    await t.clock.advance(REMOTE_LAB_LIMITS.byeMs);
+    expect(t.emergency).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('V7: global brake for unverified requests', () => {
+  const D = 'd'.repeat(64);
+  const E = 'e'.repeat(64);
+  const sid = (n: number): string => String(n).repeat(64);
+  const refuse = async (t: ReturnType<typeof setup>, from: string, n: number, how: 'decline' | 'expire'): Promise<void> => {
+    t.handlers().onDevices([device(B, 'B'), device(C, 'C'), device(D, 'D'), device(E, 'E')]);
+    t.handlers().onSessions([wire({ id: sid(n), from })]);
+    await flush();
+    if (how === 'decline') expect((await t.act({ kind: 'decline', sessionId: sid(n) })).ok).toBe(true);
+    else await t.clock.advance(REMOTE_LAB_LIMITS.consentMs + 1);
+  };
+
+  it('after three refusals unverified requests are dropped silently; verified pins pass; goOnline resets', async () => {
+    const t = setup();
+    await t.goOnline();
+    await refuse(t, B, 3, 'decline');
+    await refuse(t, C, 4, 'decline');
+    await refuse(t, D, 5, 'expire');
+    t.handlers().onSessions([wire({ id: sid(6), from: E })]);
+    await flush();
+    expect(t.deletes()).toContain(`/v1/rendezvous/sessions/${sid(6)}`);
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { muted: 1 } });
+    expect(((await t.act({ kind: 'status' })) as { state: { session?: unknown } }).state.session).toBeUndefined();
+    t.known.mockImplementation(id => id === E ? { firstSeen: 1, verified: true } : undefined);
+    t.handlers().onSessions([wire({ id: sid(7), from: E })]);
+    await flush();
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { id: sid(7), role: 'agent' } } });
+    await t.act({ kind: 'stop', sessionId: sid(7) });
+    t.known.mockImplementation(() => undefined);
+    expect((await t.act({ kind: 'goOffline' })).ok).toBe(true);
+    expect((await t.act({ kind: 'goOnline', deviceName: 'Laptop' })).ok).toBe(true);
+    t.handlers().onDevices([device(E, 'E')]);
+    t.handlers().onSessions([wire({ id: sid(8), from: E })]);
+    await flush();
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { id: sid(8) } } });
+  });
+
+  it('two refusals do not brake, and refusals of verified devices are not counted', async () => {
+    const t = setup();
+    await t.goOnline();
+    t.known.mockImplementation(id => id === B ? { firstSeen: 1, verified: true } : undefined);
+    await refuse(t, B, 3, 'decline');
+    await refuse(t, C, 6, 'decline');
+    await refuse(t, D, 7, 'decline');
+    t.handlers().onSessions([wire({ id: sid(8), from: E })]);
+    await flush();
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { id: sid(8) } } });
+  });
+
+  it('refusals older than the window do not count', async () => {
+    const t = setup();
+    await t.goOnline();
+    await refuse(t, B, 3, 'decline');
+    await refuse(t, C, 4, 'decline');
+    await t.clock.advance(600_001);
+    await refuse(t, D, 5, 'decline');
+    t.handlers().onSessions([wire({ id: sid(6), from: E })]);
+    await flush();
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { id: sid(6) } } });
+  });
+});
+
+describe('V9: stops settled', () => {
+  it('stopsPending is true while the receipt is outstanding and the event fires on the receipt', async () => {
+    const t = setup();
+    const settled = vi.fn();
+    t.host.onStopsSettled(settled);
+    await t.accepted();
+    expect(t.host.stopsPending).toBe(false);
+    await t.act({ kind: 'stop', sessionId: SID });
+    expect(t.host.stopsPending).toBe(true);
+    expect(settled).not.toHaveBeenCalled();
+    await t.act({ kind: 'stopped', sessionId: SID });
+    expect(t.host.stopsPending).toBe(false);
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+
+  it('the event fires after the emergency brake, in that order', async () => {
+    const t = setup();
+    const order: string[] = [];
+    t.emergency.mockImplementation(() => { order.push('emergency'); });
+    t.host.onStopsSettled(() => { order.push('settled'); });
+    await t.accepted();
+    await t.act({ kind: 'stop', sessionId: SID });
+    await t.clock.advance(REMOTE_LAB_LIMITS.byeMs);
+    expect(order).toEqual(['emergency', 'settled']);
+    expect(t.host.stopsPending).toBe(false);
+  });
+
+  it('closeOwner settles outstanding stops; the unsubscribe function works', async () => {
+    const t = setup();
+    const settled = vi.fn();
+    const off = t.host.onStopsSettled(settled);
+    await t.accepted();
+    await t.act({ kind: 'stop', sessionId: SID });
+    t.host.closeOwner(OWNER);
+    expect(settled).toHaveBeenCalledTimes(1);
+    off();
+    const other = vi.fn();
+    t.host.onStopsSettled(other);
+    expect(other).not.toHaveBeenCalled();
+  });
+});
+
+describe('V10: forget unredeemed viewer requests', () => {
+  it('a viewer session without a channel is forgotten when it ends', async () => {
+    const t = setup();
+    await t.requesting();
+    await t.act({ kind: 'stop', sessionId: SID });
+    expect(t.peer.forget).toHaveBeenCalledWith(SID);
+  });
+
+  it('a viewer session with a channel and agent sessions are not forgotten; a throwing forget is harmless', async () => {
+    const t = setup();
+    await t.viewing();
+    await t.act({ kind: 'stop', sessionId: SID });
+    expect(t.peer.forget).not.toHaveBeenCalled();
+    const a = setup();
+    await a.accepted();
+    await a.act({ kind: 'stop', sessionId: SID });
+    expect(a.peer.forget).not.toHaveBeenCalled();
+    const x = setup();
+    x.peer.forget.mockImplementation(() => { throw new Error('x'); });
+    await x.requesting();
+    expect((await x.act({ kind: 'stop', sessionId: SID })).ok).toBe(true);
+    expect(x.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'stopped' }]);
   });
 });

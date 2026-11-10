@@ -25,6 +25,7 @@ export interface LockVaultRequest { disconnect?: boolean }
 export const IPC_CHANNELS = {
   getVersion: 'app:get-version',
   remoteLabAction: 'remote-lab:action',
+  syncLabAction: 'sync-lab:action',
   remoteLabEvent: 'remote-lab:event',
   readClipboardText: 'clipboard:read-text',
   writeClipboardText: 'clipboard:write-text',
@@ -214,10 +215,10 @@ export interface HelloStatus { available: boolean; enrolled: boolean }
 export interface HelloUnlockRequest { filePath: string }
 
 export interface DesktopApi {
-  /** Fixture-only lab, available exclusively in an explicitly enabled development checkout. */
+  /** Development-only sync lab, enabled by SHELLHERD_SYNC_LAB=1 in an unpackaged checkout. */
   syncLabEnabled: boolean;
   syncLabAction: (request: import('./sync-lab').SyncLabRequest) => Promise<import('./sync-lab').SyncLabReply>;
-  /** Development-only remote view lab, enabled together with the sync lab. */
+  /** Development-only remote view lab, enabled by SHELLHERD_REMOTE_LAB=1 independently of the sync lab. */
   remoteLabEnabled: boolean;
   remoteCaptureFake: boolean;
   remoteLabAction: (request: import('./remote-lab').RemoteLabRequest) => Promise<import('./remote-lab').RemoteLabReply>;

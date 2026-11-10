@@ -47,6 +47,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "@fontsource-variable/inter": "^5.2.8",
     "@types/node": "24.13.5",
     "@types/react": "^19.1.13",

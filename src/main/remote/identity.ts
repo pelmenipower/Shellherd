@@ -100,6 +100,15 @@ const fileSchemaV3 = z.object({
 })
 type KnownDevice = z.infer<typeof knownSchema>
 
+/** Origin equality; an unparsable URL counts as different. */
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin
+  } catch {
+    return false
+  }
+}
+
 const fail = (): never => {
   throw new Error('identity')
 }
@@ -256,15 +265,21 @@ export class RemoteIdentityStore {
     if (this.loaded.persistent) this.save()
   }
 
-  enrollment(serverId: string): Enrollment | undefined {
-    const entry = this.enrollments_.find(item => item.serverId === serverId)
+  /** Entry with the same serverId whose stored serverUrl has the same origin as serverUrl. */
+  enrollment(serverId: string, serverUrl: string): Enrollment | undefined {
+    const entry = this.enrollments_.find(item => item.serverId === serverId && sameOrigin(item.serverUrl, serverUrl))
     return entry ? { ...entry } : undefined
   }
 
-  /** Replaces the same serverId; keeps at most 16 (oldest enrolledAt drops). Persists only for a persistent identity, otherwise RAM. */
+  /** serverUrl of another entry with the same serverId but a different origin, else undefined. */
+  enrolledElsewhere(serverId: string, serverUrl: string): string | undefined {
+    return this.enrollments_.find(item => item.serverId === serverId && !sameOrigin(item.serverUrl, serverUrl))?.serverUrl
+  }
+
+  /** Replaces only the entry with the same serverId and origin; keeps at most 16 (oldest enrolledAt drops). Persists only for a persistent identity, otherwise RAM. */
   rememberEnrollment(e: Enrollment): void {
     if (!this.loaded) return
-    this.enrollments_ = this.enrollments_.filter(item => item.serverId !== e.serverId)
+    this.enrollments_ = this.enrollments_.filter(item => !(item.serverId === e.serverId && sameOrigin(item.serverUrl, e.serverUrl)))
     this.enrollments_.push({ ...e })
     if (this.enrollments_.length > MAX_ENROLLMENTS) {
       const oldest = this.enrollments_.reduce((a, b) => (b.enrolledAt < a.enrolledAt ? b : a))
@@ -273,10 +288,10 @@ export class RemoteIdentityStore {
     if (this.loaded.persistent) this.save()
   }
 
-  forgetEnrollment(serverId: string): void {
+  forgetEnrollment(serverId: string, serverUrl: string): void {
     if (!this.loaded) return
     const before = this.enrollments_.length
-    this.enrollments_ = this.enrollments_.filter(item => item.serverId !== serverId)
+    this.enrollments_ = this.enrollments_.filter(item => !(item.serverId === serverId && sameOrigin(item.serverUrl, serverUrl)))
     if (this.enrollments_.length !== before && this.loaded.persistent) this.save()
   }
 

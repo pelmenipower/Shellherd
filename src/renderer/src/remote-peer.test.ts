@@ -4,7 +4,8 @@ import { splitSignal } from '../../shared/remote-signal';
 import { RemoteSessionController, type CaptureSource, type PeerFactory, type RemoteView } from './remote-peer';
 
 const FP = Array.from({ length: 32 }, () => 'ab').join(':');
-const sdp = (extra = ''): string => `v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=fingerprint:sha-256 ${FP}\r\na=setup:actpass\r\n${extra}`;
+const sdp = (extra = '', direction = 'a=sendonly'): string => `v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=fingerprint:sha-256 ${FP}\r\na=setup:actpass\r\n${direction}\r\n${extra}`;
+const answerSdp = (): string => sdp('', 'a=recvonly');
 const idle: RemoteLabState = { phase: 'online' };
 
 class FakePc {
@@ -19,14 +20,19 @@ class FakePc {
   onconnectionstatechange: (() => void) | null = null;
   listeners = new Map<string, () => void>();
   localSdp = sdp();
+  localAnswerSdp = answerSdp();
+  transceivers: { direction: string }[] = [];
+  addTransceivers: { track: unknown; init: unknown }[] = [];
   constructor(config: RTCConfiguration) { this.config = config; }
   addTrack(track: unknown): void { this.tracks.push(track); }
+  addTransceiver(track: unknown, init: unknown): void { this.tracks.push(track); this.addTransceivers.push({ track, init }); }
+  getTransceivers(): { direction: string }[] { return this.transceivers; }
   addEventListener(name: string, fn: () => void): void { this.listeners.set(name, fn); }
   removeEventListener(name: string): void { this.listeners.delete(name); }
   async createOffer(): Promise<{ type: string; sdp: string }> { return { type: 'offer', sdp: this.localSdp }; }
-  async createAnswer(): Promise<{ type: string; sdp: string }> { return { type: 'answer', sdp: this.localSdp }; }
+  async createAnswer(): Promise<{ type: string; sdp: string }> { return { type: 'answer', sdp: this.localAnswerSdp }; }
   async setLocalDescription(d: { type: string; sdp: string }): Promise<void> { this.localDescription = d; }
-  async setRemoteDescription(d: { type: string; sdp: string }): Promise<void> { this.remote = d; }
+  async setRemoteDescription(d: { type: string; sdp: string }): Promise<void> { this.remote = d; if (d.type === 'offer') this.transceivers.push({ direction: 'sendrecv' }); }
   close(): void { this.closed = true; }
   complete(): void { this.iceGatheringState = 'complete'; this.listeners.get('icegatheringstatechange')?.(); }
 }
@@ -177,9 +183,31 @@ describe('RemoteSessionController share (agent)', () => {
     await flush();
     t.pcs[0]!.complete();
     await done;
-    for (const part of splitSignal('answer', sdp())) t.emit({ kind: 'signal', sessionId: 's1', part });
+    for (const part of splitSignal('answer', answerSdp())) t.emit({ kind: 'signal', sessionId: 's1', part });
     await flush();
-    expect(t.pcs[0]!.remote).toEqual({ type: 'answer', sdp: sdp() });
+    expect(t.pcs[0]!.remote).toEqual({ type: 'answer', sdp: answerSdp() });
+  });
+
+  it('adds the track as a sendonly transceiver (V4)', async () => {
+    const t = setup();
+    const done = t.controller.share('s1', null);
+    await flush();
+    t.pcs[0]!.complete();
+    await done;
+    expect(t.pcs[0]!.addTransceivers).toHaveLength(1);
+    expect(t.pcs[0]!.addTransceivers[0]!.init).toMatchObject({ direction: 'sendonly' });
+  });
+
+  it('rejects an answer with a wrong direction (V4)', async () => {
+    const t = setup();
+    const done = t.controller.share('s1', null);
+    await flush();
+    t.pcs[0]!.complete();
+    await done;
+    for (const part of splitSignal('answer', sdp('', 'a=sendrecv'))) t.emit({ kind: 'signal', sessionId: 's1', part });
+    await flush();
+    expect(t.controller.view.error).toBe('signal');
+    expect(t.pcs[0]!.remote).toBeNull();
   });
 
   it('rejects an offer arriving at the agent with signal', async () => {
@@ -297,6 +325,37 @@ describe('RemoteSessionController viewer', () => {
     expect(t.controller.view.stream).toBe(stream);
   });
 
+  it('sets every transceiver to recvonly after the remote offer (V4)', async () => {
+    const t = setup();
+    t.emit({ kind: 'state', state: viewerState });
+    for (const part of splitSignal('offer', sdp())) t.emit({ kind: 'signal', sessionId: 'v1', part });
+    await flush();
+    expect(t.pcs[0]!.transceivers).toEqual([{ direction: 'recvonly' }]);
+    expect(t.pcs[0]!.addTransceivers).toEqual([]);
+  });
+
+  it('rejects an offer that is not sendonly (V4)', async () => {
+    const t = setup();
+    t.emit({ kind: 'state', state: viewerState });
+    for (const part of splitSignal('offer', sdp('', 'a=sendrecv'))) t.emit({ kind: 'signal', sessionId: 'v1', part });
+    await flush();
+    expect(t.controller.view.error).toBe('signal');
+    expect(t.pcs).toHaveLength(0);
+  });
+
+  it('a second complete offer fails the session and never creates a second connection (V1)', async () => {
+    const t = setup();
+    t.emit({ kind: 'state', state: viewerState });
+    for (const part of splitSignal('offer', sdp())) t.emit({ kind: 'signal', sessionId: 'v1', part });
+    await flush();
+    t.emit({ kind: 'signal', sessionId: 'v1', part: splitSignal('offer', sdp())[0]! });
+    await flush();
+    expect(t.pcs).toHaveLength(1);
+    expect(t.controller.view.error).toBe('signal');
+    expect(t.pcs[0]!.closed).toBe(true);
+    expect(t.log).toContain('stop');
+  });
+
   it('flags a broken offer as signal', async () => {
     const t = setup();
     t.emit({ kind: 'state', state: viewerState });
@@ -309,7 +368,7 @@ describe('RemoteSessionController viewer', () => {
   it('rejects an answer arriving at the viewer', async () => {
     const t = setup();
     t.emit({ kind: 'state', state: viewerState });
-    t.emit({ kind: 'signal', sessionId: 'v1', part: splitSignal('answer', sdp())[0]! });
+    t.emit({ kind: 'signal', sessionId: 'v1', part: splitSignal('answer', answerSdp())[0]! });
     await flush();
     expect(t.controller.view.error).toBe('signal');
   });
