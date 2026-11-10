@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canRevoke, enrollReady, importReady, inviteReady, needsRecoveryCode, passwordTooShort, recoveryCodeValid } from './sync-lab-view';
+import { canRevoke, deferVaultChange, enrollReady, importReady, inviteReady, needsRecoveryCode, passwordTooShort, recoveryCodeValid } from './sync-lab-view';
 
 const CODE = '0123456789abcdef0123456789abcdef';
 describe('sync lab view rules', () => {
@@ -66,5 +66,13 @@ describe('enrollment code rules', () => {
     expect(inviteReady('abc', 'Laptop')).toBe(false);
     expect(inviteReady(CODE, '20241110')).toBe(false);
     expect(inviteReady(CODE, 'Laptop', false)).toBe(false);
+  });
+});
+
+describe('vault change after a sync', () => {
+  it('holds the vault change back while a new recovery code is still on screen', () => {
+    expect(deferVaultChange({ vaultChanged: {}, recoveryCode: 'code' })).toBe(true);
+    expect(deferVaultChange({ vaultChanged: {} })).toBe(false);
+    expect(deferVaultChange({ recoveryCode: 'code' })).toBe(false);
   });
 });

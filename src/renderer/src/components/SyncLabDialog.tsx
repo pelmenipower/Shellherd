@@ -7,7 +7,7 @@ import type { SyncLabErrorCode, SyncLabReply, SyncLabRequest, SyncLabState } fro
 import { needsPrivateNetwork, normalizeSyncServerUrl } from '../../../shared/sync-server-url.mjs';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { useT } from '../i18n';
-import { canRevoke, enrollReady, importReady, inviteReady, needsRecoveryCode, passwordTooShort, recoveryCodeValid } from '../sync-lab-view';
+import { canRevoke, deferVaultChange, enrollReady, importReady, inviteReady, needsRecoveryCode, passwordTooShort, recoveryCodeValid } from '../sync-lab-view';
 import '../sync-lab.css';
 
 type SyncDevice = NonNullable<SyncLabState['devices']>[number];
@@ -117,7 +117,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
   const [username, setUsername] = useState(''); const [password, setPassword] = useState('');
   const [deviceName, setDeviceName] = useState('');
   const [codeInput, setCodeInput] = useState(''); const [newPassword, setNewPassword] = useState(''); const [repeatPassword, setRepeatPassword] = useState('');
-  const [recoveryCode, setRecoveryCode] = useState<string | null>(null); const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [recoveryCode, setRecoveryCode] = useState<string | null>(null); const [heldVault, setHeldVault] = useState<VaultSessionResult | null>(null); const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [enrollMode, setEnrollMode] = useState<'password' | 'invite' | null>(null); const [enrollCode, setEnrollCode] = useState('');
   const [state, setState] = useState<SyncLabState>({ phase: 'idle' });
   const [error, setError] = useState<SyncLabErrorCode | null>(null);
@@ -147,6 +147,8 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
     } catch { if (mounted.current) setError('connection'); return false; }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
+  /** Closing applies a vault change that was held back for the recovery code. */
+  function finish(): void { if (heldVault) onVaultChanged(heldVault); else onClose(); }
   async function connect(): Promise<void> {
     if (pending.current || !normalized) return;
     pending.current = true; setBusy(true); setError(null);
@@ -198,7 +200,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
       : { kind };
     if (kind === 'importVault' || (kind === 'synchronize' && typed !== null)) { setCodeInput(''); }
     if (kind === 'importVault') { setNewPassword(''); setRepeatPassword(''); }
-    await exec(draft, reply => { if (reply.vaultChanged) onVaultChanged(reply.vaultChanged); });
+    await exec(draft, reply => { if (!reply.vaultChanged) return; if (deferVaultChange(reply)) setHeldVault(reply.vaultChanged); else onVaultChanged(reply.vaultChanged); });
     if (kind === 'removeForeign' && mounted.current) setRemoveVersions(false); // The destructive opt-in holds for one run only (m4).
   }
   const errorText = error && ({
@@ -223,9 +225,9 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
     <p className="settings-hint" id={`${id}-code-hint`}>{t('syncLab:recoveryCodeHint')}</p>
   </>;
   return <dialog ref={dialog} className="confirm-dialog sync-lab-dialog" aria-labelledby={`${id}-title`}
-    aria-describedby={`${id}-notice`} onCancel={event => { event.preventDefault(); onClose(); }}>
+    aria-describedby={`${id}-notice`} onCancel={event => { event.preventDefault(); finish(); }}>
     <header className="sync-lab-heading"><div><span className="sync-lab-badge">{t('syncLab:badge')}</span><h2 id={`${id}-title`}>{t('syncLab:title')}</h2></div>
-      <button ref={close} type="button" className="secondary-button" onClick={onClose}>{t('common:actions.close')}</button></header>
+      <button ref={close} type="button" className="secondary-button" onClick={finish}>{t('common:actions.close')}</button></header>
     <p id={`${id}-notice`} className="sync-lab-notice">{t('syncLab:notice')}</p>
     <div className="sync-server-route" aria-label={t('syncLab:routeLabel')}>
       <span>{t('syncLab:thisDevice')}</span><span aria-hidden="true">↔</span><strong>{t('syncLab:centralServer')}</strong><span aria-hidden="true">↔</span><span>{t('syncLab:otherDevices')}</span>
@@ -235,7 +237,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
       <li aria-current={busy ? 'step' : undefined}>{t('syncLab:stepAuthorize')}</li><li aria-current={state.account?.signedIn ? 'step' : undefined}>{t('syncLab:stepSync')}</li>
     </ol>
     {errorText && <p className="field-error" role="alert">{errorText}</p>}
-    {recoveryCode && <RecoveryCodeNotice code={recoveryCode} onNoted={() => setRecoveryCode(null)} />}
+    {recoveryCode && <RecoveryCodeNotice code={recoveryCode} onNoted={() => { setRecoveryCode(null); if (heldVault) onVaultChanged(heldVault); }} />}
     {inviteCode && <InviteCodeNotice code={inviteCode} onDone={() => setInviteCode(null)} />}
     {!state.server && <form className="sync-server-form" onSubmit={event => { event.preventDefault(); void connect(); }}>
       <label htmlFor={`${id}-server-url`}>{t('syncLab:serverUrl')}</label>
