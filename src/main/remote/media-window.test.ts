@@ -245,6 +245,21 @@ describe('MediaWindows', () => {
     expect(gone).toHaveBeenCalledWith(c, 'closed');
   });
 
+  it('reports a user close although Electron fires webContents destroyed before closed', () => {
+    for (const input of [viewer, agent]) {
+      const t = setup();
+      const gone = vi.fn();
+      t.media.onGone(gone);
+      const id = t.media.open(input);
+      const w = t.wins[0];
+      w.webContents.destroyedFlag = true;
+      w.webContents.emit('destroyed');
+      w.emit('closed');
+      expect(gone).toHaveBeenCalledWith(id, 'closed');
+      expect(gone).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('onAlive and agentsAlive count live', () => {
     const { media, wins } = setup();
     const alive = vi.fn();

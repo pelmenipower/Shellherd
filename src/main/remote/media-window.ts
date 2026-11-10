@@ -137,6 +137,8 @@ export class MediaWindows implements MediaPort {
     });
     // Kept after destroy(): reports the real end of the webContents.
     (wcT as { on(e: string, l: () => void): unknown }).on('destroyed', () => {
+      // Electron fires this before the window's 'closed'; without our destroy() it is a user close.
+      this.#fireGone(entry, 'closed');
       entry.ending = true;
       entry.failed = true;
       this.#settle(entry, false);
