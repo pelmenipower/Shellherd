@@ -22,6 +22,8 @@ export interface RemotePeer {
   register(name: string): Promise<unknown>; devices(): Promise<unknown[]>; sessions(): Promise<unknown[]>; unregister(): Promise<unknown>;
   request(target: string, scope: 'view'): Promise<RemoteSessionWire>;
   channel(session: RemoteSessionWire, expectedFingerprint: string, scope: 'view'): RemoteChannel;
+  /** Drops a request that never became a channel (frees one of the peer's request slots). */
+  forget(sessionId: string): void;
 }
 export interface RemoteAccount {
   enroll(identity: RemoteIdentity, input: { username: string; password: string; name: string; ephemeral: boolean }): Promise<unknown>;
@@ -47,6 +49,9 @@ export interface RemoteDeps {
 }
 
 const L = REMOTE_LAB_LIMITS;
+/** Global brake (V7): this many refused or expired unverified requests within the window silence further ones until goOnline. */
+const BRAKE_COUNT = 3;
+const BRAKE_WINDOW_MS = 600_000;
 const hex64 = /^[a-f0-9]{64}$/;
 const uuid = z.string().uuid();
 const sessionId = z.string().min(1).max(128);
@@ -80,9 +85,13 @@ interface Sess {
   channel?: RemoteChannel; collector: SignalCollector; tail: Promise<unknown>; pending: number;
   armed: boolean; handles: Set<unknown>; deadlineHandle?: unknown; ended: boolean;
   owner: number; verified: boolean; attempts: number; prompting: boolean; captured: boolean; abort: AbortController;
+  /** Complete signal messages received so far (V1: exactly one is allowed). */
+  messages: number;
+  /** The renderer confirmed 'stopped' before the session ended (V2). */
+  acked: boolean;
 }
 interface PeerDevice { id: string; name: string; publicKey: string }
-interface Online { store: RemoteIdentityStore; identity: RemoteIdentity; persistent: boolean; peer: RemotePeer; presence: { start(): Promise<void>; stop(): Promise<void> }; devices: PeerDevice[]; processed: Set<string>; attempts: Map<string, number>; muted: Map<string, number>; mutedCount: number }
+interface Online { store: RemoteIdentityStore; identity: RemoteIdentity; persistent: boolean; peer: RemotePeer; presence: { start(): Promise<void>; stop(): Promise<void> }; devices: PeerDevice[]; processed: Set<string>; attempts: Map<string, number>; muted: Map<string, number>; mutedCount: number; refusals: number[] }
 
 const statusOf = (error: unknown): number | undefined =>
   typeof error === 'object' && error !== null && typeof (error as { status?: unknown }).status === 'number' ? (error as { status: number }).status : undefined;
@@ -107,12 +116,17 @@ export class RemoteLabHost {
   #lastSent?: string;
   readonly #listeners = new Set<(owner: number, event: RemoteLabEvent) => void>();
   readonly #sharingListeners = new Set<(sharing: boolean) => void>();
+  readonly #settledListeners = new Set<() => void>();
 
   constructor(private readonly deps?: RemoteDeps) {}
 
   get enabled(): boolean { return this.deps !== undefined; }
   get sharing(): boolean { return this.#sharing; }
+  /** True while a captured session's renderer still owes its 'stopped' receipt (V9). */
+  get stopsPending(): boolean { return this.#pendingStops.size > 0; }
   onEvent(listener: (owner: number, event: RemoteLabEvent) => void): () => void { this.#listeners.add(listener); return () => { this.#listeners.delete(listener); }; }
+  /** Fires when the last outstanding 'stopped' receipt is settled (receipt, emergency brake or closed owner). */
+  onStopsSettled(listener: () => void): () => void { this.#settledListeners.add(listener); return () => { this.#settledListeners.delete(listener); }; }
   onSharingChange(listener: (sharing: boolean) => void): () => void { this.#sharingListeners.add(listener); return () => { this.#sharingListeners.delete(listener); }; }
 
   async action(owner: number, raw: unknown): Promise<RemoteLabReply> {
@@ -179,10 +193,25 @@ export class RemoteLabHost {
 
   #stopped(owner: number, id: string): RemoteLabReply {
     const pending = this.#pendingStops.get(id);
-    if (!pending || pending.owner !== owner) return { ok: false, code: 'stale' };
+    if (!pending) {
+      // The renderer may acknowledge before the session ended (e.g. accept failed after consent): remember it (V2).
+      const s = this.#session;
+      if (s && s.id === id && s.owner === owner && s.role === 'agent' && s.captured && !s.ended) {
+        s.acked = true;
+        return this.#binding ? this.#ok() : { ok: true, state: { phase: 'idle' } };
+      }
+      return { ok: false, code: 'stale' };
+    }
+    if (pending.owner !== owner) return { ok: false, code: 'stale' };
     this.deps!.timers.clearTimeout(pending.handle);
     this.#pendingStops.delete(id);
+    this.#settled();
     return this.#binding ? this.#ok() : { ok: true, state: { phase: 'idle' } };
+  }
+
+  #settled(): void {
+    if (this.#pendingStops.size > 0) return;
+    for (const listener of [...this.#settledListeners]) { try { listener(); } catch { /* listener failure must not break the state machine */ } }
   }
 
   closeOwner(owner: number): void {
@@ -192,6 +221,7 @@ export class RemoteLabHost {
       if (pending.owner !== owner) continue;
       this.deps?.timers.clearTimeout(pending.handle);
       this.#pendingStops.delete(id);
+      this.#settled();
     }
   }
   reset(reason?: 'locked'): void { this.#teardown(reason ?? 'stopped'); }
@@ -305,7 +335,7 @@ export class RemoteLabHost {
       register: n => peer.register(n), sessions: () => peer.sessions(), devices: () => peer.devices(),
       refresh: () => account.refresh(), unregister: () => peer.unregister(),
     };
-    const ctx: Online = { store, identity: loaded.identity, persistent: loaded.persistent, peer, devices: [], processed: new Set(), attempts: new Map(), muted: new Map(), mutedCount: 0, presence: undefined as unknown as Online['presence'] };
+    const ctx: Online = { store, identity: loaded.identity, persistent: loaded.persistent, peer, devices: [], processed: new Set(), attempts: new Map(), muted: new Map(), mutedCount: 0, refusals: [], presence: undefined as unknown as Online['presence'] };
     const live = (): boolean => this.#online === ctx;
     ctx.presence = this.deps!.presence(transport, name, {
       onSessions: list => { if (live()) this.#onSessions(ctx, list); },
@@ -495,6 +525,10 @@ export class RemoteLabHost {
     if (current?.role === 'agent' && (current.state === 'consent' || current.state === 'granted') && !wires.some(w => w.id === current.id)) this.#end(current, 'remote', 'remote');
     for (const wire of wires) {
       if (wire.to !== ctx.identity.id || wire.state !== 'pending' || ctx.processed.has(wire.id)) continue;
+      const now = this.deps!.timers.now();
+      if (ctx.refusals.filter(at => now - at < BRAKE_WINDOW_MS).length >= BRAKE_COUNT && ctx.store.known(wire.from)?.verified !== true) {
+        this.#markProcessed(ctx, wire.id); void this.#delete(wire.id); ctx.mutedCount++; continue;
+      }
       const mutedUntil = ctx.muted.get(wire.from);
       if (mutedUntil !== undefined) {
         if (this.deps!.timers.now() < mutedUntil) { this.#markProcessed(ctx, wire.id); void this.#delete(wire.id); ctx.mutedCount++; continue; }
@@ -541,7 +575,7 @@ export class RemoteLabHost {
       id: wire.id, role, wire, peer: this.#peerOf(device),
       state: role === 'viewer' ? 'requesting' : 'consent', deadline, requestDeadline: deadline, collector: new SignalCollector(),
       tail: Promise.resolve(), pending: 0, armed: false, handles: new Set(), ended: false,
-      owner: this.#binding!.owner, verified: false, attempts: 0, prompting: false, captured: false, abort: new AbortController(),
+      owner: this.#binding!.owner, verified: false, attempts: 0, prompting: false, captured: false, abort: new AbortController(), messages: 0, acked: false,
     };
   }
 
@@ -658,9 +692,12 @@ export class RemoteLabHost {
       const part = frame.data.part;
       if (part.kind === 'bye') { this.#end(s, 'remote', 'remote'); return false; }
       if (part.kind !== (s.role === 'viewer' ? 'offer' : 'answer')) { this.#end(s, 'failed'); return false; }
+      // One complete message per session (V1): any further part ends it before it is passed on.
+      if (s.messages >= 1) { this.#end(s, 'failed'); return false; }
       this.#emit({ kind: 'signal', sessionId: s.id, part });
       let message: ReturnType<SignalCollector['push']>;
       try { message = s.collector.push(part); } catch { this.#end(s, 'failed'); return false; }
+      if (message) s.messages++;
       if (message && s.state === 'connecting') {
         const now = this.deps!.timers.now();
         s.state = 'active'; s.startedAt = now;
@@ -679,9 +716,17 @@ export class RemoteLabHost {
     for (const h of s.handles) this.deps!.timers.clearTimeout(h);
     s.handles.clear();
     s.abort.abort();
-    if (s.role === 'agent' && s.captured) {
+    if (s.role === 'agent' && !s.captured && (reason === 'declined' || reason === 'expired') && !s.verified && s.peer.known?.verified !== true) {
+      const ctx = this.#online;
+      if (ctx) {
+        const now = this.deps!.timers.now();
+        ctx.refusals = [...ctx.refusals.filter(at => now - at < BRAKE_WINDOW_MS), now];
+      }
+    }
+    if (s.role === 'viewer' && !s.channel) { try { this.#online?.peer.forget(s.id); } catch { /* best effort */ } }
+    if (s.role === 'agent' && s.captured && !s.acked) {
       // The renderer must ack 'stopped'; otherwise its process is killed (emergency brake).
-      const handle = this.deps!.timers.setTimeout(() => { this.#pendingStops.delete(s.id); this.deps!.emergency(s.owner); }, L.byeMs);
+      const handle = this.deps!.timers.setTimeout(() => { this.#pendingStops.delete(s.id); this.deps!.emergency(s.owner); this.#settled(); }, L.byeMs);
       this.#pendingStops.set(s.id, { owner: s.owner, handle });
     }
     this.#session = undefined;
