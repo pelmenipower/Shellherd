@@ -3,10 +3,11 @@ import { createHash, sign } from 'node:crypto';
 import { boundedJson } from './http-common.mjs';
 import { normalizeSyncServerUrl } from '../../src/shared/sync-server-url.mjs';
 import { isDeviceName } from './device-name.mjs';
-import { enrollmentBody, sessionProof, requestProofV2, signingKeyOf } from './device-proof.mjs';
+import { enrollmentBody, sessionProof, requestProofV3, signingKeyOf } from './device-proof.mjs';
 import { validateSyncObject, isLegacyVaultObject } from './sync-object-wire.mjs';
 const check = ok => { if (!ok) throw Error('Account sync rejected'); };
 const HEX64 = /^[a-f0-9]{64}$/;
+const EMPTY_SHA = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 const sha = wire => createHash('sha256').update(wire).digest('hex');
 export class AccountStore {
   #token; #closed = false;
@@ -22,6 +23,22 @@ export class AccountStore {
     const { device } = await boundedJson(new URL('v1/devices', this.info.serverUrl), { method: 'POST', signal: this.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password, enrollment, ephemeral }) }, 4096);
     check(!this.#closed && !this.signal?.aborted && device && typeof device === 'object' && device.id === identity.id && isDeviceName(device.name) && Number.isSafeInteger(device.enrolledAt) && typeof device.ephemeral === 'boolean');
     return { id: device.id, name: device.name, enrolledAt: device.enrolledAt, ephemeral: device.ephemeral };
+  }
+  async enrollWithInvite(identity, { secret, name, ephemeral }) {
+    check(!this.#closed && !this.signal?.aborted);
+    check(typeof secret === 'string' && HEX64.test(secret) && typeof ephemeral === 'boolean');
+    const body = enrollmentBody(this.info.serverId, this.info.namespace, this.origin, identity.id, identity.signingPublicKey, identity.publicKey, name);
+    const enrollment = [JSON.parse(body), sign(null, Buffer.from(body), identity.signingKey).toString('base64')];
+    const { device, username } = await boundedJson(new URL('v1/devices', this.info.serverUrl), { method: 'POST', signal: this.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enrollment, invite: secret, ephemeral }) }, 4096);
+    check(!this.#closed && !this.signal?.aborted && device && typeof device === 'object' && device.id === identity.id && isDeviceName(device.name) && Number.isSafeInteger(device.enrolledAt) && typeof device.ephemeral === 'boolean' && typeof username === 'string' && /^[a-zA-Z0-9_.-]{1,64}$/.test(username));
+    return { id: device.id, name: device.name, enrolledAt: device.enrolledAt, ephemeral: device.ephemeral, username };
+  }
+  async invite(identity, { secret, object }) {
+    check(!this.#closed && this.#token && !this.signal?.aborted && typeof secret === 'string' && HEX64.test(secret) && (object === null || (typeof object === 'string' && HEX64.test(object))));
+    const nonce = await this.#challenge(); const path = '/v1/invites'; const body = JSON.stringify({ secret, object });
+    const signature = sign(null, Buffer.from(requestProofV3(this.info.serverId, this.info.namespace, this.origin, 'POST', path, nonce, identity.id, sha(body))), identity.signingKey).toString('base64');
+    const result = await boundedJson(new URL(path, this.info.serverUrl), { method: 'POST', signal: this.signal, headers: { authorization: `Bearer ${this.#token}`, 'content-type': 'application/json', 'x-shellherd-device': identity.id, 'x-shellherd-nonce': nonce, 'x-shellherd-signature': signature }, body }, 4096);
+    check(!this.#closed && !this.signal?.aborted && Number.isSafeInteger(result.expiresAt)); return { expiresAt: result.expiresAt };
   }
   async #challenge() {
     const { nonce } = await boundedJson(new URL('v1/challenge', this.info.serverUrl), { signal: this.signal }, 4096);
@@ -40,19 +57,19 @@ export class AccountStore {
     check(Array.isArray(devices) && devices.length <= 64);
     const ids = new Set();
     for (const item of devices) {
-      check(item && typeof item === 'object' && !Array.isArray(item) && Object.keys(item).sort().join(',') === 'enrolledAt,ephemeral,id,name,revokedAt,self,signingKey');
+      check(item && typeof item === 'object' && !Array.isArray(item) && Object.keys(item).sort().join(',') === 'enrolledAt,enrolledBy,ephemeral,id,name,revokedAt,self,signingKey');
       check(typeof item.id === 'string' && HEX64.test(item.id) && !ids.has(item.id)); ids.add(item.id);
       check(isDeviceName(item.name) && typeof item.signingKey === 'string');
       try { signingKeyOf(item.signingKey); } catch { check(false); }
-      check(Number.isSafeInteger(item.enrolledAt) && (item.revokedAt === null || Number.isSafeInteger(item.revokedAt)) && typeof item.ephemeral === 'boolean');
+      check(Number.isSafeInteger(item.enrolledAt) && (item.revokedAt === null || Number.isSafeInteger(item.revokedAt)) && typeof item.ephemeral === 'boolean' && (item.enrolledBy === null || (typeof item.enrolledBy === 'string' && HEX64.test(item.enrolledBy))));
     }
     // The server-provided self flag is dropped; callers compute it from identity.id.
-    return devices.map(({ id, name, signingKey, enrolledAt, revokedAt, ephemeral }) => ({ id, name, signingKey, enrolledAt, revokedAt, ephemeral }));
+    return devices.map(({ id, name, signingKey, enrolledAt, enrolledBy, revokedAt, ephemeral }) => ({ id, name, signingKey, enrolledAt, enrolledBy, revokedAt, ephemeral }));
   }
   async revoke(identity, id) {
     check(!this.#closed && this.#token && !this.signal?.aborted && typeof id === 'string' && HEX64.test(id));
     const nonce = await this.#challenge(); const path = `/v1/devices/${id}`;
-    const signature = sign(null, Buffer.from(requestProofV2(this.info.serverId, this.info.namespace, this.origin, 'DELETE', path, nonce, identity.id)), identity.signingKey).toString('base64');
+    const signature = sign(null, Buffer.from(requestProofV3(this.info.serverId, this.info.namespace, this.origin, 'DELETE', path, nonce, identity.id, EMPTY_SHA)), identity.signingKey).toString('base64');
     const result = await boundedJson(new URL(path, this.info.serverUrl), { method: 'DELETE', signal: this.signal, headers: { authorization: `Bearer ${this.#token}`, 'x-shellherd-device': identity.id, 'x-shellherd-nonce': nonce, 'x-shellherd-signature': signature } }, 4096);
     check(result.revoked === true); return { revoked: true };
   }
