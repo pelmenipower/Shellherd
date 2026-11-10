@@ -7,7 +7,7 @@ import { createDeviceIdentity, enrollmentBody } from './device-proof.mjs';
 import { createDeviceRoster } from './device-roster.mjs';
 
 const it = platformIt.runIf(process.platform === 'linux');
-const serverId = '1'.repeat(64); const namespace = 'roster'; const cleanup = [];
+const origin = 'https://roster.example.org'; const serverId = '1'.repeat(64); const namespace = 'roster'; const cleanup = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
 async function setup(options = {}) {
   const directory = options.directory ?? await mkdtemp(join(tmpdir(), 'shellherd-roster-')); if (!options.directory) cleanup.push(() => rm(directory, { recursive: true, force: true }));
@@ -16,11 +16,11 @@ async function setup(options = {}) {
   return { directory, roster, advance: ms => { now += ms; }, reopen: () => createDeviceRoster({ directory, serverId, namespace, clock }) };
 }
 const document = (identity, name = 'Laptop', patch = {}) => {
-  const body = JSON.parse(enrollmentBody(serverId, namespace, identity.id, identity.signingPublicKey, identity.publicKey, name));
+  const body = JSON.parse(enrollmentBody(serverId, namespace, origin, identity.id, identity.signingPublicKey, identity.publicKey, name));
   Object.entries(patch).forEach(([i, v]) => { body[i] = v; });
   return [body, sign(null, Buffer.from(JSON.stringify(body)), identity.signingKey).toString('base64')];
 };
-const enroll = (roster, identity, name, ephemeral = false) => roster.enroll({ document: document(identity, name), ephemeral });
+const enroll = (roster, identity, name, ephemeral = false) => roster.enroll({ document: document(identity, name), ephemeral, origin });
 const status = async promise => (await promise.then(() => null, e => e))?.status;
 
 it('enrolls, lists with signing keys sorted by enrolledAt then id, and exposes the lookups', async () => {
@@ -38,19 +38,21 @@ it('enrolls, lists with signing keys sorted by enrolledAt then id, and exposes t
 });
 it('rejects malformed, mismatching and wrongly signed enrollment documents', async () => {
   const { roster } = await setup(); const id = createDeviceIdentity(); const other = createDeviceIdentity();
-  expect(await status(roster.enroll({ document: document(id, 'x', { 3: other.id }) }))).toBe(400);
-  expect(await status(roster.enroll({ document: document(id, 'x', { 1: '2'.repeat(64) }) }))).toBe(400);
-  expect(await status(roster.enroll({ document: document(id, 'x', { 2: 'other' }) }))).toBe(400);
-  expect(await status(roster.enroll({ document: document(id, 'x', { 0: 'tag' }) }))).toBe(400);
-  expect(await status(roster.enroll({ document: [document(id)[0]] }))).toBe(400);
-  expect(await status(roster.enroll({ document: 'nope' }))).toBe(400);
+  expect(await status(roster.enroll({ document: document(id, 'x', { 4: other.id }), origin }))).toBe(400);
+  expect(await status(roster.enroll({ document: document(id, 'x', { 1: '2'.repeat(64) }), origin }))).toBe(400);
+  expect(await status(roster.enroll({ document: document(id, 'x', { 2: 'other' }), origin }))).toBe(400);
+  expect(await status(roster.enroll({ document: document(id, 'x', { 3: 'https://elsewhere.example.org' }), origin }))).toBe(400); // another origin
+  expect(await status(roster.enroll({ document: document(id, 'x') }))).toBe(400); // no server origin given
+  expect(await status(roster.enroll({ document: document(id, 'x', { 0: 'tag' }), origin }))).toBe(400);
+  expect(await status(roster.enroll({ document: [document(id)[0]], origin }))).toBe(400);
+  expect(await status(roster.enroll({ document: 'nope', origin }))).toBe(400);
   // Signed by another key: 401.
   const forged = document(id); forged[1] = sign(null, Buffer.from(JSON.stringify(forged[0])), other.signingKey).toString('base64');
-  expect(await status(roster.enroll({ document: forged }))).toBe(401);
+  expect(await status(roster.enroll({ document: forged, origin }))).toBe(401);
   // Identity point as signing key.
   const point = Buffer.concat([Buffer.from([1]), Buffer.alloc(31)]).toString('base64');
-  const weak = JSON.parse(enrollmentBody(serverId, namespace, id.id, id.signingPublicKey, id.publicKey, 'w')); weak[4] = point;
-  expect(await status(roster.enroll({ document: [weak, Buffer.concat([Buffer.from([1]), Buffer.alloc(63)]).toString('base64')] }))).toBe(400);
+  const weak = JSON.parse(enrollmentBody(serverId, namespace, origin, id.id, id.signingPublicKey, id.publicKey, 'w')); weak[5] = point;
+  expect(await status(roster.enroll({ document: [weak, Buffer.concat([Buffer.from([1]), Buffer.alloc(63)]).toString('base64')], origin }))).toBe(400);
   expect(roster.list()).toEqual([]);
 });
 it('is idempotent for the same keys, updates the name and lifts a revocation on re-enrollment', async () => {
@@ -64,9 +66,9 @@ it('is idempotent for the same keys, updates the name and lifts a revocation on 
 it('answers 409 for the same id with another key or another ephemeral flag, also when revoked', async () => {
   const { roster } = await setup(); const id = createDeviceIdentity(); await enroll(roster, id, 'One');
   const other = createDeviceIdentity(); const swapped = { ...other, id: id.id, publicKey: id.publicKey };
-  expect(await status(roster.enroll({ document: document(swapped, 'Evil') }))).toBe(409);
+  expect(await status(roster.enroll({ document: document(swapped, 'Evil'), origin }))).toBe(409);
   expect(await status(enroll(roster, id, 'One', true))).toBe(409);
-  await roster.revoke(id.id); expect(await status(roster.enroll({ document: document(swapped, 'Evil') }))).toBe(409);
+  await roster.revoke(id.id); expect(await status(roster.enroll({ document: document(swapped, 'Evil'), origin }))).toBe(409);
 });
 it('revokes idempotently, answers 404 for unknown ids and removes ephemeral entries', async () => {
   const { roster } = await setup(); const id = createDeviceIdentity(); await enroll(roster, id, 'One');
@@ -107,7 +109,7 @@ it('persists atomically with private permissions and survives a restart without 
   const { roster, directory, reopen } = await setup(); const p = createDeviceIdentity(); const e = createDeviceIdentity();
   await enroll(roster, p, 'Persistent'); await enroll(roster, e, 'Temporary', true); await roster.revoke(p.id);
   expect(await readdir(directory)).toEqual(['devices.json']);
-  const text = await readFile(join(directory, 'devices.json'), 'utf8'); expect(JSON.parse(text)).toMatchObject({ format: 'shellherd-device-roster', version: 1, serverId, namespace });
+  const text = await readFile(join(directory, 'devices.json'), 'utf8'); expect(JSON.parse(text)).toMatchObject({ format: 'shellherd-device-roster', version: 2, serverId, namespace });
   expect(text).not.toContain('Temporary');
   const next = await reopen(); expect(next.list()).toEqual([expect.objectContaining({ id: p.id, name: 'Persistent', revokedAt: expect.any(Number) })]);
 });
@@ -143,4 +145,22 @@ it('refuses to start on an unsafe, foreign or non-canonical devices.json', async
   await writeFile(file, text, { mode: 0o600 }); await chmod(file, 0o644); await expect(open()).rejects.toMatchObject({ status: 500 });
   await chmod(file, 0o600); expect((await open()).list()).toHaveLength(1);
   await rm(file); await symlink('/etc/hostname', file); await expect(open()).rejects.toThrow();
+});
+it('refuses a version 1 devices.json with the upgrade hint', async () => {
+  const { roster, directory } = await setup(); await enroll(roster, createDeviceIdentity(), 'One'); const file = join(directory, 'devices.json');
+  const text = await readFile(file, 'utf8'); await writeFile(file, text.replace('"version":2', '"version":1'), { mode: 0o600 });
+  await expect(createDeviceRoster({ directory, serverId, namespace })).rejects.toMatchObject({ status: 500, hint: expect.stringContaining('re-enroll all devices') });
+});
+it('rejects device names that break the name rule on load', async () => {
+  const { roster, directory } = await setup(); await enroll(roster, createDeviceIdentity(), 'One'); const file = join(directory, 'devices.json');
+  await writeFile(file, (await readFile(file, 'utf8')).replace('"One"', '"3f9a12c4"'), { mode: 0o600 });
+  await expect(createDeviceRoster({ directory, serverId, namespace })).rejects.toMatchObject({ status: 500 });
+});
+it('never overwrites a devices.json that another process changed and answers 503 from then on', async () => {
+  const { roster, directory } = await setup(); const first = createDeviceIdentity(); await enroll(roster, first, 'One');
+  const offline = await createDeviceRoster({ directory, serverId, namespace }); await offline.revoke(first.id); // the offline command
+  const changed = await readFile(join(directory, 'devices.json'), 'utf8');
+  expect(await status(enroll(roster, createDeviceIdentity(), 'Two'))).toBe(503);
+  expect(await readFile(join(directory, 'devices.json'), 'utf8')).toBe(changed); expect(await readdir(directory)).toEqual(['devices.json']);
+  expect(await status(enroll(roster, createDeviceIdentity(), 'Three'))).toBe(503); expect(() => roster.assertHealthy()).toThrow();
 });

@@ -1,8 +1,11 @@
 // Storage login only. Never use this password as a Vault encryption key.
 import { randomBytes, scrypt, timingSafeEqual, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
+import { open, rename, unlink } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { DEFAULT_LIMITS } from './rate-limit.mjs';
 const derive = promisify(scrypt);
+const PASSWORD_WINDOW_MS = 600_000;
 const parameters = { N: 131072, r: 8, p: 1, maxmem: 192 * 1024 * 1024 };
 const validUser = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,64}$/.test(name);
 const check = (ok, status = 400, retryAfter) => { if (!ok) { const error = Error('Account request rejected'); error.status = status; if (retryAfter !== undefined) error.retryAfter = retryAfter; throw error; } };
@@ -12,6 +15,20 @@ export function generatePassword() {
   const limit = 256 - (256 % ALPHABET.length); let out = '';
   while (out.length < 24) for (const byte of randomBytes(32)) { if (byte < limit && out.length < 24) out += ALPHABET[byte % ALPHABET.length]; }
   return out;
+}
+export const CUSTOM_PASSWORD_MIN = 20;
+export const INITIAL_PASSWORD_FILE = 'initial-password.txt';
+/** Writes the generated password next to `target` (tmp wx 0600, fsync, rename); it never goes to stdout. Returns the path. */
+export async function writeInitialPassword(target, password) {
+  check(typeof target === 'string' && typeof password === 'string' && password.length > 0);
+  const directory = dirname(target); const file = join(directory, INITIAL_PASSWORD_FILE); const temporary = join(directory, randomBytes(16).toString('hex') + '.pw-tmp');
+  try {
+    const handle = await open(temporary, 'wx', 0o600);
+    try { await handle.writeFile(password + '\n'); await handle.sync(); } finally { await handle.close(); }
+    await rename(temporary, file);
+    const dir = await open(directory, 'r'); try { await dir.sync(); } finally { await dir.close(); }
+  } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+  return file;
 }
 const digestOf = value => createHash('sha256').update(value).digest();
 function bytes(value, length) { check(typeof value === 'string'); const b = Buffer.from(value, 'base64'); check(b.length === length && b.toString('base64') === value); return b; }
@@ -25,13 +42,13 @@ export function accountAuth(account, clock = Date.now, limits = DEFAULT_LIMITS, 
   check(account && Object.keys(account).sort().join(',') === 'algorithm,hash,salt,username' && validUser(account.username) && account.algorithm === 'scrypt-v1');
   const salt = bytes(account.salt, 16); const hash = bytes(account.hash, 32);
   const sessions = new Map(); let active = false;
-  // Failure state per source (insertion order = LRU), plus a global failure window.
-  const failures = new Map(); let failWindow = clock(); let failCount = 0; const FAILURE_MEMORY = 900_000;
+  // Failure state per source (insertion order = LRU). The global password budget lives in RAM only: a restart resets it.
+  const failures = new Map(); const FAILURE_MEMORY = 900_000;
+  let passwordWindow = null; let passwordFailures = 0;
   const record = source => { const now = clock(); const r = failures.get(source); if (r && (now < r.last || now - r.last >= FAILURE_MEMORY)) failures.delete(source); return failures.get(source); };
   const fail = source => {
-    const now = clock(); if (now < failWindow || now - failWindow >= 60_000) { failWindow = now; failCount = 0; }
-    failCount++; const r = record(source) ?? { f: 0, last: now }; failures.delete(source);
-    r.f++; r.last = now; failures.set(source, r); if (failures.size > limits.maxKeys) failures.delete(failures.keys().next().value);
+    const now = clock(); const rr = record(source) ?? { f: 0, last: now }; failures.delete(source);
+    rr.f++; rr.last = now; failures.set(source, rr); if (failures.size > limits.maxKeys) failures.delete(failures.keys().next().value);
   };
   // Session and revocation proofs fail on their own budget: they must not feed the password backoff or the global password failure budget.
   const sessionFailures = new Map(); const SESSION_FREE = 10;
@@ -65,10 +82,10 @@ export function accountAuth(account, clock = Date.now, limits = DEFAULT_LIMITS, 
     },
     async verifyPassword(body, source = 'local') {
       const now = clock(); const r = record(source);
-      if (now - failWindow >= 60_000 || now < failWindow) { failWindow = now; failCount = 0; }
+      if (passwordWindow !== null && (now < passwordWindow || now - passwordWindow >= PASSWORD_WINDOW_MS)) { passwordWindow = null; passwordFailures = 0; }
       if (r?.f >= 3) { const until = r.last + Math.min(60, 2 ** (r.f - 3)) * 1000; check(now >= until, 429, Math.max(1, Math.ceil((until - now) / 1000))); }
-      // Once the global failure budget is spent, only sources that already failed are refused.
-      check(!(r && failCount >= limits.loginFailuresGlobal), 429, Math.max(1, Math.ceil((failWindow + 60_000 - now) / 1000)));
+      // Hard global cap on wrong passwords per fixed window: everyone is refused before scrypt until the window ends.
+      if (passwordFailures >= limits.passwordFailuresGlobal) check(false, 429, Math.max(1, Math.ceil((passwordWindow + PASSWORD_WINDOW_MS - now) / 1000)));
       check(!active, 429, 1);
       try { check(body && Object.keys(body).sort().join(',') === 'password,username' && typeof body.username === 'string' && body.username.length <= 64 && typeof body.password === 'string' && body.password.length > 0 && body.password.length <= 1024); }
       catch (error) { fail(source); throw error; }
@@ -76,7 +93,7 @@ export function accountAuth(account, clock = Date.now, limits = DEFAULT_LIMITS, 
       try {
         candidate = await derive(body.password, salt, 32, parameters);
         const matches = timingSafeEqual(candidate, hash); const nameMatches = timingSafeEqual(digestOf(body.username), digestOf(account.username));
-        if (!(matches && nameMatches)) fail(source);
+        if (!(matches && nameMatches)) { fail(source); if (passwordWindow === null) passwordWindow = clock(); passwordFailures++; }
         check(matches && nameMatches, 401);
         failures.delete(source); return true;
       } finally { candidate?.fill(0); active = false; }

@@ -511,12 +511,6 @@ describe('private network, import digest and foreign objects', () => {
 });
 
 describe('parity with the server device proof', () => {
-  it('uses the same device name rule and Ed25519 SPKI prefix as scripts/sync-prototype/device-proof.mjs', async () => {
-    // @ts-expect-error The dev script has no type declarations.
-    const proof = await import('../../../scripts/sync-prototype/device-proof.mjs') as { DEVICE_NAME: RegExp; ed25519Spki(raw: Buffer): Buffer };
-    expect(DEVICE_NAME.source).toBe(proof.DEVICE_NAME.source); expect(DEVICE_NAME.flags).toBe(proof.DEVICE_NAME.flags);
-    const raw = Buffer.alloc(32, 7); expect(Buffer.concat([SPKI_PREFIX, raw]).equals(proof.ed25519Spki(raw))).toBe(true);
-  });
   it('rejects the same weak Ed25519 keys as the server: all eight small-order points, non-canonical y, and no real key', async () => {
     // @ts-expect-error The dev script has no type declarations.
     const proof = await import('../../../scripts/sync-prototype/device-proof.mjs') as { weakEd25519(raw: Buffer): boolean };

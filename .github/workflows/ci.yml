@@ -41,7 +41,7 @@ jobs:
         name: Check selfhosted storage and rendezvous container
         run: |
           node server/smoke.mjs
-          docker compose -f server/compose.yaml build
+          SHELLHERD_SERVER_ORIGIN=https://shellherd.example.org docker compose -f server/compose.yaml build
           node scripts/check-server-container.mjs
       - if: runner.os == 'Linux'
         name: Check packaged Linux startup

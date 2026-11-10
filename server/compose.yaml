@@ -15,8 +15,11 @@ services:
     mem_limit: 512m
     cpus: 1.0
     environment:
-      # Behind the host reverse proxy; remove for direct operation without a proxy.
-      SHELLHERD_SERVER_TRUSTED_PROXY: "1"
+      # Public origin as clients reach it (scheme and host, no path, e.g. https://sync.example.home). Proofs are bound to it.
+      SHELLHERD_SERVER_ORIGIN: ${SHELLHERD_SERVER_ORIGIN:?Öffentliche Origin setzen, z. B. https://sync.example.home}
+      # Behind the host reverse proxy: with the fixed project network below, the proxy reaches the container from the gateway address.
+      # Remove for direct operation without a proxy.
+      SHELLHERD_SERVER_TRUSTED_PROXY: "172.31.87.1"
     ports:
       - "127.0.0.1:8787:8787"
     volumes:
@@ -29,5 +32,11 @@ services:
       options:
         max-size: "5m"
         max-file: "2"
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.87.0/24
+          gateway: 172.31.87.1
 volumes:
   server-data:

@@ -3,8 +3,8 @@ import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { randomBytes } from 'node:crypto';
 import { open, unlink } from 'node:fs/promises';
-import { createAccount, generatePassword } from './account-auth.mjs';
-let terminal; let muted = false; let created = false; let success = false;
+import { CUSTOM_PASSWORD_MIN, createAccount, generatePassword, writeInitialPassword } from './account-auth.mjs';
+let terminal; let muted = false; let created = false; let success = false; let passwordFile = null;
 const target = process.argv[2];
 try {
   if (!target || process.argv.length !== 3 || !process.stdin.isTTY || !process.stdout.isTTY) throw Error('Interactive terminal required');
@@ -16,17 +16,19 @@ try {
   let password;
   if (useGenerated) {
     password = generatePassword();
-    process.stdout.write('Serverpasswort (einmalig, jetzt notieren): ' + password + '\n');
+    // The generated password never goes to stdout (container logs, scrollback): it lands in a 0600 file next to the config.
+    passwordFile = await writeInitialPassword(target, password);
+    process.stdout.write(`Serverpasswort liegt in ${passwordFile} (nur für dich lesbar). Die Datei wird nach der ersten Geräteanmeldung gelöscht.\n`);
   } else {
-    muted = true; process.stdout.write('Serverpasswort (mindestens 16 Zeichen, NICHT das Vault-Passwort): ');
+    muted = true; process.stdout.write('Serverpasswort (mindestens 20 Zeichen, NICHT das Vault-Passwort): ');
     password = await terminal.question(''); process.stdout.write('\nServerpasswort wiederholen: ');
     const repeat = await terminal.question(''); process.stdout.write('\n');
-    if (password !== repeat || password.length < 16) throw Error('Mismatch');
+    if (password !== repeat || password.length < CUSTOM_PASSWORD_MIN) throw Error('Mismatch');
   }
   const account = await createAccount(username, password);
   const handle = await open(target, 'wx', 0o600); created = true;
-  try { await handle.writeFile(JSON.stringify({ serverId: randomBytes(32).toString('hex'), namespace: randomBytes(16).toString('hex'), account })); await handle.sync(); }
+  try { await handle.writeFile(JSON.stringify({ serverId: randomBytes(32).toString('hex'), namespace: randomBytes(16).toString('hex'), passwordPolicy: useGenerated ? 'generated' : 'custom', account })); await handle.sync(); }
   finally { await handle.close(); }
   success = true; console.log('Serverkonfiguration mit Passwort-Hash erstellt. Keine Vault-Schlüssel gespeichert.');
 } catch { console.error('Einrichtung fehlgeschlagen. Interaktives Terminal, Benutzernamen, Passwörter und neuen Dateipfad prüfen.'); process.exitCode = 1; }
-finally { terminal?.close(); if (created && !success) await unlink(target).catch(() => {}); }
+finally { terminal?.close(); if (created && !success) await unlink(target).catch(() => {}); if (passwordFile && !success) await unlink(passwordFile).catch(() => {}); }
