@@ -121,7 +121,7 @@ namespace Shellherd.RdpHost
                     }
                     case "protect":
                     {
-                        if (!message.ContainsKey("protect")) throw new FormatException("Feld fehlt: protect");
+                        if (!message.ContainsKey("protect")) throw new FormatException("Missing field: protect");
                         SetProtection(Protocol.Bool(message, "protect", false));
                         break;
                     }

@@ -10,7 +10,8 @@ import { formatFingerprint } from '../../shared/remote-signal';
 import { brandIconPath } from '../brand';
 import { mainT } from '../i18n';
 import { localeStore } from '../locale';
-import { registerPermissionHandlers } from '../permissions';
+import { decidePermission, registerPermissionHandlers } from '../permissions';
+import type { PermissionDetails } from '../permissions';
 import { MediaWindows, REMOTE_MEDIA_PARTITION } from './media-window';
 import { RemoteLabHost } from './lab-host';
 import type { CapturePrompt, RemoteAccount, RemoteDeps, RemotePeer, RemoteServerInfo } from './lab-host';
@@ -68,6 +69,11 @@ export function wireMediaSession(host: RemoteLabHost, media: MediaWiring, mediaS
     remoteLabEnabled: true,
     captureGranted: id => media.role(id) === 'agent' && host.grantedSession(id) !== null,
   });
+  // The check (not the request) also passes while the captured session runs: Chromium re-checks the permission
+  // during capture, after the one-time grant was consumed. Request and display handlers stay strictly one-shot.
+  const checkCtx = { remoteLabEnabled: true, captureGranted: (id: number): boolean => media.role(id) === 'agent' && (host.grantedSession(id) !== null || host.isCaptureSession(id) === true) };
+  mediaSession.setPermissionCheckHandler((wc, permission, _origin, details) =>
+    decidePermission(permission, details as PermissionDetails, wc?.id ?? null, 'check', checkCtx));
   mediaSession.setDisplayMediaRequestHandler(createDisplayMediaHandler(host, options));
   mediaSession.setSpellCheckerEnabled(false);
   media.onGone((id, reason) => host.mediaGone(id, reason));
@@ -110,7 +116,7 @@ export function remoteLabRequested(env: NodeJS.ProcessEnv = process.env, package
 /** Rendezvous scripts are loaded only in an explicitly enabled dev checkout; anything missing leaves the host without deps. */
 export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; matchesVaultPassword(password: string): Promise<boolean>; identity: RemoteIdentityStore; background: () => string }): Promise<{ host: RemoteLabHost; media?: MediaWindows }> {
   const fake = process.env.SHELLHERD_REMOTE_CAPTURE_FAKE === '1';
-  const media = new MediaWindows({
+  const createMedia = (): MediaWindows => new MediaWindows({
     create: windowOptions => new BrowserWindow(windowOptions),
     load: async window => {
       const url = process.env.ELECTRON_RENDERER_URL;
@@ -128,8 +134,10 @@ export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; mat
     captureMs: REMOTE_LAB_LIMITS.captureMs,
   });
   let host = new RemoteLabHost();
+  let media: MediaWindows | undefined;
   if (remoteLabRequested()) {
     try {
+      media = createMedia();
       const transport = await import(/* @vite-ignore */ script('http-common.mjs')) as {
         probeSyncServer(url: string, options: { allowLoopbackHttp: boolean; allowPrivateHttp: boolean; signal: AbortSignal }): Promise<RemoteServerInfo>;
       };
@@ -154,10 +162,11 @@ export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; mat
       host = new RemoteLabHost(deps);
     } catch { /* Absent scripts: feature stays unavailable. */ }
   }
-  if (host.enabled) {
-    wireMediaSession(host, media, session.fromPartition(REMOTE_MEDIA_PARTITION), { fake });
-    app.on('will-quit', () => media.destroyAll());
-    ipcMain.handle(REMOTE_MEDIA_CHANNELS.action, (event, raw: unknown) => handleMediaAction(host, media, event, raw));
+  if (host.enabled && media) {
+    const windows = media;
+    wireMediaSession(host, windows, session.fromPartition(REMOTE_MEDIA_PARTITION), { fake });
+    app.on('will-quit', () => windows.destroyAll());
+    ipcMain.handle(REMOTE_MEDIA_CHANNELS.action, (event, raw: unknown) => handleMediaAction(host, windows, event, raw));
   }
   ipcMain.handle(IPC_CHANNELS.remoteLabAction, (event, raw: unknown) => {
     windowRegistry.requireMain(event); // Includes main-frame ownership.
@@ -167,5 +176,5 @@ export async function registerRemoteLabIpc(options: { isUnlocked(): boolean; mat
     const target = webContents.fromId(owner);
     if (target && !target.isDestroyed()) target.send(IPC_CHANNELS.remoteLabEvent, event);
   });
-  return host.enabled ? { host, media } : { host };
+  return host.enabled && media ? { host, media } : { host };
 }

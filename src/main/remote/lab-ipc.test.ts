@@ -130,7 +130,7 @@ describe('wireMediaSession', () => {
   it('has permission and display handlers, and spellcheck is off (K12)', () => {
     const { ses } = setup();
     expect(ses.setPermissionRequestHandler).toHaveBeenCalledTimes(1);
-    expect(ses.setPermissionCheckHandler).toHaveBeenCalledTimes(1);
+    expect(ses.setPermissionCheckHandler).toHaveBeenCalled(); // replaced by the check handler of wireMediaSession
     expect(ses.setDisplayMediaRequestHandler).toHaveBeenCalledTimes(1);
     expect(ses.setSpellCheckerEnabled).toHaveBeenCalledWith(false);
   });
@@ -147,6 +147,25 @@ describe('wireMediaSession', () => {
     expect(allowed(setup({ agent: false }), MEDIA)).toBe(false);
     expect(allowed(setup({ granted: null }), MEDIA)).toBe(false);
     expect(showMessageBox).not.toHaveBeenCalled();
+  });
+
+  it('the check handler also passes during the running captured session; request stays one-shot', () => {
+    const d = { isMainFrame: true, mediaType: 'video' };
+    const s = setup({ granted: null });
+    const check = s.ses.setPermissionCheckHandler.mock.calls.at(-1)![0];
+    expect(check({ id: MEDIA }, 'media', 'o', d)).toBe(false);
+    s.host.isCaptureSession.mockImplementation((id: number) => id === MEDIA);
+    expect(check({ id: MEDIA }, 'media', 'o', d)).toBe(true);
+    expect(check({ id: MEDIA }, 'display-capture', 'o', d)).toBe(true);
+    expect(check({ id: 99 }, 'media', 'o', d)).toBe(false);
+    expect(check({ id: MEDIA }, 'media', 'o', { ...d, isMainFrame: false })).toBe(false);
+    expect(check({ id: MEDIA }, 'geolocation', 'o', d)).toBe(false);
+    const cb = vi.fn();
+    s.ses.setPermissionRequestHandler.mock.calls[0][0]({ id: MEDIA }, 'media', cb, { isMainFrame: true, mediaTypes: [] });
+    expect(cb).toHaveBeenCalledWith(false);
+    const viewer = setup({ agent: false, granted: null });
+    viewer.host.isCaptureSession.mockReturnValue(true);
+    expect(viewer.ses.setPermissionCheckHandler.mock.calls.at(-1)![0]({ id: MEDIA }, 'media', 'o', d)).toBe(false);
   });
 
   it('forwards gone to the host and clears storage after every destroyed window (E6)', async () => {

@@ -36,8 +36,16 @@ export class SharingProtection {
   }
 
   setSharing(sharing: boolean): void {
+    const wasSharing = this.sharing
     this.sharing = sharing
     this.update()
+    // The cap runs only from the end of a session, never while a window is still being set up.
+    if (wasSharing && !sharing) this.sessionEnded()
+  }
+
+  /** A session ended (also before sharing began): live agent windows now have capMs to disappear. */
+  sessionEnded(): void {
+    if (!this.sharing && this.agents > 0 && this.cap === undefined) this.startCap()
   }
 
   setAgents(alive: number): void {
@@ -51,7 +59,6 @@ export class SharingProtection {
 
   private update(): void {
     if (this.sharing || this.agents === 0) this.stopCap()
-    else if (this.cap === undefined) this.startCap()
     const protect = this.protect
     if (protect === this.applied) return
     this.applied = protect

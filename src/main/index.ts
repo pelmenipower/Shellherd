@@ -281,6 +281,15 @@ app.whenReady().then(async () => {
     if (main && !main.isDestroyed()) main.setTitle(mainWindowTitle());
   });
   labs?.media?.onAlive(n => protection.setAgents(n));
+  // A session ending before sharing began (aborted setup) still has to let the protection fall once the windows are gone.
+  remoteLabHost?.onEvent((_owner, event) => { if (event.kind === 'ended') protection.sessionEnded(); });
+  // A hidden orphaned media window must not keep the app alive once the last registry window is gone.
+  if (labs?.media) {
+    const media = labs.media;
+    app.on('browser-window-created', (_e, created) => {
+      created.on('closed', () => setTimeout(() => { if (!windowRegistry.main() && windowRegistry.secondaries().length === 0) media.destroyAll(); }, 0));
+    });
+  }
   // Before anything reads userData (known hosts, last vault): take over the legacy profile files once.
   migrateUserData(join(app.getPath('appData'), 'Terminus'), app.getPath('userData'));
   const settingsFile = join(app.getPath('userData'), 'settings.json');
@@ -483,6 +492,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  protection.dispose();
   autoLock?.dispose();
   closeAllSessions();
   rdpSessionManager?.dispose();

@@ -182,9 +182,9 @@ export class RemoteLabHost {
   }
 
   /** The live captured agent session with this media window (consumed or not), for the check after getSources. */
-  isCaptureSession(webContentsId: number, sessionId: string): boolean {
+  isCaptureSession(webContentsId: number, sessionId?: string): boolean {
     const s = this.#session;
-    return !!s && s.id === sessionId && s.role === 'agent' && s.captured && s.media === webContentsId && !s.ended;
+    return !!s && (sessionId === undefined || s.id === sessionId) && s.role === 'agent' && s.captured && s.media === webContentsId && !s.ended;
   }
 
   closeOwner(owner: number): void {
@@ -433,7 +433,8 @@ export class RemoteLabHost {
     }
     if (gone()) return;
     s.mediaReady = true;
-    deps.media.send(id, { kind: 'hello', role: 'agent', peerName: s.peer.name, expiresAt: s.deadline });
+    // No data of the other side before the capture has started.
+    deps.media.send(id, { kind: 'hello', role: 'agent', peerName: '', expiresAt: s.deadline });
     let source: string | undefined;
     try { source = (await deps.captureSource?.()) ?? undefined; }
     catch { if (!gone()) { this.#emit({ kind: 'error', code: 'media' }); this.#end(s, 'failed'); } return; }

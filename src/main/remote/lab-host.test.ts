@@ -537,7 +537,7 @@ describe('RemoteLabHost: consent, native dialog and capture (R1, B7)', () => {
     await t.clock.advance(NATIVE);
     expect(t.media.order).toEqual(['dialog', 'open', 'ready', 'hello', 'capture', 'accepted']);
     expect(t.media.opened).toEqual([{ id: 41, role: 'agent', peerName: 'Büro' }]);
-    expect(t.media.events[0]).toEqual({ id: 41, event: { kind: 'hello', role: 'agent', peerName: 'Büro', expiresAt: before + 55_000 } });
+    expect(t.media.events[0]).toEqual({ id: 41, event: { kind: 'hello', role: 'agent', peerName: '', expiresAt: before + 55_000 } });
     expect(t.media.captures).toEqual([{ id: 41, sourceId: undefined }]);
     expect(t.peer.channel).toHaveBeenCalledWith(expect.objectContaining({ id: SID }), B, 'view');
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'connecting' } } });
@@ -654,12 +654,15 @@ describe('RemoteLabHost: consent, native dialog and capture (R1, B7)', () => {
     expect(t.host.consumeCaptureGrant(id)).toBeNull();
     expect(t.host.grantedSession(id)).toBeNull();
     expect(t.host.isCaptureSession(id, SID)).toBe(true); // consumed, still the live captured session
+    expect(t.host.isCaptureSession(id)).toBe(true);
+    expect(t.host.isCaptureSession(MAIN)).toBe(false);
     t.media.consumeGrant = false;
     release();
     await flush();
     expect(t.media.kinds('accepted')).toHaveLength(1);
     await t.act({ kind: 'stop', sessionId: SID });
     expect(t.host.isCaptureSession(id, SID)).toBe(false);
+    expect(t.host.isCaptureSession(id)).toBe(false);
   });
 
   it('B7: the main window id never gets a grant, before or after the dialog', async () => {
