@@ -12,6 +12,7 @@ import type { SyncContext } from './vault-sync-crypto';
 import { lockSyncState } from './vault-sync-state';
 import type { StateFile } from './vault-sync-state';
 import { normalizeRecoveryCode } from '../../shared/recovery-code';
+import { VAULT_PASSWORD_MIN_LENGTH } from '../../shared/vault-password';
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
 import type { Vault } from '../../shared/vault/types';
 export interface VaultRemote { list(): Promise<string[]>; get(id: string): Promise<string>; put(wire: string): Promise<string>; /** true = removed, false = already absent (404). */ remove?(id: string): Promise<boolean> }
@@ -59,7 +60,7 @@ const authorMessage = (context: SyncContext, parents: string[], compacts: string
   Buffer.from(JSON.stringify(['shellherd-sync-author-v1', context.serverId, context.namespace, parents, compacts ?? [], digest, device, at]));
 class Graph {
   readonly values = new Map<string, Version>(); readonly wires = new Map<string, string>();
-  /** Quarantined versions: neither part of the graph nor of the checkpoint; only their `compacts` count for the history check. */
+  /** Quarantined versions: neither part of the graph nor of the checkpoint; their `compacts` excuse nothing (C9). */
   readonly held = new Map<string, Version>();
   private bytes = 0; private compactedCache?: Set<string>;
   constructor(readonly key: Buffer, readonly context: SyncContext, private vaultId?: string) {}
@@ -104,7 +105,7 @@ class Graph {
   validate(): void {
     const done = new Set<string>(); const visiting = new Set<string>();
     const visit = (id: string): void => {
-      if (!this.values.has(id)) { ensure(this.compactedAll.has(id), 'history'); return; }
+      if (!this.values.has(id)) { ensure(this.compacted.has(id), 'history'); return; }
       if (done.has(id)) return; ensure(!visiting.has(id), 'history'); visiting.add(id);
       for (const parent of this.value(id).parents) visit(parent); visiting.delete(id); done.add(id);
     };
@@ -116,8 +117,6 @@ class Graph {
   get compacted(): Set<string> {
     return this.compactedCache ??= new Set([...this.values.values()].flatMap(v => v.compacts ?? []));
   }
-  /** Trusted plus held `compacts`: only for the history check and for tolerating missing parents. */
-  get compactedAll(): Set<string> { return new Set([...this.compacted, ...[...this.held.values()].flatMap(v => v.compacts ?? [])]); }
   compactedBy(id: string): Set<string> { return new Set([...this.ancestors(id)].flatMap(a => this.value(a).compacts ?? [])); }
   heads(): string[] { const parents = new Set([...this.values.values()].flatMap(v => v.parents)); const compacted = this.compacted; return [...this.values.keys()].filter(id => !parents.has(id) && !compacted.has(id)).sort(); }
   /** Present ancestors including the id itself; compacted (missing) parents are skipped. */
@@ -197,13 +196,13 @@ function pull(listing: string[], wires: Map<string, string>, graph: Graph, acked
   }
   // Zombies: newly loaded versions that an existing (trusted) compaction already covers are discarded (the server kept them).
   const compacted = graph.compacted; for (const id of loaded) if (graph.values.has(id) && compacted.has(id)) graph.drop(id);
-  ensure(acked.filter(id => !listing.includes(id)).every(id => graph.compactedAll.has(id)), 'history');
+  ensure(acked.filter(id => !listing.includes(id)).every(id => graph.compacted.has(id)), 'history');
   graph.validate();
   return { received: listing.filter(id => graph.values.has(id)), skipped: foreign.length, foreign, stale: listing.filter(id => graph.compacted.has(id) && !graph.held.has(id)), quarantined: graph.held.size, unknownAuthors };
 }
 export async function synchronizeVault(sessions: VaultSessionManager, remote: VaultRemote, context: SyncContext, signal: AbortSignal, options: SyncOptions = {}): Promise<VaultSyncResult> {
   const keepLocalRevision = options.keepLocalRevision;
-  ensure(process.platform === 'linux', 'limit');
+  ensure(process.platform === 'linux', 'platform');
   const lease = await sessions.captureForSync(); let checkpoint: StateFile | undefined; let syncKey: Buffer | undefined; let graphIn: Graph | undefined;
   const check = (): void => { ensure(!signal.aborted, 'locked'); lease.assertCurrent(); };
   try {
@@ -219,11 +218,11 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
     const keyboxes = keyboxesOf(wires); const versionCount = [...wires.values()].filter(wire => parseSyncEnvelope(wire)?.kind === 'version').length;
     const ignored = new Set([...wires].filter(([, wire]) => parseSyncEnvelope(wire) === null).map(([id]) => id));
     let recoveryCode: string | undefined;
-    // Aborts a key bootstrap: take our keybox back, drop the checkpoint, report syncKey.
-    // The checkpoint stays if it already holds versions (retry after a failed first run): deleting it would orphan them.
-    const abortBootstrap = async (own: string, versionsHeld: boolean): Promise<never> => {
-      try { await remote.remove?.(own); } catch { /* best effort */ }
-      if (!versionsHeld) await checkpoint!.remove(); throw new SyncFailure('syncKey');
+    // While the pending marker stands, no code for this sync key ever left the device, so nobody else can read our objects:
+    // take them back (best effort) and drop the checkpoint; the local Vault holds the data. The next run can take the rival's code (R2).
+    const abortBootstrap = async (own: string, uploaded: string[] = []): Promise<never> => {
+      for (const id of [own, ...uploaded]) { try { await remote.remove?.(id); } catch { /* unreadable leftovers stay foreign for everyone */ } }
+      await checkpoint!.remove(); throw new SyncFailure('syncKey');
     };
     if (!stateIn) {
       if (options.recoveryCode !== undefined) {
@@ -237,18 +236,22 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
         stateIn = { kind: 'shellherd-sync-state-v2', syncKey: syncKey.toString('base64'), keybox: id, versions: [], acked: [], localHeads: [], working: local.portable, projection: local.portable };
         await checkpoint.write(stateIn); check();
         ensure(await remote.put(keybox) === id); check();
-        if (!await confirmKeybox(remote, id, new Set(), ignored, check)) await abortBootstrap(id, false);
+        if (!await confirmKeybox(remote, id, new Set(), ignored, check)) await abortBootstrap(id);
         recoveryCode = code; // The pending marker stays until a result carrying the code is returned (see `settle`).
       }
       graphIn = new Graph(versionKey(syncKey, context), context, lease.snapshot.vault.id);
     } else if (stateIn.keybox) {
       // Crash after a bootstrap upload, code never shown: replace the keybox with a fresh code.
-      const old = stateIn.keybox; const code = generateRecoveryCode(); const keybox = sealKeybox(syncKey!, code, context); const id = hashWire(keybox);
+      // The old keybox goes first and must be gone (removed or 404); a network error ends the run with the marker unchanged (R1).
+      const old = stateIn.keybox; const allowed = new Set([...stateIn.acked, ...graphIn!.values.keys()]);
+      if (!listing.includes(old)) { /* never uploaded or already removed */ }
+      else if (remote.remove) { await remote.remove(old); check(); }
+      else allowed.add(old); // H1 server without DELETE: tolerate the leftover.
+      const code = generateRecoveryCode(); const keybox = sealKeybox(syncKey!, code, context); const id = hashWire(keybox);
       stateIn.keybox = id; await checkpoint.write(stateIn); check();
-      try { await remote.remove?.(old); } catch { /* 404 or network: the stale keybox stays harmless */ }
-      check(); ensure(await remote.put(keybox) === id); check();
+      ensure(await remote.put(keybox) === id); check();
       // A failed earlier run may already have uploaded own versions.
-      if (!await confirmKeybox(remote, id, new Set([old, ...stateIn.acked, ...graphIn!.values.keys()]), ignored, check)) await abortBootstrap(id, stateIn.versions.length > 0);
+      if (!await confirmKeybox(remote, id, allowed, ignored, check)) await abortBootstrap(id, [...graphIn!.values.keys()].filter(v => listing.includes(v)));
       recoveryCode = code;
     }
     const state: State = stateIn!; const graph: Graph = graphIn!;
@@ -269,7 +272,8 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
     });
     const persist = async (): Promise<void> => { state.versions = [...graph.wires.values()]; await checkpoint!.write(state); check(); };
     // Clears the pending keybox marker right before a result (with the recovery code) is returned; an exception keeps it for the next run.
-    const settle = async (): Promise<void> => { if (state.keybox) { delete state.keybox; await persist(); } };
+    // The write ignores aborts and nothing checks afterwards: an abort must not swallow the one-time code (R3).
+    const settle = async (): Promise<void> => { if (state.keybox) { delete state.keybox; state.versions = [...graph.wires.values()]; await checkpoint!.write(state, { ignoreAbort: true }); } };
     if (!state.localHeads.length) {
       const equal = graph.heads().filter(id => samePortable(graph.value(id).portable, local.portable));
       if (equal.length === 1) { state.localHeads = equal; state.working = graph.value(equal[0]).portable; }
@@ -361,17 +365,34 @@ export async function synchronizeVault(sessions: VaultSessionManager, remote: Va
   } finally { try { await checkpoint?.close(); } finally { lease.key.fill(0); syncKey?.fill(0); graphIn?.key.fill(0); } }
 }
 
+/** Id of the vault whose readable version has the largest `author.at` (missing = -1); ties go to the smaller object id (C10). */
+function newestVaultId(wires: Map<string, string>, syncKey: Buffer, context: SyncContext): string | undefined {
+  const key = versionKey(syncKey, context); let best: { id: string; at: number; vault: string } | undefined;
+  try {
+    for (const [id, wire] of wires) {
+      if (parseSyncEnvelope(wire)?.kind !== 'version') continue;
+      let vault: string; let at: number;
+      try {
+        const raw = versionSchema.parse(openSyncObject(wire, 'version', key, context)); const portable = validatePortableVault(raw.portable);
+        if (typeof portable.document.id !== 'string') continue; vault = portable.document.id; at = raw.author?.at ?? -1;
+      } catch (error) { if (error instanceof SyncFailure && error.code === 'limit') throw error; continue; }
+      if (!best || at > best.at || (at === best.at && id < best.id)) best = { id, at, vault };
+    }
+  } finally { key.fill(0); }
+  return best?.vault;
+}
+
 /** The recovery code opens the account key; the new local password is used only here and never reaches remote methods. */
 export async function importSyncedVault(sessions: VaultSessionManager, remote: VaultRemote, context: SyncContext, recoveryCode: string, newPassword: string, signal: AbortSignal,
   selectPath: () => Promise<string | undefined>): Promise<VaultSyncResult | undefined> {
   const check = (): void => { ensure(!signal.aborted && !sessions.isUnlocked(), 'locked'); };
-  ensure(process.platform === 'linux', 'limit');
+  ensure(process.platform === 'linux', 'platform');
   const code = normalizeRecoveryCode(recoveryCode); ensure(code !== null, 'recoveryCode');
-  ensure(typeof newPassword === 'string' && newPassword.length >= 1 && newPassword.length <= 1024, 'wrongVault');
+  ensure(typeof newPassword === 'string' && newPassword.length >= VAULT_PASSWORD_MIN_LENGTH && newPassword.length <= 1024, 'wrongVault');
   check(); const listing = listingIds.parse(await remote.list()); check(); ensure(listing.length > 0, 'history');
   const wires = await fetchNew(remote, listing, () => false, check);
   let syncKey = openKeyboxes(keyboxesOf(wires), code, context); ensure(syncKey, 'recoveryCode');
-  const graph = new Graph(versionKey(syncKey, context), context);
+  const graph = new Graph(versionKey(syncKey, context), context, newestVaultId(wires, syncKey, context));
   let key: Buffer | undefined; let checkpoint: StateFile | undefined; let reserved: string | undefined; let written = false;
   try {
     const { skipped, foreign, quarantined, unknownAuthors } = pull(listing, wires, graph, []); check();
@@ -408,9 +429,9 @@ function checkpointKey(raw: unknown): Buffer {
   return Buffer.from(parsed.data.syncKey, 'base64');
 }
 
-/** Re-reads each candidate; deletes only objects that cannot be read with this account's key. Keyboxes are never removed. Returns the number actually removed. */
-export async function removeForeignObjects(sessions: VaultSessionManager, remote: VaultRemote, context: SyncContext, candidates: string[], signal: AbortSignal): Promise<number> {
-  ensure(process.platform === 'linux', 'limit'); ensure(remote.remove, 'limit');
+/** Re-reads each candidate. Old-format objects always go; version envelopes that this account's key cannot open only with `options.versions` (B8). Keyboxes and readable versions never go. Returns the number actually removed. */
+export async function removeForeignObjects(sessions: VaultSessionManager, remote: VaultRemote, context: SyncContext, candidates: string[], signal: AbortSignal, options: { versions?: boolean } = {}): Promise<number> {
+  ensure(process.platform === 'linux', 'platform'); ensure(remote.remove, 'limit');
   const lease = await sessions.captureForSync(); let checkpoint: StateFile | undefined; let syncKey: Buffer | undefined; let key: Buffer | undefined;
   const check = (): void => { ensure(!signal.aborted, 'locked'); lease.assertCurrent(); };
   try {
@@ -422,8 +443,8 @@ export async function removeForeignObjects(sessions: VaultSessionManager, remote
     for (const id of wanted.filter(candidate => listing.includes(candidate))) {
       const wire = await remote.get(id); check(); ensure(hashWire(wire) === id);
       // Readable = a keybox, or a version envelope that opens under the account key, regardless of schema, vault id or compacts (newer clients stay intact).
-      const kind = parseSyncEnvelope(wire)?.kind; let readable = kind === 'keybox';
-      if (kind === 'version') { try { openSyncObject(wire, 'version', key, context); readable = true; } catch (error) { if (error instanceof SyncFailure && error.code === 'limit') throw error; } }
+      const kind = parseSyncEnvelope(wire)?.kind; let readable = kind === 'keybox' || (kind === 'version' && options.versions !== true);
+      if (kind === 'version' && options.versions === true) { try { openSyncObject(wire, 'version', key, context); readable = true; } catch (error) { if (error instanceof SyncFailure && error.code === 'limit') throw error; } }
       if (readable) continue;
       if (await remote.remove(id)) removed++; check();
     }
@@ -433,24 +454,35 @@ export async function removeForeignObjects(sessions: VaultSessionManager, remote
 
 /** Replaces the recovery code: uploads a new keybox and removes every other one. The code is returned only if all old keyboxes are gone (K12). */
 export async function regenerateRecoveryCode(sessions: VaultSessionManager, remote: VaultRemote, context: SyncContext, signal: AbortSignal): Promise<{ recoveryCode: string }> {
-  ensure(process.platform === 'linux', 'limit'); ensure(remote.remove, 'limit');
+  ensure(process.platform === 'linux', 'platform'); ensure(remote.remove, 'limit');
   const lease = await sessions.captureForSync(); let checkpoint: StateFile | undefined; let syncKey: Buffer | undefined;
   const check = (): void => { ensure(!signal.aborted, 'locked'); lease.assertCurrent(); };
   try {
     checkpoint = await lockSyncState(lease.snapshot.filePath, lease.key, lease.kdf, context, check);
     const raw = await checkpoint.read(); check(); ensure(raw !== undefined, 'syncKey');
     syncKey = checkpointKey(raw);
+    // Refuse an account that also holds data of another sync key: replacing the keybox would lock that key's owner out (C2).
+    const probe = versionKey(syncKey, context); const existing = listingIds.parse(await remote.list()); check();
+    try {
+      for (const id of existing) {
+        const wire = await remote.get(id); check(); ensure(hashWire(wire) === id);
+        if (parseSyncEnvelope(wire)?.kind !== 'version') continue;
+        try { openSyncObject(wire, 'version', probe, context); } catch (error) { if (error instanceof SyncFailure && error.code === 'limit') throw error; ensure(false, 'foreignKey'); }
+      }
+    } finally { probe.fill(0); }
     const code = generateRecoveryCode(); const keybox = sealKeybox(syncKey, code, context); const own = hashWire(keybox);
     ensure(await remote.put(keybox) === own); check();
     const listing = listingIds.parse(await remote.list()); check();
+    // After the first old keybox is gone the old code is dead: from then on the new code must reach the caller, so no abort check (K30).
+    let removed = false; const guard = (): void => { if (!removed) check(); };
     for (const id of listing) {
       if (id === own) continue;
-      const wire = await remote.get(id); check(); ensure(hashWire(wire) === id);
+      const wire = await remote.get(id); guard(); ensure(hashWire(wire) === id);
       if (parseSyncEnvelope(wire)?.kind !== 'keybox') continue;
-      await remote.remove(id); check(); // A failure other than 404 (false) propagates: the code stays unreturned.
+      await remote.remove(id); removed = true; // A failure other than 404 (false) propagates: the code stays unreturned.
     }
     const state = raw as { keybox?: string };
-    if (state.keybox !== undefined) { const { keybox: _pending, ...rest } = state; await checkpoint.write(rest); check(); }
+    if (state.keybox !== undefined) { const { keybox: _pending, ...rest } = state; await checkpoint.write(rest, { ignoreAbort: removed }); guard(); }
     return { recoveryCode: code };
   } finally { try { await checkpoint?.close(); } finally { lease.key.fill(0); syncKey?.fill(0); } }
 }

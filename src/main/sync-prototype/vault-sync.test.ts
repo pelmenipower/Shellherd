@@ -9,6 +9,7 @@ import { encryptVault } from '../vault/crypto';
 import { writeEncryptedVaultFile, readEncryptedVaultFile } from '../vault/storage';
 import type { Vault, VaultNode } from '../../shared/vault/types';
 import { exampleVault } from '../../shared/vault/example';
+import { VAULT_PASSWORD_MIN_LENGTH } from '../../shared/vault-password';
 import { synchronizeVault, importSyncedVault, removeForeignObjects, regenerateRecoveryCode, SYNC_COMPACTS_MAX } from './vault-sync';
 import type { VaultRemote, VaultSyncResult } from './vault-sync';
 import { hashWire, keyboxWrapKey, openSyncObject, parseSyncEnvelope, sealSyncObject, stable, versionKey } from './vault-sync-crypto';
@@ -317,14 +318,33 @@ it('shows a code on the next run when the run is aborted after the own version w
   expect(await checkpointOf(f.a)).not.toHaveProperty('keybox'); f.key = accountKey(f);
   expect(await importB(f)).toMatchObject({ status: 'synced' });
 }, 30000);
-it('does not delete a checkpoint that holds versions when a retried bootstrap is aborted by a rival keybox', async () => {
+it('takes back own keybox, uploaded versions and checkpoint when a retried bootstrap is aborted by a rival keybox (R2)', async () => {
   const f = await fixture(password, true); const rival = await fixture(); await publish(rival);
   const [, rivalKeybox] = keyboxes(rival.data)[0]; let failed = false;
+  const failing: VaultRemote = { ...f.remote, async put(wire) { const id = await f.remote.put(wire); if (kindOf(wire) === 'version' && !failed) { failed = true; throw Error('network after upload'); } return id; } };
+  await expect(synchronizeVault(f.a, failing, context, signal())).rejects.toThrow('network');
+  expect(count(f.data)).toBe(1); f.data.set(hashWire(rivalKeybox), rivalKeybox);
+  await expect(synchronizeVault(f.a, f.remote, context, signal())).rejects.toMatchObject({ code: 'syncKey' });
+  expect(await checkpointOf(f.a)).toBeUndefined(); expect([...f.data.keys()]).toEqual([hashWire(rivalKeybox)]);
+  const res = await synchronizeVault(f.a, f.remote, context, signal(), { recoveryCode: rival.code });
+  expect(res.status).toBe('synced'); expect(res.skipped ?? 0).toBe(0);
+}, 60000);
+it('R1 fixed: a failed remove of the old marker ends the run, the next run shows a code that opens the account', async () => {
+  const f = await fixture(password, true); let fail = true;
+  const failVersion: VaultRemote = { ...f.remote, async put(wire) { if (kindOf(wire) === 'version' && fail) throw Error('network'); return f.remote.put(wire); } };
+  await expect(synchronizeVault(f.a, failVersion, context, signal())).rejects.toThrow('network');
+  const failBoth: VaultRemote = { ...failVersion, async remove() { throw Error('network remove'); } };
+  await expect(synchronizeVault(f.a, failBoth, context, signal())).rejects.toThrow('network remove');
+  expect(keyboxes(f.data)).toHaveLength(1);
+  fail = false; const result = await synchronizeVault(f.a, f.remote, context, signal()); f.code = result.recoveryCode; expect(f.code).toMatch(/^[0-9a-f]{32}$/);
+  expect(result.status).toBe('synced'); expect(keyboxes(f.data)).toHaveLength(1); f.key = accountKey(f);
+  expect(await importB(f)).toMatchObject({ status: 'synced' });
+}, 60000);
+it('tolerates the old marker without a remove method (H1 server)', async () => {
+  const f = await fixture(); let failed = false;
   const failing: VaultRemote = { ...f.remote, async put(wire) { if (kindOf(wire) === 'version' && !failed) { failed = true; throw Error('network'); } return f.remote.put(wire); } };
   await expect(synchronizeVault(f.a, failing, context, signal())).rejects.toThrow('network');
-  f.data.set(hashWire(rivalKeybox), rivalKeybox);
-  await expect(synchronizeVault(f.a, f.remote, context, signal())).rejects.toMatchObject({ code: 'syncKey' });
-  expect(await checkpointOf(f.a)).toHaveProperty('versions'); expect(((await checkpointOf(f.a))!.versions as string[]).length).toBe(1);
+  const result = await synchronizeVault(f.a, f.remote, context, signal()); expect(result).toMatchObject({ status: 'synced' }); expect(result.recoveryCode).toMatch(/^[0-9a-f]{32}$/);
 }, 30000);
 it('reports syncKey for versions without a keybox and recoveryCode when a code is given', async () => {
   const f = await fixture(); await publish(f);
@@ -345,7 +365,7 @@ it('reads its checkpoint independent of extra context fields and of the device (
   const richer = { ...context, serverUrl: 'https://elsewhere.test', authentication: 'enrolled-device', device: device.dev } as SyncContext;
   expect(await synchronizeVault(f.a, f.remote, richer, signal())).toMatchObject({ status: 'synced' });
   expect(await synchronizeVault(f.a, f.remote, context, signal())).toMatchObject({ status: 'synced' });
-  await expect(synchronizeVault(f.a, f.remote, { ...context, namespace: 'other' }, signal())).rejects.toMatchObject({ code: 'wrongVault' });
+  await expect(synchronizeVault(f.a, f.remote, { ...context, namespace: 'other' }, signal())).rejects.toMatchObject({ code: 'otherServer' });
 }, 30000);
 it('rejects a v1 checkpoint with migrate before decrypting it', async () => {
   const f = await fixture(); await writeFile(join(f.directory, 'a.term.sync-state'), JSON.stringify(['shellherd-private-sync-state-v1', { not: 'decryptable' }]), { mode: 0o600 });
@@ -446,14 +466,14 @@ it('holds back a new version with an invalid signature but never reclassifies ac
   expect(await synchronizeVault(f.b, f.remote, swapped, signal())).toMatchObject({ status: 'synced', quarantined: 1 });
   expect(f.b.getSnapshot().vault.name).toBe('V1');
 }, 30000);
-it('counts a held compaction version for the history check but never deletes from it or discards zombies', async () => {
+it('does not excuse a missing acknowledged version by a held compaction version (C9) and deletes nothing', async () => {
   const roster: Roster = { keys: new Map(), revoked: new Map() }; const A = makeDevice('a', roster); const X = makeDevice('c', roster);
   const f = await fixture(password, true); await publish(f, withDevice(A.dev)); await f.a.save({ ...f.a.getSnapshot().vault, name: 'V1' }); await synchronizeVault(f.a, f.remote, withDevice(A.dev), signal());
   const entries = await Promise.all(versions(f.data).map(async ([id, wire]) => ({ id, ...await readVersion(f, wire) }))); const root = entries.find(e => e.parents.length === 0)!; const head = entries.find(e => e.parents.length === 1)!;
   roster.revoked.set(X.id, Date.now() - 1000);
   const c = forge(f, X, { parents: [head.id], portable: head.portable, compacts: [root.id], at: Date.now() }); const cId = hashWire(c); f.data.set(cId, c); f.data.delete(root.id);
   let removeCalls = 0; const counting: VaultRemote = { ...f.remote, async remove(id) { removeCalls++; return f.remote.remove!(id); } };
-  expect(await synchronizeVault(f.a, counting, withDevice(A.dev), signal())).toMatchObject({ status: 'synced', quarantined: 1, versions: 2 });
+  await expect(synchronizeVault(f.a, counting, withDevice(A.dev), signal())).rejects.toMatchObject({ code: 'history' });
   expect(removeCalls).toBe(0); expect(f.data.has(cId)).toBe(true); expect(f.data.has(head.id)).toBe(true);
 }, 30000);
 
@@ -594,8 +614,11 @@ it('removeForeignObjects deletes only unreadable listed objects, keeps keyboxes 
   const [ownId] = versions(f.data)[0]; const [ownBox] = keyboxes(f.data)[0];
   const legacyWire = JSON.stringify(await encryptVault(structuredClone(exampleVault), 'LEGACY_PASSWORD')); const legacyId = hashWire(legacyWire); f.data.set(legacyId, legacyWire);
   const unlisted = 'c'.repeat(64); let removeCalls = 0; const counting: VaultRemote = { ...f.remote, async remove(id) { removeCalls++; return f.remote.remove!(id); } };
-  expect(await removeForeignObjects(f.a, counting, context, [foreignId, ownId, ownBox, rivalId, legacyId, unlisted], signal())).toBe(2);
-  expect(removeCalls).toBe(2); expect(f.data.has(foreignId)).toBe(false); expect(f.data.has(legacyId)).toBe(false);
+  // Default: only old-format objects; unreadable version envelopes need the explicit opt-in.
+  expect(await removeForeignObjects(f.a, counting, context, [foreignId, ownId, ownBox, rivalId, legacyId, unlisted], signal())).toBe(1);
+  expect(removeCalls).toBe(1); expect(f.data.has(foreignId)).toBe(true); expect(f.data.has(legacyId)).toBe(false);
+  expect(await removeForeignObjects(f.a, counting, context, [foreignId, ownId, ownBox, rivalId, legacyId, unlisted], signal(), { versions: true })).toBe(1);
+  expect(removeCalls).toBe(2); expect(f.data.has(foreignId)).toBe(false);
   for (const id of [ownId, ownBox, rivalId]) expect(f.data.has(id)).toBe(true);
   // 404 does not count.
   f.data.set(foreignId, foreign); const absent: VaultRemote = { ...f.remote, async remove() { return false; } };
@@ -610,3 +633,69 @@ it('keeps a readable object of a newer client schema', async () => {
   expect(await removeForeignObjects(f.a, f.remote, context, [newerId, ownId], signal())).toBe(0);
   expect(f.data.has(newerId)).toBe(true); expect(f.data.has(ownId)).toBe(true);
 }, 30000);
+
+it('removeForeignObjects with versions: true still keeps readable versions and keyboxes', async () => {
+  const f = await fixture(password, true); await publish(f); const [ownId] = versions(f.data)[0]; const [ownBox] = keyboxes(f.data)[0];
+  expect(await removeForeignObjects(f.a, f.remote, context, [ownId, ownBox], signal(), { versions: true })).toBe(0);
+  expect(f.data.has(ownId) && f.data.has(ownBox)).toBe(true);
+}, 30000);
+it('regenerateRecoveryCode refuses an account with an unreadable version and keeps every object (foreignKey)', async () => {
+  const f = await fixture(password, true); const other = await fixture('OTHER_LOCAL_TEST_PASSWORD'); await publish(f); await publish(other);
+  const [foreignId, foreign] = versions(other.data)[0]; const [rivalId, rival] = keyboxes(other.data)[0]; f.data.set(foreignId, foreign); f.data.set(rivalId, rival);
+  const before = new Set(f.data.keys()); let writes = 0;
+  const counting: VaultRemote = { ...f.remote, async put(wire) { writes++; return f.remote.put(wire); }, async remove(id) { writes++; return f.remote.remove!(id); } };
+  await expect(regenerateRecoveryCode(f.a, counting, context, signal())).rejects.toMatchObject({ code: 'foreignKey' });
+  expect(writes).toBe(0); expect(new Set(f.data.keys())).toEqual(before);
+}, 30000);
+it('regenerateRecoveryCode returns the code although the run is aborted after the first remove (K12)', async () => {
+  const f = await fixture(password, true); await publish(f); const controller = new AbortController(); const oldCode = f.code!;
+  const aborting: VaultRemote = { ...f.remote, async remove(id) { const r = await f.remote.remove!(id); controller.abort(); return r; } };
+  const { recoveryCode } = await regenerateRecoveryCode(f.a, aborting, context, controller.signal);
+  expect(recoveryCode).toMatch(/^[0-9a-f]{32}$/); expect(recoveryCode).not.toBe(oldCode); expect(keyboxes(f.data)).toHaveLength(1);
+  f.code = recoveryCode; expect(await importB(f)).toMatchObject({ status: 'synced' });
+}, 30000);
+it('settle writes the checkpoint despite an abort after the marker removal, and the result carries the code (R3)', async () => {
+  const f = await fixture(password, true); const controller = new AbortController(); let hadMarker = false;
+  vi.mocked(lockSyncState).mockImplementationOnce(async (...args) => {
+    const state = await (await vi.importActual<typeof import('./vault-sync-state')>('./vault-sync-state')).lockSyncState(...args);
+    return { ...state, async write(value, options) {
+      await state.write(value, options); const marker = (value as { keybox?: string }).keybox;
+      if (marker !== undefined) hadMarker = true; else if (hadMarker) controller.abort(); // Right after the marker removal.
+    } };
+  });
+  const result = await synchronizeVault(f.a, f.remote, context, controller.signal);
+  expect(controller.signal.aborted).toBe(true); expect(result.recoveryCode).toMatch(/^[0-9a-f]{32}$/);
+  expect(await checkpointOf(f.a)).not.toHaveProperty('keybox');
+}, 30000);
+it('rejects a too short new vault password before any remote call (C5)', async () => {
+  const f = await fixture(password, true); await publish(f); let calls = 0;
+  const spy: VaultRemote = { ...f.remote, async list() { calls++; return f.remote.list(); } };
+  await expect(importSyncedVault(f.b, spy, context, f.code!, 'x'.repeat(VAULT_PASSWORD_MIN_LENGTH - 1), signal(), async () => join(f.directory, 'b.term'))).rejects.toMatchObject({ code: 'wrongVault' });
+  expect(calls).toBe(0);
+}, 30000);
+it('picks the vault of the newest version independent of the listing order (C10)', async () => {
+  const f = await fixture(password, true); await publish(f);
+  const other = structuredClone(f.a.getSnapshot().vault); other.id = 'second-vault-id'; other.name = 'Second';
+  const sm = new VaultSessionManager(); cleanup.push(() => sm.lock());
+  const path = await writeEncryptedVaultFile(join(f.directory, 's.term'), await encryptVault(other, password)); await sm.unlock(path, password);
+  const { splitVaultForSync } = await import('./vault-merge'); const portable = splitVaultForSync(sm.getSnapshot().vault).portable;
+  const author = { device: 'd'.repeat(64), at: Date.now() + 10_000, signature: Buffer.alloc(64).toString('base64') };
+  const second = sealSyncObject('version', { kind: 'shellherd-sync-version-v2', parents: [], portable, author }, f.key!, context); f.data.set(hashWire(second), second);
+  const names: string[] = [];
+  for (const reverse of [false, true]) {
+    const ordered: VaultRemote = { ...f.remote, async list() { const l = await f.remote.list(); return reverse ? l.reverse() : l; } };
+    const target = new VaultSessionManager(); cleanup.push(() => target.lock());
+    const r = await importSyncedVault(target, ordered, context, f.code!, newPassword, signal(), async () => join(f.directory, `c${reverse}.term`));
+    names.push(r!.snapshot!.vault.name);
+  }
+  expect(names).toEqual(['Second', 'Second']);
+}, 60000);
+it('reports platform instead of limit on a non-linux platform (A2)', async () => {
+  const f = await fixture(password, true); const spy = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+  try {
+    await expect(synchronizeVault(f.a, f.remote, context, signal())).rejects.toMatchObject({ code: 'platform' });
+    await expect(regenerateRecoveryCode(f.a, f.remote, context, signal())).rejects.toMatchObject({ code: 'platform' });
+    await expect(removeForeignObjects(f.a, f.remote, context, [], signal())).rejects.toMatchObject({ code: 'platform' });
+    await expect(importSyncedVault(f.b, f.remote, context, 'a'.repeat(32), newPassword, signal(), async () => undefined)).rejects.toMatchObject({ code: 'platform' });
+  } finally { spy.mockRestore(); }
+});
