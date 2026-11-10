@@ -46,6 +46,7 @@ jobs:
       - if: runner.os == 'Linux'
         name: Check packaged Linux startup
         run: |
+          SHELLHERD_RELEASE=1 npx electron-vite build
           npx electron-builder --linux --dir --x64 --publish never
           sudo chown root:root dist/linux-unpacked/chrome-sandbox
           sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
