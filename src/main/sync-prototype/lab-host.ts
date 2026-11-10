@@ -56,7 +56,7 @@ interface Connection {
   owner: number; clientId: string; controller: AbortController; info?: ServerInfo; busy?: boolean;
   account?: AccountDriver; signedIn?: SyncLabState['account']; sync?: SyncLabState['sync']; foreign?: string[]; passwordDigest?: { key: Buffer; digest: Buffer };
   /** Sync-key carrying enrollment code (K12): a Buffer so it can be zeroed. */
-  inviteCode?: Buffer; invitesIssued: number; rotationAdvised?: boolean; hints?: Hints;
+  inviteCode?: Buffer; invitesIssued: number; ownInvited?: ReadonlySet<string>; rotationAdvised?: boolean; hints?: Hints;
   store?: RemoteIdentityStore; loaded?: Loaded; enrolled?: SyncLabState['enrolled']; enrolledElsewhere?: string; expiresAt?: number; roster?: DeviceEntry[]; devices?: SyncLabState['devices'];
 }
 export class SyncLabHost {
@@ -119,11 +119,11 @@ export class SyncLabHost {
     const list = await c.account!.devices(); this.#live(c);
     const identity = c.loaded!.identity; const { serverId, serverUrl } = c.info!;
     if (strict) { const own = list.find(item => item.id === identity.id); if (!own || own.signingKey !== identity.signingPublicKey) throw failure('connection'); }
-    const merged = mergeRoster({ snapshot: c.store?.rosterOf(serverId, serverUrl), server: list, selfId: identity.id, invitesIssued: c.invitesIssued });
+    const merged = mergeRoster({ snapshot: c.store?.rosterOf(serverId, serverUrl), server: list, selfId: identity.id, invitesIssued: c.invitesIssued, ownInvited: c.ownInvited });
     if (!merged.ok) throw failure('syncRoster'); // A known device changed its key: nothing is trusted (B8).
     // Invalid or oversized pins come from the server; the store refuses them and the run ends as a roster conflict.
     try { if (merged.persist) c.store?.rememberRoster(serverId, serverUrl, merged.pins, Date.now()); } catch { throw failure('syncRoster'); }
-    c.invitesIssued = merged.invitesIssued;
+    c.invitesIssued = merged.invitesIssued; c.ownInvited = merged.ownInvited;
     this.#project(c, list, merged);
     return merged.effective;
   }
@@ -309,10 +309,12 @@ export class SyncLabHost {
   #acknowledge(c: Connection | undefined, id: string): SyncLabReply {
     if (!c?.info || !c.loaded || !c.signedIn || !c.roster) return { ok: false, code: 'stale' };
     const { serverId, serverUrl } = c.info; const snapshot = c.store?.rosterOf(serverId, serverUrl);
-    if (!snapshot || snapshot.at === null || !snapshot.pins.some(p => p.id === id)) return { ok: false, code: 'invalid' };
-    const pins = acknowledgePin(snapshot.pins, id); const at = Date.now();
+    // Only ids with an open notice are accepted; the renderer is not trusted (m2).
+    const revived = c.hints?.revived.some(item => item.id === id) === true;
+    if (!snapshot || snapshot.at === null || !(revived || c.hints?.newDevices.some(item => item.id === id))) return { ok: false, code: 'invalid' };
+    const pins = acknowledgePin(snapshot.pins, id, revived); const at = Date.now();
     try { c.store!.rememberRoster(serverId, serverUrl, pins, at); } catch { return { ok: false, code: 'syncRoster' }; }
-    const merged = mergeRoster({ snapshot: { pins, at }, server: c.roster, selfId: c.loaded.identity.id, invitesIssued: c.invitesIssued });
+    const merged = mergeRoster({ snapshot: { pins, at }, server: c.roster, selfId: c.loaded.identity.id, invitesIssued: c.invitesIssued, ownInvited: c.ownInvited });
     if (!merged.ok) return { ok: false, code: 'syncRoster' };
     this.#project(c, c.roster, merged);
     return { ok: true, state: this.#state(c) };

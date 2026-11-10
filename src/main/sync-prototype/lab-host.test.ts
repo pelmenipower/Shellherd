@@ -703,7 +703,7 @@ describe('H4 key epochs: enrollment code, roster pins, rotation', () => {
     const rotated = await h.host.performSync(1, { kind: 'rotateKey', clientId, confirmed: true });
     expect((rotated as any).state.rotationAdvised).toBeUndefined();
   });
-  it('flags a new device, accepts an own invitation in the same connection and requires acknowledgement', async () => {
+  it('flags a new device, flags an own invitation in the same connection as info and requires acknowledgement', async () => {
     const other = generateRemoteIdentity(); const third = generateRemoteIdentity();
     const issued = { code: INVITE, enrollSecret: 'e'.repeat(64), keyboxId: 'b'.repeat(64) };
     const h = harness({ enrollment: enrolledOf(), syncVault: async () => issued });
@@ -711,11 +711,21 @@ describe('H4 key epochs: enrollment code, roster pins, rotation', () => {
     await h.host.performSync(1, { kind: 'invite', clientId });
     h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone', enrolledBy: h.identity.id }), entryOf(third, { name: 'Stranger' })]);
     const listed = await h.host.devices(1, { kind: 'listDevices', clientId }) as any;
-    expect(listed.state.newDevices).toEqual([{ id: third.id, name: 'Stranger', enrolledVia: 'password' }]);
+    expect(listed.state.newDevices).toEqual([{ id: other.id, name: 'Phone', enrolledVia: 'invite', invitedBy: 'Laptop', ownInvite: true }, { id: third.id, name: 'Stranger', enrolledVia: 'password' }]);
     expect(listed.state.devices.find((d: any) => d.id === other.id)).toMatchObject({ enrolledVia: 'invite', invitedBy: 'Laptop' });
     const ack = await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: third.id }) as any;
-    expect(ack.state.newDevices).toBeUndefined();
+    expect(ack.state.newDevices).toEqual([expect.objectContaining({ id: other.id, ownInvite: true })]); // The own invitation still waits.
     expect(pinOf(h).pins.find(p => p.id === third.id)).toMatchObject({ acknowledged: true });
+    expect(((await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: other.id })) as any).state.newDevices).toBeUndefined();
+  });
+  it('refuses to acknowledge an id without an open notice and keeps a local revocation (m2)', async () => {
+    const other = generateRemoteIdentity();
+    const h = harness({ enrollment: enrolledOf() });
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone', revokedAt: 9 })]);
+    await h.host.connect(1, connectCommand); await h.host.openSession(1, { kind: 'openSession', clientId });
+    expect(await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: other.id })).toEqual({ ok: false, code: 'invalid' });
+    expect(await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: 'f'.repeat(64) })).toEqual({ ok: false, code: 'invalid' });
+    expect(pinOf(h).pins.find(p => p.id === other.id)).toMatchObject({ revokedAt: 9 });
   });
   it('warns about an own invitation after the connection was closed', async () => {
     const other = generateRemoteIdentity();

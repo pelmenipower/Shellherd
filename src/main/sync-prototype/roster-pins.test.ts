@@ -32,12 +32,26 @@ describe('mergeRoster', () => {
   it('trusts an own invitation once per issued invite (E10)', () => {
     const r = mergeRoster({ selfId: id(1), invitesIssued: 1, snapshot: { pins: [pin(1)], at: 1 }, server: [entry(1), entry(2, { enrolledBy: id(1) }), entry(3, { enrolledBy: id(1) })] });
     expect(r.ok && r.invitesIssued).toBe(0);
-    expect(r.ok && r.newDevices.map(d => d.id)).toEqual([id(3)]);
+    expect(r.ok && r.newDevices).toEqual([{ id: id(2), name: 'dev2', enrolledVia: 'invite', invitedBy: 'dev1', ownInvite: true }, { id: id(3), name: 'dev3', enrolledVia: 'invite', invitedBy: 'dev1' }]);
   });
-  it('keeps a revoked pin when the server drops the entry and removes active ones (B8)', () => {
+  it('keeps vanished pins, but only revoked ones feed the author checks (B8, m1)', () => {
     const r = mergeRoster({ ...base, snapshot: { pins: [pin(1), pin(2, { revokedAt: 7 }), pin(3)], at: 1 }, server: [entry(1)] });
-    expect(r.ok && r.pins.map(p => p.id)).toEqual([id(1), id(2)]);
-    expect(r.ok && r.effective).toContainEqual({ id: id(2), signingKey: key(2), revokedAt: 7 });
+    expect(r.ok && r.pins.map(p => p.id)).toEqual([id(1), id(2), id(3)]);
+    expect(r.ok && r.effective).toEqual([{ id: id(1), signingKey: key(1), revokedAt: null }, { id: id(2), signingKey: key(2), revokedAt: 7 }]);
+    expect(r.ok && r.persist).toBe(false);
+  });
+  it('ends a key change after the device vanished and returned with the same id (m1)', () => {
+    const gone = mergeRoster({ ...base, snapshot: { pins: [pin(1), pin(3)], at: 1 }, server: [entry(1)] });
+    expect(mergeRoster({ ...base, snapshot: { pins: gone.ok ? gone.pins : [], at: 2 }, server: [entry(1), entry(3, { signingKey: key(9) })] })).toEqual({ ok: false });
+    const same = mergeRoster({ ...base, snapshot: { pins: gone.ok ? gone.pins : [], at: 2 }, server: [entry(1), entry(3)] });
+    expect(same.ok && same.newDevices).toEqual([]);
+  });
+  it('evicts vanished active pins before revoked ones at the 64 limit', () => {
+    const many = Array.from({ length: 64 }, (_, i) => pin(i + 10, i < 2 ? { revokedAt: 5 } : {}));
+    const r = mergeRoster({ ...base, snapshot: { pins: [pin(1), ...many.slice(0, 63)], at: 1 }, server: [entry(1), entry(2)] });
+    expect(r.ok && r.pins).toHaveLength(64);
+    expect(r.ok && r.pins.filter(p => p.revokedAt === 5)).toHaveLength(2);
+    expect(r.ok && r.persist).toBe(true);
   });
   it('takes the earlier revokedAt of pin and server', () => {
     const early = mergeRoster({ ...base, snapshot: { pins: [pin(1), pin(2, { revokedAt: 5 })], at: 1 }, server: [entry(1), entry(2, { revokedAt: 9 })] });
@@ -53,11 +67,15 @@ describe('mergeRoster', () => {
     expect(r.ok && r.revived).toEqual([{ id: id(2), name: 'dev2' }]);
     expect(r.ok && r.effective.find(e => e.id === id(2))?.revokedAt).toBe(5);
     expect(r.ok && r.newDevices).toEqual([]);
-    const ack = acknowledgePin(r.ok ? r.pins : [], id(2));
+    const ack = acknowledgePin(r.ok ? r.pins : [], id(2), true);
     expect(ack.find(p => p.id === id(2))).toMatchObject({ acknowledged: true, revokedAt: null });
     const after = mergeRoster({ ...base, snapshot: { pins: ack, at: 2 }, server: [entry(1), entry(2)] });
     expect(after.ok && after.revived).toEqual([]);
     expect(after.ok && after.persist).toBe(false);
+  });
+  it('does not lift a local revocation when acknowledging a non-revived pin (m2)', () => {
+    const pins = acknowledgePin([pin(2, { revokedAt: 5, acknowledged: false })], id(2), false);
+    expect(pins[0]).toMatchObject({ acknowledged: true, revokedAt: 5 });
   });
   it('gives no hint for devices the server reports as revoked', () => {
     const r = mergeRoster({ ...base, snapshot: { pins: [pin(1)], at: 1 }, server: [entry(1), entry(2, { revokedAt: 3 })] });
@@ -66,6 +84,6 @@ describe('mergeRoster', () => {
   it('hintsOf recomputes from pins after an acknowledgement', () => {
     const pins = [pin(1), pin(2, { acknowledged: false })];
     expect(hintsOf(pins, [entry(1), entry(2)]).newDevices).toHaveLength(1);
-    expect(hintsOf(acknowledgePin(pins, id(2)), [entry(1), entry(2)]).newDevices).toEqual([]);
+    expect(hintsOf(acknowledgePin(pins, id(2), false), [entry(1), entry(2)]).newDevices).toEqual([]);
   });
 });

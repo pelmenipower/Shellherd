@@ -122,7 +122,13 @@ export async function createSyncServer({ directory, serverId, namespace, devices
     } finally { busy = false; }
   }
   // Best effort: a busy or failing removal is retried on the next run, a missing object counts as done.
-  async function sweepInvites(at) {
+  // One sweep at a time; object writes wait for a running one instead of being refused with 409 (N5).
+  let sweeping = null;
+  function sweepInvites(at) {
+    sweeping ??= runSweep(at).finally(() => { sweeping = null; });
+    return sweeping;
+  }
+  async function runSweep(at) {
     for (const entry of [...invites]) {
       if (entry.removing || !inviteDue(entry, at)) continue;
       const drop = () => { const index = invites.indexOf(entry); if (index >= 0) invites.splice(index, 1); };
@@ -342,13 +348,13 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         if (path === '/v1/enrollments/pending') send(200, { pending: access.listPending() });
         else if (request.method === 'GET') send(200, access.status());
         else {
-          check(!busy, 409); busy = true;
+          await sweeping; check(!busy, 409); busy = true;
           try { const document = JSON.parse(body); check(JSON.stringify(document) === body); send(200, await access.apply(document)); }
           finally { busy = false; }
         }
         return;
       }
-      if (request.method === 'DELETE') { await removeObject(path.slice(collection.length + 1)); send(200, { removed: true }); return; }
+      if (request.method === 'DELETE') { await sweeping; await removeObject(path.slice(collection.length + 1)); send(200, { removed: true }); return; }
       if (request.method === 'GET') {
         if (path === collection) send(200, { objects: [...objects.keys()].sort() });
         else {
@@ -363,7 +369,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       if (login) validateSyncObject(body); else check(opaque(body) === device, 403);
       const id = sha(body);
       if (objects.has(id)) { send(200, { id }); return; }
-      check(!uncertain, 503); check(!busy, 409); check(objects.size < 100 && total + bytes <= 32 * MAX, 507); busy = true;
+      await sweeping; check(!uncertain, 503); check(!busy, 409); check(objects.size < 100 && total + bytes <= 32 * MAX, 507); busy = true;
       let renamed = false;
       const temporary = join(directory, randomBytes(16).toString('hex') + '.tmp');
       try {

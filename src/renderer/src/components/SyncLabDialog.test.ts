@@ -89,6 +89,14 @@ describe('H4 enrollment codes and roster notices', () => {
     expect(markup).toContain('Tablet war entfernt und ist laut Server wieder aktiv');
     expect(markup.match(/Zur Kenntnis genommen/g)).toHaveLength(2);
   });
+  it('shows an own-invitation device as a quiet info notice with an acknowledge button', () => {
+    const markup = renderToStaticMarkup(createElement(DeviceNotices, { newDevices: [{ id: 'n', name: 'Phone', enrolledVia: 'invite', ownInvite: true }], revived: [], busy: false, onAcknowledge: () => {} }));
+    expect(markup).toContain('Mit deinem Anmeldecode angemeldet: Phone');
+    expect(markup).toContain('sync-lab-notice-info');
+    expect(markup).toContain('role="status"');
+    expect(markup).not.toContain('role="alert"');
+    expect(markup).toContain('Zur Kenntnis genommen');
+  });
   it('renders nothing without notices', () => {
     expect(renderToStaticMarkup(createElement(DeviceNotices, { newDevices: [], revived: [], busy: false, onAcknowledge: () => {} }))).toBe('');
   });

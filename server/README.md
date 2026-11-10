@@ -147,7 +147,7 @@ vorgegeben auf `127.0.0.1` gebunden ist und ausschließlich der Proxy ihn erreic
 Die Variable entfernen, wenn der Server direkt ohne Proxy betrieben wird (etwa nur
 im WireGuard-Netz, siehe „Privates Netz“); sonst könnten Clients ihre Quelle per
 Header fälschen. Ohne lokalen TCP-Port (Unix-Socket, siehe „Unix-Socket hinter Caddy“)
-kann außerdem kein lokaler Prozess auf dem Host den Header setzen.
+können nur noch Prozesse mit Zugriff auf den Socket (Gruppe des Proxys, root) den Header setzen.
 
 Optional und außerhalb dieses Repos kann fail2ban wiederholte 429-Antworten oder
 Fehlanmeldungen auf Firewall-Ebene sperren. Gegen verteilte Floods hilft nur ein
@@ -298,8 +298,9 @@ Er prüft nur die Hülle, nie den Inhalt. Eine alte Serverkopie samt altem Code 
 ## Unix-Socket hinter Caddy
 
 Mit `SHELLHERD_SERVER_SOCKET=/run/shellherd/server.sock` lauscht der Server nicht auf TCP,
-sondern auf einem Unix-Socket (Modus 0660). Dann kann kein lokaler Prozess auf dem
-Homeserver den Server über `127.0.0.1:8787` erreichen und `X-Forwarded-For` setzen.
+sondern auf einem Unix-Socket (Modus 0660). Dann erreicht kein beliebiger lokaler Prozess den Server über
+`127.0.0.1:8787`; `X-Forwarded-For` setzen können nur Prozesse mit Zugriff auf den
+Socket (Gruppe des Proxys, root).
 Hinter dem Socket ist jede Verbindung der Proxy: Der Header zählt immer, das
 Verbindungslimit je Quelle entfällt. `SHELLHERD_SERVER_PORT`, `_HOST` und
 `_TRUSTED_PROXY` werden dabei **ignoriert** (das Image setzt sie fest); der Server schreibt

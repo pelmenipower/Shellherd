@@ -68,10 +68,15 @@ export function RotateConfirm({ busy, onYes, onCancel }: { busy: boolean; onYes:
 export function DeviceNotices({ newDevices, revived, busy, onAcknowledge }: { newDevices: NonNullable<SyncLabState['newDevices']>; revived: NonNullable<SyncLabState['revived']>; busy: boolean; onAcknowledge: (id: string) => void }) {
   const { t } = useT();
   return <>
-    {newDevices.map(device => <div key={device.id} className="sync-lab-confirm" role="alert">
-      <p className="sync-lab-notice">{t('syncLab:newDevice', { name: device.name, how: enrolledHow(t, device) })}</p>
-      <button type="button" className="secondary-button" disabled={busy} onClick={() => onAcknowledge(device.id)}>{t('syncLab:acknowledgeDevice')}</button>
-    </div>)}
+    {newDevices.map(device => device.ownInvite
+      ? <div key={device.id} className="sync-lab-confirm" role="status">
+        <p className="sync-lab-notice sync-lab-notice-info">{t('syncLab:ownInviteDevice', { name: device.name })}</p>
+        <button type="button" className="secondary-button" disabled={busy} onClick={() => onAcknowledge(device.id)}>{t('syncLab:acknowledgeDevice')}</button>
+      </div>
+      : <div key={device.id} className="sync-lab-confirm" role="alert">
+        <p className="sync-lab-notice">{t('syncLab:newDevice', { name: device.name, how: enrolledHow(t, device) })}</p>
+        <button type="button" className="secondary-button" disabled={busy} onClick={() => onAcknowledge(device.id)}>{t('syncLab:acknowledgeDevice')}</button>
+      </div>)}
     {revived.map(device => <div key={device.id} className="sync-lab-confirm" role="alert">
       <p className="sync-lab-notice">{t('syncLab:deviceRevived', { name: device.name })}</p>
       <button type="button" className="secondary-button" disabled={busy} onClick={() => onAcknowledge(device.id)}>{t('syncLab:acknowledgeDevice')}</button>

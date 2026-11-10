@@ -213,13 +213,18 @@ async function run(url) {
   await settle(A);
   await A.clickButton(TEXT.syncNow);
   const notices = `[...document.querySelectorAll('${DIALOG} .sync-lab-confirm[role=alert]')]`;
+  const infos = `[...document.querySelectorAll('${DIALOG} .sync-lab-confirm[role=status]')]`;
   await A.waitFor(`Hinweis „Neues Gerät“ für ${NAME_C} bei A`, `${notices}.some(n => n.textContent.includes(${JSON.stringify(NAME_C)}))`, 20000, true);
   if (await A.evaluate(`${notices}.some(n => n.textContent.includes(${JSON.stringify(NAME_B)}))`)) throw new Fail(`A: ${NAME_B} wurde von A eingeladen, meldet aber „Neues Gerät“`);
+  // B used A's own enrollment code in this connection: an info notice (not a warning), so an intercepted code stands out.
+  await A.waitFor(`Info „mit deinem Anmeldecode angemeldet“ für ${NAME_B} bei A`, `${infos}.some(n => n.textContent.includes(${JSON.stringify(NAME_B)}))`, 20000, true);
   await A.waitFor('Geräteliste mit drei Geräten bei A', `document.querySelectorAll('${DIALOG} .sync-device-access li').length === 3`, 20000, true);
   shots.push(await A.shot('sync-new-device'));
-  await A.clickButton(TEXT.acknowledge);
-  await A.waitFor('Hinweis nach „Zur Kenntnis genommen“ weg', `${notices}.length === 0`);
-  log(`A: „Neues Gerät“ (${NAME_C}) gemeldet und bestätigt, eigene Einladung (${NAME_B}) ohne Hinweis`);
+  for (const [list, name] of [[notices, NAME_C], [infos, NAME_B]]) {
+    await A.evaluate(`${list}.find(n => n.textContent.includes(${JSON.stringify(name)})).querySelector('button').click()`);
+    await A.waitFor(`Hinweis zu ${name} nach „Zur Kenntnis genommen“ weg`, `!${list}.some(n => n.textContent.includes(${JSON.stringify(name)}))`);
+  }
+  log(`A: „Neues Gerät“ (${NAME_C}) gemeldet und bestätigt, eigene Einladung (${NAME_B}) als Info gemeldet und bestätigt`);
 
   // 5. A: renew the sync key (needs a clean, fully synced state); the new recovery code is read once.
   await settle(A);

@@ -7,10 +7,9 @@ export interface DeviceRow { id: string; revokedAt: number | null; self: boolean
 
 /** The recovery code field appears only after the host asked for the code. */
 export function needsRecoveryCode(code: string | null): boolean { return code === 'syncKey' || code === 'syncRecoveryCode' || code === 'syncRotated' || code === 'syncInviteKey'; }
-/** Typed codes may contain spaces and dashes; submit only when exactly 32 hex digits remain. */
 /** A reply with a new recovery code must not close the dialog: the code is shown only once. */
 export function deferVaultChange(reply: { vaultChanged?: unknown; recoveryCode?: string }): boolean { return Boolean(reply.vaultChanged) && Boolean(reply.recoveryCode); }
-
+/** Typed codes may contain spaces and dashes; submit only when exactly 32 hex digits remain. */
 export function recoveryCodeValid(input: string): boolean { return normalizeRecoveryCode(input) !== null; }
 /** Import needs a valid code (not when an enrollment code is held) and two equal local passwords of at least the vault minimum length. */
 export function importReady(code: string, password: string, repeat: string, inviteKey = false): boolean {

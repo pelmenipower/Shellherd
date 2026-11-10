@@ -41,12 +41,12 @@
     "syncRecoveryCode": "The recovery code is wrong or does not belong to this account. Nothing was changed.",
     "syncMigrate": "The local sync state comes from an older lab version. Delete the “.sync-state” file next to the vault. Then sync again on the first device and load the vault from the server with the recovery code on every other device.",
     "enrolledElsewhere": "This device is enrolled for this server at another address. Confirm the new enrollment explicitly.",
-    "syncForeignKey": "The account holds data of another sync key. First decide which device leads and remove the foreign versions. No new code was generated.",
+    "syncForeignKey": "The account holds data of another sync key, or a new key comes from no known device. Nothing was taken over and no new code was generated. Check the server and decide which device leads before you remove foreign versions.",
     "syncOtherServer": "The sync state of this vault belongs to another server. Nothing was changed. To connect this vault to this server, delete the file “.sync-state” next to the vault.",
     "syncPlatform": "In this development stage, synchronization is available on Linux only.",
     "invite": "The enrollment code is wrong, expired or already used. Create a new one on the enrolled device.",
     "enrollmentLocked": "This server accepts new devices only with an enrollment code. Create it on an enrolled device.",
-    "syncRotated": "The sync key was renewed on another device. Enter the new recovery code. Your local vault stays unchanged.",
+    "syncRotated": "The sync key was renewed on another device. Enter the new recovery code from the device that renewed it. An old code does not open the new key. Your local vault stays unchanged.",
     "syncRotateBlocked": "Before renewing, the sync must be complete without conflicts and without pending local changes. Sync first.",
     "syncRotateRaced": "Another device renewed the sync key at the same time. Nothing was changed. Sync and try again.",
     "syncRoster": "The server’s device list contradicts the one stored last: a known device has another key. Nothing was synced. Check the server.",
@@ -131,5 +131,6 @@
   "deviceEnrolledByUnknown": "enrolled with a code from a device that is no longer known",
   "newDevice": "New device in the account: {{name}} ({{how}}). If you did not enroll it yourself, remove it, change the server password and renew the sync key.",
   "acknowledgeDevice": "Acknowledged",
-  "deviceRevived": "{{name}} was removed and is active again according to the server. This device keeps treating it as removed until you confirm."
+  "deviceRevived": "{{name}} was removed and is active again according to the server. This device keeps treating it as removed until you confirm.",
+  "ownInviteDevice": "Signed in with your enrollment code: {{name}}. If that was not you, remove the device, change the server password and renew the sync key."
 }

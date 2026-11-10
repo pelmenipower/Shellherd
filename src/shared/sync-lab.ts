@@ -24,7 +24,7 @@ export interface SyncLabState {
   /** A held enrollment code carries the sync key; never the code itself. */
   inviteKey?: true;
   rotationAdvised?: true;
-  newDevices?: { id: string; name: string; enrolledVia: 'password' | 'invite'; invitedBy?: string }[];
+  newDevices?: { id: string; name: string; enrolledVia: 'password' | 'invite'; invitedBy?: string; ownInvite?: true }[];
   revived?: { id: string; name: string }[];
   sync?: { status: 'synced' | 'conflict' | 'bindings'; versions: number; conflicts: number; canKeepLocal: boolean; conflictRevision?: string; approvals: number; skipped?: number; compacted?: number; removedForeign?: number; unknownAuthors?: number; quarantined?: number };
 }

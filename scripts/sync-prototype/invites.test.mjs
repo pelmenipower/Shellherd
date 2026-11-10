@@ -2,12 +2,19 @@ import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomBytes, sign } from 'node:crypto';
-import { afterEach, beforeAll, expect, it as linuxIt } from 'vitest';
+import { afterEach, beforeAll, expect, it as linuxIt, vi } from 'vitest';
 import { createAccount } from './account-auth.mjs';
 import { createSyncServer } from './server.mjs';
 import { AccountStore } from './account-transport.mjs';
 import { probeSyncServer } from './http-common.mjs';
 import { createDeviceIdentity, enrollmentBody, inviteEnrollSecret, requestProofV3, sessionProof } from './device-proof.mjs';
+
+// Counts every scrypt run of the server (N1); the invite-only 403 must come before any hashing.
+const scryptRuns = vi.hoisted(() => ({ count: 0 }));
+vi.mock('node:crypto', async importOriginal => {
+  const original = await importOriginal();
+  return { ...original, scrypt: (...args) => { scryptRuns.count += 1; return original.scrypt(...args); } };
+});
 
 // Enrollment codes (invites): the server side. Linux only (file permissions, directory fsync).
 const it = linuxIt.runIf(process.platform === 'linux');
@@ -82,10 +89,10 @@ it('refuses the password form with 403 under invite-only, before any counter or 
   const identity = createDeviceIdentity(); const body = enrollmentBody(ctx.config.serverId, ctx.config.namespace, ctx.origin, identity.id, identity.signingPublicKey, identity.publicKey, 'Raw');
   const enrollment = [JSON.parse(body), sign(null, Buffer.from(body), identity.signingKey).toString('base64')];
   const wrong = JSON.stringify({ username: 'testuser', password: 'wrong', enrollment });
-  const started = Date.now();
+  scryptRuns.count = 0; // account creation hashed once already
   for (let i = 0; i < 12; i++) expect((await http(ctx, 'POST', '/v1/devices', { body: wrong })).status).toBe(403); // never 401/429: no failure was counted
   expect((await http(ctx, 'POST', '/v1/devices', { body: JSON.stringify({ username: 'testuser', password: serverPassword, enrollment, ephemeral: true }) })).status).toBe(403);
-  expect(Date.now() - started).toBeLessThan(5000); // scrypt (~0.3 s each) never ran
+  expect(scryptRuns.count).toBe(0); // scrypt never ran
   expect(await status(redeem(ctx, secretOf(1)))).toBe(401); // the failure counters of the invite form are untouched too
   // A first device can still be bootstrapped offline; an invite from an existing device works.
   const store = new AccountStore(ctx.info); cleanup.push(() => store.close());
@@ -101,6 +108,14 @@ it('lets an issuer attach only a keybox object and removes it when the invite ex
   ctx.advance(599_999); await nonceOf(ctx); expect(await blobs(ctx)).toContain(keybox);
   ctx.advance(1); await nonceOf(ctx); expect(await blobs(ctx)).not.toContain(keybox);
   expect(await blobs(ctx)).toContain(version); // only the named object
+});
+it('lets a concurrent object upload through while due invites are swept (N5)', async () => {
+  const ctx = await setup(); const a = await enrolled(ctx, 'A'); const ids = [];
+  for (let i = 0; i < 4; i++) { const keybox = await a.store.put(envelope('keybox', i + 1)); ids.push(keybox); await a.store.invite(a.identity, { secret: secretOf(i + 1), object: keybox }); }
+  ctx.advance(600_000); // all four are due now
+  const [, uploaded] = await Promise.all([a.store.request('POST', '/v1/refresh'), a.store.put(envelope('version', 50, 2))]);
+  expect(uploaded).toMatch(/^[a-f0-9]{64}$/);
+  for (const id of ids) expect(await blobs(ctx)).not.toContain(id);
 });
 it('removes the keybox of a spent invite ten minutes after use even when the new device never imports (B7)', async () => {
   const ctx = await setup(); const a = await enrolled(ctx, 'A'); const keybox = await a.store.put(envelope('keybox', 1));

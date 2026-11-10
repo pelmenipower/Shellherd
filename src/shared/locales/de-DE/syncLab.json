@@ -41,12 +41,12 @@
     "syncRecoveryCode": "Der Wiederherstellungscode ist falsch oder passt nicht zu diesem Konto. Es wurde nichts geändert.",
     "syncMigrate": "Der lokale Sync-Zustand stammt aus einer älteren Lab-Version. Lösche die Datei „.sync-state“ neben dem Vault. Gleiche danach auf dem ersten Gerät erneut ab und lade den Vault auf jedem weiteren Gerät mit dem Wiederherstellungscode neu vom Server.",
     "enrolledElsewhere": "Dieses Gerät ist für diesen Server unter einer anderen Adresse angemeldet. Bestätige die Neuanmeldung ausdrücklich.",
-    "syncForeignKey": "Im Konto liegen Daten eines anderen Sync-Schlüssels. Kläre erst, welches Gerät führt, und entferne die fremden Versionen. Es wurde kein neuer Code erzeugt.",
+    "syncForeignKey": "Im Konto liegen Daten eines anderen Sync-Schlüssels, oder ein neuer Schlüssel stammt von keinem bekannten Gerät. Es wurde nichts übernommen und kein neuer Code erzeugt. Prüfe den Server und kläre, welches Gerät führt, bevor du fremde Versionen entfernst.",
     "syncOtherServer": "Der Sync-Zustand dieses Vaults gehört zu einem anderen Server. Es wurde nichts geändert. Um diesen Vault mit diesem Server zu verbinden, lösche die Datei „.sync-state“ neben dem Vault.",
     "syncPlatform": "Der Abgleich ist in diesem Entwicklungsstand nur unter Linux verfügbar.",
     "invite": "Der Anmeldecode ist falsch, abgelaufen oder schon verwendet. Erzeuge auf dem angemeldeten Gerät einen neuen.",
     "enrollmentLocked": "Dieser Server nimmt neue Geräte nur mit Anmeldecode an. Erzeuge ihn auf einem angemeldeten Gerät.",
-    "syncRotated": "Der Sync-Schlüssel wurde auf einem anderen Gerät erneuert. Gib den neuen Wiederherstellungscode ein. Dein lokaler Vault bleibt unverändert.",
+    "syncRotated": "Der Sync-Schlüssel wurde auf einem anderen Gerät erneuert. Gib den neuen Wiederherstellungscode von dem Gerät ein, das erneuert hat. Ein alter Code öffnet den neuen Schlüssel nicht. Dein lokaler Vault bleibt unverändert.",
     "syncRotateBlocked": "Vor dem Erneuern muss der Abgleich ohne Konflikte und ohne offene lokale Änderungen abgeschlossen sein. Synchronisiere zuerst.",
     "syncRotateRaced": "Ein anderes Gerät hat den Sync-Schlüssel gleichzeitig erneuert. Es wurde nichts geändert. Synchronisiere und versuche es erneut.",
     "syncRoster": "Die Geräteliste des Servers widerspricht der zuletzt gespeicherten: Ein bekanntes Gerät hat einen anderen Schlüssel. Es wurde nichts abgeglichen. Prüfe den Server.",
@@ -131,5 +131,6 @@
   "deviceEnrolledByUnknown": "angemeldet mit Anmeldecode eines nicht mehr bekannten Geräts",
   "newDevice": "Neues Gerät im Konto: {{name}} ({{how}}). Hast du es nicht selbst angemeldet, entferne es, wechsle das Serverpasswort und erneuere den Sync-Schlüssel.",
   "acknowledgeDevice": "Zur Kenntnis genommen",
-  "deviceRevived": "{{name}} war entfernt und ist laut Server wieder aktiv. Dieses Gerät behandelt es weiter als entfernt, bis du das bestätigst."
+  "deviceRevived": "{{name}} war entfernt und ist laut Server wieder aktiv. Dieses Gerät behandelt es weiter als entfernt, bis du das bestätigst.",
+  "ownInviteDevice": "Mit deinem Anmeldecode angemeldet: {{name}}. Wenn du das nicht selbst warst, entferne das Gerät, wechsle das Serverpasswort und erneuere den Sync-Schlüssel."
 }
