@@ -48,7 +48,8 @@ async function fakesReady() {
 function startDriver(side) {
   const child = spawn(process.execPath, [path.join(HERE, 'driver.mjs')], {
     cwd: REPO,
-    env: { ...process.env, SHELLHERD_SYNC_LAB: '1', SHELLHERD_RUN_NO_SANDBOX: '1', SHELLHERD_RUN_DIR: side.dir, DRIVER_PORT: String(side.port) },
+    // The scene reads the de-DE texts; a fresh profile (B) follows the system language, which is English on CI runners.
+    env: { ...process.env, LANG: 'de_DE.UTF-8', LANGUAGE: 'de_DE:de', LC_ALL: 'de_DE.UTF-8', SHELLHERD_SYNC_LAB: '1', SHELLHERD_RUN_NO_SANDBOX: '1', SHELLHERD_RUN_DIR: side.dir, DRIVER_PORT: String(side.port) },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
   children.push(child);
