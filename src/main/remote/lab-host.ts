@@ -287,7 +287,7 @@ export class RemoteLabHost {
       return this.#ok();
     } catch (error) {
       account.close();
-      return this.#gen !== gen ? { ok: false, code: 'stale' } : { ok: false, code: wireError(error) };
+      return this.#gen !== gen ? { ok: false, code: 'stale' } : { ok: false, code: statusOf(error) === 403 ? 'enrollmentLocked' : wireError(error) };
     }
   }
 
