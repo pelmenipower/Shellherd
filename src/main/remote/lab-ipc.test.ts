@@ -15,71 +15,73 @@ vi.mock('electron', () => ({
 }));
 vi.mock('../windows', () => ({ windowRegistry: {} }));
 
-const { createDisplayMediaHandler, confirmCaptureDialog, emergencyReload, remoteLabRequested } = await import('./lab-ipc');
+const { createDisplayMediaHandler, confirmCaptureDialog, handleMediaAction, remoteLabRequested, wireMediaSession } = await import('./lab-ipc');
 const flush = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0));
 
 describe('display media gate', () => {
-  const requestCapture = vi.fn();
-  const grantedSession = vi.fn();
-  const isGranted = vi.fn();
+  const consumeCaptureGrant = vi.fn();
+  const isCaptureSession = vi.fn();
   const callback = vi.fn();
-  const make = (fake = false) => createDisplayMediaHandler({ requestCapture, grantedSession, isGranted }, { fake });
+  const make = (fake = false) => createDisplayMediaHandler({ consumeCaptureGrant, isCaptureSession }, { fake });
+  const request = { frame, videoRequested: true } as never;
   beforeEach(() => {
     vi.clearAllMocks();
     fromFrame.mockReturnValue({ id: 7, mainFrame: frame });
     getSources.mockResolvedValue([{ id: 'screen:0' }]);
-    grantedSession.mockReturnValue(null);
-    isGranted.mockReturnValue(true);
-    requestCapture.mockResolvedValue('s1');
+    consumeCaptureGrant.mockReturnValue('s1');
+    isCaptureSession.mockReturnValue(true);
   });
 
-  it('denies without a frame, for subframes and without video', () => {
+  it('denies without a frame, for subframes and without video, without consuming the grant', () => {
     const handler = make();
     handler({ frame: null, videoRequested: true } as never, callback);
     fromFrame.mockReturnValue({ id: 7, mainFrame: {} });
-    handler({ frame, videoRequested: true } as never, callback);
+    handler(request, callback);
     fromFrame.mockReturnValue({ id: 7, mainFrame: frame });
     handler({ frame, videoRequested: false } as never, callback);
     expect(callback.mock.calls).toEqual([[{}], [{}], [{}]]);
-    expect(requestCapture).not.toHaveBeenCalled();
+    expect(consumeCaptureGrant).not.toHaveBeenCalled();
   });
 
-  it('denies without consent and does not read sources', async () => {
-    requestCapture.mockResolvedValue(null);
-    make()({ frame, videoRequested: true } as never, callback);
+  it('consumes the grant exactly once: the second call answers {}', async () => {
+    consumeCaptureGrant.mockReturnValueOnce('s1').mockReturnValue(null);
+    const handler = make();
+    handler(request, callback);
     await flush();
-    expect(requestCapture).toHaveBeenCalledWith(7);
-    expect(callback).toHaveBeenCalledWith({});
-    expect(getSources).not.toHaveBeenCalled();
+    handler(request, callback);
+    await flush();
+    expect(consumeCaptureGrant).toHaveBeenCalledWith(7);
+    expect(getSources).toHaveBeenCalledTimes(1);
+    expect(callback.mock.calls).toEqual([[{ video: { id: 'screen:0' } }], [{}]]);
   });
 
   it('grants the first screen, video only', async () => {
-    make()({ frame, videoRequested: true } as never, callback);
+    make()(request, callback);
     await flush();
     expect(getSources).toHaveBeenCalledWith({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
     expect(callback).toHaveBeenCalledWith({ video: { id: 'screen:0' } });
   });
 
-  it('denies when the grant lapsed while sources were read', async () => {
-    isGranted.mockReturnValue(false);
-    make()({ frame, videoRequested: true } as never, callback);
+  it('denies without a grant and does not read sources', async () => {
+    consumeCaptureGrant.mockReturnValue(null);
+    make()(request, callback);
     await flush();
+    expect(callback).toHaveBeenCalledWith({});
+    expect(getSources).not.toHaveBeenCalled();
+  });
+
+  it('checks the capture session after reading sources', async () => {
+    isCaptureSession.mockReturnValue(false);
+    make()(request, callback);
+    await flush();
+    expect(isCaptureSession).toHaveBeenCalledWith(7, 's1');
     expect(callback).toHaveBeenCalledWith({});
   });
 
-  it('uses an already granted session without a second dialog, and checks that very session after reading sources', async () => {
-    grantedSession.mockReturnValue('s1');
-    make()({ frame, videoRequested: true } as never, callback);
+  it('answers {} in fake mode after consuming the grant, without sources', async () => {
+    make(true)(request, callback);
     await flush();
-    expect(requestCapture).not.toHaveBeenCalled();
-    expect(isGranted).toHaveBeenCalledWith(7, 's1');
-    expect(callback).toHaveBeenCalledWith({ video: { id: 'screen:0' } });
-  });
-
-  it('answers {} in fake mode after consent without sources', async () => {
-    make(true)({ frame, videoRequested: true } as never, callback);
-    await flush();
-    expect(requestCapture).toHaveBeenCalled();
+    expect(consumeCaptureGrant).toHaveBeenCalled();
     expect(getSources).not.toHaveBeenCalled();
     expect(callback).toHaveBeenCalledWith({});
   });
@@ -87,17 +89,97 @@ describe('display media gate', () => {
   it('denies when no source exists or capture fails, and survives a throwing callback', async () => {
     const handler = make();
     getSources.mockResolvedValueOnce([]);
-    handler({ frame, videoRequested: true } as never, callback);
+    handler(request, callback);
     await flush();
     getSources.mockRejectedValueOnce(Error('x'));
-    handler({ frame, videoRequested: true } as never, callback);
+    handler(request, callback);
     await flush();
-    requestCapture.mockRejectedValueOnce(Error('y'));
-    handler({ frame, videoRequested: true } as never, callback);
+    consumeCaptureGrant.mockImplementationOnce(() => { throw Error('y'); });
+    handler(request, callback);
     await flush();
     expect(callback.mock.calls).toEqual([[{}], [{}], [{}]]);
     callback.mockImplementation(() => { throw Error('destroyed'); });
     expect(() => handler({ frame: null, videoRequested: true } as never, callback)).not.toThrow();
+  });
+});
+
+describe('wireMediaSession', () => {
+  const MEDIA = 11;
+  const setup = (over: { agent?: boolean; granted?: string | null } = {}) => {
+    const host = {
+      grantedSession: vi.fn(() => (over.granted === undefined ? 's1' : over.granted)),
+      mediaGone: vi.fn(), consumeCaptureGrant: vi.fn(), isCaptureSession: vi.fn(),
+    };
+    let gone: (id: number, r: 'closed' | 'crashed') => void = () => {};
+    let destroyed: () => void = () => {};
+    const media = {
+      owns: (id: number) => id === MEDIA,
+      role: (id: number) => (id === MEDIA ? (over.agent === false ? 'viewer' as const : 'agent' as const) : undefined),
+      onGone: (l: typeof gone) => { gone = l; },
+      onDestroyed: (l: () => void) => { destroyed = l; },
+    };
+    const ses = {
+      on: vi.fn(), setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn(), setDevicePermissionHandler: vi.fn(),
+      setDisplayMediaRequestHandler: vi.fn(), setSpellCheckerEnabled: vi.fn(),
+      clearStorageData: vi.fn().mockResolvedValue(undefined),
+    };
+    wireMediaSession(host as never, media as never, ses as never, { fake: false });
+    return { host, ses, gone: (id: number, r: 'closed' | 'crashed') => gone(id, r), destroyed: () => destroyed() };
+  };
+
+  it('has permission and display handlers, and spellcheck is off (K12)', () => {
+    const { ses } = setup();
+    expect(ses.setPermissionRequestHandler).toHaveBeenCalledTimes(1);
+    expect(ses.setPermissionCheckHandler).toHaveBeenCalledTimes(1);
+    expect(ses.setDisplayMediaRequestHandler).toHaveBeenCalledTimes(1);
+    expect(ses.setSpellCheckerEnabled).toHaveBeenCalledWith(false);
+  });
+
+  it('allows capture only for an agent window with an unconsumed grant, never opening a dialog', () => {
+    const d = { isMainFrame: true, mediaTypes: [] };
+    const allowed = (s: ReturnType<typeof setup>, id: number): boolean => {
+      const cb = vi.fn();
+      s.ses.setPermissionRequestHandler.mock.calls[0][0]({ id }, 'media', cb, d);
+      return cb.mock.calls[0][0] as boolean;
+    };
+    expect(allowed(setup(), MEDIA)).toBe(true);
+    expect(allowed(setup(), 99)).toBe(false);
+    expect(allowed(setup({ agent: false }), MEDIA)).toBe(false);
+    expect(allowed(setup({ granted: null }), MEDIA)).toBe(false);
+    expect(showMessageBox).not.toHaveBeenCalled();
+  });
+
+  it('forwards gone to the host and clears storage after every destroyed window (E6)', async () => {
+    const s = setup();
+    s.gone(MEDIA, 'crashed');
+    expect(s.host.mediaGone).toHaveBeenCalledWith(MEDIA, 'crashed');
+    s.destroyed();
+    expect(s.ses.clearStorageData).toHaveBeenCalledTimes(1);
+    s.ses.clearStorageData.mockRejectedValueOnce(new Error('x'));
+    expect(() => s.destroyed()).not.toThrow();
+    await flush();
+  });
+});
+
+describe('remote-media:action', () => {
+  const MEDIA = 11;
+  const media = { owns: (id: number) => id === MEDIA };
+  const mainFrame = { id: 'main' };
+  const make = () => ({ mediaAction: vi.fn(async () => ({ ok: true as const })) });
+
+  it('forwards the main frame of an owned media window to the host', async () => {
+    const host = make();
+    expect(await handleMediaAction(host, media, { sender: { id: MEDIA, mainFrame }, senderFrame: mainFrame }, { kind: 'stop' })).toEqual({ ok: true });
+    expect(host.mediaAction).toHaveBeenCalledWith(MEDIA, { kind: 'stop' });
+  });
+
+  it('answers stale for the main window id, foreign contents and subframes without calling the host', () => {
+    const host = make();
+    expect(handleMediaAction(host, media, { sender: { id: 1, mainFrame }, senderFrame: mainFrame }, {})).toEqual({ ok: false, code: 'stale' });
+    expect(handleMediaAction(host, media, { sender: { id: 99, mainFrame }, senderFrame: mainFrame }, {})).toEqual({ ok: false, code: 'stale' });
+    expect(handleMediaAction(host, media, { sender: { id: MEDIA, mainFrame }, senderFrame: { id: 'sub' } }, {})).toEqual({ ok: false, code: 'stale' });
+    expect(handleMediaAction(host, media, { sender: { id: MEDIA, mainFrame } }, {})).toEqual({ ok: false, code: 'stale' });
+    expect(host.mediaAction).not.toHaveBeenCalled();
   });
 });
 
@@ -152,24 +234,6 @@ describe('confirmCaptureDialog', () => {
     showMessageBox.mockImplementation(replaced);
     await confirmCaptureDialog(3, prompt, new AbortController().signal);
     expect(replaced).toHaveBeenCalled();
-  });
-});
-
-describe('emergencyReload', () => {
-  it('crashes the renderer before reloading', () => {
-    const order: string[] = [];
-    fromId.mockReturnValue({ isDestroyed: () => false, forcefullyCrashRenderer: () => order.push('crash'), reload: () => order.push('reload') });
-    emergencyReload(3);
-    expect(order).toEqual(['crash', 'reload']);
-  });
-  it('ignores destroyed or unknown contents', () => {
-    const wc = { isDestroyed: () => true, forcefullyCrashRenderer: vi.fn(), reload: vi.fn() };
-    fromId.mockReturnValue(wc);
-    emergencyReload(3);
-    fromId.mockReturnValue(undefined);
-    emergencyReload(3);
-    expect(wc.forcefullyCrashRenderer).not.toHaveBeenCalled();
-    expect(wc.reload).not.toHaveBeenCalled();
   });
 });
 
