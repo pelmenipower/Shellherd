@@ -32,6 +32,15 @@ nicht, und Compose bricht schon beim Parsen ab (auch bei `build`). Die frühere
 Variable `SHELLHERD_SERVER_PUBLIC_URL` wird abgelehnt. Klartext-`http://` ist nur
 für Loopback und private Adressen zulässig (siehe „Privates Netz“).
 
+**Einrichtungsreihenfolge (empfohlen):** (1) `init`, (2) `up -d`, (3) das erste Gerät mit dem
+Serverpasswort einschreiben, (4) **`lock-enrollment`** ausführen (Server kurz stoppen, siehe
+„Einschreibung sperren“), (5) weitere Geräte nur noch mit einem Anmeldecode vom ersten Gerät
+einschreiben. Danach gibt es im Normalbetrieb keinen Request mehr, den man mit Passwortraten
+beantwortet bekommt. Solange mindestens ein Gerät eingeschrieben und die Einschreibung noch
+mit Passwort offen ist, schreibt `serve` beim Start die Warnung `Warning: password enrollment
+is open although devices are enrolled; run lock-enrollment to accept new devices only with
+an enrollment code.`
+
 `init` benötigt ein interaktives Terminal und fragt Benutzername sowie wahlweise
 ein generiertes Serverpasswort (24 Zeichen) oder ein eigenes verdecktes Passwort
 mit **mindestens 20 Zeichen** und Wiederholung ab. Ein generiertes Passwort
@@ -137,7 +146,8 @@ führt zu einem Startfehler mit Hinweis. Das ist nur sicher, solange der Port wi
 vorgegeben auf `127.0.0.1` gebunden ist und ausschließlich der Proxy ihn erreicht.
 Die Variable entfernen, wenn der Server direkt ohne Proxy betrieben wird (etwa nur
 im WireGuard-Netz, siehe „Privates Netz“); sonst könnten Clients ihre Quelle per
-Header fälschen.
+Header fälschen. Ohne lokalen TCP-Port (Unix-Socket, siehe „Unix-Socket hinter Caddy“)
+kann außerdem kein lokaler Prozess auf dem Host den Header setzen.
 
 Optional und außerhalb dieses Repos kann fail2ban wiederholte 429-Antworten oder
 Fehlanmeldungen auf Firewall-Ebene sperren. Gegen verteilte Floods hilft nur ein
@@ -149,12 +159,13 @@ Seit Härtung H3 meldet sich kein Client mehr mit dem Serverpasswort an. Das
 Passwort dient nur noch der **Einschreibung** eines Geräts und geht genau einmal
 je Gerät über die Leitung (TLS oder Tunnel). Danach weist sich das Gerät mit
 seinem Ed25519-Schlüssel aus. `POST /v1/login` gibt es nicht mehr (404).
-`/v1/info` meldet `authentication: "enrolled-device"`, `deviceSessions: true` und
-`objectFormat: "sync-object"`. Clients und Server der Vorstufe H2 lehnen sich
+`/v1/info` meldet `authentication: "enrolled-device"`, `deviceSessions: true`,
+`objectFormat: "sync-object"` und seit H4 `invites: true`, `objectEpochs: true` sowie
+`enrollment`. Clients und Server der Vorstufe H2 lehnen sich
 gegenseitig sichtbar ab (`unavailable`); es gibt keinen Rückfall. Alle Geräte
 und der Server werden gemeinsam aktualisiert.
 
-**Einschreiben.** `POST /v1/devices` mit Benutzername, Passwort und einem
+**Einschreiben mit Passwort.** `POST /v1/devices` mit Benutzername, Passwort und einem
 selbstsignierten Einschreibedokument. Es bindet Signaturschlüssel, Noise-Schlüssel
 (X25519) und Gerätenamen an die Geräte-ID (SHA-256 des X25519-Schlüssels) und
 wird nur mit korrektem Serverpasswort angenommen. Die Antwort enthält keinen
@@ -164,9 +175,51 @@ Signaturschlüssels, nicht des X25519-Schlüssels; ein Passwortbesitzer kann als
 eine fremde, noch nicht eingeschriebene ID belegen (sichtbar in der Liste, das
 echte Gerät erhält dann 409).
 
+**Einschreiben mit Anmeldecode (H4).** Ein bereits eingeschriebenes Gerät erzeugt
+einen Anmeldecode (16 Zufallsbytes, 32 Hex-Zeichen). Aus ihm leitet es per HKDF zwei
+getrennte Werte ab: das `enrollSecret` für den Server (gebunden an Server-ID,
+Namespace und Origin) und den Schlüssel einer Einladungs-Keybox mit dem aktuellen
+Sync-Schlüssel. Der Server sieht nur das `enrollSecret` und kann die Keybox nicht
+öffnen. `POST /v1/invites` (mit Token **und** signierten `x-shellherd-*`-Headern über
+den Body-Digest, Body `{secret, object}`, höchstens 4 KiB) legt eine Einladung an:
+Der Server hält nur `sha256(secret)`, den Aussteller und die ID der Keybox **im RAM**.
+Sie gilt zehn Minuten und genau einmal (`201 {expiresAt}`); höchstens 4 offene je
+Aussteller und 16 insgesamt (sonst 429), Budget 10 je Minute und Gerät. `object`
+muss eine `keybox`-Hülle sein, die zum Zeitpunkt des Requests im Konto liegt (sonst
+400). Das neue Gerät schreibt sich mit `POST /v1/devices` und dem Body
+`{enrollment, invite[, ephemeral]}` ein (`invite` ist das `enrollSecret`); die Antwort
+enthält zusätzlich den Kontonamen (`{device, username}`). Der Server vergleicht
+`sha256(invite)` in konstanter Zeit mit allen offenen Einladungen. Ein Treffer ist
+**immer verbraucht**, auch wenn das Einschreiben danach scheitert (409, 429). Ein
+Fehlschlag zählt als fehlgeschlagene Sitzungsanmeldung (Backoff), nie für die
+Passwortsperre. Der Roster-Eintrag trägt `enrolledBy` (Aussteller, `null` bei
+Passwort), und die App zeigt es in der Geräteliste. Wird ein Aussteller widerrufen,
+verfallen seine offenen Einladungen und ihre Keyboxen werden gelöscht. Eine
+Einladungs-Keybox löscht der Server spätestens zu `max(Ablauf, Verbrauch + 10 min)`;
+nach einem Neustart vergisst er die Löschpflicht, dann räumt der Aussteller beim
+nächsten Abgleich (nach 20 Minuten) oder die Rotation auf.
+
+**Einschreibung sperren (`lock-enrollment`).** Mit `server.json` `enrollment:
+"invite-only"` lehnt der Server eine Einschreibung mit Passwort mit **403** ab,
+**bevor** das Passwort geprüft wird (kein scrypt, keine Zählung, keine Sperre); die
+Einschreibung per Anmeldecode läuft weiter. Gesetzt wird der Schalter nur offline
+und nur bei gestopptem Server:
+
+```sh
+docker compose -f server/compose.yaml stop server
+docker compose -f server/compose.yaml run --rm server lock-enrollment
+docker compose -f server/compose.yaml up -d
+```
+
+`unlock-enrollment` stellt `"password"` wieder her. `init` setzt den Schalter nicht
+(der Bootstrap braucht das Passwort), `rotate-password` ändert ihn nicht. `/v1/info`
+meldet `enrollment: "password" | "invite-only"`. Wer **alle** Geräte verliert, ruft
+`unlock-enrollment` auf, schreibt ein Gerät mit dem Passwort ein und sperrt wieder;
+für den Inhalt braucht er weiter den Wiederherstellungscode.
+
 **Origin-Bindung.** Einschreibedokument (`shellherd-device-enrollment-v2`, 8
-Elemente), Sitzungsnachweis (`shellherd-device-session-v2`) und Widerrufsnachweis
-(`shellherd-device-request-v3`) enthalten die Origin des Servers. Der Server
+Elemente), Sitzungsnachweis (`shellherd-device-session-v2`) und Widerrufs- und Einladungsnachweis
+(`shellherd-device-request-v4`, zusätzlich mit dem SHA-256 des Request-Bodys) enthalten die Origin des Servers. Der Server
 vergleicht nur mit `SHELLHERD_SERVER_ORIGIN`. Ein Nachweis, den ein Gerät für
 einen anderen Server mit gleicher Server-ID und gleichem Namespace signiert hat,
 wird abgelehnt. `/v1/info` meldet die Origin im Feld `origin`; Clients brechen ab,
@@ -187,17 +240,19 @@ jeder Request prüft, ob das Gerät noch aktiv ist. Ein Token ist weiterhin ein
 Inhaberausweis für seine Laufzeit.
 
 **Liste und Widerruf.** `GET /v1/devices` (mit Token) liefert alle Einträge
-(Id, Name, Signaturschlüssel, `enrolledAt`, `revokedAt`, `ephemeral`) und
+(Id, Name, Signaturschlüssel, `enrolledAt`, `enrolledBy`, `revokedAt`, `ephemeral`) und
 markiert das eigene Gerät mit `self`. `DELETE /v1/devices/<id>` widerruft ein
 Gerät. Der Request trägt zusätzlich zum Token eine Gerätesignatur über Methode,
-Pfad und frische Nonce (Header `x-shellherd-device`, `x-shellherd-nonce`,
+Pfad, frische Nonce und den Digest des (leeren) Bodys (Header `x-shellherd-device`, `x-shellherd-nonce`,
 `x-shellherd-signature`), damit ein gestohlener Token niemanden aussperren kann.
 Der Widerruf löscht sofort alle Sitzungen und die Rendezvous-Präsenz des Geräts.
 Der Eintrag bleibt als widerrufen erhalten, damit alte Versionen zuordenbar
 bleiben. Eine bestehende direkte WebRTC-Verbindung zwischen zwei Geräten läuft
 nach einem Widerruf weiter. Ein widerrufenes Gerät behält den Sync-Schlüssel und
 seine lokalen Daten; der Widerruf verhindert neue Downloads und Uploads, kein
-Lesen bereits geladener Daten.
+Lesen bereits geladener Daten. Neue Daten schützt erst **„Sync-Schlüssel erneuern“**
+in der App (Schlüsselepoche, siehe unten): Danach liest das entfernte Gerät nichts
+Neues mehr.
 
 **Temporäre Geräte.** Ohne OS-Schlüsselablage hält der Client seine Identität nur
 im RAM und schreibt sich mit `ephemeral: true` ein. Der Server hält solche Geräte
@@ -212,6 +267,10 @@ Einträge in `devices.json` einschließlich widerrufener. Bei vollem Verzeichnis
 fällt der am längsten widerrufene Eintrag weg, gibt es keinen, kommt 429. Dazu
 höchstens 8 temporäre Geräte im RAM. `devices.json` ist höchstens 64 KiB groß.
 
+**Roster v3.** `devices.json` trägt seit H4 `version: 3` und je Eintrag `enrolledBy`.
+Eine v2-Datei liest der Server, setzt `enrolledBy: null` und legt sie beim nächsten
+Schreiben als v3 ab; Geräte müssen sich nicht neu einschreiben.
+
 **Passwortwechsel ist kein Widerruf.** `rotate-password` ändert nur, wer sich
 einschreiben darf. Bereits eingeschriebene Geräte und ihre Sitzungen bleiben
 unberührt; ein Widerruf ist eine eigene Aktion. Wer das Serverpasswort kennt,
@@ -225,6 +284,42 @@ fremd. Vor dem Umstieg das Konto leeren oder danach einmal im Sync-Dialog
 „Fremde Objekte entfernen“ ausführen. Der erste Abgleich legt eine
 Wiederherstellungs-Keybox und neue Versionen im Format `shellherd-sync-object`
 an; ein alter lokaler Sync-Zustand (`.sync-state` v1) muss gelöscht werden.
+
+**Objekte und Schlüsselepochen (H4).** Die Hülle ist `shellherd-sync-object` in
+**Version 2** mit dem Feld `epoch` (ganze Zahl 1 bis 1 000 000; Schlüssel in der Reihenfolge
+`format, version, kind, epoch, cipher, payload`). Objekte der Hülle Version 1 bleiben auf
+der Platte lesbar (der Server startet, `GET` liefert sie), ein `PUT` gibt 400, und der Client
+zählt sie als Altformat. Die Epoche zählt Schlüsselwechsel: „Sync-Schlüssel erneuern“
+legt einen neuen Schlüssel an, lädt Wurzel und Keybox der Epoche `e + 1` hoch und entfernt
+die Objekte der alten Epoche. Der Server sieht die Epochenzahl, sonst bleibt er „dumm“:
+Er prüft nur die Hülle, nie den Inhalt. Eine alte Serverkopie samt altem Code liest die
+**alten** Daten weiter (unvermeidbar); neue Daten liest sie nicht.
+
+## Unix-Socket hinter Caddy
+
+Mit `SHELLHERD_SERVER_SOCKET=/run/shellherd/server.sock` lauscht der Server nicht auf TCP,
+sondern auf einem Unix-Socket (Modus 0660). Dann kann kein lokaler Prozess auf dem
+Homeserver den Server über `127.0.0.1:8787` erreichen und `X-Forwarded-For` setzen.
+Hinter dem Socket ist jede Verbindung der Proxy: Der Header zählt immer, das
+Verbindungslimit je Quelle entfällt. `SHELLHERD_SERVER_PORT`, `_HOST` und
+`_TRUSTED_PROXY` werden dabei **ignoriert** (das Image setzt sie fest); der Server schreibt
+eine Hinweiszeile statt eines Startfehlers. Der Healthcheck des Images prüft Socket und
+TCP. Ein altes, verwaistes Socket-File ersetzt der Start.
+
+Der Standard bleibt TCP auf `127.0.0.1:8787`. Der Socket-Betrieb ist ein Override mit
+Caddy auf dem Host:
+
+```sh
+sudo install -d -o 1000 -g caddy -m 2750 /run/shellherd
+export SHELLHERD_SERVER_ORIGIN=https://sync.example.home
+docker compose -f server/compose.yaml -f server/compose.socket.yaml up -d
+```
+
+`compose.socket.yaml` setzt die Variable, entfernt die Port-Veröffentlichung und bindet
+`/run/shellherd` ein. Im Caddyfile steht statt `reverse_proxy 127.0.0.1:8787` die Zeile
+`reverse_proxy unix//run/shellherd/server.sock` (Alternative in
+[Caddyfile.example](Caddyfile.example)); Caddy läuft als Gruppe `caddy` und liest den Socket
+über die Gruppenrechte. Lokal ohne Container genügt `SHELLHERD_SERVER_SOCKET` in der Umgebung.
 
 ## Privates Netz
 
@@ -311,6 +406,7 @@ Standard: privates `./server-data`, Listener `127.0.0.1:8787`. Umgebungsvariable
 | `SHELLHERD_SERVER_DATA` | Datenverzeichnis, Standard `./server-data` |
 | `SHELLHERD_SERVER_PORT` | Port, Standard 8787 |
 | `SHELLHERD_SERVER_HOST` | Listener-Adresse (`127.0.0.1` oder `0.0.0.0`) |
+| `SHELLHERD_SERVER_SOCKET` | Optional: absoluter Pfad eines Unix-Sockets statt TCP (siehe „Unix-Socket hinter Caddy“) |
 
 `SHELLHERD_SERVER_PUBLIC_URL` gibt es nicht mehr (Startfehler mit Hinweis).
 Fehler in der Konfiguration meldet der Server mit einem konkreten Hinweis.
@@ -329,8 +425,9 @@ Test der Fernsteuerung oder einen Sicherheitstest durch unabhängige Prüfer.
 
 ## Geräte offline verwalten
 
-Zwei Befehle arbeiten direkt auf `objects/devices.json`. **Nur bei gestopptem
-Server** ausführen. Sie nutzen denselben atomaren Schreibpfad wie der Server.
+Vier Befehle arbeiten direkt auf `objects/devices.json` (`list-devices`,
+`revoke-device`) und `server.json` (`lock-enrollment`, `unlock-enrollment`). **Nur bei
+gestopptem Server** ausführen. Sie nutzen denselben atomaren Schreibpfad wie der Server.
 Läuft der Server trotzdem, bemerkt er beim nächsten Schreiben die fremde Änderung,
 überschreibt sie nie und antwortet 503, bis er neu gestartet wird.
 
@@ -342,16 +439,40 @@ docker compose -f server/compose.yaml up -d
 ```
 
 `list-devices` gibt je Gerät eine tabulatorgetrennte Zeile aus: Id, Name,
-`enrolledAt` (ISO), `revokedAt` (ISO oder `-`). Eine unbekannte Id bricht
-`revoke-device` mit Exit-Code 1 ab.
+`enrolledAt` (ISO), `revokedAt` (ISO oder `-`), Einschreibeart (`password` oder
+`invite:<Id des Ausstellers>`) und bei temporären Geräten `ephemeral`. Eine unbekannte Id bricht
+`revoke-device` mit Exit-Code 1 ab. `lock-enrollment` schreibt `enrollment: "invite-only"`
+in `server.json`, `unlock-enrollment` stellt `"password"` her (atomar wie `rotate-password`);
+beide wirken nach dem nächsten Start.
 
 ### Nach einem Passwortleck
 
 1. Server stoppen.
 2. `rotate-password` ausführen (neues Passwort, ab 20 Zeichen oder generiert).
-3. `list-devices`: unbekannte Geräte erkennen.
+3. `list-devices`: unbekannte Geräte erkennen (Spalte Einschreibeart: `password` bei
+   Einschreibung mit dem Passwort).
 4. Unbekannte Geräte mit `revoke-device <id>` widerrufen.
-5. Server starten und die rechtmäßigen Geräte prüfen.
+5. `lock-enrollment` ausführen, damit das Passwort keine neuen Geräte mehr einschreiben
+   kann. Server starten und die rechtmäßigen Geräte prüfen.
+6. **In der App auf einem rechtmäßigen Gerät „Sync-Schlüssel erneuern“** (Sync-Dialog) und
+   den neuen Wiederherstellungscode notieren; vorher auf allen Geräten abgleichen. Erst
+   die Rotation sperrt entfernte Geräte, den alten Code und alte Serverkopien für **neue**
+   Daten aus. Die anderen Geräte geben beim nächsten Abgleich den neuen Code ein. Ohne
+   diesen Schritt kennt ein eingeschlichenes Gerät den Sync-Schlüssel weiter.
+
+### Upgrade auf H4
+
+Geräte schreiben sich **nicht** neu ein: Einschreibedokumente, Geräte-IDs und
+Sitzungsnachweise bleiben, `devices.json` v2 wird beim nächsten Schreiben zu v3. Neu sind
+die Hülle Version 2 mit Epoche und der Widerrufsnachweis v4 (Body-Digest). Server und
+alle Clients gemeinsam aktualisieren: Ein Client vor H4 bekommt 400 beim `PUT` und 401
+beim Widerruf, ein Client ab H4 meldet bei einem Server vor H4 `unavailable` (die
+Felder `invites` und `objectEpochs` fehlen). Der lokale Sync-Zustand (`.sync-state`)
+und die Serverobjekte wechseln das Format: Vorher auf allen Geräten abgleichen, dann auf
+dem ersten Gerät `.sync-state` löschen und neu abgleichen (Epoche 1, neuer
+Wiederherstellungscode), auf jedem weiteren Gerät den Vault neu vom Server laden. Objekte
+der Hülle Version 1 entfernt „Fremde Objekte entfernen“ ohne Opt-in. Danach
+`lock-enrollment` ausführen (siehe „Einrichtungsreihenfolge“).
 
 ### Upgrade auf H3.1
 
@@ -419,14 +540,16 @@ siehe unten). Clients lehnen Server ohne `rendezvousNoise` ab; es gibt keinen
 Rückfall auf ein älteres Protokoll. `DELETE /v1/vaults/<namespace>/objects/<id>`
 (64 Hex-Zeichen) entfernt ein Vault-Objekt mit einer Gerätesitzung (im alten
 Gerätemodus 405); Antwort `{removed: true}`, unbekannte ID 404. Objekte haben die
-Hülle `shellherd-sync-object` (Version 1, `kind` `version` oder `keybox`, AES-256-GCM,
-kanonisches JSON, höchstens 1 MiB); `PUT` im Altformat gibt 400. Alle Endpunkte
+Hülle `shellherd-sync-object` (Version 2 mit `epoch`, `kind` `version` oder `keybox`,
+AES-256-GCM, kanonisches JSON, höchstens 1 MiB); `PUT` im Altformat oder in der Hülle Version 1
+gibt 400. Alle Endpunkte
 außer den ersten drei Zeilen verlangen `Authorization: Bearer …` aus einer Sitzung:
 
 | Methode und Pfad | Funktion |
 | --- | --- |
 | `GET /v1/challenge` | Ohne Token; zustandslose einmalige Nonce (64 Hex-Zeichen), 30 Sekunden gültig |
-| `POST /v1/devices` | Ohne Token; `{username, password, enrollment, ephemeral?}` schreibt ein Gerät ein, Antwort 201 (neu) oder 200 (bekannt), ohne Token |
+| `POST /v1/devices` | Ohne Token; `{username, password, enrollment, ephemeral?}` oder (H4) `{invite, enrollment, ephemeral?}` schreibt ein Gerät ein, Antwort 201 (neu) oder 200 (bekannt), ohne Token; die Einladungsform antwortet zusätzlich mit dem Kontonamen. Unter `invite-only` ergibt die Passwortform 403 |
+| `POST /v1/invites` | Token und signierte `x-shellherd-*`-Header (Body-Digest); `{secret, object}`, Antwort `201 {expiresAt}`; zehn Minuten, einmal gültig, nur im RAM |
 | `POST /v1/session` | Ohne Token; `{device, nonce, signature}`, Antwort `{token, expiresAt, device}` |
 | `POST /v1/logout` | Beendet die eigene Sitzung |
 | `GET /v1/devices` | Geräteliste mit `self` |

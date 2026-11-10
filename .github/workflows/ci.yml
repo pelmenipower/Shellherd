@@ -38,6 +38,10 @@ jobs:
       - run: npm run build
       - run: npx vitest run
       - if: runner.os == 'Linux'
+        name: Check sync scene (two app instances, local sync server)
+        timeout-minutes: 8
+        run: xvfb-run -a node .claude/skills/run-app/ci-sync-scene.mjs
+      - if: runner.os == 'Linux'
         name: Check selfhosted storage and rendezvous container
         run: |
           node server/smoke.mjs
