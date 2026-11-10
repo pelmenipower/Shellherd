@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { REMOTE_LAB_LIMITS, type RemoteLabEvent, type RemoteLabReply, type RemoteSignalPart } from '../../shared/remote-lab';
+import type { RemoteMediaEvent, RemoteMediaReply, RemoteMediaRole } from '../../shared/remote-media';
+import { splitSignal } from '../../shared/remote-signal';
 import type { Enrollment, RemoteIdentity, RemoteIdentityStore } from './identity';
 import { RemoteLabHost, type RemoteAccount, type RemoteChannel, type RemoteDeps, type RemotePeer, type RemoteSessionWire } from './lab-host';
+import type { MediaPort } from './media-window';
 import type { PresenceHandlers } from './presence';
 
 const SELF = 'a'.repeat(64);
@@ -11,8 +14,10 @@ const SID = '1'.repeat(64);
 const SID2 = '2'.repeat(64);
 const CLIENT = '00000000-0000-4000-8000-000000000001';
 const OWNER = 7;
+const MAIN = OWNER; // the main window id equals the bound owner; media windows get other ids
 const PREFIX = 'b'.repeat(REMOTE_LAB_LIMITS.verificationHex);
 const URL = 'http://127.0.0.1:8788/';
+const NATIVE = REMOTE_LAB_LIMITS.nativeDelayMs;
 
 class Clock {
   t = 1_000_000;
@@ -55,9 +60,59 @@ class FakeChannel implements RemoteChannel {
   dispose(): void { this.disposed++; }
 }
 
+/** Fake media port. capture() mimics the display-media handler: it consumes the grant through the host (path A). */
+class FakeMedia implements MediaPort {
+  host?: RemoteLabHost;
+  nextId = 41;
+  opened: Array<{ id: number; role: RemoteMediaRole; peerName: string }> = [];
+  events: Array<{ id: number; event: RemoteMediaEvent }> = [];
+  destroyed: number[] = [];
+  captures: Array<{ id: number; sourceId?: string }> = [];
+  order: string[] = [];
+  readyResult = true;
+  readyGate?: Promise<boolean>;
+  captureResult = true;
+  consumeGrant = true;
+  captureGate?: Promise<void>;
+  openError = false;
+  open(input: { role: RemoteMediaRole; peerName: string }): number {
+    if (this.openError) throw new Error('open');
+    const id = this.nextId++;
+    this.opened.push({ id, ...input });
+    this.order.push('open');
+    return id;
+  }
+  async ready(_id: number): Promise<boolean> { this.order.push('ready'); return this.readyGate ?? this.readyResult; }
+  send(id: number, event: RemoteMediaEvent): void { this.order.push(event.kind); this.events.push({ id, event }); }
+  async capture(id: number, sourceId?: string): Promise<boolean> {
+    this.order.push('capture');
+    this.captures.push({ id, sourceId });
+    await this.captureGate;
+    if (this.consumeGrant) this.host?.consumeCaptureGrant(id);
+    return this.captureResult;
+  }
+  destroy(id: number): void { this.order.push('destroy'); this.destroyed.push(id); }
+  get id(): number { return this.opened[this.opened.length - 1]!.id; }
+  kinds(kind: RemoteMediaEvent['kind']): RemoteMediaEvent[] { return this.events.filter(e => e.event.kind === kind).map(e => e.event); }
+  signals(): RemoteSignalPart[] { return this.kinds('signal').map(e => (e as { part: RemoteSignalPart }).part); }
+}
+
+const fp = Array.from({ length: 32 }, (_, i) => i.toString(16).padStart(2, '0')).join(':');
+const sdpText = (direction: string, extra: string[] = [], media = 'm=video 9 UDP/TLS/RTP/SAVPF 96'): string =>
+  ['v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', `a=fingerprint:sha-256 ${fp}`, 'a=setup:actpass', media, direction, ...extra, ''].join('\r\n');
+const OFFER = sdpText('a=sendonly');
+const ANSWER = sdpText('a=recvonly');
+/** A complete, valid message of the given kind, split into `count` wire parts. */
+const msg = (kind: 'offer' | 'answer', count = 1, data = kind === 'offer' ? OFFER : ANSWER): RemoteSignalPart[] => {
+  if (count === 1) return splitSignal(kind, data);
+  const size = Math.ceil(data.length / count);
+  return Array.from({ length: count }, (_, i) => ({ kind, part: i + 1, of: count, data: data.slice(i * size, (i + 1) * size) }));
+};
+const part = (kind: RemoteSignalPart['kind'], n = 1, of = 1, data = 'x'): RemoteSignalPart => ({ kind, part: n, of, data });
+const frames = (parts: RemoteSignalPart[]): unknown[] => parts.map(p => ({ part: p }));
+
 const wire = (over: Partial<RemoteSessionWire> = {}): RemoteSessionWire => ({ id: SID, from: B, to: SELF, nonce: 'ab'.repeat(16), scope: 'view', state: 'pending', expiresAt: 1, ...over });
 const device = (id: string, name: string) => ({ id, name, publicKey: `pk-${id.slice(0, 1)}`, expiresAt: 1 });
-const part = (kind: RemoteSignalPart['kind'], n = 1, of = 1, data = 'x'): RemoteSignalPart => ({ kind, part: n, of, data });
 
 function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['probe'] } = {}) {
   const clock = new Clock();
@@ -89,8 +144,8 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     channel: vi.fn(() => { const c = new FakeChannel(); c.rounds = handshake.rounds; channels.push(c); return c; }),
   } as unknown as RemotePeer & { request: ReturnType<typeof vi.fn>; forget: ReturnType<typeof vi.fn>; channel: ReturnType<typeof vi.fn> };
   const unlocked = { value: true };
-  const emergency = vi.fn();
-  const confirmCapture = vi.fn(async (_owner: number, _prompt: unknown, _signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'> => 'accepted');
+  const media = new FakeMedia();
+  const confirmCapture = vi.fn(async (_owner: number, _prompt: unknown, _signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'> => { media.order.push('dialog'); return 'accepted'; });
   const deps: RemoteDeps = {
     probe: overrides.probe ?? (async () => ({ serverUrl: URL, serverId: 'f'.repeat(64), namespace: 'demo', authentication: 'enrolled-device', deviceSessions: true, rendezvous: true, rendezvousProof: true, rendezvousNoise: true })),
     createAccount: () => account,
@@ -101,10 +156,11 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     isUnlocked: () => unlocked.value,
     matchesVaultPassword: async () => false,
     confirmCapture,
-    emergency,
+    media,
     ...overrides.deps,
   };
   const host = new RemoteLabHost(deps);
+  media.host = host;
   const events: Array<{ owner: number; event: RemoteLabEvent }> = [];
   host.onEvent((owner, event) => events.push({ owner, event }));
   const act = (body: Record<string, unknown>, owner = OWNER, clientId = CLIENT): Promise<RemoteLabReply> => host.action(owner, { clientId, ...body });
@@ -121,9 +177,18 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     handlers.onSessions([wire()]);
     await flush();
   };
+  /** Armed, the native dialog follows after nativeDelayMs. */
   const armed = async (): Promise<void> => { await consent(); expect((await act({ kind: 'armCapture', sessionId: SID, verification: PREFIX })).ok).toBe(true); };
-  const granted = async (): Promise<void> => { await armed(); expect(await host.requestCapture(OWNER)).toBe(SID); };
-  const accepted = async (): Promise<FakeChannel> => { await granted(); expect((await act({ kind: 'accept', sessionId: SID })).ok).toBe(true); return channels[channels.length - 1]!; };
+  /** Dialog accepted, media window open and loaded, capture still pending (gate held). */
+  const granted = async (): Promise<() => void> => {
+    let release!: () => void;
+    media.captureGate = new Promise<void>(r => { release = r; });
+    await armed();
+    await clock.advance(NATIVE);
+    return release;
+  };
+  /** The whole agent flow through `accepted` sent to the media window. */
+  const accepted = async (): Promise<FakeChannel> => { await armed(); await clock.advance(NATIVE); return channels[channels.length - 1]!; };
   /** Online viewer with a request to B in `requesting`. */
   const requesting = async (): Promise<void> => {
     await goOnline();
@@ -137,7 +202,8 @@ function setup(overrides: { deps?: Partial<RemoteDeps>; probe?: RemoteDeps['prob
     return channels[channels.length - 1]!;
   };
   const deletes = (): string[] => requests.filter(r => r.method === 'DELETE').map(r => r.path);
-  return { host, handshake, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, enrollment, enrolledElsewhere, rememberEnrollment, forgetEnrollment, emergency, confirmCapture, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
+  const mediaAct = (body: unknown, id?: number): Promise<RemoteMediaReply> => host.mediaAction(id ?? media.id, body);
+  return { host, handshake, clock, act, events, kinds, account, peer, channels, requests, deletes, goOnline, consent, armed, granted, accepted, requesting, viewing, presenceStop, remember, known, renamed, enrollment, enrolledElsewhere, rememberEnrollment, forgetEnrollment, confirmCapture, media, mediaAct, load, unlocked, handlers: () => handlers, setStart: (fn: () => Promise<void>) => { presenceStart = fn; } };
 }
 
 describe('RemoteLabHost: setup', () => {
@@ -429,14 +495,8 @@ describe('RemoteLabHost: incoming requests (K4, R3, busy)', () => {
   });
 });
 
-describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
-  it('R1: accept before granted is stale and builds no channel', async () => {
-    const t = setup();
-    await t.consent();
-    expect(await t.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'stale' });
-    expect(t.channels).toHaveLength(0);
-  });
 
+describe('RemoteLabHost: consent, native dialog and capture (R1, B7)', () => {
   it('armCapture works once per session and needs the unlocked vault', async () => {
     const t = setup();
     await t.consent();
@@ -448,60 +508,113 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX })).toEqual({ ok: false, code: 'stale' });
   });
 
-  it('requestCapture: needs armed, the bound owner and runs one dialog at a time', async () => {
+  it('the legacy renderer commands accept, signal and stopped no longer exist', async () => {
     const t = setup();
     await t.consent();
-    expect(await t.host.requestCapture(OWNER)).toBeNull();
-    expect(t.confirmCapture).not.toHaveBeenCalled();
-    await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX });
-    expect(await t.host.requestCapture(OWNER + 1)).toBeNull();
-    let release!: (result: 'accepted' | 'declined') => void;
-    t.confirmCapture.mockImplementationOnce(() => new Promise<'accepted' | 'declined'>(r => { release = r; }));
-    const first = t.host.requestCapture(OWNER);
-    expect(await t.host.requestCapture(OWNER)).toBeNull();
-    expect(t.confirmCapture).toHaveBeenCalledTimes(1);
-    expect(t.confirmCapture).toHaveBeenCalledWith(OWNER, { name: 'Büro', fingerprint: B, verified: true }, expect.any(AbortSignal));
-    release('accepted');
-    expect(await first).toBe(SID);
-    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'granted' } } });
-    expect(await t.host.requestCapture(OWNER)).toBeNull();
+    for (const kind of ['accept', 'signal', 'stopped']) expect(await t.act({ kind, sessionId: SID, part: part('offer') })).toEqual({ ok: false, code: 'invalid' });
   });
 
-  it('requestCapture: false declines, mutes the device and ends the session', async () => {
+  it('armed shows in the state until the dialog; no dialog before nativeDelayMs, then exactly one (V8)', async () => {
+    const t = setup();
+    await t.consent();
+    expect(((await t.act({ kind: 'status' })) as { state: { session: { armed?: true } } }).state.session.armed).toBeUndefined();
+    await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX });
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'consent', armed: true } } });
+    await t.clock.advance(NATIVE - 1);
+    expect(t.confirmCapture).not.toHaveBeenCalled();
+    await t.clock.advance(1);
+    expect(t.confirmCapture).toHaveBeenCalledTimes(1);
+    expect(t.confirmCapture).toHaveBeenCalledWith(OWNER, { name: 'Büro', fingerprint: B, verified: true }, expect.any(AbortSignal));
+    await t.clock.advance(10_000);
+    expect(t.confirmCapture).toHaveBeenCalledTimes(1);
+    expect(((await t.act({ kind: 'status' })) as { state: { session: { armed?: true } } }).state.session.armed).toBeUndefined();
+  });
+
+  it('agent flow order: dialog, open, ready, hello, capture, channel, accepted', async () => {
+    const t = setup();
+    await t.armed();
+    const before = t.clock.t;
+    await t.clock.advance(NATIVE);
+    expect(t.media.order).toEqual(['dialog', 'open', 'ready', 'hello', 'capture', 'accepted']);
+    expect(t.media.opened).toEqual([{ id: 41, role: 'agent', peerName: 'Büro' }]);
+    expect(t.media.events[0]).toEqual({ id: 41, event: { kind: 'hello', role: 'agent', peerName: 'Büro', expiresAt: before + 55_000 } });
+    expect(t.media.captures).toEqual([{ id: 41, sourceId: undefined }]);
+    expect(t.peer.channel).toHaveBeenCalledWith(expect.objectContaining({ id: SID }), B, 'view');
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'connecting' } } });
+    expect(t.host.sharing).toBe(true);
+  });
+
+  it('path B: captureSource is awaited and its id is passed to capture', async () => {
+    const t = setup({ deps: { captureSource: async () => 'screen:0:0' } });
+    await t.armed();
+    await t.clock.advance(NATIVE);
+    expect(t.media.captures).toEqual([{ id: 41, sourceId: 'screen:0:0' }]);
+    expect(t.media.kinds('accepted')).toHaveLength(1);
+  });
+
+  it('decline during the waiting time shows no dialog', async () => {
+    const t = setup();
+    await t.armed();
+    await t.clock.advance(NATIVE - 100);
+    expect((await t.act({ kind: 'decline', sessionId: SID })).ok).toBe(true);
+    await t.clock.advance(5000);
+    expect(t.confirmCapture).not.toHaveBeenCalled();
+    expect(t.media.opened).toEqual([]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
+  });
+
+  it('K7: unavailable resets armed without muting or ending; arming again works', async () => {
+    const t = setup();
+    await t.armed();
+    t.confirmCapture.mockResolvedValueOnce('unavailable');
+    await t.clock.advance(NATIVE);
+    expect(t.kinds('ended')).toEqual([]);
+    expect(t.media.opened).toEqual([]);
+    const status = await t.act({ kind: 'status' });
+    expect(status).toMatchObject({ state: { session: { state: 'consent' } } });
+    expect((status as { state: { session: { armed?: true }; muted?: number } }).state.session.armed).toBeUndefined();
+    expect((status as { state: { muted?: number } }).state.muted).toBeUndefined();
+    expect((await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX })).ok).toBe(true);
+    await t.clock.advance(NATIVE);
+    expect(t.media.opened).toHaveLength(1);
+  });
+
+  it('a refusal declines, mutes the device and ends the session without any window', async () => {
     const t = setup();
     await t.armed();
     t.confirmCapture.mockResolvedValueOnce('declined');
-    expect(await t.host.requestCapture(OWNER)).toBeNull();
+    await t.clock.advance(NATIVE);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
+    expect(t.media.opened).toEqual([]);
     t.handlers().onSessions([wire({ id: SID2 })]);
     await flush();
     expect(t.deletes()).toContain(`/v1/rendezvous/sessions/${SID2}`);
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { muted: 1 } });
   });
 
-  it('requestCapture: a throwing dialog counts as declined; a lock during the dialog ends locked', async () => {
+  it('a throwing dialog counts as declined; a lock during the dialog ends locked', async () => {
     const t = setup();
     await t.armed();
     t.confirmCapture.mockRejectedValueOnce(new Error('x'));
-    expect(await t.host.requestCapture(OWNER)).toBeNull();
+    await t.clock.advance(NATIVE);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
     const l = setup();
     await l.armed();
     l.confirmCapture.mockImplementationOnce(async () => { l.unlocked.value = false; return 'accepted' as const; });
-    expect(await l.host.requestCapture(OWNER)).toBeNull();
+    await l.clock.advance(NATIVE);
     expect(l.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'locked' }]);
+    expect(l.media.opened).toEqual([]);
   });
 
-  it('requestCapture: the deadline aborts the dialog signal and yields null', async () => {
+  it('the deadline aborts the dialog signal and ends expired', async () => {
     const t = setup();
     await t.armed();
     let signal!: AbortSignal;
     t.confirmCapture.mockImplementationOnce((_o, _p, s) => new Promise<'declined'>(r => { signal = s; s.addEventListener('abort', () => r('declined')); }));
-    const pending = t.host.requestCapture(OWNER);
     await t.clock.advance(55_000);
     expect(signal.aborted).toBe(true);
-    expect(await pending).toBeNull();
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'expired' }]);
+    expect(t.media.opened).toEqual([]);
   });
 
   it('every end path aborts the dialog signal (stop, decline, vanishing request, reset, closeOwner, goOffline)', async () => {
@@ -518,50 +631,140 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
       await t.armed();
       let signal!: AbortSignal;
       t.confirmCapture.mockImplementationOnce((_o, _p, s) => new Promise<'declined'>(r => { signal = s; s.addEventListener('abort', () => r('declined')); }));
-      const pending = t.host.requestCapture(OWNER);
+      await t.clock.advance(NATIVE);
       await end(t);
       await flush();
       expect(signal.aborted).toBe(true);
-      expect(await pending).toBeNull();
+      expect(t.media.opened).toEqual([]);
     }
   });
 
-  it('captureGranted is false before the native consent, true after it, false for other owners and after the end', async () => {
+  it('B7: the grant belongs to the media window only; it is consumed exactly once', async () => {
+    const t = setup();
+    const release = await t.granted();
+    const id = t.media.id;
+    expect(t.host.grantedSession(MAIN)).toBeNull();
+    expect(t.host.consumeCaptureGrant(MAIN)).toBeNull();
+    expect(t.host.grantedSession(id + 1)).toBeNull();
+    expect(t.host.grantedSession(id)).toBe(SID);
+    expect(t.host.isCaptureSession(id, SID)).toBe(true);
+    expect(t.host.isCaptureSession(MAIN, SID)).toBe(false);
+    expect(t.host.isCaptureSession(id, SID2)).toBe(false);
+    expect(t.host.consumeCaptureGrant(id)).toBe(SID);
+    expect(t.host.consumeCaptureGrant(id)).toBeNull();
+    expect(t.host.grantedSession(id)).toBeNull();
+    expect(t.host.isCaptureSession(id, SID)).toBe(true); // consumed, still the live captured session
+    t.media.consumeGrant = false;
+    release();
+    await flush();
+    expect(t.media.kinds('accepted')).toHaveLength(1);
+    await t.act({ kind: 'stop', sessionId: SID });
+    expect(t.host.isCaptureSession(id, SID)).toBe(false);
+  });
+
+  it('B7: the main window id never gets a grant, before or after the dialog', async () => {
     const t = setup();
     await t.consent();
-    expect(t.host.captureGranted(OWNER)).toBe(false);
+    expect(t.host.grantedSession(MAIN)).toBeNull();
     await t.act({ kind: 'armCapture', sessionId: SID, verification: PREFIX });
-    expect(t.host.captureGranted(OWNER)).toBe(false);
-    expect(t.host.isGranted(OWNER, SID)).toBe(false);
-    expect(await t.host.requestCapture(OWNER)).toBe(SID);
-    expect(t.host.captureGranted(OWNER)).toBe(true);
-    expect(t.host.grantedSession(OWNER)).toBe(SID);
-    expect(t.host.isGranted(OWNER, SID)).toBe(true);
-    expect(t.host.isGranted(OWNER, SID2)).toBe(false);
-    expect(t.host.captureGranted(OWNER + 1)).toBe(false);
-    await t.act({ kind: 'stop', sessionId: SID });
-    expect(t.host.captureGranted(OWNER)).toBe(false);
+    expect(t.host.grantedSession(MAIN)).toBeNull();
+    await t.clock.advance(NATIVE);
+    expect(t.host.grantedSession(MAIN)).toBeNull();
+    expect(t.host.consumeCaptureGrant(MAIN)).toBeNull();
   });
 
-  it('requestCapture: no dialog shown (unavailable) neither mutes nor ends the session', async () => {
+  it('B7: after the handshake started the grant is no longer offered (state connecting)', async () => {
     const t = setup();
-    await t.armed();
-    t.confirmCapture.mockResolvedValueOnce('unavailable');
-    expect(await t.host.requestCapture(OWNER)).toBeNull();
-    expect(t.kinds('ended')).toEqual([]);
-    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'consent' } } });
-    expect(await t.host.requestCapture(OWNER)).toBe(SID);
+    await t.accepted();
+    expect(t.host.grantedSession(t.media.id)).toBeNull();
+    expect(t.host.consumeCaptureGrant(t.media.id)).toBeNull();
   });
 
-  it('decline works in granted; a vanishing request ends a granted session with remote', async () => {
+  it('B7: capture false ends with error media and failed, destroying the window', async () => {
+    const t = setup();
+    t.media.captureResult = false;
+    await t.armed();
+    await t.clock.advance(NATIVE);
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'media' }]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(t.media.destroyed).toEqual([41]);
+    expect(t.peer.channel).not.toHaveBeenCalled();
+    expect(t.media.kinds('accepted')).toEqual([]);
+  });
+
+  it('B7: capture true without a consumed grant ends with error media and failed (no gesture, no handler call)', async () => {
+    const t = setup();
+    t.media.consumeGrant = false;
+    await t.armed();
+    await t.clock.advance(NATIVE);
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'media' }]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(t.media.destroyed).toEqual([41]);
+    expect(t.peer.channel).not.toHaveBeenCalled();
+    expect(t.host.sharing).toBe(false);
+  });
+
+  it('ready false ends with error mediaWindow and failed, destroying the window; no hello, no capture', async () => {
+    const t = setup();
+    t.media.readyResult = false;
+    await t.armed();
+    await t.clock.advance(NATIVE);
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'mediaWindow' }]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(t.media.destroyed).toEqual([41]);
+    expect(t.media.events).toEqual([]);
+    expect(t.media.captures).toEqual([]);
+  });
+
+  it('K8: open throwing ends with mediaWindow and failed', async () => {
+    const t = setup();
+    t.media.openError = true;
+    await t.armed();
+    await t.clock.advance(NATIVE);
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'mediaWindow' }]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+  });
+
+  it('an end during ready destroys exactly once and never captures', async () => {
+    const t = setup();
+    let release!: (ok: boolean) => void;
+    t.media.readyGate = new Promise<boolean>(r => { release = r; });
+    await t.armed();
+    await t.clock.advance(NATIVE);
+    expect(t.media.opened).toHaveLength(1);
+    await t.act({ kind: 'stop', sessionId: SID });
+    release(true);
+    await flush();
+    expect(t.media.destroyed).toEqual([41]);
+    expect(t.media.captures).toEqual([]);
+    expect(t.media.events).toEqual([]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'stopped' }]);
+  });
+
+  it('an end during capture destroys exactly once and never builds a channel', async () => {
+    const t = setup();
+    const release = await t.granted();
+    expect(t.media.captures).toHaveLength(1);
+    await t.act({ kind: 'stop', sessionId: SID });
+    release();
+    await flush();
+    expect(t.media.destroyed).toEqual([41]);
+    expect(t.peer.channel).not.toHaveBeenCalled();
+    expect(t.media.kinds('accepted')).toEqual([]);
+    expect(t.kinds('error')).toEqual([]);
+  });
+
+  it('decline works in granted; a vanishing request ends a granted session with remote; both destroy the window', async () => {
     const d = setup();
     await d.granted();
     expect((await d.act({ kind: 'decline', sessionId: SID })).ok).toBe(true);
     expect(d.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
+    expect(d.media.destroyed).toEqual([41]);
     const v = setup();
     await v.granted();
     v.handlers().onSessions([]);
     expect(v.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'remote' }]);
+    expect(v.media.destroyed).toEqual([41]);
   });
 
   it('armCapture: null needs a verified pin; invalid input is no attempt; three misses end with mismatch and mute', async () => {
@@ -576,7 +779,7 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect(t.kinds('ended')).toEqual([]);
     expect(await t.act({ kind: 'armCapture', sessionId: SID, verification: 'c'.repeat(REMOTE_LAB_LIMITS.verificationHex) })).toEqual({ ok: false, code: 'mismatch' });
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'mismatch' }]);
-    expect(t.host.captureGranted(OWNER)).toBe(false);
+    expect(t.host.grantedSession(41)).toBeNull();
     t.handlers().onSessions([wire({ id: SID2 })]);
     await flush();
     expect(t.deletes()).toContain(`/v1/rendezvous/sessions/${SID2}`);
@@ -592,7 +795,7 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { peer: { known: { verified: true } } } } });
     expect((await t.act({ kind: 'status' }) as { state: { session: { attemptsLeft?: number } } }).state.session.attemptsLeft).toBeUndefined();
     expect((await t.act({ kind: 'armCapture', sessionId: SID, verification: null })).ok).toBe(true);
-    expect(await t.host.requestCapture(OWNER)).toBe(SID);
+    await t.clock.advance(NATIVE);
     expect(t.confirmCapture).toHaveBeenCalledWith(OWNER, expect.objectContaining({ verified: true }), expect.any(AbortSignal));
   });
 
@@ -608,94 +811,62 @@ describe('RemoteLabHost: consent, capture grant and accept (R1, R4)', () => {
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { id: SID2 } } });
   });
 
-  it('emergency brake: captured session ending without stopped triggers emergency once after 2 s', async () => {
+  it('K28: a lock after the capture ends the session locked instead of reporting to a renderer', async () => {
     const t = setup();
-    await t.accepted();
-    await t.act({ kind: 'stop', sessionId: SID });
-    await t.clock.advance(1999);
-    expect(t.emergency).not.toHaveBeenCalled();
-    await t.clock.advance(1);
-    expect(t.emergency).toHaveBeenCalledTimes(1);
-    expect(t.emergency).toHaveBeenCalledWith(OWNER);
-    await t.clock.advance(10_000);
-    expect(t.emergency).toHaveBeenCalledTimes(1);
+    const release = await t.granted();
+    t.unlocked.value = false;
+    release();
+    await flush();
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'locked' }]);
+    expect(t.media.destroyed).toEqual([41]);
+    expect(t.peer.channel).not.toHaveBeenCalled();
   });
 
-  it('emergency brake: stopped cancels it', async () => {
-    const t = setup();
-    await t.accepted();
-    await t.act({ kind: 'stop', sessionId: SID });
-    expect((await t.act({ kind: 'stopped', sessionId: SID })).ok).toBe(true);
-    await t.clock.advance(5000);
-    expect(t.emergency).not.toHaveBeenCalled();
+  it('K28: a channel mismatch emits error mismatch and ends failed; a failing accept emits connection', async () => {
+    const m = setup();
+    (m.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { throw new Error('mismatch'); });
+    await m.armed();
+    await m.clock.advance(NATIVE);
+    expect(m.kinds('error')).toEqual([{ kind: 'error', code: 'mismatch' }]);
+    expect(m.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(m.media.destroyed).toEqual([41]);
+    const f = setup();
+    (f.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { const c = new FakeChannel(); c.acceptError = new Error('x'); return c; });
+    await f.armed();
+    await f.clock.advance(NATIVE);
+    expect(f.kinds('error')).toEqual([{ kind: 'error', code: 'connection' }]);
+    expect(f.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(f.host.sharing).toBe(false);
+    expect(f.media.destroyed).toEqual([41]);
   });
 
-  it('a receipt before the session end withdraws the capture grant (m3)', async () => {
-    const t = setup();
-    await t.granted();
-    expect(t.host.captureGranted(OWNER)).toBe(true);
-    expect((await t.act({ kind: 'stopped', sessionId: SID })).ok).toBe(true);
-    expect(t.host.captureGranted(OWNER)).toBe(false);
-  });
-
-  it('emergency brake: reset("locked") then stopped without a binding answers idle and cancels', async () => {
-    const t = setup();
-    await t.granted();
-    t.host.reset('locked');
-    expect(await t.act({ kind: 'stopped', sessionId: SID })).toEqual({ ok: true, state: { phase: 'idle' } });
-    await t.clock.advance(5000);
-    expect(t.emergency).not.toHaveBeenCalled();
-  });
-
-  it('emergency brake: closeOwner discards the brake; a non-captured session never arms it', async () => {
-    const c = setup();
-    await c.granted();
-    c.host.closeOwner(OWNER);
-    await c.clock.advance(5000);
-    expect(c.emergency).not.toHaveBeenCalled();
-    const n = setup();
-    await n.armed();
-    await n.act({ kind: 'decline', sessionId: SID });
-    await n.clock.advance(5000);
-    expect(n.emergency).not.toHaveBeenCalled();
-  });
-
-  it('emergency brake: stopped from a foreign owner is stale and the brake still fires', async () => {
-    const t = setup();
-    await t.granted();
-    await t.act({ kind: 'stop', sessionId: SID });
-    expect(await t.act({ kind: 'stopped', sessionId: SID }, OWNER + 1)).toEqual({ ok: false, code: 'stale' });
-    expect(await t.act({ kind: 'stopped', sessionId: 'unknown' })).toEqual({ ok: false, code: 'stale' });
-    await t.clock.advance(2000);
-    expect(t.emergency).toHaveBeenCalledWith(OWNER);
-  });
-
-  it('accept creates the channel with the verified peer, flips to connecting and starts sharing', async () => {
+  it('accepted starts sharing and flips to connecting with a fresh sessionMs deadline', async () => {
     const t = setup();
     const sharing: boolean[] = [];
     t.host.onSharingChange(s => sharing.push(s));
-    await t.granted();
-    expect(t.host.sharing).toBe(false);
-    const reply = await t.act({ kind: 'accept', sessionId: SID });
-    expect(reply).toMatchObject({ ok: true, state: { session: { state: 'connecting' } } });
-    expect(t.peer.channel).toHaveBeenCalledWith(expect.objectContaining({ id: SID }), B, 'view');
-    expect(t.host.sharing).toBe(true);
+    await t.accepted();
     expect(sharing).toEqual([true]);
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'connecting', expiresAt: t.clock.t + REMOTE_LAB_LIMITS.sessionMs } } });
   });
 
-  it('accept: locked vault, channel mismatch and channel failure', async () => {
-    const l = setup(); await l.granted();
-    l.unlocked.value = false;
-    expect(await l.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'locked' });
-    const m = setup(); await m.granted();
-    (m.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { throw new Error('mismatch'); });
-    expect(await m.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'mismatch' });
-    expect(m.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
-    const f = setup(); await f.granted();
-    (f.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { const c = new FakeChannel(); c.acceptError = new Error('x'); return c; });
-    expect(await f.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'connection' });
-    expect(f.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
-    expect(f.host.sharing).toBe(false);
+  it('K6: no complete own offer within handshakeMs after accepted ends with error signal and failed', async () => {
+    const t = setup();
+    await t.accepted();
+    await t.clock.advance(REMOTE_LAB_LIMITS.handshakeMs - 1);
+    expect(t.kinds('ended')).toEqual([]);
+    await t.clock.advance(1);
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'signal' }]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(t.media.destroyed).toEqual([41]);
+  });
+
+  it('K6: a complete offer within the window stops the timer', async () => {
+    const t = setup();
+    await t.accepted();
+    expect(await t.mediaAct({ kind: 'signal', part: msg('offer')[0] })).toEqual({ ok: true });
+    await t.clock.advance(REMOTE_LAB_LIMITS.handshakeMs * 2);
+    expect(t.kinds('error')).toEqual([]);
+    expect(t.kinds('ended')).toEqual([]);
   });
 
   it('decline clears locally, emits ended/declined and deletes best effort', async () => {
@@ -741,6 +912,7 @@ describe('RemoteLabHost: ending (R5, R6, K8)', () => {
     t.host.reset('locked');
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'locked' }]);
     expect(t.host.sharing).toBe(false);
+    expect(t.media.destroyed).toEqual([41]);
     expect(t.presenceStop).toHaveBeenCalled();
     await t.clock.advance(3000);
     expect(t.account.logout).toHaveBeenCalled();
@@ -752,9 +924,32 @@ describe('RemoteLabHost: ending (R5, R6, K8)', () => {
     await t.accepted();
     t.host.closeOwner(OWNER + 1);
     expect(t.host.sharing).toBe(true);
+    expect(t.media.destroyed).toEqual([]);
     t.host.closeOwner(OWNER);
     expect(t.host.sharing).toBe(false);
+    expect(t.media.destroyed).toEqual([41]);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'stopped' }]);
+  });
+
+  it('every end destroys the media window exactly once, even before the channel exists', async () => {
+    const t = setup();
+    await t.accepted();
+    await t.act({ kind: 'stop', sessionId: SID });
+    t.host.reset();
+    t.host.closeOwner(OWNER);
+    expect(t.media.destroyed).toEqual([41]);
+    const e = setup();
+    e.handshake.rounds = 1000;
+    await e.armed();
+    await e.clock.advance(NATIVE); // handshake still running: no channel ready yet
+    expect(e.media.kinds('accepted')).toEqual([]);
+    await e.act({ kind: 'stop', sessionId: SID });
+    expect(e.media.destroyed).toEqual([41]);
+    const v = setup();
+    await v.requesting();
+    expect(v.media.opened).toEqual([]);
+    await v.act({ kind: 'stop', sessionId: SID });
+    expect(v.media.destroyed).toEqual([]);
   });
 
   it('goOffline ends the session, stops presence and drops devices', async () => {
@@ -847,6 +1042,7 @@ describe('RemoteLabHost: viewer (B1)', () => {
     t.account.getImpl = async () => wire({ from: SELF, to: B, state: 'active' });
     await t.clock.advance(1000);
     expect(t.channels).toHaveLength(1);
+    expect(t.media.opened).toHaveLength(1);
     expect(t.peer.channel).toHaveBeenCalledWith(expect.objectContaining({ state: 'active' }), B, 'view');
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'connecting' } } });
   });
@@ -859,18 +1055,86 @@ describe('RemoteLabHost: viewer (B1)', () => {
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
   });
 
-  it('receives offer parts, emits signal events, goes active and remembers the peer', async () => {
+  it('K5: the viewer window opens after the channel and deadline, hello carries the session deadline', async () => {
+    const t = setup();
+    await t.requesting();
+    expect(t.media.opened).toEqual([]);
+    t.account.getImpl = async () => wire({ from: SELF, to: B, state: 'active' });
+    await t.clock.advance(1000);
+    expect(t.media.opened).toEqual([{ id: 41, role: 'viewer', peerName: 'Büro' }]);
+    expect(t.media.order.slice(0, 3)).toEqual(['open', 'ready', 'hello']);
+    expect(t.media.events[0]).toEqual({ id: 41, event: { kind: 'hello', role: 'viewer', peerName: 'Büro', expiresAt: t.clock.t + REMOTE_LAB_LIMITS.sessionMs } });
+    expect(t.media.captures).toEqual([]);
+  });
+
+  it('K5: an offer arriving before ready is buffered and delivered after hello', async () => {
+    const t = setup();
+    let release!: (ok: boolean) => void;
+    t.media.readyGate = new Promise<boolean>(r => { release = r; });
+    await t.requesting();
+    t.account.getImpl = async () => wire({ from: SELF, to: B, state: 'active' });
+    await t.clock.advance(1000);
+    const channel = t.channels[0]!;
+    channel.inbox.push(frames(msg('offer', 2)));
+    await t.clock.advance(1000);
+    expect(t.media.events).toEqual([]);
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'active' } } });
+    release(true);
+    await flush();
+    expect(t.media.order.filter(k => k === 'hello' || k === 'signal')).toEqual(['hello', 'signal', 'signal']);
+    expect(t.media.signals()).toEqual(msg('offer', 2));
+  });
+
+  it('delivers the offer only after the complete message: parts of an incomplete message stay inside the host', async () => {
     const t = setup();
     const channel = await t.viewing();
-    channel.inbox.push([{ part: part('offer', 1, 2, 'a') }]);
+    const offer = msg('offer', 2);
+    channel.inbox.push(frames([offer[0]!]));
     await t.clock.advance(1000);
-    expect(t.kinds('signal')).toHaveLength(1);
+    expect(t.media.signals()).toEqual([]);
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'connecting' } } });
-    channel.inbox.push([{ part: part('offer', 2, 2, 'b') }]);
+    channel.inbox.push(frames([offer[1]!]));
     await t.clock.advance(1000);
-    const status = await t.act({ kind: 'status' });
-    expect(status).toMatchObject({ state: { session: { state: 'active', startedAt: t.clock.t } } });
+    expect(t.media.signals()).toEqual(offer);
+    expect(t.kinds('signal')).toEqual([]);
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'active', startedAt: t.clock.t } } });
     expect(t.remember).toHaveBeenCalledWith(B, 'Büro', t.clock.t, true);
+  });
+
+  it('an SDP with a=sendrecv or m=application ends with error signal and failed, nothing delivered', async () => {
+    for (const bad of [sdpText('a=sendrecv'), sdpText('a=sendonly', [], 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel')]) {
+      const t = setup();
+      const channel = await t.viewing();
+      channel.inbox.push(frames(msg('offer', 1, bad)));
+      await t.clock.advance(1000);
+      expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'signal' }]);
+      expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+      expect(t.media.signals()).toEqual([]);
+      expect(t.media.destroyed).toEqual([41]);
+      expect(t.remember).not.toHaveBeenCalled();
+    }
+  });
+
+  it('K5: ready false ends with error mediaWindow and failed', async () => {
+    const t = setup();
+    t.media.readyResult = false;
+    await t.viewing();
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'mediaWindow' }]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(t.media.destroyed).toEqual([41]);
+  });
+
+  it('K6: no complete answer within handshakeMs after the delivered offer ends with error signal and failed', async () => {
+    const t = setup();
+    const channel = await t.viewing();
+    channel.inbox.push(frames(msg('offer')));
+    await t.clock.advance(1000);
+    expect(t.media.signals()).toHaveLength(1);
+    await t.clock.advance(REMOTE_LAB_LIMITS.handshakeMs - 1);
+    expect(t.kinds('ended')).toEqual([]);
+    await t.clock.advance(1);
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'signal' }]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
   });
 
   it('bye from the peer ends with remote and closes without sending a bye back', async () => {
@@ -890,7 +1154,7 @@ describe('RemoteLabHost: viewer (B1)', () => {
     expect(bad.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
     const wrongRole = setup();
     const c2 = await wrongRole.viewing();
-    c2.inbox.push([{ part: part('answer') }]);
+    c2.inbox.push(frames(msg('answer')));
     await wrongRole.clock.advance(1000);
     expect(wrongRole.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
     const gone = setup();
@@ -904,10 +1168,10 @@ describe('RemoteLabHost: viewer (B1)', () => {
     await limited.clock.advance(1000);
     expect(limited.kinds('ended')).toEqual([]);
     c5.receiveError = undefined;
-    c5.inbox.push([{ part: part('offer') }]);
+    c5.inbox.push(frames(msg('offer')));
     await limited.clock.advance(1000);
     expect(limited.kinds('ended')).toEqual([]);
-    expect(limited.kinds('signal')).toHaveLength(1);
+    expect(limited.media.signals()).toHaveLength(1);
     const broken = setup();
     const c4 = await broken.viewing();
     c4.receiveError = new Error('x');
@@ -919,7 +1183,7 @@ describe('RemoteLabHost: viewer (B1)', () => {
     const t = setup();
     const channel = await t.viewing();
     const spy = vi.spyOn(channel, 'receive');
-    channel.inbox.push([{ part: part('offer') }]);
+    channel.inbox.push(frames(msg('offer')));
     await t.clock.advance(1000);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'active' } } });
@@ -943,11 +1207,15 @@ describe('RemoteLabHost: local deadlines (K3)', () => {
     expect(t.deletes()).toEqual([`/v1/rendezvous/sessions/${SID}`]);
   });
 
-  it('accept after the deadline is expired; the viewer request expires after 60 s', async () => {
+  it('a capture finishing after the deadline is expired; the viewer request expires after 60 s', async () => {
     const t = setup();
-    await t.granted();
+    const release = await t.granted();
     t.clock.t += 55_000;
-    expect(await t.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'expired' });
+    release();
+    await flush();
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'expired' }]);
+    expect(t.peer.channel).not.toHaveBeenCalled();
+    expect(t.media.destroyed).toEqual([41]);
     const v = setup();
     await v.requesting();
     await v.clock.advance(60_000);
@@ -958,6 +1226,7 @@ describe('RemoteLabHost: local deadlines (K3)', () => {
     const t = setup();
     await t.accepted();
     const created = t.clock.t;
+    await t.mediaAct({ kind: 'signal', part: msg('offer')[0] }); // an own offer keeps the K6 timer quiet
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { expiresAt: created + 300_000 } } });
     await t.clock.advance(299_999);
     expect(t.kinds('ended')).toEqual([]);
@@ -974,54 +1243,251 @@ describe('RemoteLabHost: local deadlines (K3)', () => {
   });
 });
 
-describe('RemoteLabHost: signal action', () => {
-  it('bye from the renderer is invalid, roles are enforced (agent offer, viewer answer)', async () => {
+describe('RemoteLabHost: media window actions (B8, K3)', () => {
+  const delivered = async (): Promise<{ t: ReturnType<typeof setup>; channel: FakeChannel }> => {
+    const t = setup();
+    const channel = await t.viewing();
+    channel.inbox.push(frames(msg('offer')));
+    await t.clock.advance(1000);
+    return { t, channel };
+  };
+
+  it('an unknown or foreign webcontents id and a missing session answer stale and change nothing', async () => {
+    const none = setup();
+    expect(await none.host.mediaAction(41, { kind: 'stop' })).toEqual({ ok: false, code: 'stale' });
     const t = setup();
     const channel = await t.accepted();
-    expect(await t.act({ kind: 'signal', sessionId: SID, part: part('bye', 1, 1, '') })).toEqual({ ok: false, code: 'invalid' });
-    expect(await t.act({ kind: 'signal', sessionId: SID, part: part('answer') })).toEqual({ ok: false, code: 'invalid' });
-    expect(await t.act({ kind: 'signal', sessionId: SID, part: { kind: 'offer', part: 9, of: 1, data: 'x' } })).toEqual({ ok: false, code: 'invalid' });
-    expect((await t.act({ kind: 'signal', sessionId: SID, part: part('offer') })).ok).toBe(true);
-    expect(channel.sent).toEqual([{ part: part('offer') }]);
-    const v = setup();
-    const vc = await v.viewing();
-    vc.ready = true;
-    expect(await v.act({ kind: 'signal', sessionId: SID, part: part('offer') })).toEqual({ ok: false, code: 'invalid' });
-    expect((await v.act({ kind: 'signal', sessionId: SID, part: part('answer') })).ok).toBe(true);
+    expect(await t.host.mediaAction(MAIN, { kind: 'stop' })).toEqual({ ok: false, code: 'stale' });
+    expect(await t.host.mediaAction(t.media.id + 1, { kind: 'signal', part: msg('offer')[0] })).toEqual({ ok: false, code: 'stale' });
+    expect(await t.host.mediaAction(MAIN, 'garbage')).toEqual({ ok: false, code: 'stale' });
+    expect(t.kinds('ended')).toEqual([]);
+    expect(channel.sent).toEqual([]);
   });
 
-  it('is stale before the channel is ready', async () => {
+  it('the host without deps answers stale', async () => {
+    expect(await new RemoteLabHost().mediaAction(41, { kind: 'stop' })).toEqual({ ok: false, code: 'stale' });
+  });
+
+  it('a schema error of the matching window ends the session failed and answers invalid', async () => {
+    for (const bad of [null, 'x', { kind: 'nope' }, { kind: 'stop', extra: 1 }, { kind: 'failed', code: 'locked' }, { kind: 'signal', part: 1, extra: 1 }]) {
+      const t = setup();
+      await t.accepted();
+      expect(await t.mediaAct(bad)).toEqual({ ok: false, code: 'invalid' });
+      expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+      expect(t.media.destroyed).toEqual([41]);
+    }
+  });
+
+  it('stop ends stopped', async () => {
     const t = setup();
-    await t.consent();
-    expect(await t.act({ kind: 'signal', sessionId: SID, part: part('offer') })).toEqual({ ok: false, code: 'stale' });
-    const v = setup();
-    v.handshake.rounds = 2;
-    await v.viewing(); // channel exists but the handshake is not finished
-    expect(v.channels).toHaveLength(1);
-    expect(await v.act({ kind: 'signal', sessionId: SID, part: part('answer') })).toEqual({ ok: false, code: 'stale' });
+    await t.accepted();
+    expect(await t.mediaAct({ kind: 'stop' })).toEqual({ ok: true });
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'stopped' }]);
+    expect(t.media.destroyed).toEqual([41]);
+    expect(t.host.sharing).toBe(false);
   });
 
-  it('sends strictly serially: the second send starts after the first finished', async () => {
+  it('failed emits the error code first (peer, signal, media), then ends failed', async () => {
+    for (const code of ['peer', 'signal', 'media'] as const) {
+      const t = setup();
+      await t.accepted();
+      expect(await t.mediaAct({ kind: 'failed', code })).toEqual({ ok: true });
+      const order = t.events.map(e => e.event.kind === 'error' ? `error:${e.event.code}` : e.event.kind === 'ended' ? 'ended' : '').filter(Boolean);
+      expect(order).toEqual([`error:${code}`, 'ended']);
+      expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    }
+  });
+
+  it('an action after the end is stale', async () => {
+    const t = setup();
+    await t.accepted();
+    const id = t.media.id;
+    await t.act({ kind: 'stop', sessionId: SID });
+    expect(await t.host.mediaAction(id, { kind: 'stop' })).toEqual({ ok: false, code: 'stale' });
+  });
+
+  it('agent: a signal before accepted is stale and sends nothing', async () => {
+    const t = setup();
+    await t.granted();
+    expect(await t.mediaAct({ kind: 'signal', part: msg('offer')[0] })).toEqual({ ok: false, code: 'stale' });
+    expect(t.channels).toHaveLength(0);
+    expect(t.kinds('ended')).toEqual([]);
+  });
+
+  it('agent: the relay starts only after the complete message and keeps the part order', async () => {
+    const t = setup();
+    const channel = await t.accepted();
+    const offer = msg('offer', 3);
+    expect(await t.mediaAct({ kind: 'signal', part: offer[0] })).toEqual({ ok: true });
+    expect(await t.mediaAct({ kind: 'signal', part: offer[1] })).toEqual({ ok: true });
+    expect(channel.sendsStarted).toBe(0);
+    expect(await t.mediaAct({ kind: 'signal', part: offer[2] })).toEqual({ ok: true });
+    expect(channel.sent).toEqual(offer.map(p => ({ part: p })));
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'connecting' } } });
+  });
+
+  it('agent: a=sendrecv, m=application and a wrong direction end with error signal and failed before any send', async () => {
+    for (const bad of [sdpText('a=sendrecv'), sdpText('a=sendonly', [], 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel'), ANSWER]) {
+      const t = setup();
+      const channel = await t.accepted();
+      const reply = await t.mediaAct({ kind: 'signal', part: msg('offer', 1, bad)[0] });
+      expect(reply).toEqual({ ok: false, code: 'invalid' });
+      expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'signal' }]);
+      expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+      expect(channel.sent.filter(v => (v as { part: RemoteSignalPart }).part.kind !== 'bye')).toEqual([]);
+    }
+  });
+
+  it('a bye, the wrong kind, a malformed part and a broken sequence end failed and answer invalid before any send', async () => {
+    const cases: Array<{ role: 'agent' | 'viewer'; parts: unknown[] }> = [
+      { role: 'agent', parts: [part('bye', 1, 1, '')] },
+      { role: 'agent', parts: [msg('answer')[0]] },
+      { role: 'agent', parts: [{ kind: 'offer', part: 9, of: 1, data: 'x' }] },
+      { role: 'agent', parts: [{ nope: 1 }] },
+      { role: 'agent', parts: [msg('offer', 2)[1]] },
+      { role: 'agent', parts: [msg('offer', 2)[0], msg('offer', 2)[0]] },
+      { role: 'viewer', parts: [msg('offer')[0]] },
+    ];
+    for (const c of cases) {
+      let t: ReturnType<typeof setup>;
+      let channel: FakeChannel;
+      if (c.role === 'agent') { t = setup(); channel = await t.accepted(); } else ({ t, channel } = await delivered());
+      let reply: RemoteMediaReply | undefined;
+      for (const p of c.parts) reply = await t.mediaAct({ kind: 'signal', part: p });
+      expect(reply).toEqual({ ok: false, code: 'invalid' });
+      expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+      expect(channel.sent.filter(v => (v as { part: RemoteSignalPart }).part.kind !== 'bye')).toEqual([]);
+    }
+  });
+
+  it('agent: a second message and any part after the complete one are stale, nothing more is sent', async () => {
+    const t = setup();
+    const channel = await t.accepted();
+    expect(await t.mediaAct({ kind: 'signal', part: msg('offer')[0] })).toEqual({ ok: true });
+    expect(await t.mediaAct({ kind: 'signal', part: msg('offer')[0] })).toEqual({ ok: false, code: 'stale' });
+    expect(await t.mediaAct({ kind: 'signal', part: msg('offer', 2)[1] })).toEqual({ ok: false, code: 'stale' });
+    expect(channel.sent).toEqual([{ part: msg('offer')[0] }]);
+    expect(t.kinds('ended')).toEqual([]);
+  });
+
+  it('agent: a signal in a non-connecting state or on a channel that is not ready is stale', async () => {
+    const t = setup();
+    t.handshake.rounds = 1000;
+    await t.armed();
+    await t.clock.advance(NATIVE);
+    expect(t.media.kinds('accepted')).toEqual([]);
+    expect(await t.mediaAct({ kind: 'signal', part: msg('offer')[0] })).toEqual({ ok: false, code: 'stale' });
+    expect(t.channels[0]!.sent).toEqual([]);
+  });
+
+  it('viewer: the answer is stale until the offer was delivered, then it is relayed once complete', async () => {
+    const t = setup();
+    const channel = await t.viewing();
+    expect(await t.mediaAct({ kind: 'signal', part: msg('answer')[0] })).toEqual({ ok: false, code: 'stale' });
+    channel.inbox.push(frames(msg('offer')));
+    await t.clock.advance(1000);
+    const answer = msg('answer', 2);
+    expect(await t.mediaAct({ kind: 'signal', part: answer[0] })).toEqual({ ok: true });
+    expect(channel.sent).toEqual([]);
+    expect(await t.mediaAct({ kind: 'signal', part: answer[1] })).toEqual({ ok: true });
+    expect(channel.sent).toEqual(answer.map(p => ({ part: p })));
+  });
+
+  it('viewer: an answer with the wrong direction ends with error signal and failed before any send', async () => {
+    const { t, channel } = await delivered();
+    expect(await t.mediaAct({ kind: 'signal', part: msg('answer', 1, sdpText('a=sendrecv'))[0] })).toEqual({ ok: false, code: 'invalid' });
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'signal' }]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(channel.sent.filter(v => (v as { part: RemoteSignalPart }).part.kind !== 'bye')).toEqual([]);
+  });
+
+  it('sends strictly serially: the second part starts after the first finished', async () => {
     const t = setup();
     const channel = await t.accepted();
     let release!: () => void;
     channel.sendGate = () => new Promise<void>(r => { release = r; });
-    const first = t.act({ kind: 'signal', sessionId: SID, part: part('offer', 1, 2, 'a') });
-    const second = t.act({ kind: 'signal', sessionId: SID, part: part('offer', 2, 2, 'b') });
+    const offer = msg('offer', 2);
+    expect(await t.mediaAct({ kind: 'signal', part: offer[0] })).toEqual({ ok: true });
+    const done = t.mediaAct({ kind: 'signal', part: offer[1] });
     await flush();
     expect(channel.sendsStarted).toBe(1);
     channel.sendGate = undefined;
     release();
-    await Promise.all([first, second]);
-    expect(channel.sent).toEqual([{ part: part('offer', 1, 2, 'a') }, { part: part('offer', 2, 2, 'b') }]);
+    expect(await done).toEqual({ ok: true });
+    expect(channel.sent).toEqual(offer.map(p => ({ part: p })));
   });
 
-  it('a failing send ends the session as failed with code connection', async () => {
+  it('a failing send ends the session failed', async () => {
     const t = setup();
     const channel = await t.accepted();
     channel.sendGate = async () => { throw new Error('x'); };
-    expect(await t.act({ kind: 'signal', sessionId: SID, part: part('offer') })).toEqual({ ok: false, code: 'connection' });
+    expect(await t.mediaAct({ kind: 'signal', part: msg('offer')[0] })).toEqual({ ok: false, code: 'stale' });
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(t.media.destroyed).toEqual([41]);
+  });
+
+  it('B8: no reply carries more than ok and code, and never any state', async () => {
+    const t = setup();
+    await t.accepted();
+    const replies: unknown[] = [
+      await t.host.mediaAction(MAIN, { kind: 'stop' }),
+      await t.mediaAct({ kind: 'signal', part: msg('offer')[0] }),
+      await t.mediaAct({ kind: 'signal', part: msg('offer')[0] }),
+      await t.mediaAct({ kind: 'stop' }),
+      await t.mediaAct({ kind: 'stop' }),
+    ];
+    const bad = setup();
+    await bad.accepted();
+    replies.push(await bad.mediaAct({ kind: 'nope' }));
+    const failed = setup();
+    await failed.accepted();
+    replies.push(await failed.mediaAct({ kind: 'failed', code: 'peer' }));
+    for (const r of replies) expect(Object.keys(r as object).every(k => k === 'ok' || k === 'code')).toBe(true);
+    expect(replies).toEqual([{ ok: false, code: 'stale' }, { ok: true }, { ok: false, code: 'stale' }, { ok: true }, { ok: false, code: 'stale' }, { ok: false, code: 'invalid' }, { ok: true }]);
+  });
+
+  it('B8: events to the media window are only hello, accepted and signal', async () => {
+    const { t } = await delivered();
+    await t.mediaAct({ kind: 'signal', part: msg('answer')[0] });
+    const a = setup();
+    await a.accepted();
+    for (const e of [...t.media.events, ...a.media.events]) expect(['hello', 'accepted', 'signal']).toContain(e.event.kind);
+    for (const e of t.media.events) expect(JSON.stringify(e.event)).not.toMatch(/serverUrl|username|devices|sessionId/);
+  });
+
+  it('mediaGone: a closed viewer window ends stopped, everything else ends failed', async () => {
+    const v = (await delivered()).t;
+    v.host.mediaGone(v.media.id, 'closed');
+    expect(v.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'stopped' }]);
+    expect(v.media.destroyed).toEqual([41]);
+    const vc = (await delivered()).t;
+    vc.host.mediaGone(vc.media.id, 'crashed');
+    expect(vc.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    const ac = setup(); await ac.accepted();
+    ac.host.mediaGone(ac.media.id, 'closed');
+    expect(ac.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    const ax = setup(); await ax.accepted();
+    ax.host.mediaGone(ax.media.id, 'crashed');
+    expect(ax.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+  });
+
+  it('mediaGone ignores a foreign id and an already ended session', async () => {
+    const t = setup();
+    await t.accepted();
+    t.host.mediaGone(MAIN, 'crashed');
+    t.host.mediaGone(t.media.id + 1, 'closed');
+    expect(t.kinds('ended')).toEqual([]);
+    const id = t.media.id;
+    await t.act({ kind: 'stop', sessionId: SID });
+    t.host.mediaGone(id, 'crashed');
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'stopped' }]);
+  });
+
+  it('failed with peer emits the error peer for the user', async () => {
+    const t = setup();
+    await t.accepted();
+    await t.mediaAct({ kind: 'failed', code: 'peer' });
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'peer' }]);
   });
 });
 
@@ -1112,7 +1578,7 @@ describe('RemoteLabHost: viewer verification (B7, B10)', () => {
   it('a correct typed prefix remembers the peer as verified when the session goes active', async () => {
     const t = setup();
     const channel = await t.viewing();
-    channel.inbox.push([{ part: part('offer') }]);
+    channel.inbox.push(frames(msg('offer')));
     await t.clock.advance(1000);
     expect(t.remember).toHaveBeenCalledWith(B, 'Büro', t.clock.t, true);
   });
@@ -1125,7 +1591,7 @@ describe('RemoteLabHost: viewer verification (B7, B10)', () => {
     await t.act({ kind: 'request', target: B, verification: null });
     t.account.getImpl = async () => wire({ from: SELF, to: B, state: 'active' });
     await t.clock.advance(1000);
-    t.channels[0]!.inbox.push([{ part: part('offer') }]);
+    t.channels[0]!.inbox.push(frames(msg('offer')));
     await t.clock.advance(1000);
     expect(t.remember).toHaveBeenCalledWith(B, 'Büro', t.clock.t, true);
   });
@@ -1166,86 +1632,89 @@ describe('RemoteLabHost: Noise handshake (T8)', () => {
   it('agent: connecting only after two receive() rounds, deadline = sessionMs, no peer key passed', async () => {
     const t = setup();
     t.handshake.rounds = 2;
-    await t.granted();
-    const accept = t.act({ kind: 'accept', sessionId: SID });
-    await flush();
+    await t.armed();
+    await t.clock.advance(NATIVE);
     expect(t.kinds('state').some(e => (e as { state: { session?: { state: string } } }).state.session?.state === 'connecting')).toBe(false);
     expect(t.host.sharing).toBe(false);
+    expect(t.media.kinds('accepted')).toEqual([]);
     await t.clock.advance(REMOTE_LAB_LIMITS.setupPollMs);
-    const reply = await accept;
-    expect(reply).toMatchObject({ ok: true, state: { session: { state: 'connecting', expiresAt: t.clock.now() + REMOTE_LAB_LIMITS.sessionMs } } });
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'connecting', expiresAt: t.clock.now() + REMOTE_LAB_LIMITS.sessionMs } } });
     expect(t.channels[0]!.receives).toBe(2);
     expect(t.host.sharing).toBe(true);
+    expect(t.media.kinds('accepted')).toHaveLength(1);
     expect(t.peer.channel).toHaveBeenCalledWith(expect.objectContaining({ id: SID }), B, 'view');
   });
 
-  it('agent: a mismatch error ends failed and answers mismatch', async () => {
+  it('agent: a mismatch error ends failed with error mismatch', async () => {
     const t = setup();
-    await t.granted();
     (t.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { const c = new FakeChannel(); c.receiveError = Object.assign(new Error('x'), { code: 'mismatch' }); return c; });
-    expect(await t.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'mismatch' });
+    await t.armed();
+    await t.clock.advance(NATIVE);
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'mismatch' }]);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
     expect(t.host.sharing).toBe(false);
+    expect(t.media.destroyed).toEqual([41]);
   });
 
   it('agent: the consent deadline during the handshake ends expired and frees the host', async () => {
     const t = setup();
     t.handshake.rounds = 1000;
-    await t.granted();
-    await t.clock.advance(REMOTE_LAB_LIMITS.consentMs - 3000);
-    const accept = t.act({ kind: 'accept', sessionId: SID });
+    const release = await t.granted();
+    await t.clock.advance(REMOTE_LAB_LIMITS.consentMs - 3000 - NATIVE);
+    release();
     await t.clock.advance(3000);
-    expect(await accept).toEqual({ ok: false, code: 'stale' });
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'expired' }]);
     expect(t.host.sharing).toBe(false);
+    expect(t.media.destroyed).toEqual([41]);
   });
 
-  it('agent: exceeding handshakeMs fails with connection, not expired', async () => {
+  it('agent: exceeding handshakeMs fails, not expired', async () => {
     const t = setup();
     t.handshake.rounds = 1000;
-    await t.granted();
-    const accept = t.act({ kind: 'accept', sessionId: SID });
-    await t.clock.advance(REMOTE_LAB_LIMITS.handshakeMs + REMOTE_LAB_LIMITS.setupPollMs);
-    expect(await accept).toEqual({ ok: false, code: 'connection' });
+    await t.armed();
+    await t.clock.advance(NATIVE + REMOTE_LAB_LIMITS.handshakeMs + REMOTE_LAB_LIMITS.setupPollMs);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(t.media.destroyed).toEqual([41]);
   });
 
   it('agent: a transient network error during the handshake keeps polling until it recovers (m3)', async () => {
     const t = setup();
     t.handshake.rounds = 2;
-    await t.granted();
     (t.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
       const c = new FakeChannel(); c.rounds = 2; c.receiveError = new Error('ECONNRESET'); channels0 = c; return c;
     });
-    const accept = t.act({ kind: 'accept', sessionId: SID });
-    await flush();
+    await t.armed();
+    await t.clock.advance(NATIVE);
     channels0!.receiveError = undefined;
     await t.clock.advance(REMOTE_LAB_LIMITS.setupPollMs * 3);
-    expect(await accept).toMatchObject({ ok: true, state: { session: { state: 'connecting' } } });
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'connecting' } } });
     expect(t.kinds('ended')).toEqual([]);
+    expect(t.media.kinds('accepted')).toHaveLength(1);
   });
 
   it('agent: decline during the handshake ends declined, never connects and frees the host (B6)', async () => {
     const t = setup();
     t.handshake.rounds = 1000;
-    await t.granted();
-    const accept = t.act({ kind: 'accept', sessionId: SID });
-    await flush();
+    await t.armed();
+    await t.clock.advance(NATIVE);
     expect(await t.act({ kind: 'decline', sessionId: SID })).toMatchObject({ ok: true });
-    expect(await accept).toEqual({ ok: false, code: 'stale' });
+    await t.clock.advance(REMOTE_LAB_LIMITS.setupPollMs * 2);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'declined' }]);
     expect(t.host.sharing).toBe(false);
+    expect(t.media.kinds('accepted')).toEqual([]);
     expect(t.kinds('state').some(e => (e as { state: { session?: { state: string } } }).state.session?.state === 'connecting')).toBe(false);
+    expect(t.media.destroyed).toEqual([41]);
     // The busy flag is free: a follow-up network action is not stale.
     expect(await t.act({ kind: 'goOffline' })).toMatchObject({ ok: true });
   });
 
   it('agent: 404 during the handshake ends remote', async () => {
     const t = setup();
-    await t.granted();
     (t.peer.channel as ReturnType<typeof vi.fn>).mockImplementationOnce(() => { const c = new FakeChannel(); c.receiveError = { status: 404 }; return c; });
-    expect(await t.act({ kind: 'accept', sessionId: SID })).toEqual({ ok: false, code: 'stale' });
+    await t.armed();
+    await t.clock.advance(NATIVE);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'remote' }]);
+    expect(t.media.destroyed).toEqual([41]);
   });
 
   it('viewer: connecting only once the handshake is ready; offer values from the last receive are processed after it', async () => {
@@ -1257,11 +1726,11 @@ describe('RemoteLabHost: Noise handshake (T8)', () => {
     const channel = t.channels[0]!;
     expect(channel.ready).toBe(false);
     expect(t.kinds('state').some(e => (e as { state: { session?: { state: string } } }).state.session?.state === 'connecting')).toBe(false);
-    channel.inbox.push([{ part: part('offer', 1, 1, 'a') }]);
+    channel.inbox.push(frames(msg('offer')));
     await t.clock.advance(REMOTE_LAB_LIMITS.setupPollMs);
     expect(channel.ready).toBe(true);
     expect(t.kinds('ended')).toEqual([]);
-    expect(t.kinds('signal')).toHaveLength(1);
+    expect(t.media.signals()).toHaveLength(1);
     expect(t.kinds('state').some(e => (e as { state: { session?: { state: string } } }).state.session?.state === 'active')).toBe(true);
   });
 
@@ -1277,73 +1746,62 @@ describe('RemoteLabHost: Noise handshake (T8)', () => {
 });
 
 describe('V1: one message per session', () => {
-  it('viewer: a second complete offer ends failed before it is emitted', async () => {
+  it('viewer: a second complete offer ends failed before it is delivered', async () => {
     const t = setup();
     const channel = await t.viewing();
-    channel.inbox.push([{ part: part('offer') }]);
+    channel.inbox.push(frames(msg('offer')));
     await t.clock.advance(1000);
-    expect(t.kinds('signal')).toHaveLength(1);
-    channel.inbox.push([{ part: part('offer') }]);
+    expect(t.media.signals()).toHaveLength(1);
+    channel.inbox.push(frames(msg('offer')));
     await t.clock.advance(5000);
-    expect(t.kinds('signal')).toHaveLength(1);
+    expect(t.media.signals()).toHaveLength(1);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
   });
 
   it('viewer: any part after the first complete message ends failed, even in the same batch', async () => {
     const t = setup();
     const channel = await t.viewing();
-    channel.inbox.push([{ part: part('offer', 1, 1, 'a') }, { part: part('offer', 1, 2, 'b') }]);
+    channel.inbox.push([{ part: msg('offer')[0] }, { part: part('offer', 1, 2, 'b') }]);
     await t.clock.advance(1000);
-    expect(t.kinds('signal')).toHaveLength(1);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
+    expect(t.media.signals().length).toBeLessThanOrEqual(1);
   });
 
   it('viewer: a bye after the message is still a normal remote end', async () => {
     const t = setup();
     const channel = await t.viewing();
-    channel.inbox.push([{ part: part('offer') }]);
+    channel.inbox.push(frames(msg('offer')));
     await t.clock.advance(1000);
     channel.inbox.push([{ part: part('bye', 1, 1, '') }]);
     await t.clock.advance(5000);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'remote' }]);
   });
 
-  it('agent: a second complete answer ends failed before it is emitted', async () => {
+  it('agent: the answer is delivered once complete; a second complete answer ends failed before it is delivered', async () => {
     const t = setup();
     const channel = await t.accepted();
-    channel.inbox.push([{ part: part('answer') }]);
+    const answer = msg('answer', 2);
+    channel.inbox.push(frames([answer[0]!]));
     await t.clock.advance(5000);
-    expect(t.kinds('signal')).toHaveLength(1);
-    channel.inbox.push([{ part: part('answer') }]);
+    expect(t.media.signals()).toEqual([]);
+    channel.inbox.push(frames([answer[1]!]));
     await t.clock.advance(5000);
-    expect(t.kinds('signal')).toHaveLength(1);
+    expect(t.media.signals()).toEqual(answer);
+    expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { state: 'active' } } });
+    channel.inbox.push(frames(msg('answer')));
+    await t.clock.advance(5000);
+    expect(t.media.signals()).toEqual(answer);
     expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
   });
-});
 
-describe('V2: early stopped receipt', () => {
-  it('a receipt before the session end cancels the later emergency brake', async () => {
+  it('agent: an answer with a=sendrecv ends with error signal and failed without delivery', async () => {
     const t = setup();
-    await t.granted();
-    // accept is not processed (other client): stale, the renderer still stops its tracks and acknowledges.
-    expect(await t.act({ kind: 'accept', sessionId: SID }, OWNER, '00000000-0000-4000-8000-000000000002')).toEqual({ ok: false, code: 'stale' });
-    expect((await t.act({ kind: 'stopped', sessionId: SID })).ok).toBe(true);
-    await t.clock.advance(REMOTE_LAB_LIMITS.consentMs + 1000);
-    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'expired' }]);
-    await t.clock.advance(REMOTE_LAB_LIMITS.byeMs + 5000);
-    expect(t.emergency).not.toHaveBeenCalled();
-  });
-
-  it('a receipt of a foreign owner or for a session that never captured is stale', async () => {
-    const t = setup();
-    await t.armed();
-    expect(await t.act({ kind: 'stopped', sessionId: SID })).toEqual({ ok: false, code: 'stale' });
-    expect(await t.host.action(OWNER + 1, { kind: 'stopped', clientId: CLIENT, sessionId: SID })).toEqual({ ok: false, code: 'stale' });
-    expect(await t.host.requestCapture(OWNER)).toBe(SID);
-    expect(await t.host.action(OWNER + 1, { kind: 'stopped', clientId: CLIENT, sessionId: SID })).toEqual({ ok: false, code: 'stale' });
-    await t.act({ kind: 'stop', sessionId: SID });
-    await t.clock.advance(REMOTE_LAB_LIMITS.byeMs);
-    expect(t.emergency).toHaveBeenCalledTimes(1);
+    const channel = await t.accepted();
+    channel.inbox.push(frames(msg('answer', 1, sdpText('a=sendrecv'))));
+    await t.clock.advance(5000);
+    expect(t.media.signals()).toEqual([]);
+    expect(t.kinds('error')).toEqual([{ kind: 'error', code: 'signal' }]);
+    expect(t.kinds('ended')).toEqual([{ kind: 'ended', sessionId: SID, reason: 'failed' }]);
   });
 });
 
@@ -1406,48 +1864,6 @@ describe('V7: global brake for unverified requests', () => {
     t.handlers().onSessions([wire({ id: sid(6), from: E })]);
     await flush();
     expect(await t.act({ kind: 'status' })).toMatchObject({ state: { session: { id: sid(6) } } });
-  });
-});
-
-describe('V9: stops settled', () => {
-  it('stopsPending is true while the receipt is outstanding and the event fires on the receipt', async () => {
-    const t = setup();
-    const settled = vi.fn();
-    t.host.onStopsSettled(settled);
-    await t.accepted();
-    expect(t.host.stopsPending).toBe(false);
-    await t.act({ kind: 'stop', sessionId: SID });
-    expect(t.host.stopsPending).toBe(true);
-    expect(settled).not.toHaveBeenCalled();
-    await t.act({ kind: 'stopped', sessionId: SID });
-    expect(t.host.stopsPending).toBe(false);
-    expect(settled).toHaveBeenCalledTimes(1);
-  });
-
-  it('the event fires after the emergency brake, in that order', async () => {
-    const t = setup();
-    const order: string[] = [];
-    t.emergency.mockImplementation(() => { order.push('emergency'); });
-    t.host.onStopsSettled(() => { order.push('settled'); });
-    await t.accepted();
-    await t.act({ kind: 'stop', sessionId: SID });
-    await t.clock.advance(REMOTE_LAB_LIMITS.byeMs);
-    expect(order).toEqual(['emergency', 'settled']);
-    expect(t.host.stopsPending).toBe(false);
-  });
-
-  it('closeOwner settles outstanding stops; the unsubscribe function works', async () => {
-    const t = setup();
-    const settled = vi.fn();
-    const off = t.host.onStopsSettled(settled);
-    await t.accepted();
-    await t.act({ kind: 'stop', sessionId: SID });
-    t.host.closeOwner(OWNER);
-    expect(settled).toHaveBeenCalledTimes(1);
-    off();
-    const other = vi.fn();
-    t.host.onStopsSettled(other);
-    expect(other).not.toHaveBeenCalled();
   });
 });
 
