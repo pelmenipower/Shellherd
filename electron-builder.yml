@@ -61,7 +61,8 @@ portable:
   artifactName: ${productName}-Portable-${version}.${ext}
 
 # Fuses are flipped in this hook (no electronFuses key): runAsNode off on Linux only, enableNodeOptionsEnvironmentVariable off on Linux and Windows.
-# Still open for H4: enableNodeCliInspectArguments (the Playwright smokes need --inspect), enableEmbeddedAsarIntegrityValidation, onlyLoadAppFromAsar.
+# Still open after H5: enableNodeCliInspectArguments (the Playwright smokes need --inspect), enableEmbeddedAsarIntegrityValidation, onlyLoadAppFromAsar.
+# scripts/check-win-package.mjs asserts RunAsNode and EnableNodeCliInspectArguments as enabled on Windows; change it together with this comment.
 afterPack: scripts/linux-after-pack.cjs
 
 publish: null

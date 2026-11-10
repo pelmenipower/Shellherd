@@ -1,6 +1,6 @@
 // Run against linux-unpacked, an extracted DEB, or an AppImage. No system Node is used by the app.
 import { _electron as electron } from 'playwright-core';
-import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, readFile, access } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -15,9 +15,13 @@ const mainDir = resolve('out/main');
 const walk = async (dir) => (await Promise.all((await readdir(dir, { withFileTypes: true })).map((e) => e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]))).flat();
 for (const file of (await walk(mainDir)).filter((f) => f.endsWith('.js'))) {
   const text = await readFile(file, 'utf8');
-  for (const marker of ['SyncLabHost', 'RemoteLabHost', 'SHELLHERD_SYNC_LAB', 'SHELLHERD_REMOTE_LAB']) {
+  for (const marker of ['SyncLabHost', 'RemoteLabHost', 'SHELLHERD_SYNC_LAB', 'SHELLHERD_REMOTE_LAB', 'remote-media.cjs']) {
     assert.ok(!text.includes(marker), `Release bundle must not contain lab code (build with SHELLHERD_RELEASE=1): ${marker} in ${file}`);
   }
+}
+// The media viewer page and preload exist only in lab builds.
+for (const file of ['out/preload/remote-media.cjs', 'out/renderer/remote-media.html']) {
+  assert.ok(!(await access(resolve(file)).then(() => true, () => false)), `Release build must not contain ${file}`);
 }
 const executablePath = resolve(process.argv[2] ?? 'dist/linux-unpacked/shellherd');
 const profile = await mkdtemp(join(tmpdir(), 'shellherd-smoke-'));
@@ -32,8 +36,8 @@ try {
   assert.equal(caps.windowsHello, false);
   assert.ok(caps.localShells.includes('bash'));
   // Packaged builds must ignore the lab flags even when the environment requests them.
-  const labs = await window.evaluate(() => ({ sync: window.desktopApi.syncLabEnabled, remote: window.desktopApi.remoteLabEnabled, fake: window.desktopApi.remoteCaptureFake }));
-  assert.deepEqual(labs, { sync: false, remote: false, fake: false }, 'Lab flags must stay off in a packaged build');
+  const labs = await window.evaluate(() => ({ sync: window.desktopApi.syncLabEnabled, remote: window.desktopApi.remoteLabEnabled }));
+  assert.deepEqual(labs, { sync: false, remote: false }, 'Lab flags must stay off in a packaged build');
   const sandboxed = await app.evaluate(({ BrowserWindow }) => {
     const preferences = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
     return preferences.sandbox && preferences.contextIsolation && !preferences.nodeIntegration;

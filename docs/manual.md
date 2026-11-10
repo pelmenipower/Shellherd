@@ -753,8 +753,8 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 2. `Announce this device online` (the name from the enrollment is used). Under `Fingerprint of this device` the dialog shows this device's fingerprint.
 3. On the viewing device, the other device appears under `Online devices`, at first without a fingerprint. On the other device read its `Fingerprint of this device` and type the first 16 characters (the first two groups) into the field `First 16 characters of the fingerprint from the other device (the first two groups)` (case and spaces do not matter). Only then is `View screen` active. Read the fingerprint only from the other device's screen, never from the server, your own dialog or a device name.
 4. The other device asks `Share your screen?` in the Shellherd window. On first contact you type there the first 16 characters of the requester's fingerprint, read from the requester's screen. The fingerprint is not shown in this window. `Share screen` is locked for the first second and active only with 16 valid characters.
-5. After the click Shellherd asks once more in a system dialog, with the requester's full fingerprint in groups of eight, the buttons `Decline` and `Share screen` and the note that the entire primary screen is shared. Only this click releases the capture. After that the dialog shows `Establishing the encrypted connection…` until the encrypted channel is up (20 s at most, otherwise a connection error). While the picture is running, a bar shows who is watching, with `End`.
-6. Either side can end at any time (`End connection` or `End`). Locking the vault also ends the connection.
+5. After the click `Share screen` is locked (no double click), and the dialog says that the system dialog appears shortly and that you confirm there once more. The system dialog appears after about half a second at the earliest, with the requester's full fingerprint in groups of eight, the buttons `Decline` and `Share screen` and the note that the entire primary screen is shared. Only this click releases the capture. Capture and connection run in a separate window without access to your vault. On the viewing device the dialog shows `Establishing the encrypted connection…` until the encrypted channel is up (20 s at most, otherwise a connection error); the picture then appears in the “Remote view” window, without vault access. On the sharing device a bar in the main window shows who is watching, with `End`.
+6. Either side can end at any time (`End connection` or `End`). If the viewing device closes the “Remote view” window, the connection ends as well and the sharing device loses the bar. Locking the vault also ends the connection.
 
 **Verification and pins:**
 
@@ -771,8 +771,9 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 - Same network (LAN) only, no TURN relay. Signalling through the server also works over WireGuard or Tailscale (see “Private network”); the picture connection itself stays limited to direct host candidates. Only direct connections over host candidates exist; behind NAT or across separate networks setup fails with “No direct connection possible”.
 - A session lasts five minutes at most; after that a new request is needed.
 - Lock screen, UAC prompts and the sign-in screen are not transmitted.
-- On Linux there is no window protection: the Shellherd window is visible in the picture, too. On Wayland the system shows its own picker for what is shared.
-- Emergency brake: if the window does not end a share cleanly within two seconds, Shellherd reloads the window. That ends any running capture but also resets the state of that window.
+- On Linux there is no window protection: the Shellherd window is visible in the picture, too; the title of the main window reads “Shellherd – Bildschirm wird angesehen” (German UI) or its English equivalent. On Wayland the system shows its own picker for what is shared.
+- On Windows Shellherd excludes its windows and RDP surfaces from the transmitted picture (V6). This is implemented, but the runtime on Windows has not been checked (recipe below). Before Windows 10 version 2004 there is only a black area instead of the exclusion, and child mode relies on Electron's window affinity.
+- End closes the Remote view or sharing window immediately and ends its process; your main window stays untouched.
 - The device identity is only persistent with an operating system key store. Without one it is temporary and the fingerprint changes on the next start. This also applies when the identity file cannot be written.
 - Restoring an older valid identity file brings back old pins. A file in the old format resets all pins to unverified. The pins cannot be forged that way.
 - An existing picture connection keeps running after a device is removed, because it runs directly between the devices (at most until the session ends after five minutes). The server rejects new requests from the removed device.
@@ -780,7 +781,8 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 - The name rule knows only a small table of lookalikes. Latin confusions (`O`/`0`, `l`/`1`) and separator letters outside 0–9 and a–f cannot be ruled out. Rely on the fingerprint on the other device, never on the name.
 - Foreign objects in the account that are not a vault of this account are skipped by the sync and reported. They still use the server quota (100 objects, 32 MiB) until you remove them deliberately (see “Private network and sync lab (development)”).
 - Existing pins from before the 16-character version (48 bits) stay valid and verified. The handshake nevertheless compares the full fingerprint.
-- So far only a test picture has been transmitted (scene with fake capture). Real capture (Wayland portal, Windows) has not been checked manually, and neither has the window protection on Windows and macOS during sharing.
+- So far only a test picture has been transmitted (scene with fake capture); the scene can check real capture under X11 (`SHELLHERD_REMOTE_CAPTURE_FAKE=0`); this run is still pending. In a Wayland session (also via XWayland) screen capture currently delivers no picture or hangs; only the fake mode has been checked. Real capture on Windows has not been checked manually, and neither has the window protection on Windows and macOS during sharing.
+- No network filter for the media window: a compromised media window could only send what it sees anyway through its own WebRTC, and it has no vault access. Video decoding may run in the GPU process on some hardware, which is shared with the main window.
 - The `remote-scene.mjs` scene and real tests need a network interface with a LAN address on each device; loopback alone is not enough for WebRTC.
 
 **What the check protects, and what it does not:**
@@ -788,7 +790,21 @@ Only in an unpacked development build with `SHELLHERD_REMOTE_LAB=1` (independent
 - The typed check protects against a malicious server with an honest renderer: if the server substitutes a foreign key for a device, that device's fingerprint does not match the typed input and the request fails.
 - It does not protect against a compromised renderer. The renderer knows the fingerprint and can fill the field itself. The native dialog with the full fingerprint secures the regular flow: screen sharing goes through permission and screen-source handlers in the main process, which release nothing without the dialog's consent for the current session. Remaining risk: a fully compromised renderer cannot click the dialog, but it can trigger a capture at any time and thereby open the dialog itself. Whether anything is shared is then decided solely by the person at the computer in the dialog.
 - The typed check compares 16 hex characters, that is 64 bits. Whoever runs the server knows the fingerprints of all devices and can precompute a key with the same start for one device. That takes 2^64 key generations, clearly more expensive than with the former 48 bits, but no proof against an attacker with very large computing power. In addition the Noise handshake confirms the other device's key against the full fingerprint. A previously pinned 48-bit device stays valid; a pin theoretically ground in the lab in the meantime would be “confirmed” by the handshake. If in doubt, remove the pin and verify again.
-- The media permission rules are tightened only in the check: while a share is armed, the main process reports only `video` as allowed for media checks. The request itself runs through the dialog as before, because `getDisplayMedia` and a legacy `getUserMedia` with a desktop source cannot be told apart in the handler in Electron 44. Remaining risk: after consent has been given, a compromised renderer can still request another source or desktop audio for that session. What remains are consent per session, main frame only, CSP and the emergency brake.
+- Capture and connection no longer run in the main window but in a separate media window with its own partition, no `desktopApi` and no vault access. Only this window may capture, exactly once and only after consent. The main window sees no data from the other side.
+- Boundary (M4 remainder, now only for the media window): the media window is not attackable before the capture, because until then, after `hello` (with an empty `peerName`), it has processed no data from the other side in the agent window: the offer is only created after consent, and the answer follows later. After that the grant is used up and the main process rejects further requests. What remains are consent per session, main frame only and the CSP. On the viewing side the same holds for the “Remote view” window.
+- The system dialog delay (V8) stops a double click from confirming in the system dialog: it appears after about 550 ms at the earliest, and the button in the main window is locked until then.
+
+### Checking manually (Windows)
+
+The window protection on Windows (V6) is implemented, but its runtime has not been checked on a real Windows machine yet. How to check it:
+
+1. Start Shellherd with `SHELLHERD_REMOTE_LAB=1` on Windows 10 version 2004 or later, or Windows 11, unlock the vault and open an RDP tab.
+2. Share the screen with a second device (flow above).
+3. On the viewing device neither Shellherd windows nor the RDP surface may be visible: they are missing from the picture (Windows 10 from 2004) or black (older versions).
+4. Alternatively check locally: lock the vault, start the Snipping Tool or OBS during the share and record the screen. The recording must not show Shellherd.
+5. After `End`, Shellherd must be visible again in a new recording.
+
+Report the result (Windows version, path, anything unusual) as a finding.
 
 ## Private network and sync lab (development)
 
@@ -858,6 +874,7 @@ Every other device reports at its next sync `The sync key was renewed on another
 - Main: encrypted files, vault session key, `ssh2`, host key verification.
 - Preload: explicit, typed IPC methods; events without the Electron event object.
 - Renderer: React and xterm.js; no Node, file system or socket access.
+- Media window (remote view, development only): own partition, no `desktopApi`, own preload (`remote-media.cjs`). It ends with the session, with the vault lock and with the main window.
 - SSH requests use saved connection IDs and ownership-bound session IDs.
 - Output pauses while xterm acknowledgements are pending; input and scrollback
   are limited. Terminal output is not logged to disk.

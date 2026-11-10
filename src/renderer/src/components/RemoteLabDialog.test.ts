@@ -39,3 +39,19 @@ describe('RemoteLabDialog sign-in', () => {
     expect(markup).toContain('Ich habe die Adresse geprüft');
   });
 });
+
+describe('RemoteLabDialog viewer session', () => {
+  const session = (state: 'connecting' | 'active') => ({ phase: 'online', session: { id: 's', role: 'viewer', peer: { id: 'p', name: 'Büro' }, scope: 'view', state, expiresAt: Date.now() + 60000 } }) as RemoteLabState;
+  it('shows the connecting text and the stop button while connecting', () => {
+    const markup = render(session('connecting'));
+    expect(markup).toContain('Verschlüsselte Verbindung wird aufgebaut');
+    expect(markup).toContain('Verbindung beenden');
+    expect(markup).not.toContain('<video');
+  });
+  it('points to the viewer window when active and has no video element', () => {
+    const markup = render(session('active'));
+    expect(markup).toContain('eigenen Fenster');
+    expect(markup).toContain('Verbindung beenden');
+    expect(markup).not.toContain('<video');
+  });
+});

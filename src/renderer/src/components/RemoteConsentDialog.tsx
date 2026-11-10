@@ -13,30 +13,39 @@ function grouped(fingerprint: string): string {
   try { return groupFingerprint(fingerprint); } catch { return fingerprint; }
 }
 
+/** The field empties only when a failed attempt was counted; losing the counter on success (host marks it verified) keeps the input. */
+export function attemptsDropped(previous: number | undefined, next: number | undefined): boolean {
+  return previous !== undefined && next !== undefined && next < previous;
+}
+
 export function RemoteConsentDialog({ controller, session }: { controller: RemoteSessionController; session: RemoteLabSession }) {
   const { t } = useT(); const id = useId();
   const dialog = useRef<HTMLDialogElement>(null); const decline = useRef<HTMLButtonElement>(null);
-  const [armed, setArmed] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
   const [typed, setTyped] = useState('');
   const [now, setNow] = useState(() => Date.now());
   useNativeSurfaceBlock(true);
   useEffect(() => {
     // Re-arm for every session: the lock and the focus on "decline" restart with a new request.
-    setArmed(false); setNow(Date.now());
+    setUnlocked(false); setNow(Date.now());
     if (!dialog.current?.open) dialog.current?.showModal();
     decline.current?.focus();
-    const unlock = setTimeout(() => setArmed(true), REMOTE_LAB_LIMITS.acceptDelayMs);
+    const unlock = setTimeout(() => setUnlocked(true), REMOTE_LAB_LIMITS.acceptDelayMs);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => { clearTimeout(unlock); clearInterval(tick); };
   }, [session.id]);
   // A failed attempt (the host counts them) empties the field.
-  useEffect(() => { setTyped(''); }, [session.attemptsLeft]);
+  const lastAttempts = useRef(session.attemptsLeft);
+  useEffect(() => {
+    if (attemptsDropped(lastAttempts.current, session.attemptsLeft)) setTyped('');
+    lastAttempts.current = session.attemptsLeft;
+  }, [session.attemptsLeft]);
   const declineRequest = (): void => { void controller.act({ kind: 'decline', sessionId: session.id }); };
   const verified = session.peer.known?.verified === true;
   const verification = verified ? null : normalizeVerification(typed);
-  const canAccept = armed && session.state === 'consent' && (verified || verification !== null);
+  const canAccept = unlocked && !session.armed && session.state === 'consent' && (verified || verification !== null);
   const accept = (): void => {
-    // share() runs synchronously up to getDisplayMedia, so the click keeps its user activation.
+    // Only arms the capture; the host shows the native dialog after a short delay (V8).
     void controller.share(session.id, verification).then(() => { if (controller.view.error === 'mismatch') setTyped(''); });
   };
   return <dialog ref={dialog} className="confirm-dialog remote-consent-dialog" data-instant="" aria-labelledby={`${id}-title`}
@@ -50,12 +59,14 @@ export function RemoteConsentDialog({ controller, session }: { controller: Remot
     </> : <>
       <label htmlFor={`${id}-verify`}>{t('remoteLab:verify.label')}</label>
       <input id={`${id}-verify`} className="remote-lab-verify" maxLength={23} autoComplete="off" spellCheck={false} inputMode="text"
-        value={typed} disabled={session.state !== 'consent'} onChange={event => setTyped(event.target.value)} />
+        value={typed} disabled={session.state !== 'consent' || session.armed === true} onChange={event => setTyped(event.target.value)} />
       <p className="remote-lab-caption">{t('remoteLab:verify.hint')}</p>
     </>}
     {session.peer.changed && <p className="remote-lab-warning">{t('remoteLab:verify.changed', { name: session.peer.name })}</p>}
     <p className="remote-lab-caption">{t('remoteLab:consent.nativeHint')}</p>
     <p className="remote-lab-caption" role="timer">{t('remoteLab:consent.expires', { seconds: secondsLeft(session.expiresAt, now) })}</p>
+    {session.armed && <p className="remote-lab-caption" role="status">{t('remoteLab:consent.armedHint')}</p>}
+    {window.desktopApi.capabilities.platform === 'win32' && <p className="remote-lab-caption">{t('remoteLab:consent.windowsHint')}</p>}
     {window.desktopApi.capabilities.platform === 'linux' && <p className="remote-lab-warning">{t('remoteLab:consent.linuxHint')}</p>}
     <div className="remote-consent-actions">
       <button ref={decline} type="button" className="secondary-button" onClick={declineRequest}>{t('remoteLab:consent.decline')}</button>

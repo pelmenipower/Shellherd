@@ -59,10 +59,13 @@ const app = await electron.launch({
 });
 
 // Errors and warnings of every window since the start (CSP violations show up here); read with the `console` route.
+// Collected per window via app.on('window') so the media window (remote-media.html) is included as well.
 const consoleMessages = [];
-app.context().on('console', message => {
+const collect = window => window.on('console', message => {
   if (message.type() === 'error' || message.type() === 'warning') consoleMessages.push({ type: message.type(), text: message.text(), url: message.location().url });
 });
+app.windows().forEach(collect);
+app.on('window', collect);
 
 // Native dialogs would open on the real desktop and block the driver: file dialogs return the demo vault,
 // message boxes answer with their last button (for the host key prompt: "Schlüssel vertrauen und speichern").

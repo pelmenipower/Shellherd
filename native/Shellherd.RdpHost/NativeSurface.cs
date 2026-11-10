@@ -88,5 +88,12 @@ namespace Shellherd.RdpHost
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr SetWindowLongPtr(IntPtr window, int index, IntPtr value);
+
+        /// <summary>Screen-capture exclusion of a top-level window; WDA_EXCLUDEFROMCAPTURE needs Windows 10 2004.</summary>
+        public const uint WDA_NONE = 0x0, WDA_MONITOR = 0x1, WDA_EXCLUDEFROMCAPTURE = 0x11;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
     }
 }

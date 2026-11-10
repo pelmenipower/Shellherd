@@ -64,6 +64,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run ${{ matrix.command }}
+      - if: runner.os == 'Windows'
+        name: Verify Windows package
+        run: node scripts/check-win-package.mjs
       - if: runner.os == 'Linux'
         name: Verify Linux packages and installed application
         run: |

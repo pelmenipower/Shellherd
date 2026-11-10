@@ -1,74 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RemoteLabEvent, RemoteLabReply, RemoteLabRequest, RemoteLabState } from '../../shared/remote-lab';
-import { splitSignal } from '../../shared/remote-signal';
-import { RemoteSessionController, type CaptureSource, type PeerFactory, type RemoteView } from './remote-peer';
+import { RemoteSessionController } from './remote-peer';
 
-const FP = Array.from({ length: 32 }, () => 'ab').join(':');
-const sdp = (extra = '', direction = 'a=sendonly'): string => `v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=fingerprint:sha-256 ${FP}\r\na=setup:actpass\r\n${direction}\r\n${extra}`;
-const answerSdp = (): string => sdp('', 'a=recvonly');
 const idle: RemoteLabState = { phase: 'online' };
 
-class FakePc {
-  config: RTCConfiguration;
-  tracks: unknown[] = [];
-  closed = false;
-  iceGatheringState = 'new';
-  connectionState = 'new';
-  localDescription: { type: string; sdp: string } | null = null;
-  remote: { type: string; sdp: string } | null = null;
-  ontrack: ((e: unknown) => void) | null = null;
-  onconnectionstatechange: (() => void) | null = null;
-  listeners = new Map<string, () => void>();
-  localSdp = sdp();
-  localAnswerSdp = answerSdp();
-  transceivers: { direction: string }[] = [];
-  addTransceivers: { track: unknown; init: unknown }[] = [];
-  constructor(config: RTCConfiguration) { this.config = config; }
-  addTrack(track: unknown): void { this.tracks.push(track); }
-  addTransceiver(track: unknown, init: unknown): void { this.tracks.push(track); this.addTransceivers.push({ track, init }); }
-  getTransceivers(): { direction: string }[] { return this.transceivers; }
-  addEventListener(name: string, fn: () => void): void { this.listeners.set(name, fn); }
-  removeEventListener(name: string): void { this.listeners.delete(name); }
-  async createOffer(): Promise<{ type: string; sdp: string }> { return { type: 'offer', sdp: this.localSdp }; }
-  async createAnswer(): Promise<{ type: string; sdp: string }> { return { type: 'answer', sdp: this.localAnswerSdp }; }
-  async setLocalDescription(d: { type: string; sdp: string }): Promise<void> { this.localDescription = d; }
-  async setRemoteDescription(d: { type: string; sdp: string }): Promise<void> { this.remote = d; if (d.type === 'offer') this.transceivers.push({ direction: 'sendrecv' }); }
-  close(): void { this.closed = true; }
-  complete(): void { this.iceGatheringState = 'complete'; this.listeners.get('icegatheringstatechange')?.(); }
-}
-
-function track() { return { stopped: false, onended: null as (() => void) | null, stop() { this.stopped = true; } }; }
-function streamOf(tracks: ReturnType<typeof track>[]): MediaStream {
-  return { getTracks: () => tracks } as unknown as MediaStream;
-}
-
-function setup(opts: { reply?: (r: RemoteLabRequest) => RemoteLabReply; capture?: () => Promise<MediaStream> } = {}) {
-  const log: string[] = [];
+function setup(opts: { reply?: (r: RemoteLabRequest) => RemoteLabReply } = {}) {
   const requests: RemoteLabRequest[] = [];
   let listener: (e: RemoteLabEvent) => void = () => {};
   const unsubscribe = vi.fn();
   const api = {
     remoteLabAction: vi.fn(async (r: RemoteLabRequest): Promise<RemoteLabReply> => {
-      log.push(r.kind);
       requests.push(r);
       return opts.reply ? opts.reply(r) : { ok: true, state: idle };
     }),
     onRemoteLabEvent: (l: (e: RemoteLabEvent) => void) => { listener = l; return unsubscribe; }
   };
-  const pcs: FakePc[] = [];
-  const peers: PeerFactory = { create: config => { const pc = new FakePc(config); pcs.push(pc); return pc as unknown as RTCPeerConnection; } };
-  const tracks = [track()];
-  const capture: CaptureSource = { capture: opts.capture ?? (async () => { log.push('capture'); return streamOf(tracks); }) };
-  const timers = new Map<number, { fn: () => void; ms: number }>();
-  let next = 1;
-  const controller = new RemoteSessionController(api, 'c1', peers, capture, {
-    setTimeout: (fn, ms) => { timers.set(next, { fn, ms }); return next++; },
-    clearTimeout: h => { timers.delete(h as number); }
-  });
-  return { controller, api, log, requests, pcs, tracks, timers, emit: (e: RemoteLabEvent) => listener(e), unsubscribe };
+  const controller = new RemoteSessionController(api, 'c1');
+  return { controller, api, requests, kinds: () => requests.map(r => r.kind), emit: (e: RemoteLabEvent) => listener(e), unsubscribe };
 }
 
-const flush = async (): Promise<void> => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+const flush = async (): Promise<void> => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 
 describe('RemoteSessionController act', () => {
   it('adds the clientId, applies the state and clears the error', async () => {
@@ -94,377 +45,71 @@ describe('RemoteSessionController act', () => {
     expect(t.controller.view.error).toBe('connection');
   });
 
+  it('remembers the device name of goOnline', async () => {
+    const t = setup();
+    await t.controller.act({ kind: 'goOnline', deviceName: 'Laptop' });
+    expect(t.controller.deviceName).toBe('Laptop');
+  });
+
   it('applies state and error events', () => {
     const t = setup();
     t.emit({ kind: 'state', state: { phase: 'signedIn' } });
     expect(t.controller.view.state.phase).toBe('signedIn');
-    t.emit({ kind: 'error', code: 'authentication' });
-    expect(t.controller.view.error).toBe('authentication');
+    t.emit({ kind: 'error', code: 'mediaWindow' });
+    expect(t.controller.view.error).toBe('mediaWindow');
   });
 });
 
 describe('RemoteSessionController share (agent)', () => {
-  it('runs armCapture, capture, accept, then sends the offer parts', async () => {
+  it('sends only armCapture', async () => {
     const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.complete();
-    await done;
-    expect(t.log).toEqual(['armCapture', 'capture', 'accept', 'signal']);
-    const part = t.requests[2]!;
-    expect(part).toMatchObject({ kind: 'signal', sessionId: 's1', part: { kind: 'offer', part: 1, of: 1 } });
-    expect(t.pcs[0]!.config).toEqual({ iceServers: [] });
-    expect(t.pcs[0]!.tracks).toEqual([t.tracks[0]]);
+    await t.controller.share('s1', 'abcd');
+    expect(t.requests).toEqual([{ kind: 'armCapture', sessionId: 's1', verification: 'abcd', clientId: 'c1' }]);
   });
 
-  it('calls capture after exactly one awaited roundtrip', async () => {
-    const t = setup({ capture: () => { t.log.push('capture'); return new Promise<MediaStream>(() => {}); } });
-    void t.controller.share('s1', null);
-    expect(t.log).toEqual(['armCapture']);
-    // act wraps the IPC call; capture must run within a few microtasks of its reply, not after extra roundtrips.
-    await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-    expect(t.log).toEqual(['armCapture', 'capture']);
-  });
-
-  it('stops when armCapture is refused and never captures', async () => {
+  it('records the error when armCapture is refused', async () => {
     const t = setup({ reply: () => ({ ok: false, code: 'stale' }) });
     await t.controller.share('s1', null);
-    expect(t.log).toEqual(['armCapture']);
+    expect(t.kinds()).toEqual(['armCapture']);
     expect(t.controller.view.error).toBe('stale');
   });
-
-  it('declines with media when the capture fails', async () => {
-    const t = setup({ capture: async () => { throw new Error('denied'); } });
-    await t.controller.share('s1', null);
-    expect(t.log).toEqual(['armCapture', 'decline', 'stopped']);
-    expect(t.controller.view.error).toBe('media');
-  });
-
-  it('stops the tracks when accept fails', async () => {
-    const t = setup({ reply: r => (r.kind === 'accept' ? { ok: false, code: 'expired' } : { ok: true, state: idle }) });
-    await t.controller.share('s1', null);
-    expect(t.tracks[0]!.stopped).toBe(true);
-    expect(t.controller.view.error).toBe('expired');
-    expect(t.pcs).toHaveLength(0);
-    expect(t.log.filter(k => k === 'stopped')).toHaveLength(1);
-  });
-
-  it('sends the offer after the 2 s gathering timeout', async () => {
-    const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    const gather = [...t.timers.values()].find(x => x.ms === 2000);
-    expect(gather).toBeDefined();
-    expect(t.log).not.toContain('signal');
-    gather!.fn();
-    await done;
-    expect(t.log).toContain('signal');
-  });
-
-  it('reports signal and stops when the local SDP is invalid', async () => {
-    const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.localSdp = 'v=0\r\n';
-    t.pcs[0]!.localDescription = { type: 'offer', sdp: 'v=0\r\n' };
-    t.pcs[0]!.complete();
-    await done;
-    await flush();
-    expect(t.controller.view.error).toBe('signal');
-    expect(t.log).toContain('stop');
-    expect(t.log.filter(k => k === 'stopped')).toHaveLength(1);
-    expect(t.pcs[0]!.closed).toBe(true);
-    expect(t.tracks[0]!.stopped).toBe(true);
-  });
-
-  it('applies a complete answer as remote description', async () => {
-    const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.complete();
-    await done;
-    for (const part of splitSignal('answer', answerSdp())) t.emit({ kind: 'signal', sessionId: 's1', part });
-    await flush();
-    expect(t.pcs[0]!.remote).toEqual({ type: 'answer', sdp: answerSdp() });
-  });
-
-  it('adds the track as a sendonly transceiver (V4)', async () => {
-    const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.complete();
-    await done;
-    expect(t.pcs[0]!.addTransceivers).toHaveLength(1);
-    expect(t.pcs[0]!.addTransceivers[0]!.init).toMatchObject({ direction: 'sendonly' });
-  });
-
-  it('rejects an answer with a wrong direction (V4)', async () => {
-    const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.complete();
-    await done;
-    for (const part of splitSignal('answer', sdp('', 'a=sendrecv'))) t.emit({ kind: 'signal', sessionId: 's1', part });
-    await flush();
-    expect(t.controller.view.error).toBe('signal');
-    expect(t.pcs[0]!.remote).toBeNull();
-  });
-
-  it('rejects an offer arriving at the agent with signal', async () => {
-    const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.complete();
-    await done;
-    t.emit({ kind: 'signal', sessionId: 's1', part: splitSignal('offer', sdp())[0]! });
-    await flush();
-    expect(t.controller.view.error).toBe('signal');
-    expect(t.log.slice(-2)).toEqual(['stop', 'stopped']);
-  });
-
-  it('reports peer and stops when the connection fails', async () => {
-    const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.complete();
-    await done;
-    t.pcs[0]!.connectionState = 'failed';
-    t.pcs[0]!.onconnectionstatechange?.();
-    await flush();
-    expect(t.controller.view.error).toBe('peer');
-    expect(t.log.slice(-2)).toEqual(['stop', 'stopped']);
-    expect(t.tracks[0]!.stopped).toBe(true);
-    expect(t.pcs[0]!.closed).toBe(true);
-  });
 });
 
-describe('RemoteSessionController capture receipt (K12)', () => {
-  it('sends armCapture with the verification', async () => {
-    const t = setup({ capture: () => new Promise<MediaStream>(() => {}) });
-    void t.controller.share('s1', 'abcdef012345');
-    await flush();
-    expect(t.requests[0]).toMatchObject({ kind: 'armCapture', sessionId: 's1', verification: 'abcdef012345' });
-  });
-
-  it('acknowledges once after the tracks are stopped and the connection is closed', async () => {
-    const t = setup();
-    const order: string[] = [];
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.complete();
-    await done;
-    const pc = t.pcs[0]!;
-    const originalClose = pc.close.bind(pc);
-    pc.close = () => { order.push('close'); originalClose(); };
-    const originalStop = t.tracks[0]!.stop.bind(t.tracks[0]!);
-    t.tracks[0]!.stop = () => { order.push('track'); originalStop(); };
-    t.api.remoteLabAction.mockImplementation(async (r: RemoteLabRequest) => { order.push(r.kind); return { ok: true, state: idle }; });
-    t.emit({ kind: 'ended', sessionId: 's1', reason: 'remote' });
-    t.emit({ kind: 'ended', sessionId: 's1', reason: 'remote' });
-    await flush();
-    expect(order).toEqual(['track', 'close', 'stopped']);
-  });
-
-  it('stops a late stream and then acknowledges when ended arrives during capture', async () => {
-    let resolve: (s: MediaStream) => void = () => {};
-    const t = setup({ capture: () => new Promise<MediaStream>(r => { resolve = r; }) });
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.emit({ kind: 'ended', sessionId: 's1', reason: 'remote' });
-    await flush();
-    expect(t.log).toEqual(['armCapture']);
-    resolve(streamOf(t.tracks));
-    await done;
-    expect(t.tracks[0]!.stopped).toBe(true);
-    expect(t.log).toEqual(['armCapture', 'stopped']);
-  });
-
-  it('acknowledges after the native dialog was declined (no stream)', async () => {
-    const t = setup({ capture: async () => { throw new Error('denied'); } });
-    await t.controller.share('s1', null);
-    expect(t.log.filter(k => k === 'stopped')).toHaveLength(1);
-    expect(t.log.at(-1)).toBe('stopped');
-  });
-
-  it('does not acknowledge without share()', async () => {
+describe('RemoteSessionController events and stop', () => {
+  it('sets ended on an ended event and sends nothing back', async () => {
     const t = setup();
     t.emit({ kind: 'ended', sessionId: 's1', reason: 'remote' });
-    t.controller.stop();
     await flush();
-    expect(t.log).not.toContain('stopped');
-  });
-
-  it('neither captures nor acknowledges after a mismatch reply', async () => {
-    const t = setup({ reply: () => ({ ok: false, code: 'mismatch' }) });
-    await t.controller.share('s1', 'abcdef012345');
-    t.emit({ kind: 'ended', sessionId: 's1', reason: 'mismatch' });
-    await flush();
-    expect(t.log).toEqual(['armCapture']);
-  });
-});
-
-describe('RemoteSessionController viewer', () => {
-  const viewerState: RemoteLabState = {
-    phase: 'online',
-    session: { id: 'v1', role: 'viewer', peer: { id: 'f'.repeat(64), name: 'x' }, scope: 'view', state: 'active', expiresAt: 1 }
-  };
-
-  it('answers an offer and exposes the stream', async () => {
-    const t = setup();
-    t.emit({ kind: 'state', state: viewerState });
-    for (const part of splitSignal('offer', sdp())) t.emit({ kind: 'signal', sessionId: 'v1', part });
-    await flush();
-    const pc = t.pcs[0]!;
-    expect(pc.config).toEqual({ iceServers: [] });
-    expect(pc.remote).toEqual({ type: 'offer', sdp: sdp() });
-    pc.complete();
-    await flush();
-    expect(t.requests.at(-1)).toMatchObject({ kind: 'signal', sessionId: 'v1', part: { kind: 'answer', part: 1, of: 1 } });
-    const stream = { id: 'stream' } as unknown as MediaStream;
-    pc.ontrack?.({ streams: [stream], track: {} });
-    expect(t.controller.view.stream).toBe(stream);
-  });
-
-  it('sets every transceiver to recvonly after the remote offer (V4)', async () => {
-    const t = setup();
-    t.emit({ kind: 'state', state: viewerState });
-    for (const part of splitSignal('offer', sdp())) t.emit({ kind: 'signal', sessionId: 'v1', part });
-    await flush();
-    expect(t.pcs[0]!.transceivers).toEqual([{ direction: 'recvonly' }]);
-    expect(t.pcs[0]!.addTransceivers).toEqual([]);
-  });
-
-  it('rejects an offer that is not sendonly (V4)', async () => {
-    const t = setup();
-    t.emit({ kind: 'state', state: viewerState });
-    for (const part of splitSignal('offer', sdp('', 'a=sendrecv'))) t.emit({ kind: 'signal', sessionId: 'v1', part });
-    await flush();
-    expect(t.controller.view.error).toBe('signal');
-    expect(t.pcs).toHaveLength(0);
-  });
-
-  it('a second complete offer fails the session and never creates a second connection (V1)', async () => {
-    const t = setup();
-    t.emit({ kind: 'state', state: viewerState });
-    for (const part of splitSignal('offer', sdp())) t.emit({ kind: 'signal', sessionId: 'v1', part });
-    await flush();
-    t.emit({ kind: 'signal', sessionId: 'v1', part: splitSignal('offer', sdp())[0]! });
-    await flush();
-    expect(t.pcs).toHaveLength(1);
-    expect(t.controller.view.error).toBe('signal');
-    expect(t.pcs[0]!.closed).toBe(true);
-    expect(t.log).toContain('stop');
-  });
-
-  it('flags a broken offer as signal', async () => {
-    const t = setup();
-    t.emit({ kind: 'state', state: viewerState });
-    t.emit({ kind: 'signal', sessionId: 'v1', part: { kind: 'offer', part: 1, of: 1, data: 'v=0' } });
-    await flush();
-    expect(t.controller.view.error).toBe('signal');
-    expect(t.log).toContain('stop');
-  });
-
-  it('rejects an answer arriving at the viewer', async () => {
-    const t = setup();
-    t.emit({ kind: 'state', state: viewerState });
-    t.emit({ kind: 'signal', sessionId: 'v1', part: splitSignal('answer', answerSdp())[0]! });
-    await flush();
-    expect(t.controller.view.error).toBe('signal');
-  });
-});
-
-describe('RemoteSessionController teardown', () => {
-  it('closes everything on an ended event without sending stop', async () => {
-    const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.complete();
-    await done;
-    t.log.length = 0;
-    t.emit({ kind: 'ended', sessionId: 's1', reason: 'remote' });
-    await flush();
-    expect(t.log).toEqual(['stopped']);
-    expect(t.pcs[0]!.closed).toBe(true);
-    expect(t.tracks[0]!.stopped).toBe(true);
     expect(t.controller.view.ended).toBe('remote');
-    expect(t.controller.view.stream).toBeUndefined();
+    expect(t.requests).toEqual([]);
   });
 
-  it('stop closes locally first, then sends stop and sets stopped', async () => {
+  it('stop() sends only stop for the current session and marks it stopped', async () => {
     const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.complete();
-    await done;
+    t.emit({ kind: 'state', state: { phase: 'online', session: { id: 's1', role: 'viewer', peer: { id: 'x', name: 'n' }, scope: 'view', state: 'active', expiresAt: 1 } } });
     t.controller.stop();
-    expect(t.pcs[0]!.closed).toBe(true);
-    expect(t.tracks[0]!.stopped).toBe(true);
     await flush();
-    expect(t.log.slice(-2)).toEqual(['stop', 'stopped']);
+    expect(t.requests).toEqual([{ kind: 'stop', sessionId: 's1', clientId: 'c1' }]);
     expect(t.controller.view.ended).toBe('stopped');
   });
 
-  it('stops the tracks when the user ends the capture', async () => {
+  it('never sends accept, signal or stopped', async () => {
     const t = setup();
-    const done = t.controller.share('s1', null);
+    await t.controller.share('s1', null);
+    t.emit({ kind: 'ended', sessionId: 's1', reason: 'failed' });
+    t.controller.stop();
     await flush();
-    t.pcs[0]!.complete();
-    await done;
-    t.tracks[0]!.onended?.();
-    await flush();
-    expect(t.log.slice(-2)).toEqual(['stop', 'stopped']);
+    for (const kind of t.kinds()) expect(['accept', 'signal', 'stopped']).not.toContain(kind);
   });
 
-  it('dispose unsubscribes and closes locally', async () => {
+  it('dispose unsubscribes and silences listeners', () => {
     const t = setup();
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.pcs[0]!.complete();
-    await done;
+    const seen = vi.fn();
+    t.controller.subscribe(seen);
     t.controller.dispose();
     expect(t.unsubscribe).toHaveBeenCalled();
-    expect(t.pcs[0]!.closed).toBe(true);
-    expect(t.tracks[0]!.stopped).toBe(true);
-  });
-  it('dispose is final: a rebuilt controller (StrictMode remount) receives events and updates', async () => {
-    let listener: (e: RemoteLabEvent) => void = () => {};
-    const api = {
-      remoteLabAction: vi.fn(async (): Promise<RemoteLabReply> => ({ ok: true, state: idle })),
-      onRemoteLabEvent: (l: (e: RemoteLabEvent) => void) => { listener = l; return () => {}; }
-    };
-    const build = () => new RemoteSessionController(api, 'c', { create: () => { throw new Error('unused'); } }, { capture: async () => streamOf([]) });
-    const first = build();
-    first.dispose();
-    const second = build();
-    const seen: RemoteView[] = [];
-    second.subscribe(v => seen.push(v));
-    listener({ kind: 'state', state: { phase: 'signedIn' } });
-    expect(seen.at(-1)?.state.phase).toBe('signedIn');
-    await second.act({ kind: 'goOffline' });
-    expect(seen.at(-1)?.state.phase).toBe('online');
-    first.dispose();
-  });
-
-  it('dispose during capture stops the tracks and declines instead of accepting', async () => {
-    let resolve: (s: MediaStream) => void = () => {};
-    const t = setup({ capture: () => new Promise<MediaStream>(r => { resolve = r; }) });
-    const done = t.controller.share('s1', null);
-    await flush();
-    t.controller.dispose();
-    resolve(streamOf(t.tracks));
-    await done;
-    expect(t.tracks[0]!.stopped).toBe(true);
-    expect(t.log).toContain('decline');
-    expect(t.log).not.toContain('accept');
-    expect(t.log.filter(k => k === 'stopped')).toHaveLength(1);
-    expect(t.pcs).toHaveLength(0);
-  });
-
-  it('remembers the device name of the last successful goOnline', async () => {
-    const t = setup();
-    expect(t.controller.deviceName).toBeUndefined();
-    await t.controller.act({ kind: 'goOnline', deviceName: 'Laptop' });
-    expect(t.controller.deviceName).toBe('Laptop');
+    seen.mockClear();
+    t.emit({ kind: 'state', state: { phase: 'signedIn' } });
+    expect(seen).not.toHaveBeenCalled();
   });
 });

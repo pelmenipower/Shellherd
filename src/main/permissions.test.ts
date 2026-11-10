@@ -3,12 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 const appOn = vi.fn();
 vi.mock('electron', () => ({ app: { on: (...a: unknown[]) => appOn(...a) } }));
 
-import { decidePermission, decidePermissionRequest, registerPermissionHandlers, type PermissionContext } from './permissions';
+import { decidePermission, decidePermissionRequest, registerGlobalDeviceGuards, registerPermissionHandlers, type PermissionContext } from './permissions';
 
 const ctx = (over: Partial<PermissionContext> = {}, granted = true): PermissionContext => ({
   remoteLabEnabled: true,
   captureGranted: () => granted,
-  requestCapture: async () => granted,
   ...over,
 });
 
@@ -68,91 +67,97 @@ describe('decidePermission', () => {
   });
 });
 
-describe('consent gate', () => {
-  // A host double: consent is per session and not given before the dialog was accepted.
-  const host = (accept: boolean) => {
-    let granted = false;
-    const requestCapture = vi.fn(async () => { if (accept) granted = true; return accept; });
-    const c: PermissionContext = { remoteLabEnabled: true, captureGranted: () => granted, requestCapture };
-    return { c, requestCapture, newSession: () => { granted = false; } };
-  };
+describe('decidePermissionRequest', () => {
   const d = { isMainFrame: true, mediaTypes: [] };
 
-  it('media with an empty list is false without consent, true after it, false for a new session', async () => {
-    const h = host(true);
-    expect(decidePermission('media', d, 1, 'request', h.c)).toBe(false);
-    expect(decidePermission('media', { isMainFrame: true, mediaType: 'video' }, 1, 'check', h.c)).toBe(false);
-    expect(await decidePermissionRequest('media', d, 1, h.c)).toBe(true);
-    expect(decidePermission('media', d, 1, 'request', h.c)).toBe(true);
-    expect(decidePermission('media', { isMainFrame: true, mediaType: 'video' }, 1, 'check', h.c)).toBe(true);
-    h.newSession();
-    expect(decidePermission('media', d, 1, 'request', h.c)).toBe(false);
+  it('is synchronous and equals decidePermission (path A)', () => {
+    expect(decidePermissionRequest('media', d, 1, ctx())).toBe(true);
+    expect(decidePermissionRequest('display-capture', d, 1, ctx({}, false))).toBe(false);
+    expect(decidePermissionRequest('geolocation', d, 1, ctx())).toBe(false);
+    expect(decidePermissionRequest('media', { isMainFrame: true, mediaTypes: ['audio'] }, 1, ctx())).toBe(false);
+    expect(decidePermissionRequest('media', { isMainFrame: false, mediaTypes: [] }, 1, ctx())).toBe(false);
+    expect(decidePermissionRequest('media', d, null, ctx())).toBe(false);
+    expect(decidePermissionRequest('media', d, 1, ctx({ remoteLabEnabled: false }))).toBe(false);
   });
 
-  it('asks the dialog once: a granted session passes without a new dialog', async () => {
-    const h = host(true);
-    expect(await decidePermissionRequest('display-capture', d, 1, h.c)).toBe(true);
-    expect(await decidePermissionRequest('display-capture', d, 1, h.c)).toBe(true);
-    expect(h.requestCapture).toHaveBeenCalledTimes(1);
+  it('path B: the request consumes the grant once', () => {
+    let granted = true;
+    const consumeCapture = vi.fn(() => { const was = granted; granted = false; return was; });
+    const c = ctx({ captureGranted: () => granted, consumeCapture });
+    expect(decidePermissionRequest('media', d, 4, c)).toBe(true);
+    expect(consumeCapture).toHaveBeenCalledWith(4);
+    expect(decidePermissionRequest('media', d, 4, c)).toBe(false);
+    expect(consumeCapture).toHaveBeenCalledTimes(1);
   });
 
-  it('a declined or failing dialog denies; other permissions and audio never open the dialog', async () => {
-    const no = host(false);
-    expect(await decidePermissionRequest('media', d, 1, no.c)).toBe(false);
-    const boom = host(true);
-    boom.c.requestCapture = async () => { throw new Error('x'); };
-    expect(await decidePermissionRequest('media', d, 1, boom.c)).toBe(false);
-    const h = host(true);
-    expect(await decidePermissionRequest('geolocation', d, 1, h.c)).toBe(false);
-    expect(await decidePermissionRequest('media', { isMainFrame: true, mediaTypes: ['audio'] }, 1, h.c)).toBe(false);
-    expect(await decidePermissionRequest('media', { isMainFrame: true, mediaTypes: ['video'] }, 1, h.c)).toBe(false);
-    expect(await decidePermissionRequest('media', { isMainFrame: false, mediaTypes: [] }, 1, h.c)).toBe(false);
-    expect(await decidePermissionRequest('media', d, null, h.c)).toBe(false);
-    expect(await decidePermissionRequest('media', d, 1, { ...h.c, remoteLabEnabled: false })).toBe(false);
-    expect(h.requestCapture).not.toHaveBeenCalled();
-  });
-
-  it('desktop audio stays denied even when granted', () => {
-    const h = host(true);
-    h.c.captureGranted = () => true;
-    expect(decidePermission('media', { isMainFrame: true, mediaTypes: ['audio'] }, 1, 'request', h.c)).toBe(false);
-    expect(decidePermission('media', { isMainFrame: true, mediaType: 'audio' }, 1, 'check', h.c)).toBe(false);
+  it('path B: a denied request never consumes', () => {
+    const consumeCapture = vi.fn(() => true);
+    expect(decidePermissionRequest('geolocation', d, 1, ctx({ consumeCapture }))).toBe(false);
+    expect(consumeCapture).not.toHaveBeenCalled();
   });
 });
 
 describe('registerPermissionHandlers', () => {
-  it('registers all handlers and blocks device pickers', async () => {
-    appOn.mockClear();
-    const on = vi.fn();
-    const setPermissionRequestHandler = vi.fn();
-    const setPermissionCheckHandler = vi.fn();
-    const setDevicePermissionHandler = vi.fn();
-    const session = { on, setPermissionRequestHandler, setPermissionCheckHandler, setDevicePermissionHandler };
-    registerPermissionHandlers(session as never, ctx());
+  const fake = () => {
+    const s = {
+      on: vi.fn(), setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn(),
+      setDevicePermissionHandler: vi.fn(), setDisplayMediaRequestHandler: vi.fn(),
+    };
+    return s;
+  };
 
-    const req = setPermissionRequestHandler.mock.calls[0][0];
+  it('registers all handlers and blocks device pickers, without an app hook', () => {
+    appOn.mockClear();
+    const s = fake();
+    registerPermissionHandlers(s as never, ctx());
+    const req = s.setPermissionRequestHandler.mock.calls[0][0];
     const cb = vi.fn();
     req({ id: 3 }, 'display-capture', cb, { isMainFrame: true });
-    await vi.waitFor(() => expect(cb).toHaveBeenCalledWith(true));
+    expect(cb).toHaveBeenLastCalledWith(true);
     req({ id: 3 }, 'geolocation', cb, { isMainFrame: true });
-    await vi.waitFor(() => expect(cb).toHaveBeenLastCalledWith(false));
-
-    const check = setPermissionCheckHandler.mock.calls[0][0];
+    expect(cb).toHaveBeenLastCalledWith(false);
+    const check = s.setPermissionCheckHandler.mock.calls[0][0];
     expect(check({ id: 3 }, 'display-capture', 'o', { isMainFrame: true })).toBe(true);
     expect(check(null, 'display-capture', 'o', { isMainFrame: true })).toBe(false);
-
-    expect(setDevicePermissionHandler.mock.calls[0][0]()).toBe(false);
-
-    const events = on.mock.calls.map(c => c[0]);
-    expect(events).toEqual(['select-hid-device', 'select-serial-port', 'select-usb-device']);
-    for (const [, h] of on.mock.calls) {
+    expect(s.setDevicePermissionHandler.mock.calls[0][0]()).toBe(false);
+    expect(s.on.mock.calls.map(c => c[0])).toEqual(['select-hid-device', 'select-serial-port', 'select-usb-device']);
+    for (const [, h] of s.on.mock.calls) {
       const e = { preventDefault: vi.fn() };
       const c = vi.fn();
       h(e, {}, c);
       expect(e.preventDefault).toHaveBeenCalled();
       expect(c).toHaveBeenCalledWith();
     }
+    expect(appOn).not.toHaveBeenCalled();
+    expect(s.setDisplayMediaRequestHandler).not.toHaveBeenCalled();
+  });
 
+  it('never opens a dialog and survives a throwing context', () => {
+    const s = fake();
+    registerPermissionHandlers(s as never, ctx({ captureGranted: () => { throw new Error('x'); } }));
+    const cb = vi.fn();
+    s.setPermissionRequestHandler.mock.calls[0][0]({ id: 1 }, 'display-capture', cb, { isMainFrame: true });
+    expect(cb).toHaveBeenCalledWith(false);
+  });
+
+  it('a session without the lab refuses all capture and gets a deny display-media handler', () => {
+    const s = fake();
+    registerPermissionHandlers(s as never, { remoteLabEnabled: false, captureGranted: () => false });
+    const cb = vi.fn();
+    s.setDisplayMediaRequestHandler.mock.calls[0][0]({}, cb);
+    expect(cb).toHaveBeenCalledWith({});
+    const req = s.setPermissionRequestHandler.mock.calls[0][0];
+    req({ id: 1 }, 'display-capture', cb, { isMainFrame: true });
+    expect(cb).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe('registerGlobalDeviceGuards', () => {
+  it('hooks web-contents-created once and blocks the bluetooth picker', () => {
+    appOn.mockClear();
+    registerGlobalDeviceGuards();
+    registerGlobalDeviceGuards();
+    expect(appOn).toHaveBeenCalledTimes(1);
     expect(appOn.mock.calls[0][0]).toBe('web-contents-created');
     const wcOn = vi.fn();
     appOn.mock.calls[0][1]({}, { on: wcOn });

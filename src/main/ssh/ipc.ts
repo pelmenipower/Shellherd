@@ -7,6 +7,7 @@ const spawnShell: SpawnShell = (file, args, options) => require('node-pty').spaw
 import { AppError } from '../../shared/errors';
 import { IPC_CHANNELS } from '../../shared/ipc';
 import { mainT } from '../i18n';
+import { windowRegistry } from '../windows';
 import { vaultSessionManager } from '../vault/ipc';
 import { KnownHosts } from './known-hosts';
 import { openRemoteHost } from '../containers/runner';
@@ -21,7 +22,9 @@ import { AckSchema, AuthPromptAnswerSchema, ForwardSchema, InputSchema, PrepareS
 
 export function requireSshSender(event: IpcMainInvokeEvent): number {
   const window = BrowserWindow.fromWebContents(event.sender);
-  if (!window || event.sender.isDestroyed() || event.senderFrame !== event.sender.mainFrame) {
+  // Allow-list: a BrowserWindow outside the registry (e.g. the media window) must not reach vault-backed IPC.
+  if (!window || event.sender.isDestroyed() || event.senderFrame !== event.sender.mainFrame
+    || windowRegistry.roleOf(event.sender.id) === undefined) {
     throw new AppError('ssh.senderNotAllowed');
   }
   return event.sender.id;
@@ -30,7 +33,9 @@ export function requireSshSender(event: IpcMainInvokeEvent): number {
 /** One instance for terminals and file transfers: it serializes confirmations and writes. */
 export function createKnownHosts(): KnownHosts {
   return new KnownHosts(join(app.getPath('userData'), 'known-hosts.json'), async prompt => {
-    const parent = BrowserWindow.getFocusedWindow();
+    // Only a registered window may parent the dialog; an unregistered focused window falls back to the main window.
+    const focused = BrowserWindow.getFocusedWindow();
+    const parent = focused && windowRegistry.roleOf(focused.webContents.id) !== undefined ? focused : windowRegistry.main();
     const options = {
       type: 'warning' as const,
       title: mainT('dialogs.hostKey.title'),
