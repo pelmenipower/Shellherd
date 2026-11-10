@@ -24,3 +24,5 @@
 .sync-lab-code { display: block; font-family: var(--font-mono); user-select: text; overflow-wrap: anywhere; padding: var(--space-10); background: var(--color-bg-app); border-radius: var(--radius-sm); }
 .sync-lab-confirm { display: grid; gap: var(--space-12); justify-items: start; margin: var(--space-12) 0; }
 .sync-lab-dialog .sync-result { margin-bottom: var(--space-12); }
+.sync-lab-toggle { display: flex; gap: var(--space-8); }
+.sync-lab-toggle button[aria-pressed='true'] { border-color: var(--color-accent); background: var(--color-bg-selected); }

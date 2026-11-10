@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { canRevoke, enrollReady, importReady, needsRecoveryCode, passwordTooShort, recoveryCodeValid } from './sync-lab-view';
+import { canRevoke, enrollReady, importReady, inviteReady, needsRecoveryCode, passwordTooShort, recoveryCodeValid } from './sync-lab-view';
 
 const CODE = '0123456789abcdef0123456789abcdef';
 describe('sync lab view rules', () => {
   it('asks for the recovery code only for its two error codes', () => {
     expect(needsRecoveryCode('syncKey')).toBe(true);
     expect(needsRecoveryCode('syncRecoveryCode')).toBe(true);
+    expect(needsRecoveryCode('syncRotated')).toBe(true);
+    expect(needsRecoveryCode('syncInviteKey')).toBe(true);
     expect(needsRecoveryCode('failed')).toBe(false);
     expect(needsRecoveryCode(null)).toBe(false);
   });
@@ -48,5 +50,21 @@ describe('sync lab view rules', () => {
   it('blocks enrollment for another known address until it is confirmed (C1)', () => {
     expect(enrollReady('alice', 'pw', 'Laptop', false)).toBe(false);
     expect(enrollReady('alice', 'pw', 'Laptop', true)).toBe(true);
+  });
+});
+
+describe('enrollment code rules', () => {
+  it('needs no recovery code for an import while an enrollment code is held', () => {
+    expect(importReady('', 'abcdefgh', 'abcdefgh', true)).toBe(true);
+    expect(importReady('', 'abcdefgh', 'abcdefgh')).toBe(false);
+    expect(importReady('', 'abcdefg', 'abcdefg', true)).toBe(false);
+    expect(importReady('', 'abcdefgh', 'abcdefgi', true)).toBe(false);
+  });
+  it('enrolls with a valid code, a valid device name and the confirmation', () => {
+    expect(inviteReady(CODE, 'Laptop')).toBe(true);
+    expect(inviteReady(CODE.match(/.{4}/g)!.join('-'), 'Laptop')).toBe(true);
+    expect(inviteReady('abc', 'Laptop')).toBe(false);
+    expect(inviteReady(CODE, '20241110')).toBe(false);
+    expect(inviteReady(CODE, 'Laptop', false)).toBe(false);
   });
 });

@@ -5,7 +5,7 @@ const mock = vi.hoisted(() => ({
 }));
 vi.mock('electron', () => ({ app: mock.app, ipcMain: { handle: mock.handle } }));
 vi.mock('../windows', () => ({ windowRegistry: { requireMain: mock.guard } }));
-const sync = vi.hoisted(() => ({ synchronizeVault: vi.fn(), importSyncedVault: vi.fn(), removeForeignObjects: vi.fn(), rotateSyncKey: vi.fn() }));
+const sync = vi.hoisted(() => ({ synchronizeVault: vi.fn(), importSyncedVault: vi.fn(), removeForeignObjects: vi.fn(), rotateSyncKey: vi.fn(), createInvite: vi.fn() }));
 vi.mock('./vault-sync', () => sync);
 import { buildSyncLabHost, registerSyncLabIpc, vaultPasswordMatcher } from './lab-ipc';
 import { AppError } from '../../shared/errors';
@@ -68,18 +68,18 @@ it('adds the device to the sync context and routes key rotation and import to th
   const device = { id: 'd' } as never;
   sync.rotateSyncKey.mockResolvedValue({ recoveryCode: 'c' }); sync.synchronizeVault.mockResolvedValue({}); sync.importSyncedVault.mockResolvedValue({});
   const host = buildSyncLabHost({ probeSyncServer: vi.fn() }, { AccountStore: vi.fn() as never }, { sessions }) as unknown as { syncVault: (...a: unknown[]) => Promise<unknown> };
-  expect(await host.syncVault(driver, info, signal, { kind: 'regenerateCode' }, device)).toEqual({ recoveryCode: 'c' });
+  expect(await host.syncVault(driver, info, signal, { kind: 'rotateKey' }, device)).toEqual({ recoveryCode: 'c' });
   expect(sync.rotateSyncKey.mock.calls[0][2]).toEqual({ serverId: 's', namespace: 'n', device });
   await host.syncVault(driver, info, signal, { kind: 'synchronize', recoveryCode: 'abc' }, device);
   expect(sync.synchronizeVault.mock.calls[0][2]).toEqual({ serverId: 's', namespace: 'n', device });
-  expect(sync.synchronizeVault.mock.calls[0][4]).toEqual({ keepLocalRevision: undefined, recoveryCode: 'abc' });
+  expect(sync.synchronizeVault.mock.calls[0][4]).toEqual({ keepLocalRevision: undefined, recoveryCode: 'abc', inviteCode: undefined });
   await host.syncVault(driver, info, signal, { kind: 'importVault', password: 'p', recoveryCode: 'rc' }, device);
   expect(sync.importSyncedVault.mock.calls[0].slice(2, 5)).toEqual([{ serverId: 's', namespace: 'n', device }, { recoveryCode: 'rc' }, 'p']);
 });
 it('dispatches the device-key requests to the host', async () => {
   const host = await registerSyncLabIpc(); const handler = mock.handle.mock.calls[0][1]; const event = { sender: { id: 1 } };
   const clientId = '123e4567-e89b-42d3-a456-426614174000';
-  for (const kind of ['openSession', 'listDevices', 'revokeDevice', 'regenerateCode', 'signIn'])
+  for (const kind of ['openSession', 'listDevices', 'revokeDevice', 'acknowledgeDevice', 'rotateKey', 'invite', 'signIn', 'signInWithInvite'])
     expect(await handler(event, { kind, clientId })).toMatchObject({ ok: false });
   expect(host.enabled).toBe(false);
 });
@@ -89,4 +89,18 @@ it('forwards allowPrivateHttp to the server probe', async () => {
   const signal = new AbortController().signal;
   await host.probe('http://10.0.0.5', true, signal);
   expect(probeSyncServer).toHaveBeenCalledWith('http://10.0.0.5', { allowLoopbackHttp: true, allowPrivateHttp: true, signal });
+});
+it('routes invites and the held enrollment code to the core', async () => {
+  const driver = { list: async () => [], get: async () => 'w', put: async () => 'id', remove: async () => true };
+  const info = { serverId: 's', namespace: 'n' } as never; const signal = new AbortController().signal;
+  const device = { id: 'd' } as never;
+  sync.createInvite.mockResolvedValue({ code: 'c', enrollSecret: 'e', keyboxId: 'k' });
+  sync.importSyncedVault.mockResolvedValue({}); sync.synchronizeVault.mockResolvedValue({});
+  const host = buildSyncLabHost({ probeSyncServer: vi.fn() }, { AccountStore: vi.fn() as never }, { sessions: {} as never }) as unknown as { syncVault: (...a: unknown[]) => Promise<unknown> };
+  expect(await host.syncVault(driver, info, signal, { kind: 'createInvite', origin: 'https://x.example' }, device)).toEqual({ code: 'c', enrollSecret: 'e', keyboxId: 'k' });
+  expect(sync.createInvite.mock.calls[0].slice(2, 5)).toEqual([{ serverId: 's', namespace: 'n', device }, 'https://x.example', signal]);
+  await host.syncVault(driver, info, signal, { kind: 'importVault', password: 'p', inviteCode: 'ic' }, device);
+  expect(sync.importSyncedVault.mock.calls[0].slice(3, 5)).toEqual([{ inviteCode: 'ic' }, 'p']);
+  await host.syncVault(driver, info, signal, { kind: 'synchronize', inviteCode: 'ic' }, device);
+  expect(sync.synchronizeVault.mock.calls[0][4]).toMatchObject({ inviteCode: 'ic' });
 });
