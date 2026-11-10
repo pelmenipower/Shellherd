@@ -34,8 +34,22 @@ export interface Enrollment {
   name: string
   enrolledAt: number
 }
+/** One device of a server roster as pinned at enrollment time (roster TOFU). */
+export interface RosterPin {
+  id: string
+  signingKey: string
+  revokedAt: number | null
+  enrolledBy: string | null
+  acknowledged: boolean
+}
+export interface RosterSnapshot {
+  pins: RosterPin[]
+  at: number | null
+}
+type StoredEnrollment = Enrollment & { roster: RosterPin[]; rosterAt: number | null }
 
-const MAX_FILE_BYTES = 64 * 1024
+const MAX_FILE_BYTES = 512 * 1024
+const MAX_ROSTER = 64
 const MAX_KNOWN = 64
 const MAX_NAME = 80
 const MAX_ENROLLMENTS = 16
@@ -56,6 +70,7 @@ const knownSchema = knownV1Schema.extend({
 const MAC_KEY_BYTES = 32
 const MAC_DOMAIN = 'shellherd-remote-identity-v2'
 const MAC_DOMAIN_V3 = 'shellherd-remote-identity-v3'
+const MAC_DOMAIN_V4 = 'shellherd-remote-identity-v4'
 
 function deviceTuples(devices: KnownDevice[]): unknown[] {
   return devices.map(d => [d.fingerprint, d.name, d.firstSeen, d.lastSeen, d.verified, d.verifiedAt ?? null])
@@ -70,6 +85,24 @@ function computeMac(macKey: Buffer, identity: string, devices: KnownDevice[], en
           deviceTuples(devices),
           enrollments.map(e => [e.serverId, e.namespace, e.serverUrl, e.username, e.name, e.enrolledAt])
         ])
+  return createHmac('sha256', macKey).update(message).digest()
+}
+function computeMacV4(macKey: Buffer, identity: string, devices: KnownDevice[], enrollments: StoredEnrollment[]): Buffer {
+  const message = JSON.stringify([
+    MAC_DOMAIN_V4,
+    identity,
+    deviceTuples(devices),
+    enrollments.map(e => [
+      e.serverId,
+      e.namespace,
+      e.serverUrl,
+      e.username,
+      e.name,
+      e.enrolledAt,
+      e.rosterAt,
+      e.roster.map(p => [p.id, p.signingKey, p.revokedAt, p.enrolledBy, p.acknowledged])
+    ])
+  ])
   return createHmac('sha256', macKey).update(message).digest()
 }
 const fileSchemaV1 = z.object({
@@ -96,6 +129,25 @@ const fileSchemaV3 = z.object({
   identity: z.string().min(1),
   knownDevices: z.array(knownSchema).max(MAX_KNOWN),
   enrollments: z.array(enrollmentSchema).max(MAX_ENROLLMENTS),
+  mac: z.string().regex(/^[a-f0-9]{64}$/)
+})
+const rosterPinSchema = z.object({
+  id: z.string().regex(/^[a-f0-9]{64}$/),
+  signingKey: z.string().regex(/^[A-Za-z0-9+/]{43}=$/),
+  revokedAt: z.number().int().nonnegative().nullable(),
+  enrolledBy: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  acknowledged: z.boolean()
+})
+const rosterSchema = z.array(rosterPinSchema).max(MAX_ROSTER)
+const enrollmentSchemaV4 = enrollmentSchema.extend({
+  roster: rosterSchema,
+  rosterAt: z.number().finite().nullable()
+})
+const fileSchemaV4 = z.object({
+  version: z.literal(4),
+  identity: z.string().min(1),
+  knownDevices: z.array(knownSchema).max(MAX_KNOWN),
+  enrollments: z.array(enrollmentSchemaV4).max(MAX_ENROLLMENTS),
   mac: z.string().regex(/^[a-f0-9]{64}$/)
 })
 type KnownDevice = z.infer<typeof knownSchema>
@@ -200,7 +252,7 @@ type Loaded = { identity: RemoteIdentity; persistent: boolean }
 export class RemoteIdentityStore {
   private loaded?: Loaded
   private known_: KnownDevice[] = []
-  private enrollments_: Enrollment[] = []
+  private enrollments_: StoredEnrollment[] = []
   private encrypted = ''
   private macKey: Buffer = Buffer.alloc(0)
 
@@ -268,7 +320,41 @@ export class RemoteIdentityStore {
   /** Entry with the same serverId whose stored serverUrl has the same origin as serverUrl. */
   enrollment(serverId: string, serverUrl: string): Enrollment | undefined {
     const entry = this.enrollments_.find(item => item.serverId === serverId && sameOrigin(item.serverUrl, serverUrl))
-    return entry ? { ...entry } : undefined
+    if (!entry) return undefined
+    const { roster: _roster, rosterAt: _rosterAt, ...plain } = entry
+    return plain
+  }
+
+  /** Pinned roster of the enrollment with the same serverId and origin; undefined without an enrollment. */
+  rosterOf(serverId: string, serverUrl: string): RosterSnapshot | undefined {
+    const entry = this.enrollments_.find(item => item.serverId === serverId && sameOrigin(item.serverUrl, serverUrl))
+    return entry ? { pins: entry.roster.map(p => ({ ...p })), at: entry.rosterAt } : undefined
+  }
+
+  /**
+   * Replaces the pinned roster; no-op without an enrollment. Throws identity for invalid pins (also duplicate ids)
+   * or when more than 64 pins remain after dropping revoked ones (smallest revokedAt first).
+   */
+  rememberRoster(serverId: string, serverUrl: string, pins: RosterPin[], at: number): void {
+    if (!this.loaded) return
+    const entry = this.enrollments_.find(item => item.serverId === serverId && sameOrigin(item.serverUrl, serverUrl))
+    if (!entry) return
+    if (!Number.isFinite(at)) return fail()
+    const parsed = z.array(rosterPinSchema).safeParse(pins)
+    if (!parsed.success) return fail()
+    const list = parsed.data
+    if (new Set(list.map(p => p.id)).size !== list.length) return fail()
+    while (list.length > MAX_ROSTER) {
+      let drop = -1
+      list.forEach((p, i) => {
+        if (p.revokedAt !== null && (drop < 0 || p.revokedAt < (list[drop].revokedAt as number))) drop = i
+      })
+      if (drop < 0) return fail()
+      list.splice(drop, 1)
+    }
+    entry.roster = list
+    entry.rosterAt = at
+    if (this.loaded.persistent) this.save()
   }
 
   /** serverUrl of another entry with the same serverId but a different origin, else undefined. */
@@ -279,8 +365,11 @@ export class RemoteIdentityStore {
   /** Replaces only the entry with the same serverId and origin; keeps at most 16 (oldest enrolledAt drops). Persists only for a persistent identity, otherwise RAM. */
   rememberEnrollment(e: Enrollment): void {
     if (!this.loaded) return
-    this.enrollments_ = this.enrollments_.filter(item => !(item.serverId === e.serverId && sameOrigin(item.serverUrl, e.serverUrl)))
-    this.enrollments_.push({ ...e })
+    const prev = this.enrollments_.find(item => item.serverId === e.serverId && sameOrigin(item.serverUrl, e.serverUrl))
+    // The pinned roster only survives for the same namespace (K11).
+    const keep = prev !== undefined && prev.namespace === e.namespace
+    this.enrollments_ = this.enrollments_.filter(item => item !== prev)
+    this.enrollments_.push({ ...e, roster: keep ? prev.roster : [], rosterAt: keep ? prev.rosterAt : null })
     if (this.enrollments_.length > MAX_ENROLLMENTS) {
       const oldest = this.enrollments_.reduce((a, b) => (b.enrolledAt < a.enrolledAt ? b : a))
       this.enrollments_ = this.enrollments_.filter(item => item !== oldest)
@@ -324,7 +413,8 @@ export class RemoteIdentityStore {
     try {
       const raw: unknown = JSON.parse(readFileSync(this.file, 'utf8'))
       const version = (raw as { version?: unknown } | null)?.version
-      if (version === 3) return this.readV3(fileSchemaV3.parse(raw))
+      if (version === 4) return this.readV4(fileSchemaV4.parse(raw))
+      if (version === 3) return this.migrateV3(fileSchemaV3.parse(raw))
       if (version === 2) return this.migrateV2(fileSchemaV2.parse(raw))
       return this.migrateV1(fileSchemaV1.parse(raw))
     } catch {
@@ -332,21 +422,39 @@ export class RemoteIdentityStore {
     }
   }
 
-  private readV3(parsed: z.infer<typeof fileSchemaV3>): Loaded {
-    const plain = this.cipher.decrypt(Buffer.from(parsed.identity, 'base64'))
-    const blob: unknown = JSON.parse(plain.toString('utf8'))
-    if (!Array.isArray(blob) || blob.length !== 4 || blob[0] !== BLOB_TAG || !blob.slice(1).every(v => typeof v === 'string')) return fail()
-    const [x, ed, mk] = blob.slice(1).map(v => Buffer.from(v as string, 'base64'))
-    if (mk.length !== MAC_KEY_BYTES) return fail()
-    const identity = build(parsePkcs8(x, X25519_PREFIX, 'x25519'), parsePkcs8(ed, ED25519_PREFIX, 'ed25519'))
-    const expected = computeMac(mk, parsed.identity, parsed.knownDevices, parsed.enrollments)
+  private readV4(parsed: z.infer<typeof fileSchemaV4>): Loaded {
+    const { identity, macKey } = this.openBlob(parsed.identity)
+    const expected = computeMacV4(macKey, parsed.identity, parsed.knownDevices, parsed.enrollments)
     const actual = Buffer.from(parsed.mac, 'hex')
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return fail()
-    this.macKey = mk
+    this.macKey = macKey
     this.encrypted = parsed.identity
     this.known_ = parsed.knownDevices
     this.enrollments_ = parsed.enrollments
     return { identity, persistent: true }
+  }
+
+  /** v3 -> v4: verify the v3 MAC, add empty rosters, rewrite best effort (no new secret is created). */
+  private migrateV3(parsed: z.infer<typeof fileSchemaV3>): Loaded {
+    const { identity, macKey } = this.openBlob(parsed.identity)
+    const expected = computeMac(macKey, parsed.identity, parsed.knownDevices, parsed.enrollments)
+    const actual = Buffer.from(parsed.mac, 'hex')
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return fail()
+    this.macKey = macKey
+    this.encrypted = parsed.identity
+    this.known_ = parsed.knownDevices
+    this.enrollments_ = parsed.enrollments.map(e => ({ ...e, roster: [], rosterAt: null }))
+    this.save()
+    return { identity, persistent: true }
+  }
+
+  private openBlob(encrypted: string): { identity: RemoteIdentity; macKey: Buffer } {
+    const plain = this.cipher.decrypt(Buffer.from(encrypted, 'base64'))
+    const blob: unknown = JSON.parse(plain.toString('utf8'))
+    if (!Array.isArray(blob) || blob.length !== 4 || blob[0] !== BLOB_TAG || !blob.slice(1).every(v => typeof v === 'string')) return fail()
+    const [x, ed, mk] = blob.slice(1).map(v => Buffer.from(v as string, 'base64'))
+    if (mk.length !== MAC_KEY_BYTES) return fail()
+    return { identity: build(parsePkcs8(x, X25519_PREFIX, 'x25519'), parsePkcs8(ed, ED25519_PREFIX, 'ed25519')), macKey: mk }
   }
 
   /** v2 -> v3: verify the v2 MAC, keep X25519 and macKey, add Ed25519, one atomic write. A failing write throws. */
@@ -393,10 +501,10 @@ export class RemoteIdentityStore {
 
   private write(): void {
     mkdirSync(dirname(this.file), { recursive: true })
-    const mac = computeMac(this.macKey, this.encrypted, this.known_, this.enrollments_).toString('hex')
+    const mac = computeMacV4(this.macKey, this.encrypted, this.known_, this.enrollments_).toString('hex')
     writeAtomic(
       this.file,
-      JSON.stringify({ version: 3, identity: this.encrypted, knownDevices: this.known_, enrollments: this.enrollments_, mac })
+      JSON.stringify({ version: 4, identity: this.encrypted, knownDevices: this.known_, enrollments: this.enrollments_, mac })
     )
   }
 }
