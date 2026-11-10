@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { windowRegistry } from '../windows';
 import { SyncLabHost } from './lab-host';
 import type { AccountDriver } from './lab-host';
-import { synchronizeVault, importSyncedVault, removeForeignObjects, regenerateRecoveryCode } from './vault-sync';
+import { synchronizeVault, importSyncedVault, removeForeignObjects, rotateSyncKey } from './vault-sync';
 import type { VaultRemote } from './vault-sync';
 import type { VaultSessionManager, VaultSessionSnapshot } from '../vault/session';
 import { mainT } from '../i18n';
@@ -37,12 +37,12 @@ export function buildSyncLabHost(transport: TransportModule, account: AccountMod
       if (remote.remove) vaultRemote.remove = (id: string) => remote.remove!(id);
       const context = device ? { ...info, device } : info;
       if (request.kind === 'removeForeign') return { removedForeign: await removeForeignObjects(options.sessions, vaultRemote, info, request.ids, signal, { versions: request.versions === true }) };
-      if (request.kind === 'importVault') return importSyncedVault(options.sessions, vaultRemote, context, request.recoveryCode, request.password, signal, async () => {
+      if (request.kind === 'importVault') return importSyncedVault(options.sessions, vaultRemote, context, { recoveryCode: request.recoveryCode }, request.password, signal, async () => {
         const parent = windowRegistry.main(); if (!parent || signal.aborted) return undefined;
         const result = await dialog.showSaveDialog(parent, { title: mainT('dialogs.vaultSave.title'), defaultPath: 'synced-vault.term', filters: [{ name: mainT('dialogs.vaultFilter'), extensions: ['term'] }] });
         return result.canceled ? undefined : result.filePath;
       });
-      if (request.kind === 'regenerateCode') return regenerateRecoveryCode(options.sessions, vaultRemote, context, signal);
+      if (request.kind === 'regenerateCode') return rotateSyncKey(options.sessions, vaultRemote, context, signal);
       return synchronizeVault(options.sessions, vaultRemote, context, signal, {
         keepLocalRevision: request.kind === 'keepLocal' ? request.revision : undefined,
         recoveryCode: request.kind === 'synchronize' ? request.recoveryCode : undefined,

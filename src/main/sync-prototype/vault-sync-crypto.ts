@@ -9,9 +9,10 @@ import { normalizeRecoveryCode } from '../../shared/recovery-code';
 export interface SyncDevice { id: string; sign(data: Buffer): Buffer; keyOf(id: string): KeyObject | undefined; revokedAt(id: string): number | null | undefined }
 export interface SyncContext { serverId: string; namespace: string; device?: SyncDevice }
 export class SyncFailure extends Error {
-  constructor(public readonly code: 'locked' | 'changed' | 'history' | 'conflict' | 'bindings' | 'wrongVault' | 'recovery' | 'limit' | 'syncKey' | 'recoveryCode' | 'migrate' | 'foreignKey' | 'otherServer' | 'platform') { super(`Vault sync rejected: ${code}`); }
+  constructor(public readonly code: 'locked' | 'changed' | 'history' | 'conflict' | 'bindings' | 'wrongVault' | 'recovery' | 'limit' | 'syncKey' | 'recoveryCode' | 'migrate' | 'foreignKey' | 'otherServer' | 'platform' | 'rotated' | 'rotateBlocked' | 'rotateRaced' | 'inviteKey') { super(`Vault sync rejected: ${code}`); }
 }
 export const SYNC_OBJECT_FORMAT = 'shellherd-sync-object';
+export const SYNC_EPOCH_MAX = 1_000_000;
 const OBJECT_MAX = 1048576; const OBJECT_PLAIN_MAX = 768 * 1024;
 type ObjectKind = 'version' | 'keybox';
 export function ensure(ok: unknown, code: SyncFailure['code'] = 'history'): asserts ok { if (!ok) throw new SyncFailure(code); }
@@ -40,6 +41,8 @@ export function bound(context: SyncContext): { serverId: string; namespace: stri
   return { serverId: context.serverId, namespace: context.namespace };
 }
 const salt = (context: SyncContext): Buffer => { const { serverId, namespace } = bound(context); return Buffer.from(JSON.stringify([serverId, namespace])); };
+const epochOk = (epoch: unknown): epoch is number => typeof epoch === 'number' && Number.isSafeInteger(epoch) && epoch >= 1 && epoch <= SYNC_EPOCH_MAX;
+const saltEpoch = (context: SyncContext, epoch: number): Buffer => { ensure(epochOk(epoch), 'wrongVault'); const { serverId, namespace } = bound(context); return Buffer.from(JSON.stringify([serverId, namespace, epoch])); };
 function keyFor(vaultKey: Buffer, context: SyncContext): Buffer {
   ensure(vaultKey.length === 32);
   return Buffer.from(hkdfSync('sha256', vaultKey, salt(context), 'shellherd-vault-sync-state-v1', 32));
@@ -74,45 +77,57 @@ const canonical = (value: unknown, size?: number): boolean => {
   return bytes.toString('base64') === value && (size === undefined ? bytes.length >= 1 : bytes.length === size);
 };
 const orderedKeys = (value: unknown, expected: string): boolean => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).join(',') === expected;
-/** TS mirror of the server's validateSyncObject; null for anything else, including the legacy vault format. */
-export function parseSyncEnvelope(wire: string): { kind: ObjectKind } | null {
+/** TS mirror of the server's validateSyncObject (envelope v2); null for anything else, including the legacy vault format and v1. */
+export function parseSyncEnvelope(wire: string): { kind: ObjectKind; epoch: number } | null {
   if (typeof wire !== 'string' || Buffer.byteLength(wire) > OBJECT_MAX) return null;
-  let parsed: { format?: unknown; version?: unknown; kind?: unknown; cipher?: { algorithm?: unknown; nonce?: unknown; authTag?: unknown }; payload?: unknown };
+  let parsed: { format?: unknown; version?: unknown; kind?: unknown; epoch?: unknown; cipher?: { algorithm?: unknown; nonce?: unknown; authTag?: unknown }; payload?: unknown };
   try { parsed = JSON.parse(wire); } catch { return null; }
-  if (JSON.stringify(parsed) !== wire || !orderedKeys(parsed, 'format,version,kind,cipher,payload')) return null;
-  if (parsed.format !== SYNC_OBJECT_FORMAT || parsed.version !== 1 || (parsed.kind !== 'version' && parsed.kind !== 'keybox')) return null;
+  if (JSON.stringify(parsed) !== wire || !orderedKeys(parsed, 'format,version,kind,epoch,cipher,payload')) return null;
+  if (parsed.format !== SYNC_OBJECT_FORMAT || parsed.version !== 2 || (parsed.kind !== 'version' && parsed.kind !== 'keybox') || !epochOk(parsed.epoch)) return null;
   if (!orderedKeys(parsed.cipher, 'algorithm,nonce,authTag') || parsed.cipher!.algorithm !== 'aes-256-gcm') return null;
   if (!canonical(parsed.cipher!.nonce, 12) || !canonical(parsed.cipher!.authTag, 16) || !canonical(parsed.payload)) return null;
-  return { kind: parsed.kind };
+  return { kind: parsed.kind, epoch: parsed.epoch };
 }
-/** HKDF over the 32 byte sync key; the caller owns (and zeroes) both keys. */
-export function versionKey(syncKey: Buffer, context: SyncContext): Buffer {
+/** HKDF over the 32 byte sync key of one epoch; the caller owns (and zeroes) both keys. */
+export function versionKey(syncKey: Buffer, context: SyncContext, epoch: number): Buffer {
   ensure(syncKey.length === 32);
-  return Buffer.from(hkdfSync('sha256', syncKey, salt(context), 'shellherd-sync-version-v2', 32));
+  return Buffer.from(hkdfSync('sha256', syncKey, saltEpoch(context, epoch), 'shellherd-sync-version-v3', 32));
 }
-export function keyboxWrapKey(code: string, context: SyncContext): Buffer {
-  const normalized = normalizeRecoveryCode(code); ensure(normalized !== null, 'recoveryCode');
+function codeKey(code: string, context: SyncContext, epoch: number, info: string, failure: 'recoveryCode' | 'inviteKey'): Buffer {
+  const normalized = normalizeRecoveryCode(code); ensure(normalized !== null, failure);
   const bytes = Buffer.from(normalized, 'hex');
-  try { return Buffer.from(hkdfSync('sha256', bytes, salt(context), 'shellherd-sync-keybox-recovery-v1', 32)); } finally { bytes.fill(0); }
+  try { return Buffer.from(hkdfSync('sha256', bytes, saltEpoch(context, epoch), info, 32)); } finally { bytes.fill(0); }
 }
-const objectAad = (kind: ObjectKind, context: SyncContext) => { const { serverId, namespace } = bound(context); return Buffer.from(stable([SYNC_OBJECT_FORMAT, 1, kind, serverId, namespace])); };
-export function sealSyncObject(kind: ObjectKind, document: unknown, key: Buffer, context: SyncContext): string {
-  ensure(key.length === 32); const nonce = randomBytes(12); const plain = Buffer.from(JSON.stringify(document));
+export function keyboxWrapKey(code: string, context: SyncContext, epoch: number): Buffer { return codeKey(code, context, epoch, 'shellherd-sync-keybox-recovery-v2', 'recoveryCode'); }
+export function inviteWrapKey(code: string, context: SyncContext, epoch: number): Buffer { return codeKey(code, context, epoch, 'shellherd-sync-keybox-invite-v1', 'inviteKey'); }
+/** The only value of an enrollment code the server sees; `origin` must be canonical (`https://host[:port]`, no slash). */
+export function inviteEnrollSecret(code: string, context: SyncContext, origin: string): string {
+  const normalized = normalizeRecoveryCode(code); ensure(normalized !== null, 'inviteKey');
+  const { serverId, namespace } = bound(context);
+  let canonicalOrigin = false; try { canonicalOrigin = typeof origin === 'string' && new URL(origin).protocol === 'https:' && new URL(origin).origin === origin; } catch { /* not a URL */ }
+  ensure(canonicalOrigin, 'wrongVault');
+  const bytes = Buffer.from(normalized, 'hex');
+  try { return Buffer.from(hkdfSync('sha256', bytes, Buffer.from(JSON.stringify([serverId, namespace, origin])), 'shellherd-invite-enroll-v1', 32)).toString('hex'); } finally { bytes.fill(0); }
+}
+const objectAad = (kind: ObjectKind, context: SyncContext, epoch: number) => { const { serverId, namespace } = bound(context); return Buffer.from(stable([SYNC_OBJECT_FORMAT, 2, kind, epoch, serverId, namespace])); };
+export function sealSyncObject(kind: ObjectKind, document: unknown, key: Buffer, context: SyncContext, epoch: number): string {
+  ensure(key.length === 32); ensure(epochOk(epoch), 'wrongVault'); const nonce = randomBytes(12); const plain = Buffer.from(JSON.stringify(document));
   try {
     ensure(plain.length <= OBJECT_PLAIN_MAX, 'limit');
-    const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(objectAad(kind, context));
+    const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(objectAad(kind, context, epoch));
     const payload = Buffer.concat([cipher.update(plain), cipher.final()]);
-    const wire = JSON.stringify({ format: SYNC_OBJECT_FORMAT, version: 1, kind, cipher: { algorithm: 'aes-256-gcm', nonce: nonce.toString('base64'), authTag: cipher.getAuthTag().toString('base64') }, payload: payload.toString('base64') });
+    const wire = JSON.stringify({ format: SYNC_OBJECT_FORMAT, version: 2, kind, epoch, cipher: { algorithm: 'aes-256-gcm', nonce: nonce.toString('base64'), authTag: cipher.getAuthTag().toString('base64') }, payload: payload.toString('base64') });
     ensure(Buffer.byteLength(wire) <= OBJECT_MAX, 'limit'); return wire;
   } finally { plain.fill(0); }
 }
-export function openSyncObject(wire: string, kind: ObjectKind, key: Buffer, context: SyncContext): unknown {
+/** The envelope epoch must equal `epoch`, otherwise `wrongVault`. */
+export function openSyncObject(wire: string, kind: ObjectKind, key: Buffer, context: SyncContext, epoch: number): unknown {
   ensure(typeof wire !== 'string' || Buffer.byteLength(wire) <= OBJECT_MAX, 'limit');
-  const envelope = parseSyncEnvelope(wire); ensure(envelope?.kind === kind, 'wrongVault'); ensure(key.length === 32, 'wrongVault');
+  const envelope = parseSyncEnvelope(wire); ensure(envelope?.kind === kind && envelope.epoch === epoch, 'wrongVault'); ensure(key.length === 32, 'wrongVault');
   let plain: Buffer | undefined;
   try {
     const parsed = JSON.parse(wire) as { cipher: { nonce: string; authTag: string }; payload: string };
-    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(parsed.cipher.nonce, 'base64')); decipher.setAAD(objectAad(kind, context)); decipher.setAuthTag(Buffer.from(parsed.cipher.authTag, 'base64'));
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(parsed.cipher.nonce, 'base64')); decipher.setAAD(objectAad(kind, context, epoch)); decipher.setAuthTag(Buffer.from(parsed.cipher.authTag, 'base64'));
     plain = Buffer.concat([decipher.update(Buffer.from(parsed.payload, 'base64')), decipher.final()]);
     ensure(plain.length <= OBJECT_PLAIN_MAX, 'limit'); return JSON.parse(plain.toString('utf8'));
   } catch (error) { if (error instanceof SyncFailure) throw error; throw new SyncFailure('wrongVault'); }
