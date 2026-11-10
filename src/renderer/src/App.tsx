@@ -1,5 +1,6 @@
 import { ToolbarContext } from './toolbar-context';
 import { DEFAULT_TOOLBAR } from '../../shared/toolbar';
+import { VAULT_PASSWORD_MIN_LENGTH } from '../../shared/vault-password';
 import { protocolAvailable } from './platform';
 import {
   useCallback,
@@ -385,7 +386,7 @@ export default function App() {
       return;
     }
 
-    if (password.length < 8) {
+    if (password.length < VAULT_PASSWORD_MIN_LENGTH) {
       setFormError(t('app:errors.passwordTooShort'));
       return;
     }
