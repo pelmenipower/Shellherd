@@ -9,8 +9,6 @@
 .kube-logs { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .kube-logs-bar { flex: none; display: flex; align-items: center; gap: var(--space-6); padding: var(--space-4) var(--space-8); }
 .kube-logs-filter { flex: 0 1 220px; min-height: var(--control-xs); padding: var(--space-2) var(--space-8); font-size: var(--fs-sm); }
-.kube-logs-follow { min-height: var(--control-xs); padding: var(--space-2) var(--space-8); font-size: var(--fs-sm); }
-.kube-logs-follow[aria-pressed="true"] { background: var(--color-bg-selected); }
 .kube-logs-state { margin-left: auto; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kube-logs-sources { flex: none; display: flex; flex-wrap: wrap; gap: var(--space-4); max-height: 64px; overflow: auto; padding: 0 var(--space-8) var(--space-4); }
 .kube-logs-chip { min-height: var(--control-xs); padding: var(--space-2) var(--space-8); border-radius: var(--radius-pill); background: var(--color-bg-raised); font: var(--fs-xs) var(--font-mono); }
@@ -26,4 +24,7 @@
 .kube-logs-src-2 { color: var(--color-source-3); }
 .kube-logs-src-3 { color: var(--color-source-4); }
 .kube-logs-line mark { background: var(--color-selection-bg); color: var(--color-selection-text); }
+/* Search hits (state, not accent): every hit, and the current one with an outline. */
+.kube-logs-line mark.is-match { background: var(--color-match-bg); color: var(--color-text-code); }
+.kube-logs-line mark.is-match.is-current { background: var(--color-match-current-bg); outline: 1px solid var(--color-match-current-border); }
 .kube-logs-more { margin: 0 0 var(--space-4); font-size: var(--fs-sm); }

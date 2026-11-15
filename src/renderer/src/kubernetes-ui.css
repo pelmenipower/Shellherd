@@ -109,6 +109,8 @@
 .kube-dock-hint { margin-left: auto; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kube-dock-popout, .kube-dock-toggle { min-height: var(--control-xs); padding: var(--space-2) var(--space-8); font-size: var(--fs-sm); }
 .kube-dock-toggle { width: var(--control-sm); padding: 0; }
+.kube-dock-search { display: grid; place-items: center; min-height: var(--control-xs); width: var(--control-sm); padding: 0; }
+.kube-dock-follow { display: inline-flex; align-items: center; gap: var(--space-4); font-size: var(--fs-sm); white-space: nowrap; }
 .kube-dock-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 .kube-dock-collapsed .kube-dock-bar { border-bottom: 0; }
 .kube-dock-terminal { flex: 1; min-height: 0; display: flex; }

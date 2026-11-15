@@ -55,6 +55,10 @@
   --color-source-2: #c4a5ff;
   --color-source-3: #5fd4d4;
   --color-source-4: #e59af0;
+  /* Search hits: a state ("found", "current"), not an accent; #RRGGBB because xterm takes them directly. Text stays --color-text-code. */
+  --color-match-bg: #4a3f12;                  /* every search hit (terminal decoration, mark.is-match) */
+  --color-match-current-bg: #7a5c08;          /* the current hit */
+  --color-match-current-border: #facc15;      /* border of the current hit (xterm activeMatchBorder, outline in the log list) */
 
   /* Spacing, named by value. The lint allows literal px only for 0, 1px, negatives, >= 48px and inside calc()/min()/max()/clamp(). */
   --space-2: 2px; --space-4: 4px; --space-6: 6px; --space-8: 8px; --space-10: 10px;
@@ -68,6 +72,8 @@
   --input-number: calc(6ch + 2 * var(--space-8) + 2px);
   /* Terminal search field: wide enough for a typical term, shrinks in narrow panes */
   --width-search: 240px;
+  /* Width of the result counter in the search bar ("1 von 100"), so the bar does not jump while typing */
+  --width-search-status: 12ch;
 
   /* Radii */
   --radius-sm: 4px; --radius-md: 5px; --radius-lg: 8px; --radius-pill: 999px;
@@ -159,6 +165,9 @@
     --color-source-2: #6b3fb8;
     --color-source-3: #0f6f73;
     --color-source-4: #9a2f8f;
+    --color-match-bg: #fff1a8;
+    --color-match-current-bg: #ffd34d;
+    --color-match-current-border: #765c00;
 
     --shadow-overlay: 0 10px 28px rgb(40 30 20 / 18%);
   }

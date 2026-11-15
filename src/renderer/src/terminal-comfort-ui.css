@@ -3,7 +3,10 @@
 .terminal-search input { flex: 0 1 var(--width-search); min-width: 0; height: var(--control-xs); min-height: var(--control-xs); }
 .terminal-search button { display: grid; place-items: center; flex: 0 0 var(--control-xs); width: var(--control-xs); height: var(--control-xs); min-height: var(--control-xs); padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--color-text-muted); background: transparent; }
 .terminal-search button:hover { color: var(--color-text); background: var(--color-bg-hover); }
-.terminal-search-status { color: var(--color-text-muted); }
+.terminal-search .terminal-search-option { flex: 0 0 auto; width: auto; min-width: var(--control-xs); padding: 0 var(--space-4); font: var(--fs-xs) var(--font-mono); }
+.terminal-search .terminal-search-option[aria-pressed="true"] { border: 1px solid var(--color-accent); background: var(--color-bg-selected); color: var(--color-text); }
+.terminal-search input[aria-invalid="true"] { border-color: var(--color-danger); }
+.terminal-search-status { min-width: var(--width-search-status); color: var(--color-text-muted); }
 .terminal-link-hint { position: absolute; right: var(--space-8); bottom: var(--space-8); z-index: var(--layer-chrome); padding: var(--space-4) var(--space-8); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-panel); color: var(--color-text-muted); font-size: var(--fs-xs); pointer-events: none; }
 .pane-header .terminal-tab[data-activity] .tab-name { color: var(--color-text); font-weight: 600; }
 .pane-header .tab-activity { flex: 0 0 var(--size-dot); width: var(--size-dot); height: var(--size-dot); box-sizing: border-box; border: 2px solid var(--color-text); border-radius: 50%; }
