@@ -15,6 +15,10 @@
   "status": {
     "saving": "Saving…"
   },
+  "logs": {
+    "autoScroll": "Auto-scroll",
+    "search": "Search logs (Ctrl+F)"
+  },
   "wait": "One moment…",
   "truncated": "(truncated)",
   "none": "none",

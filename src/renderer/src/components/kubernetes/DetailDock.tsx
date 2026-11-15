@@ -132,6 +132,17 @@ export function DetailDock(props: DetailDockProps) {
   const currentResult = result?.id === resultId ? result : null;
   const workloadText = useRef<(() => string) | null>(null);
   const workloadShown = mode === 'logs' && workload !== null;
+  const workloadKey = workload ? `${refKey(workload.ref)}/${logFormat}/${epoch}` : null;
+  const logKey = workloadShown
+    ? (logsAllArmed && workloadKey ? `all:${workloadKey}` : null)
+    : ((terminalKind === 'logs' || terminalKind === 'previous') && target && podRef && container
+      ? `pod:${dockTerminalKey(refKey(podRef), container, terminalKind, epoch, target.format ?? 'compact')}` : null);
+  // A new log target starts with auto-scroll on, also when the user comes back to an earlier one.
+  const [followOff, setFollowOff] = useState<string | null>(null);
+  if (followOff !== null && followOff !== logKey) setFollowOff(null);
+  const follow = logKey === null || followOff !== logKey;
+  const setFollow = (on: boolean): void => setFollowOff(on ? null : logKey);
+  const [searchRequest, setSearchRequest] = useState(0);
   const shellBlocked = readOnly ? t('errors:kubernetes.readOnly') : shellForbidden;
 
   const shellWaiting = terminalKind === 'shell' && !armed;
@@ -170,6 +181,18 @@ export function DetailDock(props: DetailDockProps) {
         {terminalKind && target && onPopout && (
           <button type="button" className="kube-dock-popout" onClick={onPopout}>{t('kubernetes:dock.popout')}</button>
         )}
+        {open && logKey !== null && (
+          <>
+            <label className="kube-dock-follow">
+              <input type="checkbox" checked={follow} onChange={event => setFollow(event.target.checked)} />
+              {t('common:logs.autoScroll')}
+            </label>
+            <button type="button" className="kube-dock-search" aria-label={t('common:logs.search')} title={t('common:logs.search')}
+              onClick={() => setSearchRequest(value => value + 1)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
+            </button>
+          </>
+        )}
         {(terminalKind === 'logs' || terminalKind === 'previous') && (
           <div className="kube-dock-format" role="group" aria-label={t('kubernetes:dock.logFormat')}>
             <button type="button" aria-pressed={logFormat === 'compact'} onClick={() => onLogFormat('compact')}>{t('kubernetes:dock.compact')}</button>
@@ -184,8 +207,8 @@ export function DetailDock(props: DetailDockProps) {
       <div className="kube-dock-body" hidden={!open}>
         {workloadShown && workload ? (
           logsAllArmed ? (
-            <WorkloadLogs key={`${refKey(workload.ref)}/${logFormat}/${epoch}`} viewId={viewId} row={workload} format={logFormat}
-              start={startLogs} stop={stopLogs} textRef={workloadText} />
+            <WorkloadLogs key={workloadKey} viewId={viewId} row={workload} format={logFormat}
+              start={startLogs} stop={stopLogs} textRef={workloadText} follow={follow} onFollow={setFollow} searchRequest={searchRequest} />
           ) : (
             <div className="kube-placeholder">
               <p>{t('kubernetes:logsAll.onDemand', { name: workload.ref.name, max: MAX_LOG_STREAMS })}</p>
@@ -209,7 +232,8 @@ export function DetailDock(props: DetailDockProps) {
           ) : terminalConnection && target && (
             <div className="kube-dock-terminal">
               <TerminalPanel key={dockTerminalKey(refKey(podRef), container, terminalKind, epoch, target.format ?? 'compact')} connection={terminalConnection} tabId={`${tabId}:dock`}
-                visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} embedded />
+                visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} embedded
+                follow={logKey ? { on: follow, onChange: setFollow } : undefined} searchRequest={logKey ? searchRequest : undefined} />
             </div>
           )
         ) : !selected ? <p className="kube-placeholder">{t('kubernetes:dock.selectRow')}</p>
