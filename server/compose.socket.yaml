@@ -1,0 +1,11 @@
+# Override for socket operation behind a Caddy on the host:
+#   docker compose -f compose.yaml -f compose.socket.yaml up -d
+# The host creates the directory beforehand: install -d -o 1000 -g caddy -m 2750 /run/shellherd
+# While the socket is set, SHELLHERD_SERVER_PORT, _HOST and _TRUSTED_PROXY are ignored.
+services:
+  server:
+    environment:
+      SHELLHERD_SERVER_SOCKET: /run/shellherd/server.sock
+    ports: !reset []
+    volumes:
+      - /run/shellherd:/run/shellherd

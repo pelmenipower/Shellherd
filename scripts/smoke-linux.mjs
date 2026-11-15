@@ -1,6 +1,6 @@
 // Run against linux-unpacked, an extracted DEB, or an AppImage. No system Node is used by the app.
 import { _electron as electron } from 'playwright-core';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -10,6 +10,15 @@ import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 // FuseState.DISABLE of @electron/fuses (the enum is not exported at runtime).
 const FUSE_DISABLED = 0x30;
 assert.notEqual(process.getuid?.(), 0, 'Run the GUI smoke test as a normal user so Playwright cannot disable the sandbox');
+// The release bundle (SHELLHERD_RELEASE=1) must carry no lab code, in any chunk.
+const mainDir = resolve('out/main');
+const walk = async (dir) => (await Promise.all((await readdir(dir, { withFileTypes: true })).map((e) => e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]))).flat();
+for (const file of (await walk(mainDir)).filter((f) => f.endsWith('.js'))) {
+  const text = await readFile(file, 'utf8');
+  for (const marker of ['SyncLabHost', 'RemoteLabHost', 'SHELLHERD_SYNC_LAB', 'SHELLHERD_REMOTE_LAB']) {
+    assert.ok(!text.includes(marker), `Release bundle must not contain lab code (build with SHELLHERD_RELEASE=1): ${marker} in ${file}`);
+  }
+}
 const executablePath = resolve(process.argv[2] ?? 'dist/linux-unpacked/shellherd');
 const profile = await mkdtemp(join(tmpdir(), 'shellherd-smoke-'));
 let app;

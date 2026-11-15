@@ -38,6 +38,18 @@ jobs:
       - run: npm run build
       - run: npx vitest run
       - if: runner.os == 'Linux'
+        name: Check sync scene (two app instances, local sync server)
+        timeout-minutes: 8
+        run: xvfb-run -a node .claude/skills/run-app/ci-sync-scene.mjs
+      - if: failure() && runner.os == 'Linux'
+        name: Upload sync scene screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-scene-shots
+          path: /tmp/shellherd-ci-*/shots/
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: runner.os == 'Linux'
         name: Check selfhosted storage and rendezvous container
         run: |
           node server/smoke.mjs
@@ -46,6 +58,7 @@ jobs:
       - if: runner.os == 'Linux'
         name: Check packaged Linux startup
         run: |
+          SHELLHERD_RELEASE=1 npx electron-vite build
           npx electron-builder --linux --dir --x64 --publish never
           sudo chown root:root dist/linux-unpacked/chrome-sandbox
           sudo chmod 4755 dist/linux-unpacked/chrome-sandbox

@@ -60,7 +60,7 @@ it('syncs real local files through enrolled-device HTTP transport, retries a los
 
     const second = await open('b', true);
     expect(await second.devices()).toHaveLength(2);
-    await importSyncedVault(b, second, await context(second, 'b'), recoveryCode, vaultPassword, signal(), async () => join(root, 'b.term'));
+    await importSyncedVault(b, second, await context(second, 'b'), { recoveryCode }, vaultPassword, signal(), async () => join(root, 'b.term'));
     second.close();
     const av = a.getSnapshot().vault; av.nodes[0].children[0].authentication.password = 'OFFLINE_LOCAL_CREDENTIAL';
     await a.save(av); await b.save({ ...b.getSnapshot().vault, name: 'Independent offline name' });

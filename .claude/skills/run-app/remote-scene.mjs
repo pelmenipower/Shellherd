@@ -10,7 +10,7 @@
 // the decline mutes B at A for 10 minutes and blocks the pair at the server for 30 s, and every new instance enrolls as
 // a new temporary device. The server evicts the oldest idle temporary device when its quota is full (B9), so the same
 // `npm run drive:sshd` fake serves any number of runs; device names carry a per-run suffix so stale rows never match.
-// Exit codes: 0 ok, 1 step failed, 2 driver unreachable, 3 no non-loopback interface.
+// Exit codes: 0 ok, 1 step failed, 2 driver unreachable or out/ built without lab code (release build), 3 no non-loopback interface.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -190,7 +190,15 @@ async function prepareConsent(fingerprintOfB, { verified }) {
   }
 }
 
+// out/ from `npm run dist*` (SHELLHERD_RELEASE=1) has no lab chunk; the scene would only time out (K18).
+function requireLabBuild() {
+  const dir = path.join(import.meta.dirname, '../../../out/main');
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).filter(file => String(file).endsWith('.js')) : [];
+  if (!files.some(file => fs.readFileSync(path.join(dir, String(file)), 'utf8').includes('RemoteLabHost'))) throw new Fail('out/ ohne Lab-Code (Release-Build). Neu bauen: npx electron-vite build', 2);
+}
+
 async function run() {
+  requireLabBuild();
   if (!hasNonLoopbackInterface()) throw new Fail('Keine Netzwerkschnittstelle außer Loopback: WebRTC braucht Host-Kandidaten (LAN-IP), sonst endet die Szene mit errors.peer.', 3);
 
   // Sequential enrollment: the server answers a concurrent password check with 429.

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RemoteIdentityStore, deviceFingerprint, generateRemoteIdentity, type Enrollment, type IdentityCipher } from './identity'
+import { RemoteIdentityStore, deviceFingerprint, generateRemoteIdentity, type Enrollment, type IdentityCipher, type RosterPin } from './identity'
 
 const cipher = (available = true): IdentityCipher => ({
   available: () => available,
@@ -19,6 +19,15 @@ const enr = (n: number, at = n): Enrollment => ({
   username: 'alice',
   name: `Dev ${n}`,
   enrolledAt: at
+})
+const KEY = Buffer.alloc(32, 5).toString('base64')
+const pin = (n: number, over: Partial<RosterPin> = {}): RosterPin => ({
+  id: fp(n),
+  signingKey: KEY,
+  revokedAt: null,
+  enrolledBy: null,
+  acknowledged: false,
+  ...over
 })
 const b64 = (b: Buffer): string => b.toString('base64')
 const proofModule = (): Promise<{ ed25519Spki(raw: Buffer): Buffer }> =>
@@ -77,9 +86,9 @@ describe('RemoteIdentityStore', () => {
     ['corrupt json', () => '{nope'],
     ['version 2 without mac', () => JSON.stringify({ version: 2, identity: 'AA', knownDevices: [] })],
     ['version 3 without enrollments', () => JSON.stringify({ version: 3, identity: 'AA', knownDevices: [], mac: 'a'.repeat(64) })],
-    ['version 4', () => JSON.stringify({ version: 4, identity: 'AA', knownDevices: [], enrollments: [], mac: 'a'.repeat(64) })],
+    ['version 5', () => JSON.stringify({ version: 5, identity: 'AA', knownDevices: [], enrollments: [], mac: 'a'.repeat(64) })],
     ['invalid knownDevices', () => JSON.stringify({ version: 1, identity: 'AA', knownDevices: [{ fingerprint: 'x' }] })],
-    ['oversized', () => ' '.repeat(64 * 1024 + 1)]
+    ['oversized', () => ' '.repeat(512 * 1024 + 1)]
   ])('throws identity and keeps the file for %s', (_name, content) => {
     writeFileSync(file, content())
     const before = readFileSync(file)
@@ -179,13 +188,13 @@ describe('RemoteIdentityStore', () => {
     })
   })
 
-  describe('file format v3', () => {
-    it('round-trips with version 2 and a mac', () => {
+  describe('file format v4', () => {
+    it('round-trips with version 4 and a mac', () => {
       const s = store()
       s.load()
       s.remember(fp(1), 'A', 1, true)
       const saved = JSON.parse(readFileSync(file, 'utf8'))
-      expect(saved.version).toBe(3)
+      expect(saved.version).toBe(4)
       expect(saved.mac).toMatch(/^[a-f0-9]{64}$/)
       const again = store()
       again.load()
@@ -324,9 +333,9 @@ describe('RemoteIdentityStore', () => {
     it('rejects invalid enrollment fields and more than 16 entries', () => {
       store().load()
       const saved = JSON.parse(readFileSync(file, 'utf8'))
-      writeFileSync(file, JSON.stringify({ ...saved, enrollments: [{ ...enr(1), username: 'a b' }] }))
+      writeFileSync(file, JSON.stringify({ ...saved, enrollments: [{ ...enr(1), roster: [], rosterAt: null, username: 'a b' }] }))
       expect(() => store().load()).toThrow('identity')
-      writeFileSync(file, JSON.stringify({ ...saved, enrollments: Array.from({ length: 17 }, (_, i) => enr(i + 1)) }))
+      writeFileSync(file, JSON.stringify({ ...saved, enrollments: Array.from({ length: 17 }, (_, i) => ({ ...enr(i + 1), roster: [], rosterAt: null })) }))
       expect(() => store().load()).toThrow('identity')
     })
 
@@ -352,6 +361,120 @@ describe('RemoteIdentityStore', () => {
         chmodSync(dir, 0o700)
       }
       expect(s.enrollment(fp(1), 'https://s1.example')).toBeDefined()
+    })
+  })
+
+  describe('roster snapshot (v4)', () => {
+    const URL1 = 'https://s1.example'
+    const ready = (): RemoteIdentityStore => {
+      const s = store()
+      s.load()
+      s.rememberEnrollment(enr(1))
+      return s
+    }
+
+    it('has no roster without an enrollment and ignores rememberRoster', () => {
+      const s = store()
+      s.load()
+      expect(s.rosterOf(fp(1), URL1)).toBeUndefined()
+      s.rememberRoster(fp(1), URL1, [pin(1)], 5)
+      expect(s.rosterOf(fp(1), URL1)).toBeUndefined()
+    })
+
+    it('starts empty and round-trips a roster through the MAC', () => {
+      const s = ready()
+      expect(s.rosterOf(fp(1), 'https://s1.example/other')).toEqual({ pins: [], at: null })
+      s.rememberRoster(fp(1), URL1, [pin(2, { acknowledged: true, enrolledBy: fp(3) }), pin(4, { revokedAt: 9 })], 77)
+      const again = store()
+      again.load()
+      expect(again.rosterOf(fp(1), URL1)).toEqual({ pins: [pin(2, { acknowledged: true, enrolledBy: fp(3) }), pin(4, { revokedAt: 9 })], at: 77 })
+      expect(again.enrollment(fp(1), URL1)).toEqual(enr(1))
+    })
+
+    it('rejects a tampered roster with identity and keeps the file', () => {
+      const s = ready()
+      s.rememberRoster(fp(1), URL1, [pin(2)], 1)
+      const saved = JSON.parse(readFileSync(file, 'utf8'))
+      saved.enrollments[0].roster[0].acknowledged = true
+      writeFileSync(file, JSON.stringify(saved))
+      const before = readFileSync(file)
+      expect(() => store().load()).toThrow('identity')
+      expect(readFileSync(file).equals(before)).toBe(true)
+      saved.enrollments[0].roster[0].acknowledged = false
+      saved.enrollments[0].rosterAt = 2
+      writeFileSync(file, JSON.stringify(saved))
+      expect(() => store().load()).toThrow('identity')
+    })
+
+    it('rejects invalid pins and duplicate ids', () => {
+      const s = ready()
+      for (const bad of [
+        pin(2, { id: 'x' }),
+        pin(2, { signingKey: 'abc' }),
+        pin(2, { revokedAt: -1 }),
+        pin(2, { revokedAt: 1.5 }),
+        pin(2, { enrolledBy: 'zz' })
+      ]) {
+        expect(() => s.rememberRoster(fp(1), URL1, [bad], 1)).toThrow('identity')
+      }
+      expect(() => s.rememberRoster(fp(1), URL1, [pin(2), pin(2)], 1)).toThrow('identity')
+      expect(s.rosterOf(fp(1), URL1)).toEqual({ pins: [], at: null })
+    })
+
+    it('drops revoked pins with the smallest revokedAt first above 64', () => {
+      const s = ready()
+      const pins = [pin(1000, { revokedAt: 50 }), pin(1001, { revokedAt: 10 }), pin(1002, { revokedAt: 30 })]
+      for (let i = 0; i < 63; i++) pins.push(pin(i + 1))
+      s.rememberRoster(fp(1), URL1, pins, 1)
+      const ids = s.rosterOf(fp(1), URL1)?.pins.map(p => p.id)
+      expect(ids).toHaveLength(64)
+      expect(ids).not.toContain(fp(1001))
+      expect(ids).toContain(fp(1000))
+      expect(ids).not.toContain(fp(1002))
+    })
+
+    it('throws identity when more than 64 active pins remain', () => {
+      const s = ready()
+      expect(() => s.rememberRoster(fp(1), URL1, Array.from({ length: 65 }, (_, i) => pin(i + 1)), 1)).toThrow('identity')
+    })
+
+    it('keeps pins on rememberEnrollment with the same namespace and drops them for another (K11)', () => {
+      const s = ready()
+      s.rememberRoster(fp(1), URL1, [pin(2)], 5)
+      s.rememberEnrollment({ ...enr(1), name: 'Renamed', enrolledAt: 99 })
+      expect(s.rosterOf(fp(1), URL1)).toEqual({ pins: [pin(2)], at: 5 })
+      s.rememberEnrollment({ ...enr(1), namespace: 'other' })
+      expect(s.rosterOf(fp(1), URL1)).toEqual({ pins: [], at: null })
+    })
+
+    it('forgetting the enrollment forgets the roster', () => {
+      const s = ready()
+      s.rememberRoster(fp(1), URL1, [pin(2)], 5)
+      s.forgetEnrollment(fp(1), URL1)
+      expect(s.rosterOf(fp(1), URL1)).toBeUndefined()
+    })
+
+    it('keeps the roster in RAM only for a temporary identity', () => {
+      const s = store(cipher(false))
+      s.load()
+      s.rememberEnrollment(enr(1))
+      s.rememberRoster(fp(1), URL1, [pin(2)], 5)
+      expect(s.rosterOf(fp(1), URL1)?.pins).toHaveLength(1)
+      expect(readdirSync(dir)).toEqual([])
+    })
+
+    it('writes and reads 16 enrollments with 64 pins each within the file limit (B3)', () => {
+      const s = store()
+      s.load()
+      for (let n = 1; n <= 16; n++) {
+        s.rememberEnrollment(enr(n))
+        s.rememberRoster(fp(n), `https://s${n}.example`, Array.from({ length: 64 }, (_, i) => pin(n * 100 + i, { enrolledBy: fp(7), revokedAt: i })), n)
+      }
+      expect(statSync(file).size).toBeLessThanOrEqual(512 * 1024)
+      const again = store()
+      again.load()
+      expect(again.rosterOf(fp(16), 'https://s16.example')?.pins).toHaveLength(64)
+      expect(again.rosterOf(fp(1), URL1)?.at).toBe(1)
     })
   })
 
@@ -429,14 +552,14 @@ describe('RemoteIdentityStore', () => {
       return JSON.parse(cipher().decrypt(Buffer.from(saved.identity, 'base64')).toString('utf8'))
     }
 
-    it('v2 -> v3 keeps X25519, macKey, fingerprint and verified pins with one write', () => {
+    it('v2 -> v4 keeps X25519, macKey, fingerprint and verified pins with one write', () => {
       const { id, x, macKey } = writeV2(true)
       const s = store()
       expect(s.load().identity.id).toBe(id)
       expect(s.known(fp(1))).toEqual({ firstSeen: 5, verified: true, verifiedAt: 9 })
       expect(readdirSync(dir)).toEqual(['remote-identity.json'])
       const saved = JSON.parse(readFileSync(file, 'utf8'))
-      expect(saved.version).toBe(3)
+      expect(saved.version).toBe(4)
       expect(saved.enrollments).toEqual([])
       const blob = decodeBlob()
       expect(blob[1]).toBe(b64(x))
@@ -446,6 +569,59 @@ describe('RemoteIdentityStore', () => {
       expect(again.load().identity.id).toBe(id)
       expect(again.load().identity.signingPublicKey).toBe(s.load().identity.signingPublicKey)
       expect(again.known(fp(1))?.verified).toBe(true)
+    })
+
+    const writeV3 = (): { id: string } => {
+      const s = store()
+      const { identity } = s.load()
+      const saved = JSON.parse(readFileSync(file, 'utf8'))
+      const macKey = Buffer.from(JSON.parse(cipher().decrypt(Buffer.from(saved.identity, 'base64')).toString('utf8'))[3], 'base64')
+      const devices = [{ ...PIN, verified: true, verifiedAt: 9 }]
+      const enrollments = [enr(1)]
+      const mac = createHmac('sha256', macKey)
+        .update(
+          JSON.stringify([
+            'shellherd-remote-identity-v3',
+            saved.identity,
+            devices.map(d => [d.fingerprint, d.name, d.firstSeen, d.lastSeen, d.verified, d.verifiedAt]),
+            enrollments.map(e => [e.serverId, e.namespace, e.serverUrl, e.username, e.name, e.enrolledAt])
+          ])
+        )
+        .digest('hex')
+      writeFileSync(file, JSON.stringify({ version: 3, identity: saved.identity, knownDevices: devices, enrollments, mac }))
+      return { id: identity.id }
+    }
+
+    it('v3 -> v4 verifies the v3 MAC, adds empty rosters with one write and keeps everything else', () => {
+      const { id } = writeV3()
+      const s = store()
+      expect(s.load().identity.id).toBe(id)
+      expect(readdirSync(dir)).toEqual(['remote-identity.json'])
+      expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(4)
+      expect(s.enrollment(fp(1), 'https://s1.example')).toEqual(enr(1))
+      expect(s.rosterOf(fp(1), 'https://s1.example')).toEqual({ pins: [], at: null })
+      expect(s.known(fp(1))?.verified).toBe(true)
+      expect(store().load().identity.id).toBe(id)
+    })
+
+    it('rejects a v3 file with a bad MAC and keeps it', () => {
+      writeV3()
+      const saved = JSON.parse(readFileSync(file, 'utf8'))
+      saved.enrollments[0].serverUrl = 'https://evil.example'
+      writeFileSync(file, JSON.stringify(saved))
+      const before = readFileSync(file)
+      expect(() => store().load()).toThrow('identity')
+      expect(readFileSync(file).equals(before)).toBe(true)
+    })
+
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('v3 -> v4 still loads when the rewrite fails (best effort)', () => {
+      const { id } = writeV3()
+      chmodSync(dir, 0o500)
+      try {
+        expect(store().load().identity.id).toBe(id)
+      } finally {
+        chmodSync(dir, 0o700)
+      }
     })
 
     it('rejects a v2 file with a bad MAC', () => {
@@ -458,12 +634,12 @@ describe('RemoteIdentityStore', () => {
       expect(readFileSync(file).equals(before)).toBe(true)
     })
 
-    it('v1 -> v3 makes pins unverified with the same fingerprint', () => {
+    it('v1 -> v4 makes pins unverified with the same fingerprint', () => {
       const { id } = writeV1()
       const s = store()
       expect(s.load().identity.id).toBe(id)
       expect(s.known(fp(1))).toEqual({ firstSeen: 5, verified: false })
-      expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(3)
+      expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(4)
       const again = store()
       expect(again.load().identity.id).toBe(id)
     })
@@ -492,7 +668,7 @@ describe('RemoteIdentityStore', () => {
         }
         const s = store()
         expect(s.load().identity.id).toBe(id)
-        expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(3)
+        expect(JSON.parse(readFileSync(file, 'utf8')).version).toBe(4)
       }
     )
 

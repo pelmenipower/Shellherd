@@ -4,7 +4,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, lstat, open, readdir, rename, unlink, readFile } from 'node:fs/promises';
+import { mkdir, lstat, open, readdir, rename, unlink, readFile, chmod } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { requestProof } from './http-proof.mjs';
@@ -13,7 +13,7 @@ import { createAccessRegistry } from './server-access.mjs';
 import { accountAuth } from './account-auth.mjs';
 import { validateSyncObject, isLegacyVaultObject } from './sync-object-wire.mjs';
 import { createDeviceRoster } from './device-roster.mjs';
-import { enrollmentBody, sessionProof, requestProofV2, signingKeyOf, ed25519Spki, originOk } from './device-proof.mjs';
+import { enrollmentBody, sessionProof, requestProofV3, signingKeyOf, ed25519Spki, originOk } from './device-proof.mjs';
 import { createRendezvous, deviceId } from './rendezvous.mjs';
 import { DEFAULT_LIMITS, createLimiter, parseTrustedProxies, sourceOf } from './rate-limit.mjs';
 const MAX = 1024 * 1024;
@@ -24,7 +24,7 @@ function base64(s, length) {
   check(typeof s === 'string' && s.length < MAX * 2); const bytes = Buffer.from(s, 'base64');
   check(bytes.toString('base64') === s && (length === undefined || bytes.length === length)); return bytes;
 }
-export async function createSyncServer({ directory, serverId, namespace, devices = [], account = null, publicUrl = null, origin = null, initialPasswordFile = null, clock = () => Date.now(), adminPublicKey = null, adminDevices = [], accessFault, rosterFault, rendezvous = false, trustedProxy = false, limits = {} }) {
+export async function createSyncServer({ directory, serverId, namespace, devices = [], account = null, publicUrl = null, origin = null, initialPasswordFile = null, clock = () => Date.now(), adminPublicKey = null, adminDevices = [], accessFault, rosterFault, rendezvous = false, trustedProxy = false, limits = {}, enrollment = 'password' }) {
   limits = { ...DEFAULT_LIMITS, ...limits };
   check(typeof serverId === 'string' && /^[a-f0-9]{64}$/.test(serverId) && ascii(namespace));
   check(Array.isArray(devices) && devices.length <= 16 && (account !== null ? devices.length === 0 && adminPublicKey === null && adminDevices.length === 0 : devices.length > 0));
@@ -34,6 +34,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
   // The public origin is configured, never taken from the Host header; null means the listen origin (loopback tests and scenes).
   check(origin === null || originOk(origin));
   check(initialPasswordFile === null || typeof initialPasswordFile === 'string');
+  check(enrollment === 'password' || enrollment === 'invite-only');
   check(trustedProxy === false || typeof trustedProxy === 'string' || typeof trustedProxy === 'function');
   if (typeof trustedProxy === 'string') trustedProxy = parseTrustedProxies(trustedProxy);
   const keys = new Map();
@@ -105,6 +106,38 @@ export async function createSyncServer({ directory, serverId, namespace, devices
     }
     spent.set(value, ts); return ts;
   };
+  // Open enrollment codes (RAM only). The keybox object an issuer attached is removed once the invite is spent or expired (B7).
+  const INVITE_TTL = 600_000; const INVITE_GRACE = 600_000; const invites = [];
+  const EMPTY_SHA = sha(Buffer.alloc(0));
+  const redeemable = (e, at) => !e.revoked && e.consumedAt === null && at < e.expiresAt;
+  const inviteDue = (e, at) => e.revoked || (e.consumedAt === null ? at >= e.expiresAt : at >= Math.max(e.expiresAt, e.consumedAt + INVITE_GRACE));
+  async function removeObject(id) {
+    check(!uncertain, 503); check(!busy, 409); check(objects.has(id) || quarantined.has(id), 404); busy = true;
+    try {
+      await unlink(join(directory, id + '.blob')).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      // Skipped (unreadable) objects are removable too, so they do not hold a file slot forever.
+      if (objects.has(id)) { total -= objects.get(id); objects.delete(id); } else quarantined.delete(id);
+      try { const dir = await open(directory, 'r'); try { await dir.sync(); } finally { await dir.close(); } }
+      catch (error) { uncertain = true; throw error; }
+    } finally { busy = false; }
+  }
+  // Best effort: a busy or failing removal is retried on the next run, a missing object counts as done.
+  // One sweep at a time; object writes wait for a running one instead of being refused with 409 (N5).
+  let sweeping = null;
+  function sweepInvites(at) {
+    sweeping ??= runSweep(at).finally(() => { sweeping = null; });
+    return sweeping;
+  }
+  async function runSweep(at) {
+    for (const entry of [...invites]) {
+      if (entry.removing || !inviteDue(entry, at)) continue;
+      const drop = () => { const index = invites.indexOf(entry); if (index >= 0) invites.splice(index, 1); };
+      if (entry.object === null) { drop(); continue; }
+      entry.removing = true;
+      try { await removeObject(entry.object); drop(); } catch (error) { if (error?.status === 404) drop(); else entry.removing = false; }
+    }
+  }
+  const sweepTimer = login ? setInterval(() => { void sweepInvites(clock()).catch(() => {}); }, 60_000) : null; sweepTimer?.unref();
   let requests = 0; let windowStart = clock();
   const inflight = new Map();
   const limiter = createLimiter({ clock, maxKeys: limits.maxKeys });
@@ -119,6 +152,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
     };
     void (async () => {
       const now = clock();
+      if (login) await sweepInvites(now).catch(() => {});
       const source = sourceOf(request, { trustedProxy });
       // Concurrent handlers per source (works behind a proxy too); released when the response closes.
       const concurrent = (inflight.get(source) ?? 0) + 1; inflight.set(source, concurrent);
@@ -136,8 +170,9 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       check(request.headers.origin === undefined && request.headers['transfer-encoding'] === undefined);
       if (request.method === 'GET' && path === '/v1/info') {
         check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
-        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'enrolled-device' : 'device', deviceSessions: Boolean(login), objectFormat: login ? 'sync-object' : 'device-snapshot', rendezvous: Boolean(broker), rendezvousProof: Boolean(broker), rendezvousNoise: Boolean(broker), origin }); return;
+        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'enrolled-device' : 'device', invites: Boolean(login), objectEpochs: Boolean(login), ...(login ? { enrollment } : {}), deviceSessions: Boolean(login), objectFormat: login ? 'sync-object' : 'device-snapshot', rendezvous: Boolean(broker), rendezvousProof: Boolean(broker), rendezvousNoise: Boolean(broker), origin }); return;
       }
+      let rawBody = Buffer.alloc(0); // exact bytes of the last JSON body (the digest of a signed request covers them)
       const readJson = async (max, onFormError) => {
         // Total read deadline before authentication: a slow body is destroyed and counts as a malformed attempt.
         let timer; const deadline = new Promise((_resolve, reject) => { timer = setTimeout(() => { request.destroy(); reject(Object.assign(Error('Request rejected'), { status: 408 })); }, 3000); });
@@ -145,7 +180,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
           check(request.headers['content-type'] === 'application/json');
           const length = Number(request.headers['content-length']); check(Number.isSafeInteger(length) && length > 0 && length <= max, 413);
           const chunks = []; let used = 0; for await (const chunk of request) { used += chunk.length; check(used <= max, 413); chunks.push(chunk); }
-          check(used === length); const text = Buffer.concat(chunks).toString('utf8'); const body = JSON.parse(text); check(JSON.stringify(body) === text); return body;
+          check(used === length); rawBody = Buffer.concat(chunks); const text = rawBody.toString('utf8'); const body = JSON.parse(text); check(JSON.stringify(body) === text); return body;
         })();
         reading.catch(() => {});
         try { return await Promise.race([reading, deadline]); }
@@ -157,19 +192,35 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       const consumeNonce = value => spendNonce(value, now) !== null;
       if (login && path === '/v1/devices' && request.method === 'POST') {
         const body = await readJson(16384, () => login.fail(source));
+        const hex = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
+        const byInvite = sameKeys(body, 'enrollment,invite') || sameKeys(body, 'enrollment,ephemeral,invite');
+        // Under invite-only the password form is refused before anything is counted or hashed.
+        if (!byInvite && enrollment === 'invite-only' && (sameKeys(body, 'enrollment,password,username') || sameKeys(body, 'enrollment,ephemeral,password,username'))) check(false, 403);
+        const reject = byInvite ? () => login.failSession(source) : () => login.fail(source);
         try {
-          check(sameKeys(body, 'enrollment,password,username') || sameKeys(body, 'enrollment,ephemeral,password,username'));
+          check(byInvite || sameKeys(body, 'enrollment,password,username') || sameKeys(body, 'enrollment,ephemeral,password,username'));
           check(body.ephemeral === undefined || typeof body.ephemeral === 'boolean');
+          if (byInvite) check(hex(body.invite));
           const doc = body.enrollment; check(Array.isArray(doc) && doc.length === 2 && Array.isArray(doc[0]) && doc[0].length === 8 && typeof doc[1] === 'string');
           check(JSON.stringify(doc[0]) === enrollmentBody(...doc[0].slice(1)) && doc[0][1] === serverId && doc[0][2] === namespace && doc[0][3] === origin);
           // Cheap rejections (device id vs noise key, weak signing key) come before the expensive password check.
           check(deviceId(doc[0][6]) === doc[0][4]); signingKeyOf(doc[0][5]);
-        } catch (error) { login.fail(source); throw error; }
+        } catch (error) { reject(); throw error; }
+        let enrolledBy = null;
+        if (byInvite) {
+          login.sessionGate(source);
+          // Every open invite is compared, no early exit.
+          const wanted = createHash('sha256').update(body.invite, 'utf8').digest(); let match = null;
+          for (const entry of invites) if (timingSafeEqual(entry.digest, wanted) && redeemable(entry, now)) match = entry;
+          if (!match) { login.failSession(source); check(false, 401); }
+          match.consumedAt = now; enrolledBy = match.issuer; // spent at once, even if a later step fails
+          check(roster.isActive(match.issuer), 401);
+        } else await login.verifyPassword({ username: body.username, password: body.password }, source);
         roster.assertHealthy();
-        await login.verifyPassword({ username: body.username, password: body.password }, source);
-        const { entry, created } = await roster.enroll({ document: body.enrollment, ephemeral: body.ephemeral === true, origin });
+        const { entry, created } = await roster.enroll({ document: body.enrollment, ephemeral: body.ephemeral === true, origin, enrolledBy });
+        if (byInvite) login.clearSession(source);
         if (initialPasswordFile) await unlink(initialPasswordFile).catch(() => {}); // the generated password is no longer needed once a device is enrolled
-        send(created ? 201 : 200, { device: { id: entry.id, name: entry.name, enrolledAt: entry.enrolledAt, ephemeral: entry.ephemeral } }); return;
+        send(created ? 201 : 200, { device: { id: entry.id, name: entry.name, enrolledAt: entry.enrolledAt, ephemeral: entry.ephemeral }, ...(byInvite ? { username: account.username } : {}) }); return;
       }
       if (login && path === '/v1/devices' && request.method === 'GET') {
         check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
@@ -203,13 +254,42 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         const length = Number(request.headers['content-length'] ?? 0); check(Number.isSafeInteger(length) && length >= 0, 400); check(length <= 16384, 413); check(length === 0);
         let valid = false;
         try {
-          valid = fresh && device === login.deviceOf(key) && verify(null, Buffer.from(requestProofV2(serverId, namespace, origin, 'DELETE', request.url, nonce, device)), roster.signingKeyOf(device), base64(signature, 64));
+          valid = fresh && device === login.deviceOf(key) && verify(null, Buffer.from(requestProofV3(serverId, namespace, origin, 'DELETE', request.url, nonce, device, EMPTY_SHA)), roster.signingKeyOf(device), base64(signature, 64));
         } catch { valid = false; }
         if (!valid) { login.failSession(source); check(false, 401); }
         login.clearSession(source);
         check(login.authorize(request.headers.authorization) === key, 401); roster.assertHealthy();
         await roster.revoke(revocation); login.dropDevice(revocation); broker?.dropDevice(revocation);
+        for (const entry of invites) if (entry.issuer === revocation) entry.revoked = true; // K2: its open invites die with it
+        await sweepInvites(now).catch(() => {});
         send(200, { revoked: true }); return;
+      }
+      if (login && path === '/v1/invites') {
+        check(request.method === 'POST', 405);
+        login.sessionGate(source);
+        const device = request.headers['x-shellherd-device']; const nonce = request.headers['x-shellherd-nonce']; const signature = request.headers['x-shellherd-signature'];
+        const fresh = consumeNonce(nonce); // spent first and always, whatever fails next
+        let key;
+        try { key = login.authorize(request.headers.authorization); } catch (error) { login.failSession(source); throw error; }
+        budget('invite:' + login.deviceOf(key), limits.invite);
+        const body = await readJson(4096, () => login.failSession(source));
+        const bodySha = createHash('sha256').update(rawBody).digest('hex');
+        let valid = false;
+        try {
+          valid = fresh && device === login.deviceOf(key) && verify(null, Buffer.from(requestProofV3(serverId, namespace, origin, 'POST', request.url, nonce, device, bodySha)), roster.signingKeyOf(device), base64(signature, 64));
+        } catch { valid = false; }
+        if (!valid) { login.failSession(source); check(false, 401); }
+        login.clearSession(source);
+        check(login.authorize(request.headers.authorization) === key, 401); check(roster.isActive(device), 401);
+        const hex = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
+        check(sameKeys(body, 'object,secret') && hex(body.secret) && (body.object === null || hex(body.object)));
+        if (body.object !== null) { check(objects.has(body.object)); let kind; try { kind = validateSyncObject(await readObject(body.object)).kind; } catch { check(false); } check(kind === 'keybox'); }
+        const digest = createHash('sha256').update(body.secret, 'utf8').digest();
+        check(!invites.some(e => timingSafeEqual(e.digest, digest)), 409);
+        const unspent = invites.filter(e => !e.revoked && e.consumedAt === null);
+        check(unspent.filter(e => e.issuer === device).length < 4 && unspent.length < 16, 429);
+        invites.push({ digest, issuer: device, object: body.object, createdAt: now, expiresAt: now + INVITE_TTL, consumedAt: null, revoked: false, removing: false });
+        send(201, { expiresAt: now + INVITE_TTL }); return;
       }
       if (login && path === '/v1/logout') {
         check(request.method === 'POST' && Number(request.headers['content-length'] ?? 0) === 0);
@@ -268,25 +348,13 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         if (path === '/v1/enrollments/pending') send(200, { pending: access.listPending() });
         else if (request.method === 'GET') send(200, access.status());
         else {
-          check(!busy, 409); busy = true;
+          await sweeping; check(!busy, 409); busy = true;
           try { const document = JSON.parse(body); check(JSON.stringify(document) === body); send(200, await access.apply(document)); }
           finally { busy = false; }
         }
         return;
       }
-      if (request.method === 'DELETE') {
-        const id = path.slice(collection.length + 1);
-        check(!uncertain, 503); check(!busy, 409); check(objects.has(id) || quarantined.has(id), 404); busy = true;
-        try {
-          await unlink(join(directory, id + '.blob')).catch(error => { if (error.code !== 'ENOENT') throw error; });
-          // Skipped (unreadable) objects are removable too, so they do not hold a file slot forever.
-          if (objects.has(id)) { total -= objects.get(id); objects.delete(id); } else quarantined.delete(id);
-          try { const dir = await open(directory, 'r'); try { await dir.sync(); } finally { await dir.close(); } }
-          catch (error) { uncertain = true; throw error; }
-          send(200, { removed: true });
-        } finally { busy = false; }
-        return;
-      }
+      if (request.method === 'DELETE') { await sweeping; await removeObject(path.slice(collection.length + 1)); send(200, { removed: true }); return; }
       if (request.method === 'GET') {
         if (path === collection) send(200, { objects: [...objects.keys()].sort() });
         else {
@@ -301,7 +369,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       if (login) validateSyncObject(body); else check(opaque(body) === device, 403);
       const id = sha(body);
       if (objects.has(id)) { send(200, { id }); return; }
-      check(!uncertain, 503); check(!busy, 409); check(objects.size < 100 && total + bytes <= 32 * MAX, 507); busy = true;
+      await sweeping; check(!uncertain, 503); check(!busy, 409); check(objects.size < 100 && total + bytes <= 32 * MAX, 507); busy = true;
       let renamed = false;
       const temporary = join(directory, randomBytes(16).toString('hex') + '.tmp');
       try {
@@ -318,14 +386,15 @@ export async function createSyncServer({ directory, serverId, namespace, devices
   server.requestTimeout = 15_000; server.headersTimeout = 5000; server.keepAliveTimeout = 2000; server.maxConnections = 256; server.maxHeadersCount = 32;
   server.on('clientError', (_error, socket) => socket.destroy());
   // Per-source connection cap; off behind a trusted proxy because every socket then comes from the proxy.
+  let socketMode = false; const perSource = new Map();
   if (!trustedProxy) {
-    const open = new Map();
     server.on('connection', socket => {
+      if (socketMode) return;
       const source = sourceOf({ socket, headers: {} });
-      const count = (open.get(source) ?? 0) + 1;
+      const count = (perSource.get(source) ?? 0) + 1;
       if (count > limits.connectionsPerSource) { socket.destroy(); return; }
-      open.set(source, count);
-      socket.once('close', () => { const left = (open.get(source) ?? 1) - 1; if (left > 0) open.set(source, left); else open.delete(source); });
+      perSource.set(source, count);
+      socket.once('close', () => { const left = (perSource.get(source) ?? 1) - 1; if (left > 0) perSource.set(source, left); else perSource.delete(source); });
     });
   }
   return { server, info: { serverId, namespace }, async listen(port = 0, host = '127.0.0.1') {
@@ -335,7 +404,16 @@ export async function createSyncServer({ directory, serverId, namespace, devices
     const url = `http://${shown}:${server.address().port}/`;
     if (origin === null) origin = new URL(url).origin;
     return url;
-  }, async close() { broker?.clear(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
+  }, async listenSocket(socketPath) {
+    check(origin !== null && typeof socketPath === 'string' && socketPath.startsWith('/'));
+    let existing = null; try { existing = await lstat(socketPath); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (existing) { check(existing.isSocket()); await unlink(socketPath); } // a stale socket of an earlier run
+    // Behind the local proxy every peer is the socket; X-Forwarded-For always comes from it and the per-source connection cap does not apply.
+    socketMode = true; trustedProxy = () => true;
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve); });
+    await chmod(socketPath, 0o660);
+    return socketPath;
+  }, activeDevices: () => roster?.activeCount() ?? 0, async close() { clearInterval(sweepTimer); broker?.clear(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

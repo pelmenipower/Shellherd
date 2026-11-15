@@ -20,5 +20,6 @@ export async function probeSyncServer(serverUrl, { allowLoopbackHttp = false, al
     && typeof info.namespace === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(info.namespace) && info.maxObjectBytes === 1048576);
   // A server that reports another origin than the one we reached is misconfigured (or someone else): its proofs would never verify.
   check(info.origin === new URL(url).origin);
-  return { serverUrl: url, serverId: info.serverId, namespace: info.namespace, enrollmentAvailable: info.deviceEnrollment === true, authentication: ['password', 'device', 'enrolled-device'].includes(info.authentication) ? info.authentication : 'device', deviceSessions: info.deviceSessions === true, rendezvous: info.rendezvous === true, rendezvousProof: info.rendezvousProof === true, rendezvousNoise: info.rendezvousNoise === true };
+  // Missing H4 fields never throw here (E2); the sync host decides whether the server is usable.
+  return { serverUrl: url, serverId: info.serverId, namespace: info.namespace, enrollmentAvailable: info.deviceEnrollment === true, authentication: ['password', 'device', 'enrolled-device'].includes(info.authentication) ? info.authentication : 'device', deviceSessions: info.deviceSessions === true, rendezvous: info.rendezvous === true, rendezvousProof: info.rendezvousProof === true, rendezvousNoise: info.rendezvousNoise === true, invites: info.invites === true, objectEpochs: info.objectEpochs === true, enrollment: info.enrollment === 'invite-only' ? 'invite-only' : 'password' };
 }

@@ -5,7 +5,7 @@ export interface RemoteKnown { firstSeen: number; verified: boolean; verifiedAt?
 export interface RemoteDevice { id: string; name: string; known?: RemoteKnown; changed?: true }
 export type RemoteEndReason = 'stopped' | 'remote' | 'expired' | 'locked' | 'declined' | 'failed' | 'scope' | 'mismatch';
 export type RemoteErrorCode = 'unavailable' | 'invalid' | 'stale' | 'identity' | 'locked' | 'connection' | 'authentication' | 'expired'
-  | 'declined' | 'mismatch' | 'signal' | 'media' | 'peer' | 'scope' | 'limit' | 'samePassword' | 'enrolledElsewhere';
+  | 'declined' | 'mismatch' | 'signal' | 'media' | 'peer' | 'scope' | 'limit' | 'samePassword' | 'enrolledElsewhere' | 'enrollmentLocked';
 /** Wire part inside the E2EE channel. 'bye' is host-internal and never crosses IPC. */
 export interface RemoteSignalPart { kind: 'offer' | 'answer' | 'bye'; part: number; of: number; data: string }
 export type RemoteLabCommand =

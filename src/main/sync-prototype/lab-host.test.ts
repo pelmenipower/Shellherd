@@ -1,3 +1,4 @@
+import type { SyncDevice } from './vault-sync-crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSync, verify } from 'node:crypto';
 import { SyncLabHost, weakEd25519 } from './lab-host';
@@ -7,23 +8,29 @@ import type { RemoteIdentity, RemoteIdentityStore } from '../remote/identity';
 const clientId = '123e4567-e89b-42d3-a456-426614174000';
 const otherId = '123e4567-e89b-42d3-a456-426614174001';
 const serverId = 'a'.repeat(64);
-const infoOf = async (serverUrl: string) => ({ serverUrl, serverId, namespace: 'space', authentication: 'enrolled-device' as const, deviceSessions: true });
+const infoOf = async (serverUrl: string) => ({ serverUrl, serverId, namespace: 'space', authentication: 'enrolled-device' as const, deviceSessions: true, invites: true, objectEpochs: true, enrollment: 'password' as const });
 const url = 'https://sync.example.net';
 const connectCommand = { kind: 'connect', clientId, serverUrl: url };
 const signInCommand = { kind: 'signIn', clientId, username: 'alice', password: 'PRIVATE_PASSWORD', deviceName: 'Laptop' };
-const entryOf = (identity: RemoteIdentity, extra: Partial<DeviceEntry> = {}): DeviceEntry => ({ id: identity.id, name: 'Laptop', signingKey: identity.signingPublicKey, enrolledAt: 1, revokedAt: null, ephemeral: false, ...extra });
+const entryOf = (identity: RemoteIdentity, extra: Partial<DeviceEntry> = {}): DeviceEntry => ({ id: identity.id, name: 'Laptop', signingKey: identity.signingPublicKey, enrolledAt: 1, enrolledBy: null, revokedAt: null, ephemeral: false, ...extra });
 /** Identity store fake; enrollment starts empty unless given. */
 const storeOf = (identity = generateRemoteIdentity(), enrollment?: unknown, persistent = true) => {
   const origin = (u: string) => new URL(u).origin;
   const known = enrollment as { serverUrl: string } | undefined;
+  type Pin = { id: string; signingKey: string; revokedAt: number | null; enrolledBy: string | null; acknowledged: boolean };
+  let pinned: { pins: Pin[]; at: number | null } | undefined = known ? { pins: [], at: null } : undefined;
   // Same semantics as the real store: the entry matches by origin, an entry of another origin is "elsewhere".
   const store = { load: vi.fn(() => ({ identity, persistent })),
     enrollment: vi.fn((_id: string, serverUrl: string) => known && origin(known.serverUrl) === origin(serverUrl) ? enrollment : undefined),
-    enrolledElsewhere: vi.fn((_id: string, serverUrl: string) => known && origin(known.serverUrl) !== origin(serverUrl) ? known.serverUrl : undefined), rememberEnrollment: vi.fn(), forgetEnrollment: vi.fn() };
+    enrolledElsewhere: vi.fn((_id: string, serverUrl: string) => known && origin(known.serverUrl) !== origin(serverUrl) ? known.serverUrl : undefined),
+    // Pinned roster like the real store: present with an enrollment, empty (at null) until the first roster was seen.
+    rememberEnrollment: vi.fn(() => { pinned = { pins: [], at: null }; }), forgetEnrollment: vi.fn(),
+    rosterOf: vi.fn(() => pinned && { pins: pinned.pins.map(p => ({ ...p })), at: pinned.at }),
+    rememberRoster: vi.fn((_id: string, _url: string, pins: Pin[], at: number) => { pinned = { pins: pins.map(p => ({ ...p })), at }; }) };
   return { identity, store, asStore: store as unknown as RemoteIdentityStore };
 };
 const accountOf = (identity: RemoteIdentity, over: Partial<Record<keyof AccountDriver, unknown>> = {}) => ({
-  enroll: vi.fn(async () => ({})), openSession: vi.fn(async () => ({ signedIn: true as const, expiresAt: Date.now() + 600000, device: identity.id })),
+  enroll: vi.fn(async () => ({})), enrollWithInvite: vi.fn(async () => ({ username: 'alice' })), invite: vi.fn(async () => ({ expiresAt: Date.now() + 600000 })), openSession: vi.fn(async () => ({ signedIn: true as const, expiresAt: Date.now() + 600000, device: identity.id })),
   devices: vi.fn(async () => [entryOf(identity)]), revoke: vi.fn(async () => ({ revoked: true })), list: vi.fn(async () => []), close: vi.fn(), ...over,
 }) as unknown as AccountDriver & { [K in keyof AccountDriver]: AccountDriver[K] & ReturnType<typeof vi.fn> };
 const enrolledOf = (over: Record<string, unknown> = {}) => ({ serverId, namespace: 'space', serverUrl: `${url}/`, username: 'alice', name: 'Laptop', enrolledAt: 1, ...over });
@@ -262,10 +269,10 @@ describe('sync actions', () => {
     const data = Buffer.from('payload');
     expect(verify(null, data, device.keyOf(h.identity.id), device.sign(data))).toBe(true);
     expect(device.keyOf(other.id)).toBeDefined(); expect(device.keyOf('f'.repeat(64))).toBeUndefined();
-    // A later run reads the new roster again.
+    // A later run reads the new roster again; a revoked device the server drops stays pinned with its revocation (B8).
     h.account.devices.mockResolvedValue([entryOf(h.identity)]);
     await h.host.performSync(1, { kind: 'synchronize', clientId });
-    expect(seen[1].keyOf(other.id)).toBeUndefined();
+    expect(seen[1].keyOf(other.id)).toBeDefined(); expect(seen[1].revokedAt(other.id)).toBe(77);
   });
   it('ends with connection when the own roster entry is missing or carries another key (B3)', async () => {
     const syncVault = vi.fn(async () => sync);
@@ -298,9 +305,9 @@ describe('sync actions', () => {
     expect(first.state.sync).toEqual({ ...sync, unknownAuthors: 2, quarantined: 1 });
     expect(JSON.stringify(first.state)).not.toContain(code);
     expect(JSON.stringify(h.host.request(1, { kind: 'status', clientId }))).not.toContain(code);
-    const regenerated = await h.host.performSync(1, { kind: 'regenerateCode', clientId, confirmed: true }) as { state: unknown; recoveryCode?: string };
+    const regenerated = await h.host.performSync(1, { kind: 'rotateKey', clientId, confirmed: true }) as { state: unknown; recoveryCode?: string };
     expect(regenerated.recoveryCode).toBe('f'.repeat(32));
-    expect(syncVault).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.any(AbortSignal), { kind: 'regenerateCode' }, expect.any(Object));
+    expect(syncVault).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.any(AbortSignal), { kind: 'rotateKey' }, expect.any(Object));
     expect(JSON.stringify(regenerated.state)).not.toContain('f'.repeat(32));
     expect(h.host.request(1, { kind: 'status', clientId })).toMatchObject({ ok: true, state: { sync: { unknownAuthors: 2 } } }); // sync unchanged by regenerate
     expect(JSON.stringify(h.host.request(1, { kind: 'status', clientId }))).not.toMatch(new RegExp(`${code}|${'f'.repeat(32)}`));
@@ -341,8 +348,8 @@ describe('device list', () => {
     h.account.devices.mockResolvedValue([{ ...entryOf(h.identity), self: false }, { ...entryOf(other, { name: 'Other' }), self: true }]);
     const reply = await h.host.devices(1, { kind: 'listDevices', clientId });
     expect((reply as any).state.devices).toEqual([
-      { id: h.identity.id, name: 'Laptop', enrolledAt: 1, revokedAt: null, ephemeral: false, self: true },
-      { id: other.id, name: 'Other', enrolledAt: 1, revokedAt: null, ephemeral: false, self: false },
+      { id: h.identity.id, name: 'Laptop', enrolledAt: 1, revokedAt: null, ephemeral: false, self: true, enrolledVia: 'password' },
+      { id: other.id, name: 'Other', enrolledAt: 1, revokedAt: null, ephemeral: false, self: false, enrolledVia: 'password' },
     ]);
     expect(JSON.stringify(reply)).not.toContain('signingKey');
   });
@@ -546,13 +553,13 @@ describe('H3.1 hardening of the app surface', () => {
     expect(createAccount).not.toHaveBeenCalled();
   });
   const run = async (syncVault: (...a: any[]) => Promise<any>, account: Partial<Record<keyof AccountDriver, unknown>> = {}) => { const h = harness({ syncVault, account }); await h.signedIn(); return h; };
-  it('requires confirmed:true for regenerateCode (C2, K23)', async () => {
+  it('requires confirmed:true for rotateKey (C2, K23)', async () => {
     const syncVault = vi.fn(async () => ({ recoveryCode: 'f'.repeat(32) }));
     const h = await run(syncVault);
-    expect(await h.host.performSync(1, { kind: 'regenerateCode', clientId })).toEqual({ ok: false, code: 'invalid' });
-    expect(await h.host.performSync(1, { kind: 'regenerateCode', clientId, confirmed: false })).toEqual({ ok: false, code: 'invalid' });
+    expect(await h.host.performSync(1, { kind: 'rotateKey', clientId })).toEqual({ ok: false, code: 'invalid' });
+    expect(await h.host.performSync(1, { kind: 'rotateKey', clientId, confirmed: false })).toEqual({ ok: false, code: 'invalid' });
     expect(syncVault).not.toHaveBeenCalled();
-    expect(await h.host.performSync(1, { kind: 'regenerateCode', clientId, confirmed: true })).toMatchObject({ ok: true, recoveryCode: 'f'.repeat(32) });
+    expect(await h.host.performSync(1, { kind: 'rotateKey', clientId, confirmed: true })).toMatchObject({ ok: true, recoveryCode: 'f'.repeat(32) });
   });
   it('passes the versions opt-in to removeForeign only when set (B8)', async () => {
     const id = 'f'.repeat(64);
@@ -583,5 +590,218 @@ describe('H3.1 hardening of the app surface', () => {
     const h = await run(syncVault);
     expect(await h.host.performSync(1, { kind: 'importVault', clientId, password: 'x'.repeat(7), recoveryCode: '0123456789abcdef0123456789abcdef' })).toEqual({ ok: false, code: 'invalid' });
     expect(syncVault).not.toHaveBeenCalled();
+  });
+});
+
+describe('H4 key epochs: enrollment code, roster pins, rotation', () => {
+  const INVITE = '0123456789abcdef0123456789abcdef';
+  const inviteCommand = { kind: 'signInWithInvite', clientId, code: INVITE, deviceName: 'Laptop' };
+  const inviteHarness = async (opts: Parameters<typeof harness>[0] = {}, info = (u: string) => infoOf(u)) => {
+    const h = harness({ info, ...opts }); await h.host.connect(1, connectCommand); return h;
+  };
+  const pinOf = (h: ReturnType<typeof harness>) => (h.store.rosterOf as unknown as () => { pins: any[]; at: number | null })();
+
+  it('needs invites and object epochs from the server', async () => {
+    for (const missing of ['invites', 'objectEpochs']) {
+      const { host } = harness({ info: async (u: string) => ({ ...(await infoOf(u)), [missing]: false }) });
+      expect(await host.connect(1, connectCommand)).toEqual({ ok: false, code: 'unavailable' });
+    }
+  });
+  it('maps a 403 from the password enrollment to enrollmentLocked', async () => {
+    const h = harness({ account: { enroll: vi.fn().mockRejectedValue({ status: 403 }) } });
+    await h.host.connect(1, connectCommand);
+    expect(await h.host.signIn(1, signInCommand)).toEqual({ ok: false, code: 'enrollmentLocked' });
+  });
+  it('enrolls with a code: derived secret, username from the server, code held as a zeroable buffer', async () => {
+    const h = await inviteHarness({ syncVault: async () => sync });
+    const reply = await h.host.signInWithInvite(1, inviteCommand);
+    expect(reply).toMatchObject({ ok: true, state: { account: { signedIn: true, username: 'alice' }, inviteKey: true } });
+    expect(h.account.enrollWithInvite).toHaveBeenCalledWith(expect.anything(), { secret: expect.stringMatching(/^[0-9a-f]{64}$/), name: 'Laptop', ephemeral: false });
+    expect(h.store.rememberEnrollment).toHaveBeenCalledWith(expect.objectContaining({ username: 'alice', name: 'Laptop' }));
+    expect(JSON.stringify(reply)).not.toContain(INVITE);
+    expect(JSON.stringify(h.host.request(1, { kind: 'status', clientId }))).not.toContain(INVITE);
+  });
+  it('rejects a malformed code without network and maps 401 to invite, 429 to limit', async () => {
+    const h = await inviteHarness();
+    expect(await h.host.signInWithInvite(1, { ...inviteCommand, code: 'nope' })).toEqual({ ok: false, code: 'invalid' });
+    expect(h.createAccount).not.toHaveBeenCalled();
+    const denied = await inviteHarness({ account: { enrollWithInvite: vi.fn().mockRejectedValue({ status: 401 }) } });
+    expect(await denied.host.signInWithInvite(1, inviteCommand)).toEqual({ ok: false, code: 'invite' });
+    const limited = await inviteHarness({ account: { enrollWithInvite: vi.fn().mockRejectedValue({ status: 429 }) } });
+    expect(await limited.host.signInWithInvite(1, inviteCommand)).toEqual({ ok: false, code: 'limit' });
+  });
+  it('imports and synchronizes with the held code, then wipes it after success', async () => {
+    const syncVault = vi.fn(async (..._a: any[]) => sync);
+    const h = await inviteHarness({ syncVault }); await h.host.signInWithInvite(1, inviteCommand);
+    await h.host.performSync(1, { kind: 'synchronize', clientId });
+    expect(syncVault.mock.calls[0][3]).toEqual({ kind: 'synchronize', inviteCode: INVITE });
+    expect((h.host.request(1, { kind: 'status', clientId }) as any).state.inviteKey).toBeUndefined();
+    await h.host.performSync(1, { kind: 'synchronize', clientId });
+    expect(syncVault.mock.calls[1][3]).toEqual({ kind: 'synchronize' });
+  });
+  it('imports with the held code and wipes it after the import', async () => {
+    const syncVault = vi.fn(async (..._a: any[]) => ({ ...sync, snapshot: { filePath: '/x.term', vault: {} } }));
+    const h = await inviteHarness({ syncVault }); await h.host.signInWithInvite(1, inviteCommand);
+    await h.host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER-PASSWORD' });
+    expect(syncVault.mock.calls[0][3]).toEqual({ kind: 'importVault', password: 'OTHER-PASSWORD', inviteCode: INVITE });
+    expect((h.host.request(1, { kind: 'status', clientId }) as any).state.inviteKey).toBeUndefined();
+  });
+  it('wipes the held code after syncInviteKey and keeps it across other failures', async () => {
+    const syncVault = vi.fn().mockRejectedValueOnce({ code: 'conflict' }).mockRejectedValueOnce({ code: 'inviteKey' });
+    const h = await inviteHarness({ syncVault }); await h.host.signInWithInvite(1, inviteCommand);
+    expect(await h.host.performSync(1, { kind: 'synchronize', clientId })).toEqual({ ok: false, code: 'syncConflict' });
+    expect(h.host.request(1, { kind: 'status', clientId })).toMatchObject({ state: { inviteKey: true } });
+    expect(await h.host.performSync(1, { kind: 'synchronize', clientId })).toMatchObject({ ok: false, code: 'syncInviteKey' });
+    expect((h.host.request(1, { kind: 'status', clientId }) as any).state.inviteKey).toBeUndefined();
+  });
+  it('zeroes the held code buffer on close (K12)', async () => {
+    const from = Buffer.from.bind(Buffer); let held: Buffer | undefined;
+    const spy = vi.spyOn(Buffer, 'from').mockImplementation(((...args: unknown[]) => { const result = (from as (...a: unknown[]) => Buffer)(...args); if (args[0] === INVITE && args[1] === 'hex') held = result; return result; }) as never);
+    const h = await inviteHarness(); await h.host.signInWithInvite(1, inviteCommand); spy.mockRestore();
+    expect(held?.toString('hex')).toBe(INVITE);
+    h.host.request(1, { kind: 'close', clientId });
+    expect(held!.every(byte => byte === 0)).toBe(true);
+  });
+  it('requires an import code when none is typed and none is held', async () => {
+    const h = harness({ syncVault: async () => sync }); await h.signedIn();
+    expect(await h.host.performSync(1, { kind: 'importVault', clientId, password: 'OTHER-PASSWORD' })).toEqual({ ok: false, code: 'invalid' });
+  });
+  it('issues an invite: keybox, server registration, count; the code stays out of the state', async () => {
+    const issued = { code: INVITE, enrollSecret: 'e'.repeat(64), keyboxId: 'b'.repeat(64) };
+    const h = harness({ syncVault: async () => issued }); await h.signedIn();
+    const reply = await h.host.performSync(1, { kind: 'invite', clientId }) as { state: unknown; inviteCode?: string };
+    expect(reply.inviteCode).toBe(INVITE); expect(JSON.stringify(reply.state)).not.toContain(INVITE);
+    expect(h.account.invite).toHaveBeenCalledWith(expect.anything(), { secret: 'e'.repeat(64), object: 'b'.repeat(64) });
+    expect(JSON.stringify(h.host.request(1, { kind: 'status', clientId }))).not.toContain(INVITE);
+  });
+  it('takes the keybox back best effort when the server refuses the invite', async () => {
+    const remove = vi.fn(async () => true);
+    const h = harness({ syncVault: async () => ({ code: INVITE, enrollSecret: 'e'.repeat(64), keyboxId: 'b'.repeat(64) }), account: { invite: vi.fn().mockRejectedValue({ status: 403 }), remove } });
+    await h.signedIn();
+    expect(await h.host.performSync(1, { kind: 'invite', clientId })).toEqual({ ok: false, code: 'connection' });
+    expect(remove).toHaveBeenCalledWith('b'.repeat(64));
+  });
+  it('passes the canonical origin to createInvite', async () => {
+    const syncVault = vi.fn(async (..._a: any[]) => ({ code: INVITE, enrollSecret: 'e'.repeat(64), keyboxId: 'b'.repeat(64) }));
+    const h = harness({ syncVault }); await h.signedIn(); await h.host.performSync(1, { kind: 'invite', clientId });
+    expect(syncVault.mock.calls[0][3]).toEqual({ kind: 'createInvite', origin: 'https://sync.example.net' });
+  });
+  it('maps the epoch errors', async () => {
+    for (const [code, mapped] of [['rotated', 'syncRotated'], ['rotateBlocked', 'syncRotateBlocked'], ['rotateRaced', 'syncRotateRaced']]) {
+      const h = harness({ syncVault: async () => { throw { code }; } }); await h.signedIn();
+      expect(await h.host.performSync(1, { kind: 'synchronize', clientId })).toEqual({ ok: false, code: mapped });
+    }
+  });
+  it('advises rotation after removing any device, clears it after rotating, and pins a local revocation (K14, K15)', async () => {
+    const other = generateRemoteIdentity();
+    const h = harness({ syncVault: async () => ({ recoveryCode: 'f'.repeat(32) }) }); await h.signedIn();
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone', ephemeral: true })]);
+    await h.host.devices(1, { kind: 'listDevices', clientId });
+    h.account.devices.mockResolvedValue([entryOf(h.identity)]); // A temporary device vanishes from the server roster on removal.
+    const reply = await h.host.devices(1, { kind: 'revokeDevice', clientId, id: other.id });
+    expect(reply).toMatchObject({ ok: true, state: { rotationAdvised: true } });
+    expect(pinOf(h).pins.find(p => p.id === other.id)).toMatchObject({ revokedAt: expect.any(Number) });
+    const rotated = await h.host.performSync(1, { kind: 'rotateKey', clientId, confirmed: true });
+    expect((rotated as any).state.rotationAdvised).toBeUndefined();
+  });
+  it('flags a new device, flags an own invitation in the same connection as info and requires acknowledgement', async () => {
+    const other = generateRemoteIdentity(); const third = generateRemoteIdentity();
+    const issued = { code: INVITE, enrollSecret: 'e'.repeat(64), keyboxId: 'b'.repeat(64) };
+    const h = harness({ enrollment: enrolledOf(), syncVault: async () => issued });
+    await h.host.connect(1, connectCommand); await h.host.openSession(1, { kind: 'openSession', clientId });
+    await h.host.performSync(1, { kind: 'invite', clientId });
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone', enrolledBy: h.identity.id }), entryOf(third, { name: 'Stranger' })]);
+    const listed = await h.host.devices(1, { kind: 'listDevices', clientId }) as any;
+    expect(listed.state.newDevices).toEqual([{ id: other.id, name: 'Phone', enrolledVia: 'invite', invitedBy: 'Laptop', ownInvite: true }, { id: third.id, name: 'Stranger', enrolledVia: 'password' }]);
+    expect(listed.state.devices.find((d: any) => d.id === other.id)).toMatchObject({ enrolledVia: 'invite', invitedBy: 'Laptop' });
+    const ack = await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: third.id }) as any;
+    expect(ack.state.newDevices).toEqual([expect.objectContaining({ id: other.id, ownInvite: true })]); // The own invitation still waits.
+    expect(pinOf(h).pins.find(p => p.id === third.id)).toMatchObject({ acknowledged: true });
+    expect(((await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: other.id })) as any).state.newDevices).toBeUndefined();
+  });
+  it('does not let an unacknowledged new device vouch for a key epoch (R1)', async () => {
+    const third = generateRemoteIdentity();
+    const syncVault = vi.fn(async () => ({ status: 'synced' as const, versions: 1, received: 0, sent: 0 }));
+    const h = harness({ syncVault }); await h.signedIn();
+    await h.host.devices(1, { kind: 'listDevices', clientId }); // First run pins the roster silently.
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(third, { name: 'Stranger' })]);
+    await h.host.performSync(1, { kind: 'synchronize', clientId });
+    const deviceOf = (): SyncDevice => (syncVault.mock.calls.at(-1) as unknown as [unknown, unknown, unknown, unknown, SyncDevice])[4];
+    expect(deviceOf().trusted?.(third.id)).toBe(false);
+    expect(deviceOf().trusted?.(h.identity.id)).toBe(true);
+    await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: third.id });
+    await h.host.performSync(1, { kind: 'synchronize', clientId });
+    expect(deviceOf().trusted?.(third.id)).toBe(true);
+  });
+  it('refuses to acknowledge an id without an open notice and keeps a local revocation (m2)', async () => {
+    const other = generateRemoteIdentity();
+    const h = harness({ enrollment: enrolledOf() });
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone', revokedAt: 9 })]);
+    await h.host.connect(1, connectCommand); await h.host.openSession(1, { kind: 'openSession', clientId });
+    expect(await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: other.id })).toEqual({ ok: false, code: 'invalid' });
+    expect(await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: 'f'.repeat(64) })).toEqual({ ok: false, code: 'invalid' });
+    expect(pinOf(h).pins.find(p => p.id === other.id)).toMatchObject({ revokedAt: 9 });
+  });
+  it('warns about an own invitation after the connection was closed', async () => {
+    const other = generateRemoteIdentity();
+    const h = harness({ enrollment: enrolledOf() });
+    await h.host.connect(1, connectCommand); await h.host.openSession(1, { kind: 'openSession', clientId });
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone', enrolledBy: h.identity.id })]);
+    expect(await h.host.devices(1, { kind: 'listDevices', clientId })).toMatchObject({ state: { newDevices: [{ name: 'Phone', enrolledVia: 'invite' }] } });
+  });
+  it('treats a revived device as removed until acknowledged (E11)', async () => {
+    const other = generateRemoteIdentity();
+    const h = harness({ enrollment: enrolledOf() });
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone', revokedAt: 9 })]);
+    await h.host.connect(1, connectCommand); await h.host.openSession(1, { kind: 'openSession', clientId });
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone' })]);
+    const listed = await h.host.devices(1, { kind: 'listDevices', clientId }) as any;
+    expect(listed.state.revived).toEqual([{ id: other.id, name: 'Phone' }]);
+    expect(listed.state.devices.find((d: any) => d.id === other.id).revokedAt).toBe(9);
+    const ack = await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: other.id }) as any;
+    expect(ack.state.revived).toBeUndefined();
+    expect(ack.state.devices.find((d: any) => d.id === other.id).revokedAt).toBeNull();
+    expect(pinOf(h).pins.find(p => p.id === other.id)).toMatchObject({ revokedAt: null, acknowledged: true });
+  });
+  it('ends with syncRoster when a known device shows another key and keeps the pins', async () => {
+    const other = generateRemoteIdentity(); const impostor = generateRemoteIdentity();
+    const syncVault = vi.fn(async (..._a: any[]) => sync);
+    const h = harness({ enrollment: enrolledOf(), syncVault });
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone' })]);
+    await h.host.connect(1, connectCommand); await h.host.openSession(1, { kind: 'openSession', clientId });
+    const before = JSON.stringify(pinOf(h));
+    h.account.devices.mockResolvedValue([entryOf(h.identity), { ...entryOf(impostor, { name: 'Phone' }), id: other.id }]);
+    expect(await h.host.performSync(1, { kind: 'synchronize', clientId })).toEqual({ ok: false, code: 'syncRoster' });
+    expect(syncVault).not.toHaveBeenCalled();
+    expect(JSON.stringify(pinOf(h))).toBe(before);
+    expect(h.host.request(1, { kind: 'status', clientId })).toMatchObject({ ok: true, state: { account: { signedIn: true } } }); // The session stays.
+  });
+  it('rejects a server roster the identity store refuses as syncRoster', async () => {
+    const h = harness({ enrollment: enrolledOf(), syncVault: async () => sync });
+    (h.store.rememberRoster as any).mockImplementation(() => { throw Error('identity'); });
+    await h.host.connect(1, connectCommand);
+    expect(await h.host.openSession(1, { kind: 'openSession', clientId })).toEqual({ ok: false, code: 'syncRoster' });
+  });
+  it('acknowledges without network and without waiting for a busy request', async () => {
+    const other = generateRemoteIdentity();
+    let release!: () => void; const gate = new Promise<void>(r => { release = r; });
+    const h = harness({ enrollment: enrolledOf(), syncVault: async () => { await gate; return sync; } });
+    await h.host.connect(1, connectCommand); await h.host.openSession(1, { kind: 'openSession', clientId });
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone' })]);
+    await h.host.devices(1, { kind: 'listDevices', clientId });
+    const running = h.host.performSync(1, { kind: 'synchronize', clientId });
+    h.account.devices.mockClear();
+    expect(await h.host.devices(1, { kind: 'acknowledgeDevice', clientId, id: other.id })).toMatchObject({ ok: true });
+    expect(h.account.devices).toHaveBeenCalledTimes(1); // Only the running synchronize loaded the roster.
+    release(); await running;
+  });
+  it('keeps the earlier revocation time of pin and server', async () => {
+    const other = generateRemoteIdentity();
+    const h = harness({ enrollment: enrolledOf() });
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone', revokedAt: 5 })]);
+    await h.host.connect(1, connectCommand); await h.host.openSession(1, { kind: 'openSession', clientId });
+    h.account.devices.mockResolvedValue([entryOf(h.identity), entryOf(other, { name: 'Phone', revokedAt: 50 })]);
+    const listed = await h.host.devices(1, { kind: 'listDevices', clientId }) as any;
+    expect(listed.state.devices.find((d: any) => d.id === other.id).revokedAt).toBe(5);
   });
 });

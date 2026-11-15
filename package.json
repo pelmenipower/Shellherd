@@ -25,14 +25,14 @@
     "test": "vitest run",
     "build:rdp-host": "node scripts/build-rdp-host.mjs",
     "build:hello": "node scripts/build-hello.mjs",
-    "dist": "npm run build && electron-builder --win --publish never",
+    "dist": "node scripts/with-release.mjs npm run build && electron-builder --win --publish never",
     "release-notes": "node scripts/release-notes.mjs",
     "rdp:try": "node scripts/rdp-try.mjs",
     "icons": "electron scripts/icons/make-icons.mjs",
     "drive": "node .claude/skills/run-app/driver.mjs",
     "drive:sshd": "node .claude/skills/run-app/sshd.mjs",
-    "dist:linux": "npm run build && electron-builder --linux AppImage deb --x64 --publish never",
-    "dist:win": "npm run build && electron-builder --win --publish never"
+    "dist:linux": "node scripts/with-release.mjs npm run build && electron-builder --linux AppImage deb --x64 --publish never",
+    "dist:win": "node scripts/with-release.mjs npm run build && electron-builder --win --publish never"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

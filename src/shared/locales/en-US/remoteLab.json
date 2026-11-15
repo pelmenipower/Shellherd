@@ -62,7 +62,8 @@
     "scope": "Control is not supported yet. Only viewing is possible.",
     "limit": "Too many requests or devices. Wait a moment and try again.",
     "samePassword": "The server password must not be your vault password. Nothing was sent to the server.",
-    "enrolledElsewhere": "This device is enrolled for this server at another address. Confirm the new enrollment explicitly."
+    "enrolledElsewhere": "This device is enrolled for this server at another address. Confirm the new enrollment explicitly.",
+    "enrollmentLocked": "This server accepts new devices only with an enrollment code. Enroll this device in the sync lab with an enrollment code first."
   },
   "verify": {
     "label": "First 16 characters of the fingerprint from the other device (the first two groups)",

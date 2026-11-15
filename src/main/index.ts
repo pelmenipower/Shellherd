@@ -42,11 +42,8 @@ import { mainT, setMainLocale } from './i18n';
 import { localTestUrl, readImport } from './import-source';
 import { UPDATE_URL, UpdateChecker } from './update-check';
 import { RecentVaults } from './vault/recent-vaults';
-import { registerSyncLabIpc } from './sync-prototype/lab-ipc';
 import type { SyncLabHost } from './sync-prototype/lab-host';
 import { registerPermissionHandlers } from './permissions';
-import { registerRemoteLabIpc, remoteLabRequested } from './remote/lab-ipc';
-import { RemoteIdentityStore, safeStorageCipher } from './remote/identity';
 import type { RemoteLabHost } from './remote/lab-host';
 
 import { IPC_CHANNELS } from '../shared/ipc';
@@ -255,7 +252,7 @@ app.on('second-instance', (_event, argv) => {
 if (rdpSurfaceMode() === 'child') app.commandLine.appendSwitch('disable-direct-composition');
 
 // WebRTC would hide LAN addresses behind mDNS names; the lab needs plain host candidates.
-if (remoteLabRequested()) {
+if (__SHELLHERD_LABS__ && !app.isPackaged && process.env.SHELLHERD_REMOTE_LAB === '1') {
   const disabled = app.commandLine.getSwitchValue('disable-features');
   app.commandLine.appendSwitch('disable-features', [disabled, 'WebRtcHideLocalIpsWithMdns'].filter(Boolean).join(','));
 }
@@ -263,11 +260,11 @@ if (remoteLabRequested()) {
 app.whenReady().then(async () => {
   if (!singleInstance) return;
   let syncVaultChanged: (snapshot: import('./vault/session').VaultSessionSnapshot) => void = () => {};
-  // One identity store (and file) for both labs; load() caches.
-  const identity = new RemoteIdentityStore(join(app.getPath('userData'), 'remote-identity.json'), safeStorageCipher());
-  syncLabHost = await registerSyncLabIpc({ sessions: vaultSessionManager, identity, onSynced: snapshot => syncVaultChanged(snapshot) });
-  remoteLabHost = await registerRemoteLabIpc({ isUnlocked: () => vaultSessionManager.isUnlocked(), matchesVaultPassword: p => vaultSessionManager.matchesPassword(p), identity });
-  registerPermissionHandlers(session.defaultSession, { remoteLabEnabled: remoteLabHost.enabled, captureGranted: id => remoteLabHost?.captureGranted(id) ?? false, requestCapture: async id => (await remoteLabHost?.requestCapture(id)) != null });
+  // Labs are bundled only outside release builds (__SHELLHERD_LABS__); the dynamic import keeps them out of the release chunks.
+  const labs = __SHELLHERD_LABS__ ? await (await import('./labs')).registerLabs({ sessions: vaultSessionManager, onSynced: snapshot => syncVaultChanged(snapshot) }) : undefined;
+  syncLabHost = labs?.sync;
+  remoteLabHost = labs?.remote;
+  registerPermissionHandlers(session.defaultSession, { remoteLabEnabled: remoteLabHost?.enabled ?? false, captureGranted: id => remoteLabHost?.captureGranted(id) ?? false, requestCapture: async id => (await remoteLabHost?.requestCapture(id)) != null });
   // Protection goes on at once but comes off only when sharing ended and every 'stopped' receipt is settled
   // (receipt or emergency brake). The timer is only an upper bound, longer than the brake (V9, fail-closed).
   let unprotectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -281,8 +278,8 @@ app.whenReady().then(async () => {
     if (!remoteSharing) return;
     remoteSharing = false; applyProtection(); applySharingWindow(false);
   };
-  remoteLabHost.onStopsSettled(maybeUnprotect);
-  remoteLabHost.onSharingChange(sharing => {
+  remoteLabHost?.onStopsSettled(maybeUnprotect);
+  remoteLabHost?.onSharingChange(sharing => {
     if (unprotectTimer) { clearTimeout(unprotectTimer); unprotectTimer = undefined; }
     const main = windowRegistry.main();
     if (sharing) {

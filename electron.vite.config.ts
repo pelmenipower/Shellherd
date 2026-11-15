@@ -10,6 +10,8 @@ let cspMode: 'development' | 'production' = 'production';
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    // Release builds (SHELLHERD_RELEASE=1) drop the labs entirely.
+    define: { __SHELLHERD_LABS__: JSON.stringify(process.env.SHELLHERD_RELEASE !== '1') },
   },
 
   preload: {
