@@ -268,12 +268,20 @@ app.whenReady().then(async () => {
   syncLabHost = await registerSyncLabIpc({ sessions: vaultSessionManager, identity, onSynced: snapshot => syncVaultChanged(snapshot) });
   remoteLabHost = await registerRemoteLabIpc({ isUnlocked: () => vaultSessionManager.isUnlocked(), matchesVaultPassword: p => vaultSessionManager.matchesPassword(p), identity });
   registerPermissionHandlers(session.defaultSession, { remoteLabEnabled: remoteLabHost.enabled, captureGranted: id => remoteLabHost?.captureGranted(id) ?? false, requestCapture: async id => (await remoteLabHost?.requestCapture(id)) != null });
-  // Protection goes on at once but comes off only after the renderer had time to stop its tracks (R11).
+  // Protection goes on at once but comes off only when sharing ended and every 'stopped' receipt is settled
+  // (receipt or emergency brake). The timer is only an upper bound, longer than the brake (V9, fail-closed).
   let unprotectTimer: ReturnType<typeof setTimeout> | undefined;
   const applySharingWindow = (sharing: boolean): void => {
     const main = windowRegistry.main();
     if (main && !main.isDestroyed()) main.webContents.setBackgroundThrottling(!sharing);
   };
+  const maybeUnprotect = (): void => {
+    if (!remoteLabHost || remoteLabHost.sharing || remoteLabHost.stopsPending) return;
+    if (unprotectTimer) { clearTimeout(unprotectTimer); unprotectTimer = undefined; }
+    if (!remoteSharing) return;
+    remoteSharing = false; applyProtection(); applySharingWindow(false);
+  };
+  remoteLabHost.onStopsSettled(maybeUnprotect);
   remoteLabHost.onSharingChange(sharing => {
     if (unprotectTimer) { clearTimeout(unprotectTimer); unprotectTimer = undefined; }
     const main = windowRegistry.main();
@@ -283,11 +291,8 @@ app.whenReady().then(async () => {
       return;
     }
     if (main && !main.isDestroyed()) main.setTitle(mainT('window.main'));
-    unprotectTimer = setTimeout(() => {
-      unprotectTimer = undefined;
-      if (remoteLabHost?.sharing) return;
-      remoteSharing = false; applyProtection(); applySharingWindow(false);
-    }, REMOTE_LAB_LIMITS.byeMs);
+    maybeUnprotect();
+    if (remoteSharing) unprotectTimer = setTimeout(() => { unprotectTimer = undefined; maybeUnprotect(); }, REMOTE_LAB_LIMITS.byeMs + 1000);
   });
   // Before anything reads userData (known hosts, last vault): take over the legacy profile files once.
   migrateUserData(join(app.getPath('appData'), 'Terminus'), app.getPath('userData'));

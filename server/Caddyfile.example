@@ -1,4 +1,5 @@
 # Run Caddy on the same host. Replace this domain and provide DNS to this host.
+# Set SHELLHERD_SERVER_ORIGIN=https://<this domain> for the server: device proofs are bound to that exact origin.
 {
     servers {
         timeouts {

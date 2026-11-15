@@ -1,13 +1,16 @@
 // Enrollment, session and request proofs for enrolled devices. Ed25519 signs tagged JSON arrays (domain separation).
 import { createPublicKey, generateKeyPairSync } from 'node:crypto';
 import { deviceId } from './rendezvous.mjs';
-export const DEVICE_ENROLLMENT = 'shellherd-device-enrollment-v1';
-export const DEVICE_SESSION = 'shellherd-device-session-v1';
-export const DEVICE_REQUEST = 'shellherd-device-request-v1';
-export const DEVICE_NAME = /^[^\x00-\x1f\x7f]{1,80}$/;
+import { isDeviceName } from './device-name.mjs';
+import { normalizeSyncServerUrl } from '../../src/shared/sync-server-url.mjs';
+export const DEVICE_ENROLLMENT = 'shellherd-device-enrollment-v2';
+export const DEVICE_SESSION = 'shellherd-device-session-v2';
+export const DEVICE_REQUEST = 'shellherd-device-request-v3';
 const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 const check = ok => { if (!ok) throw Error('Device proof input rejected'); };
 const hex64 = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+// Canonical origin: no slash, no path, lowercase, no default port (loopback and private http allowed; callers may restrict further).
+export const originOk = value => typeof value === 'string' && normalizeSyncServerUrl(value + '/', { loopback: true, private: true }) === value + '/';
 const namespaceOk = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
 // Ed25519 points of small order (sign bit cleared), plus every non-canonical y >= p. A key on one of them lets
 // signatures verify for many messages; OpenSSL's acceptance varies by version, so the bytes are checked directly.
@@ -31,17 +34,17 @@ export function signingKeyOf(base64Raw32) {
   check(!weakEd25519(raw));
   return createPublicKey({ key: ed25519Spki(raw), format: 'der', type: 'spki' });
 }
-export function enrollmentBody(serverId, namespace, deviceIdValue, signingKeyB64, noiseKeyB64, name) {
-  check(hex64(serverId) && namespaceOk(namespace) && hex64(deviceIdValue) && typeof signingKeyB64 === 'string' && signingKeyB64.length === 44 && typeof noiseKeyB64 === 'string' && noiseKeyB64.length === 60 && typeof name === 'string' && DEVICE_NAME.test(name));
-  return JSON.stringify([DEVICE_ENROLLMENT, serverId, namespace, deviceIdValue, signingKeyB64, noiseKeyB64, name]);
+export function enrollmentBody(serverId, namespace, origin, deviceIdValue, signingKeyB64, noiseKeyB64, name) {
+  check(hex64(serverId) && namespaceOk(namespace) && originOk(origin) && hex64(deviceIdValue) && typeof signingKeyB64 === 'string' && signingKeyB64.length === 44 && typeof noiseKeyB64 === 'string' && noiseKeyB64.length === 60 && isDeviceName(name));
+  return JSON.stringify([DEVICE_ENROLLMENT, serverId, namespace, origin, deviceIdValue, signingKeyB64, noiseKeyB64, name]);
 }
-export function sessionProof(serverId, namespace, nonce, deviceIdValue) {
-  check(hex64(serverId) && namespaceOk(namespace) && hex64(nonce) && hex64(deviceIdValue));
-  return JSON.stringify([DEVICE_SESSION, serverId, namespace, nonce, deviceIdValue]);
+export function sessionProof(serverId, namespace, origin, nonce, deviceIdValue) {
+  check(hex64(serverId) && namespaceOk(namespace) && originOk(origin) && hex64(nonce) && hex64(deviceIdValue));
+  return JSON.stringify([DEVICE_SESSION, serverId, namespace, origin, nonce, deviceIdValue]);
 }
-export function requestProofV2(serverId, namespace, method, path, nonce, deviceIdValue) {
-  check(hex64(serverId) && namespaceOk(namespace) && ['GET', 'POST', 'PUT', 'DELETE'].includes(method) && typeof path === 'string' && path.startsWith('/v1/') && hex64(nonce) && hex64(deviceIdValue));
-  return JSON.stringify([DEVICE_REQUEST, serverId, namespace, method, path, nonce, deviceIdValue]);
+export function requestProofV2(serverId, namespace, origin, method, path, nonce, deviceIdValue) {
+  check(hex64(serverId) && namespaceOk(namespace) && originOk(origin) && ['GET', 'POST', 'PUT', 'DELETE'].includes(method) && typeof path === 'string' && path.startsWith('/v1/') && hex64(nonce) && hex64(deviceIdValue));
+  return JSON.stringify([DEVICE_REQUEST, serverId, namespace, origin, method, path, nonce, deviceIdValue]);
 }
 /** Scripts/tests/smoke/scenes only (Node crypto). Same shape as the main-process RemoteIdentity. */
 export function createDeviceIdentity() {

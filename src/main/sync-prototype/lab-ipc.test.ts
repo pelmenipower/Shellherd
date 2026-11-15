@@ -9,12 +9,13 @@ const sync = vi.hoisted(() => ({ synchronizeVault: vi.fn(), importSyncedVault: v
 vi.mock('./vault-sync', () => sync);
 import { buildSyncLabHost, registerSyncLabIpc, vaultPasswordMatcher } from './lab-ipc';
 import { AppError } from '../../shared/errors';
+import { IPC_CHANNELS } from '../../shared/ipc';
 beforeEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); mock.app.isPackaged = true; });
 it('never loads the prototype backend in a packaged app, even with the environment flag', async () => {
   vi.stubEnv('SHELLHERD_SYNC_LAB', '1');
   const host = await registerSyncLabIpc(); expect(host.enabled).toBe(false); expect(mock.app.getAppPath).not.toHaveBeenCalled();
   const handler = mock.handle.mock.calls[0][1]; const event = { sender: { id: 1 } };
-  expect(handler(event, { kind: 'start', clientId: '123e4567-e89b-42d3-a456-426614174000' })).toEqual({ ok: false, code: 'unavailable' });
+  expect(handler(event, { kind: 'status', clientId: '123e4567-e89b-42d3-a456-426614174000' })).toEqual({ ok: false, code: 'unavailable' });
   expect(mock.guard).toHaveBeenCalledWith(event);
   mock.guard.mockImplementationOnce(() => { throw Error('Main frame required'); });
   expect(() => handler(event, {})).toThrow('Main frame required');
@@ -39,11 +40,27 @@ it('passes remove through to the vault remote and calls removeForeignObjects wit
   sync.removeForeignObjects.mockResolvedValue(2); sync.synchronizeVault.mockResolvedValue({ ok: 1 });
   const host = buildSyncLabHost({ probeSyncServer: vi.fn() }, { AccountStore: vi.fn() as never }, { sessions }) as unknown as { syncVault: (...a: unknown[]) => Promise<unknown> };
   expect(await host.syncVault(driver, info, signal, { kind: 'removeForeign', ids: ['x', 'y'] })).toEqual({ removedForeign: 2 });
-  const [s, remote, i, ids, sg] = sync.removeForeignObjects.mock.calls[0];
-  expect([s, i, ids, sg]).toEqual([sessions, info, ['x', 'y'], signal]);
+  const [s, remote, i, ids, sg, options] = sync.removeForeignObjects.mock.calls[0];
+  expect([s, i, ids, sg, options]).toEqual([sessions, info, ['x', 'y'], signal, { versions: false }]);
   await remote.remove('x'); expect(remove).toHaveBeenCalledWith('x');
   await host.syncVault({ list: driver.list, get: driver.get, put: driver.put }, info, signal, { kind: 'synchronize' }, undefined);
   expect(sync.synchronizeVault.mock.calls[0][1].remove).toBeUndefined();
+});
+it('passes the versions opt-in through to removeForeignObjects', async () => {
+  const driver = { list: async () => [], get: async () => 'w', put: async () => 'id' };
+  sync.removeForeignObjects.mockResolvedValue(1);
+  const host = buildSyncLabHost({ probeSyncServer: vi.fn() }, { AccountStore: vi.fn() as never }, { sessions: {} as never }) as unknown as { syncVault: (...a: unknown[]) => Promise<unknown> };
+  await host.syncVault(driver, {} as never, new AbortController().signal, { kind: 'removeForeign', ids: ['x'], versions: true }, undefined);
+  expect(sync.removeForeignObjects.mock.calls[0][5]).toEqual({ versions: true });
+});
+it('uses the central channel constant and rejects unknown kinds as invalid (A4, A9, K16)', async () => {
+  await registerSyncLabIpc();
+  expect(mock.handle.mock.calls[0][0]).toBe(IPC_CHANNELS.syncLabAction);
+  const handler = mock.handle.mock.calls[0][1]; const event = { sender: { id: 1 } };
+  const clientId = '123e4567-e89b-42d3-a456-426614174000';
+  for (const kind of ['start', 'requestAccess', 'refreshAccess', 'confirm', 'resolve', 'nope'])
+    expect(handler(event, { kind, clientId })).toEqual({ ok: false, code: 'invalid' });
+  for (const bad of [null, 'x', {}, { kind: 5 }]) expect(handler(event, bad)).toEqual({ ok: false, code: 'invalid' });
 });
 it('adds the device to the sync context and routes regenerate and import to the core', async () => {
   const driver = { list: async () => [], get: async () => 'w', put: async () => 'id', remove: async () => true };

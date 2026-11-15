@@ -61,11 +61,12 @@
     "peer": "No direct connection possible. Both devices must be on the same network.",
     "scope": "Control is not supported yet. Only viewing is possible.",
     "limit": "Too many requests or devices. Wait a moment and try again.",
-    "samePassword": "The server password must not be your vault password. Nothing was sent to the server."
+    "samePassword": "The server password must not be your vault password. Nothing was sent to the server.",
+    "enrolledElsewhere": "This device is enrolled for this server at another address. Confirm the new enrollment explicitly."
   },
   "verify": {
     "label": "First 16 characters of the fingerprint from the other device (the first two groups)",
-    "hint": "Read them on the other device under “Fingerprint of this device”.",
+    "hint": "Read them on the other device under “Fingerprint of this device”, never from a device name.",
     "verified": "Verified on {{date}}",
     "changed": "The fingerprint of {{name}} has changed. Verify it again."
   },
@@ -78,5 +79,7 @@
   },
   "openSession": "Open session",
   "enrolledHint": "This device is enrolled at the server; the server knows only its public key.",
-  "enrolledElsewhere": "This device is enrolled for this server at {{url}}. Enroll it here only if both addresses belong to your server."
+  "enrolledElsewhere": "This device is enrolled for this server at {{url}}. A foreign server can pose as your server by reporting the same server ID. Enroll this device here only if you are sure that both addresses belong to your server.",
+  "enrolledElsewhereConfirm": "I have checked the address and enroll this device here again.",
+  "deviceNameHint": "1–64 characters: letters, digits, spaces and - _ . , ( ) '. No run of 8 or more characters from 0–9 and a–f, not even separated by spaces, because it looks like a verification code."
 }

@@ -17,7 +17,8 @@ export const REMOTE_ERROR_KEYS = {
   peer: 'remoteLab:errors.peer',
   scope: 'remoteLab:errors.scope',
   limit: 'remoteLab:errors.limit',
-  samePassword: 'remoteLab:errors.samePassword'
+  samePassword: 'remoteLab:errors.samePassword',
+  enrolledElsewhere: 'remoteLab:errors.enrolledElsewhere'
 } as const satisfies Record<RemoteErrorCode, string>;
 
 export const REMOTE_END_KEYS = {

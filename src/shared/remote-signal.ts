@@ -78,6 +78,8 @@ export function checkSdp(sdp: string, kind: 'offer' | 'answer'): void {
   const fingerprints = lines.filter(line => line.startsWith('a=fingerprint:'));
   if (fingerprints.length !== 1 || !FINGERPRINT_LINE.test(fingerprints[0]!)) fail('fingerprint');
   if (lines.filter(line => line.startsWith('a=setup:')).length !== 1) fail('fingerprint');
+  const directions = lines.filter(line => /^a=(sendrecv|sendonly|recvonly|inactive)$/.test(line));
+  if (directions.length !== 1 || directions[0] !== (kind === 'offer' ? 'a=sendonly' : 'a=recvonly')) fail('direction');
   if (lines.some(line => line.startsWith('a=candidate') && line.includes(' typ relay'))) fail('relay');
 }
 

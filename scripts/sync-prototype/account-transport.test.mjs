@@ -3,7 +3,7 @@ import { createHash, verify } from 'node:crypto';
 import { AccountStore } from './account-transport.mjs';
 import { createDeviceIdentity, enrollmentBody, sessionProof, requestProofV2 } from './device-proof.mjs';
 
-const serverId = 'a'.repeat(64); const namespace = 'ns_1'; const nonce = 'b'.repeat(64); const token = 'c'.repeat(64);
+const origin = 'http://127.0.0.1:4000'; const serverId = 'a'.repeat(64); const namespace = 'ns_1'; const nonce = 'b'.repeat(64); const token = 'c'.repeat(64);
 const info = (extra = {}) => ({ serverUrl: 'http://127.0.0.1:4000/', serverId, namespace, authentication: 'enrolled-device', deviceSessions: true, ...extra });
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 const identity = createDeviceIdentity();
@@ -34,10 +34,20 @@ describe('enroll', () => {
     const sent = JSON.parse(calls[0].body);
     expect(Object.keys(sent).sort()).toEqual(['enrollment', 'ephemeral', 'password', 'username']);
     expect(calls[0].url.pathname).toBe('/v1/devices'); expect(calls[0].options.method).toBe('POST');
-    const body = enrollmentBody(serverId, namespace, identity.id, identity.signingPublicKey, identity.publicKey, 'Laptop');
+    const body = enrollmentBody(serverId, namespace, origin, identity.id, identity.signingPublicKey, identity.publicKey, 'Laptop');
     expect(sent.enrollment[0]).toEqual(JSON.parse(body));
     expect(verify(null, Buffer.from(body), identity.signingKey, Buffer.from(sent.enrollment[1], 'base64'))).toBe(true);
     await expect(store.list()).rejects.toThrow();
+  });
+  it('refuses a name that breaks the device name rule before sending anything', async () => {
+    route(() => json({}));
+    await expect(new AccountStore(info()).enroll(identity, { username: 'demo', password: 'pw', name: '3f9a 12c4', ephemeral: false })).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+  });
+  it('signs the origin of the server URL, not a trailing slash form', async () => {
+    route(() => json({ device: { id: identity.id, name: 'Laptop', enrolledAt: 5, ephemeral: false } }));
+    await new AccountStore(info()).enroll(identity, { username: 'demo', password: 'pw', name: 'Laptop', ephemeral: false });
+    expect(JSON.parse(calls[0].body).enrollment[0][3]).toBe('http://127.0.0.1:4000');
   });
   it('throws when the answer names a different device', async () => {
     route(() => json({ device: { id: 'd'.repeat(64), name: 'Laptop', enrolledAt: 5, ephemeral: false } }));
@@ -53,7 +63,7 @@ describe('openSession', () => {
     expect(await store.openSession(identity)).toEqual({ signedIn: true, expiresAt: 99, device: identity.id });
     const post = calls.find(c => c.url.pathname === '/v1/session'); const sent = JSON.parse(post.body);
     expect(sent.device).toBe(identity.id); expect(sent.nonce).toBe(nonce);
-    expect(verify(null, Buffer.from(sessionProof(serverId, namespace, nonce, identity.id)), identity.signingKey, Buffer.from(sent.signature, 'base64'))).toBe(true);
+    expect(verify(null, Buffer.from(sessionProof(serverId, namespace, origin, nonce, identity.id)), identity.signingKey, Buffer.from(sent.signature, 'base64'))).toBe(true);
     route(call => call.url.pathname === '/v1/challenge' ? json({ nonce }) : json({ token: 'e'.repeat(64), expiresAt: 100, device: identity.id }));
     await store.openSession(identity); calls.length = 0; route(() => json({ objects: [] }));
     await store.list(); expect(calls[0].options.headers.authorization).toBe(`Bearer ${'e'.repeat(64)}`);
@@ -73,7 +83,7 @@ describe('revoke', () => {
     const call = calls.at(-1); const h = call.options.headers;
     expect(call.options.method).toBe('DELETE'); expect(call.url.pathname).toBe(`/v1/devices/${id}`);
     expect(h['x-shellherd-device']).toBe(identity.id); expect(h['x-shellherd-nonce']).toBe(nonce); expect(h.authorization).toBe(`Bearer ${token}`);
-    expect(verify(null, Buffer.from(requestProofV2(serverId, namespace, 'DELETE', `/v1/devices/${id}`, nonce, identity.id)), identity.signingKey, Buffer.from(h['x-shellherd-signature'], 'base64'))).toBe(true);
+    expect(verify(null, Buffer.from(requestProofV2(serverId, namespace, origin, 'DELETE', `/v1/devices/${id}`, nonce, identity.id)), identity.signingKey, Buffer.from(h['x-shellherd-signature'], 'base64'))).toBe(true);
     await expect(store.revoke(identity, 'xyz')).rejects.toThrow();
   });
 });
@@ -94,6 +104,7 @@ describe('devices', () => {
     await expect((await open([entry(1, { signingKey: Buffer.concat([Buffer.from([1]), Buffer.alloc(31)]).toString('base64') })])).devices()).rejects.toThrow();
     await expect((await open([entry(1, { extra: 1 })])).devices()).rejects.toThrow();
     await expect((await open([entry(1, { name: 'a\nb' })])).devices()).rejects.toThrow();
+    await expect((await open([entry(1, { name: '3f9a12c4' })])).devices()).rejects.toThrow();
   });
 });
 
@@ -113,5 +124,20 @@ describe('objects', () => {
     route(() => json({ id: sha(syncWire) }));
     expect(await store.put(syncWire)).toBe(sha(syncWire));
     await expect(store.put(legacy)).rejects.toThrow();
+  });
+});
+
+describe('request timeouts', () => {
+  const open = async () => {
+    route(call => call.url.pathname === '/v1/challenge' ? json({ nonce }) : call.url.pathname === '/v1/session' ? json({ token, expiresAt: 99, device: identity.id }) : json({}));
+    const store = new AccountStore(info()); await store.openSession(identity); return store;
+  };
+  it('scales the put timeout with the body (5 s plus 1 s per 64 KiB) and gives get 21 s', async () => {
+    const store = await open(); const timeout = vi.spyOn(AbortSignal, 'timeout');
+    route(() => json({ id: sha(syncWire) })); await store.put(syncWire); expect(timeout).toHaveBeenLastCalledWith(6000);
+    const big = JSON.stringify({ ...JSON.parse(syncWire), payload: Buffer.alloc(700_000).toString('base64') });
+    route(() => json({ id: sha(big) })); await store.put(big); expect(timeout).toHaveBeenLastCalledWith(20_000);
+    route(() => json({ id: sha(syncWire), wire: syncWire })); await store.get(sha(syncWire)); expect(timeout).toHaveBeenLastCalledWith(21_000);
+    route(() => json({ objects: [] })); await store.list(); expect(timeout).toHaveBeenLastCalledWith(5000);
   });
 });

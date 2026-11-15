@@ -45,13 +45,15 @@ export class RendezvousPeer {
     const result = await this.store.request('PUT', '/v1/rendezvous/devices', JSON.stringify({ challenge, name, proof, publicKey: this.identity.publicKey }));
     check(result.id === this.identity.id); return result;
   }
+  /** Drops the bookkeeping of a request that will never become a channel (unknown ids are ignored). */
+  forget(sessionId) { this.#requests.delete(sessionId); }
   async devices() { return (await this.store.request('GET', '/v1/rendezvous/devices')).devices; }
   async sessions() { return (await this.store.request('GET', '/v1/rendezvous/sessions')).sessions; }
   async request(target, scope = 'view') {
     check(hex(target) && ['view', 'control'].includes(scope));
     const now = Date.now();
     for (const [id, value] of this.#requests) if (now < value.created || now - value.created >= 300_000) this.#requests.delete(id);
-    check(this.#requests.size < 16);
+    if (this.#requests.size >= 16) throw Object.assign(new Error('Rendezvous request limit'), { status: 429 });
     const nonce = randomBytes(32).toString('hex');
     const session = await this.store.request('POST', '/v1/rendezvous/sessions', JSON.stringify({ target, scope, nonce }));
     check(hex(session.id) && session.from === this.identity.id && session.to === target && session.scope === scope && session.nonce === nonce && session.state === 'pending' && !this.#requests.has(session.id));

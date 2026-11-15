@@ -60,6 +60,8 @@ nsis:
 portable:
   artifactName: ${productName}-Portable-${version}.${ext}
 
+# Fuses are flipped in this hook (no electronFuses key): runAsNode off on Linux only, enableNodeOptionsEnvironmentVariable off on Linux and Windows.
+# Still open for H4: enableNodeCliInspectArguments (the Playwright smokes need --inspect), enableEmbeddedAsarIntegrityValidation, onlyLoadAppFromAsar.
 afterPack: scripts/linux-after-pack.cjs
 
 publish: null

@@ -110,6 +110,8 @@ node .claude/skills/run-app/sync-scene.mjs
 - **Umgebung:** `A_RUN_DIR`/`A_PORT` (Vorgabe `<tmp>/shellherd-run`, 9333), `B_RUN_DIR`/`B_PORT` (Vorgabe `<tmp>/shellherd-run-b`, 9336). Exit-Code 0 ok, 1 Schritt fehlgeschlagen (mit Fehlerbildern), 2 Treiber nicht erreichbar oder `SHELLHERD_SYNC_LAB=1` fehlt, 4 B hat schon eine Vault-Datei.
 - **Wiederholung:** Der Server ist je Lauf frisch, also gibt es keine alten Keybox-Objekte. Die Szene löscht vor dem ersten Abgleich den Sync-Zustand `demo.term.sync-state` von A (er gehört zum Server des vorigen Laufs). B braucht ein leeres Profil: Treiber B beenden (`/quit`), `shellherd-run-b` löschen, neu starten (sonst Exit-Code 4).
 - **Beenden:** beide Instanzen mit `/quit`. Der Testserver endet mit dem Skript.
+- **Origin (H3.1):** Die Szenen (`sync-scene.mjs`, `rendezvous.mjs`, `remote-scene.mjs`) und `server/smoke.mjs` starten den Server über `createSyncServer` ohne `origin`. Dann gilt die Listen-Origin (`http://127.0.0.1:<port>`), und die Clients verbinden sich genau dorthin. Eine Variable `SHELLHERD_SERVER_ORIGIN` brauchen sie nicht. Pflicht ist sie nur für `node server/main.mjs serve` (und den Container): Ohne sie startet der Server nicht. Wer einen Testserver von Hand mit `main.mjs` startet, setzt sie auf die Adresse, die die App eingibt (z. B. `SHELLHERD_SERVER_ORIGIN=http://127.0.0.1:8787`).
+- **Offline-Befehle:** `node server/main.mjs list-devices` und `revoke-device <id>` arbeiten direkt auf `objects/devices.json` und laufen nur bei gestopptem Server (Szenen brauchen sie nicht; der Server der Szene ist je Lauf frisch). Eine Roster-Datei der Vorstufe (`version: 1`) bricht mit Hinweis ab: `objects/devices.json` wegschieben und die Geräte neu einschreiben.
 
 ## Demo-Vault (`demo-setup.mjs`)
 

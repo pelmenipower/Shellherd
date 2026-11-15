@@ -6,6 +6,7 @@ import {
 
 import type { IpcRendererEvent } from 'electron';
 import type { KubeEvent } from '../shared/kubernetes';
+import { IPC_CHANNELS } from '../shared/ipc';
 import type { DesktopApi } from '../shared/ipc';
 import { LOCALE_ARG } from '../shared/locale';
 
@@ -19,7 +20,7 @@ const localeArg = process.argv.find(arg => arg.startsWith(LOCALE_ARG))?.slice(LO
 
 const desktopApi: DesktopApi = {
   syncLabEnabled: process.argv.includes('--shellherd-sync-lab=1'),
-  syncLabAction: request => ipcRenderer.invoke('sync-lab:action', request),
+  syncLabAction: request => ipcRenderer.invoke(IPC_CHANNELS.syncLabAction, request),
   remoteLabEnabled: process.argv.includes('--shellherd-remote-lab=1'),
   remoteCaptureFake: process.argv.includes('--shellherd-remote-capture-fake=1'),
   remoteLabAction: request => ipcRenderer.invoke('remote-lab:action', request),

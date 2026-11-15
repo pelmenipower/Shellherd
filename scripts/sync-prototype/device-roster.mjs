@@ -1,11 +1,13 @@
 // Server-side roster of enrolled devices: persistent entries in devices.json, ephemeral ones in RAM only.
-import { randomBytes, verify } from 'node:crypto';
+import { createHash, randomBytes, verify } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { DEVICE_ENROLLMENT, DEVICE_NAME, enrollmentBody, signingKeyOf } from './device-proof.mjs';
+import { DEVICE_ENROLLMENT, enrollmentBody, originOk, signingKeyOf } from './device-proof.mjs';
+import { isDeviceName } from './device-name.mjs';
 import { deviceId } from './rendezvous.mjs';
 const FORMAT = 'shellherd-device-roster';
+const VERSION = 2; const OLD_VERSION_HINT = 'devices.json is from an older version: stop the server, move objects/devices.json away and re-enroll all devices (H3.1)';
 const MAX_BYTES = 65536; const MAX_ENTRIES = 64; const MAX_ACTIVE = 16; const MAX_EPHEMERAL = 8; const EPHEMERAL_TTL = 12 * 3600_000;
 const check = (ok, status = 400) => { if (!ok) { const error = Error('Device request rejected'); error.status = status; throw error; } };
 const safe = value => Number.isSafeInteger(value) && value >= 0;
@@ -19,7 +21,9 @@ export async function createDeviceRoster({ directory, serverId, namespace, clock
   const ephemeral = new Map(); // id -> entry + lastSession
   const keys = new Map(); // id -> KeyObject
   let uncertain = false; let chain = Promise.resolve();
-  const wireOf = list => JSON.stringify({ format: FORMAT, version: 1, serverId, namespace, devices: list.map(e => ({ id: e.id, name: e.name, signingKey: e.signingKey, noiseKey: e.noiseKey, enrolledAt: e.enrolledAt, revokedAt: e.revokedAt })) });
+  // Hash of devices.json as this process loaded or last wrote it (null: absent). A different file on disk means someone else changed it.
+  let known = null; const hashOf = text => createHash('sha256').update(text).digest('hex');
+  const wireOf = list => JSON.stringify({ format: FORMAT, version: VERSION, serverId, namespace, devices: list.map(e => ({ id: e.id, name: e.name, signingKey: e.signingKey, noiseKey: e.noiseKey, enrolledAt: e.enrolledAt, revokedAt: e.revokedAt })) });
   const ordered = list => [...list].sort((a, b) => a.enrolledAt - b.enrolledAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   // Load
   let handle;
@@ -32,16 +36,18 @@ export async function createDeviceRoster({ directory, serverId, namespace, clock
       while (used < data.length) { const read = await handle.read(data, used, data.length - used, used); if (!read.bytesRead) break; used += read.bytesRead; }
       check(used <= MAX_BYTES, 500); const text = data.subarray(0, used).toString('utf8');
       let parsed; try { parsed = JSON.parse(text); } catch { check(false, 500); }
-      check(parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).join(',') === 'format,version,serverId,namespace,devices' && parsed.format === FORMAT && parsed.version === 1 && parsed.serverId === serverId && parsed.namespace === namespace && Array.isArray(parsed.devices), 500);
+      if (parsed && typeof parsed === 'object' && parsed.format === FORMAT && parsed.version === 1) throw Object.assign(Error('Device roster is from an older version'), { status: 500, hint: OLD_VERSION_HINT });
+      check(parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).join(',') === 'format,version,serverId,namespace,devices' && parsed.format === FORMAT && parsed.version === VERSION && parsed.serverId === serverId && parsed.namespace === namespace && Array.isArray(parsed.devices), 500);
       check(parsed.devices.length <= MAX_ENTRIES, 500);
       for (const raw of parsed.devices) {
         check(raw && typeof raw === 'object' && Object.keys(raw).join(',') === 'id,name,signingKey,noiseKey,enrolledAt,revokedAt', 500);
         let key; try { check(deviceId(raw.noiseKey) === raw.id); key = signingKeyOf(raw.signingKey); } catch { check(false, 500); }
-        check(typeof raw.name === 'string' && DEVICE_NAME.test(raw.name) && safe(raw.enrolledAt) && (raw.revokedAt === null || (safe(raw.revokedAt) && raw.revokedAt >= raw.enrolledAt)) && !persistent.has(raw.id), 500);
+        check(isDeviceName(raw.name) && safe(raw.enrolledAt) && (raw.revokedAt === null || (safe(raw.revokedAt) && raw.revokedAt >= raw.enrolledAt)) && !persistent.has(raw.id), 500);
         persistent.set(raw.id, { ...raw }); keys.set(raw.id, key);
       }
       check([...persistent.values()].filter(e => e.revokedAt === null).length <= MAX_ACTIVE, 500);
       check(wireOf([...persistent.values()]) === text, 500);
+      known = hashOf(text);
     } finally { await handle.close(); }
   }
   const expire = () => {
@@ -52,13 +58,21 @@ export async function createDeviceRoster({ directory, serverId, namespace, clock
   const view = e => ({ id: e.id, name: e.name, signingKey: e.signingKey, enrolledAt: e.enrolledAt, revokedAt: e.revokedAt, ephemeral: e.ephemeral === true });
   // Serialized writes: each task re-reads the current state; RAM state is replaced only after a successful write.
   const serial = task => { const result = chain.then(task); chain = result.catch(() => {}); return result; };
+  async function diskHash() {
+    let current;
+    try { current = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    try { return hashOf(await current.readFile('utf8')); } finally { await current.close(); }
+  }
   async function write(next, apply) {
     check(!uncertain, 503);
     const temporary = join(directory, randomBytes(16).toString('hex') + '.devices-tmp'); let renamed = false;
     try {
       const f = await open(temporary, 'wx', 0o600);
       try { await f.writeFile(wireOf(ordered(next))); await f.sync(); } finally { await f.close(); }
-      await fault('beforeDevicesRename'); await rename(temporary, file); renamed = true; await fault('afterDevicesRename');
+      await fault('beforeDevicesRename');
+      // Never overwrite a roster another process changed (e.g. an offline revoke while this server runs): stay uncertain instead.
+      const onDisk = await diskHash(); if (onDisk !== known) { uncertain = true; check(false, 503); }
+      await rename(temporary, file); renamed = true; known = hashOf(wireOf(ordered(next))); await fault('afterDevicesRename');
       const dir = await open(directory, 'r'); try { await dir.sync(); } finally { await dir.close(); }
       apply();
     } catch (error) { if (renamed) uncertain = true; throw error; }
@@ -73,14 +87,14 @@ export async function createDeviceRoster({ directory, serverId, namespace, clock
     isActive(id) { const e = find(id); return Boolean(e) && e.revokedAt === null; },
     touch(id) { expire(); const e = ephemeral.get(id); if (e) e.lastSession = clock(); },
     list() { expire(); return ordered([...persistent.values(), ...ephemeral.values()]).map(view); },
-    async enroll({ document, ephemeral: wantEphemeral = false }) {
-      check(typeof wantEphemeral === 'boolean' && Array.isArray(document) && document.length === 2 && Array.isArray(document[0]) && document[0].length === 7);
+    async enroll({ document, ephemeral: wantEphemeral = false, origin }) {
+      check(typeof wantEphemeral === 'boolean' && Array.isArray(document) && document.length === 2 && Array.isArray(document[0]) && document[0].length === 8 && originOk(origin));
       const [body, signature] = document;
       let key; let rebuilt;
-      try { rebuilt = enrollmentBody(...body.slice(1)); key = signingKeyOf(body[4]); check(deviceId(body[5]) === body[3]); } catch { check(false); }
-      check(JSON.stringify(body) === rebuilt && body[0] === DEVICE_ENROLLMENT && body[1] === serverId && body[2] === namespace);
+      try { rebuilt = enrollmentBody(...body.slice(1)); key = signingKeyOf(body[5]); check(deviceId(body[6]) === body[4]); } catch { check(false); }
+      check(JSON.stringify(body) === rebuilt && body[0] === DEVICE_ENROLLMENT && body[1] === serverId && body[2] === namespace && body[3] === origin);
       check(verify(null, Buffer.from(JSON.stringify(body)), key, base64(signature, 64)), 401);
-      const [, , , id, signingKey, noiseKey, name] = body;
+      const [, , , , id, signingKey, noiseKey, name] = body;
       expire(); const existing = persistent.get(id) ?? ephemeral.get(id);
       if (existing) {
         check(existing.signingKey === signingKey && existing.noiseKey === noiseKey && (existing.ephemeral === true) === wantEphemeral, 409);

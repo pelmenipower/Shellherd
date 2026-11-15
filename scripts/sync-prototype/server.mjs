@@ -2,7 +2,7 @@
 // This executable intentionally listens on loopback only. Not a production release.
 import http from 'node:http';
 import net from 'node:net';
-import { createHash, createPublicKey, randomBytes, verify } from 'node:crypto';
+import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify } from 'node:crypto';
 import { constants } from 'node:fs';
 import { mkdir, lstat, open, readdir, rename, unlink, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -13,9 +13,9 @@ import { createAccessRegistry } from './server-access.mjs';
 import { accountAuth } from './account-auth.mjs';
 import { validateSyncObject, isLegacyVaultObject } from './sync-object-wire.mjs';
 import { createDeviceRoster } from './device-roster.mjs';
-import { enrollmentBody, sessionProof, requestProofV2, signingKeyOf, ed25519Spki } from './device-proof.mjs';
+import { enrollmentBody, sessionProof, requestProofV2, signingKeyOf, ed25519Spki, originOk } from './device-proof.mjs';
 import { createRendezvous, deviceId } from './rendezvous.mjs';
-import { DEFAULT_LIMITS, createLimiter, sourceOf } from './rate-limit.mjs';
+import { DEFAULT_LIMITS, createLimiter, parseTrustedProxies, sourceOf } from './rate-limit.mjs';
 const MAX = 1024 * 1024;
 const sha = data => createHash('sha256').update(data).digest('hex');
 const ascii = s => typeof s === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(s);
@@ -24,13 +24,18 @@ function base64(s, length) {
   check(typeof s === 'string' && s.length < MAX * 2); const bytes = Buffer.from(s, 'base64');
   check(bytes.toString('base64') === s && (length === undefined || bytes.length === length)); return bytes;
 }
-export async function createSyncServer({ directory, serverId, namespace, devices = [], account = null, publicUrl = null, clock = () => Date.now(), adminPublicKey = null, adminDevices = [], accessFault, rosterFault, rendezvous = false, trustedProxy = false, limits = {} }) {
+export async function createSyncServer({ directory, serverId, namespace, devices = [], account = null, publicUrl = null, origin = null, initialPasswordFile = null, clock = () => Date.now(), adminPublicKey = null, adminDevices = [], accessFault, rosterFault, rendezvous = false, trustedProxy = false, limits = {} }) {
   limits = { ...DEFAULT_LIMITS, ...limits };
   check(typeof serverId === 'string' && /^[a-f0-9]{64}$/.test(serverId) && ascii(namespace));
   check(Array.isArray(devices) && devices.length <= 16 && (account !== null ? devices.length === 0 && adminPublicKey === null && adminDevices.length === 0 : devices.length > 0));
   if (account !== null) accountAuth(account, clock, limits); // validate the account before touching the disk
   check(typeof rendezvous === 'boolean' && (!rendezvous || account !== null));
   check(publicUrl === null || normalizeSyncServerUrl(publicUrl) === publicUrl);
+  // The public origin is configured, never taken from the Host header; null means the listen origin (loopback tests and scenes).
+  check(origin === null || originOk(origin));
+  check(initialPasswordFile === null || typeof initialPasswordFile === 'string');
+  check(trustedProxy === false || typeof trustedProxy === 'string' || typeof trustedProxy === 'function');
+  if (typeof trustedProxy === 'string') trustedProxy = parseTrustedProxies(trustedProxy);
   const keys = new Map();
   for (const device of devices) {
     check(ascii(device.id) && !keys.has(device.id));
@@ -44,7 +49,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
   if (roster) roster.hasSession = id => login.hasSession(id);
   const broker = rendezvous ? createRendezvous({ authorize: header => login.authorize(header), isActive: key => login.isActive(key), deviceOf: key => login.deviceOf(key), noiseKeyOf: id => roster.noiseKeyOf(id), clock, serverId }) : null;
   const access = await createAccessRegistry({ directory, serverId, namespace, devices, keys, adminPublicKey, adminDevices, clock, fault: accessFault });
-  const objects = new Map(); let total = 0; let busy = false; let uncertain = false;
+  const objects = new Map(); const quarantined = new Set(); let total = 0; let busy = false; let uncertain = false;
   function opaque(wire) {
     check(Buffer.byteLength(wire) <= MAX); const tuple = JSON.parse(wire);
     check(Array.isArray(tuple) && tuple.length === 5 && JSON.stringify(tuple) === wire);
@@ -65,19 +70,48 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       check(used <= MAX, 500); const wire = data.subarray(0, used).toString('utf8'); check(sha(wire) === id, 500); if (login) { if (!isLegacyVaultObject(wire)) validateSyncObject(wire); } else opaque(wire); return wire;
     } finally { await handle.close(); }
   }
-  const files = await readdir(directory); check(files.length <= 256, 500);
+  // Startup care: stale temp files (older than 1 h) are removed before the file count is checked.
+  for (const file of await readdir(directory)) {
+    if (!/^[a-f0-9]{32}\.(tmp|devices-tmp|access-tmp)$/.test(file)) continue;
+    try {
+      const stat = await lstat(join(directory, file));
+      if (stat.isFile() && Date.now() - stat.mtimeMs > 3600_000) await unlink(join(directory, file));
+    } catch { /* best effort */ }
+  }
+  const files = (await readdir(directory)); check(files.length <= 256, 500);
   for (const file of files) {
     if (file === 'access.json' || file === 'devices.json') continue;
     if (!/^[a-f0-9]{64}\.blob$/.test(file)) { check(file.endsWith('.tmp') || file.endsWith('.access-tmp') || file.endsWith('.devices-tmp'), 500); continue; }
-    const id = file.slice(0, -5); const wire = await readObject(id); objects.set(id, Buffer.byteLength(wire)); total += Buffer.byteLength(wire);
+    const id = file.slice(0, -5);
+    let wire;
+    try { wire = await readObject(id); } catch { console.error(`Skipping unreadable object ${file}`); quarantined.add(id); continue; }
+    objects.set(id, Buffer.byteLength(wire)); total += Buffer.byteLength(wire);
   }
   check(objects.size <= 100 && total <= 32 * MAX, 500);
-  const nonces = new Map(); let requests = 0; let windowStart = clock();
+  // Stateless challenges: ts(8) || rand(8) || mac(16), mac = HMAC(process secret, tag || ts || rand). Only valid, consumed nonces are kept (until they expire).
+  const nonceSecret = randomBytes(32); const spent = new Map(); const SPENT_MAX = 4096; const NONCE_TTL = 30_000;
+  const nonceMac = payload => createHmac('sha256', nonceSecret).update('shellherd-nonce-v1').update(payload).digest().subarray(0, 16);
+  const issueNonce = at => { const payload = Buffer.alloc(16); payload.writeBigUInt64BE(BigInt(at), 0); randomBytes(8).copy(payload, 8); return Buffer.concat([payload, nonceMac(payload)]).toString('hex'); };
+  /** Returns the issue time of a fresh nonce and spends it, or null. A full set fails closed with 429 (no eviction: that would reopen replay). */
+  const spendNonce = (value, at) => {
+    if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) return null;
+    const raw = Buffer.from(value, 'hex');
+    if (!timingSafeEqual(raw.subarray(16), nonceMac(raw.subarray(0, 16)))) return null;
+    const ts = Number(raw.readBigUInt64BE(0));
+    if (!(ts <= at && at - ts < NONCE_TTL) || spent.has(value)) return null;
+    if (spent.size >= SPENT_MAX) {
+      for (const [nonce, issued] of spent) if (!(issued <= at && at - issued < NONCE_TTL)) spent.delete(nonce);
+      check(spent.size < SPENT_MAX, 429, 1);
+    }
+    spent.set(value, ts); return ts;
+  };
+  let requests = 0; let windowStart = clock();
+  const inflight = new Map();
   const limiter = createLimiter({ clock, maxKeys: limits.maxKeys });
   const budget = (key, capacity, perMinute = capacity) => { const result = limiter.take(key, { capacity, perMinute }); check(result.ok, 429, result.retryAfter); };
-  const server = http.createServer({ maxHeaderSize: 8192 }, (request, response) => {
+  const server = http.createServer({ maxHeaderSize: 8192, connectionsCheckingInterval: 1000 }, (request, response) => {
     const send = (status, value, retryAfter) => {
-      if (response.destroyed) return;
+      if (response.destroyed || response.headersSent || response.writableEnded) return;
       const headers = { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', connection: 'close' };
       if (status === 429) headers['retry-after'] = String(retryAfter ?? 1);
       response.writeHead(status, headers);
@@ -85,7 +119,12 @@ export async function createSyncServer({ directory, serverId, namespace, devices
     };
     void (async () => {
       const now = clock();
-      const source = sourceOf(request, { trustedProxy }); budget('source:' + source, limits.source);
+      const source = sourceOf(request, { trustedProxy });
+      // Concurrent handlers per source (works behind a proxy too); released when the response closes.
+      const concurrent = (inflight.get(source) ?? 0) + 1; inflight.set(source, concurrent);
+      response.once('close', () => { const left = (inflight.get(source) ?? 1) - 1; if (left > 0) inflight.set(source, left); else inflight.delete(source); });
+      check(concurrent <= limits.concurrentPerSource, 429, 1);
+      budget('source:' + source, limits.source);
       const path = request.url; check(typeof path === 'string' && path.length < 512);
       // Per-source buckets first: only requests that pass them count against the global budget, so one source cannot exhaust it for all.
       if (request.method === 'GET' && path === '/v1/info') budget('info:' + source, limits.info);
@@ -97,35 +136,39 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       check(request.headers.origin === undefined && request.headers['transfer-encoding'] === undefined);
       if (request.method === 'GET' && path === '/v1/info') {
         check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
-        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'enrolled-device' : 'device', deviceSessions: Boolean(login), objectFormat: login ? 'sync-object' : 'device-snapshot', rendezvous: Boolean(broker), rendezvousProof: Boolean(broker), rendezvousNoise: Boolean(broker) }); return;
+        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'enrolled-device' : 'device', deviceSessions: Boolean(login), objectFormat: login ? 'sync-object' : 'device-snapshot', rendezvous: Boolean(broker), rendezvousProof: Boolean(broker), rendezvousNoise: Boolean(broker), origin }); return;
       }
       const readJson = async (max, onFormError) => {
-        try {
+        // Total read deadline before authentication: a slow body is destroyed and counts as a malformed attempt.
+        let timer; const deadline = new Promise((_resolve, reject) => { timer = setTimeout(() => { request.destroy(); reject(Object.assign(Error('Request rejected'), { status: 408 })); }, 3000); });
+        const reading = (async () => {
           check(request.headers['content-type'] === 'application/json');
           const length = Number(request.headers['content-length']); check(Number.isSafeInteger(length) && length > 0 && length <= max, 413);
           const chunks = []; let used = 0; for await (const chunk of request) { used += chunk.length; check(used <= max, 413); chunks.push(chunk); }
           check(used === length); const text = Buffer.concat(chunks).toString('utf8'); const body = JSON.parse(text); check(JSON.stringify(body) === text); return body;
-        } catch (error) { onFormError(); throw error; } // a malformed request counts as a failed attempt
+        })();
+        reading.catch(() => {});
+        try { return await Promise.race([reading, deadline]); }
+        catch (error) { onFormError(); throw error; } // a malformed request counts as a failed attempt
+        finally { clearTimeout(timer); }
       };
       const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
       const sameKeys = (value, expected) => plain(value) && Object.keys(value).sort().join(',') === expected;
-      const consumeNonce = value => {
-        const entry = typeof value === 'string' ? nonces.get(value) : undefined; if (entry) nonces.delete(value);
-        return entry !== undefined && now >= entry.since && now - entry.since < 30_000;
-      };
+      const consumeNonce = value => spendNonce(value, now) !== null;
       if (login && path === '/v1/devices' && request.method === 'POST') {
         const body = await readJson(16384, () => login.fail(source));
         try {
           check(sameKeys(body, 'enrollment,password,username') || sameKeys(body, 'enrollment,ephemeral,password,username'));
           check(body.ephemeral === undefined || typeof body.ephemeral === 'boolean');
-          const doc = body.enrollment; check(Array.isArray(doc) && doc.length === 2 && Array.isArray(doc[0]) && doc[0].length === 7 && typeof doc[1] === 'string');
-          check(JSON.stringify(doc[0]) === enrollmentBody(...doc[0].slice(1)) && doc[0][1] === serverId && doc[0][2] === namespace);
+          const doc = body.enrollment; check(Array.isArray(doc) && doc.length === 2 && Array.isArray(doc[0]) && doc[0].length === 8 && typeof doc[1] === 'string');
+          check(JSON.stringify(doc[0]) === enrollmentBody(...doc[0].slice(1)) && doc[0][1] === serverId && doc[0][2] === namespace && doc[0][3] === origin);
           // Cheap rejections (device id vs noise key, weak signing key) come before the expensive password check.
-          check(deviceId(doc[0][5]) === doc[0][3]); signingKeyOf(doc[0][4]);
+          check(deviceId(doc[0][6]) === doc[0][4]); signingKeyOf(doc[0][5]);
         } catch (error) { login.fail(source); throw error; }
         roster.assertHealthy();
         await login.verifyPassword({ username: body.username, password: body.password }, source);
-        const { entry, created } = await roster.enroll({ document: body.enrollment, ephemeral: body.ephemeral === true });
+        const { entry, created } = await roster.enroll({ document: body.enrollment, ephemeral: body.ephemeral === true, origin });
+        if (initialPasswordFile) await unlink(initialPasswordFile).catch(() => {}); // the generated password is no longer needed once a device is enrolled
         send(created ? 201 : 200, { device: { id: entry.id, name: entry.name, enrolledAt: entry.enrolledAt, ephemeral: entry.ephemeral } }); return;
       }
       if (login && path === '/v1/devices' && request.method === 'GET') {
@@ -144,7 +187,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         const hex = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
         if (!fresh || !hex(body.device) || !hex(body.nonce) || !roster.isActive(body.device)) reject();
         let valid = false;
-        try { valid = verify(null, Buffer.from(sessionProof(serverId, namespace, body.nonce, body.device)), roster.signingKeyOf(body.device), base64(body.signature, 64)); } catch { valid = false; }
+        try { valid = verify(null, Buffer.from(sessionProof(serverId, namespace, origin, body.nonce, body.device)), roster.signingKeyOf(body.device), base64(body.signature, 64)); } catch { valid = false; }
         if (!valid) reject();
         login.clearSession(source); roster.touch(body.device); send(200, { ...login.openSession(body.device), device: body.device }); return;
       }
@@ -160,7 +203,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         const length = Number(request.headers['content-length'] ?? 0); check(Number.isSafeInteger(length) && length >= 0, 400); check(length <= 16384, 413); check(length === 0);
         let valid = false;
         try {
-          valid = fresh && device === login.deviceOf(key) && verify(null, Buffer.from(requestProofV2(serverId, namespace, 'DELETE', request.url, nonce, device)), roster.signingKeyOf(device), base64(signature, 64));
+          valid = fresh && device === login.deviceOf(key) && verify(null, Buffer.from(requestProofV2(serverId, namespace, origin, 'DELETE', request.url, nonce, device)), roster.signingKeyOf(device), base64(signature, 64));
         } catch { valid = false; }
         if (!valid) { login.failSession(source); check(false, 401); }
         login.clearSession(source);
@@ -182,9 +225,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       }
       if (request.method === 'GET' && path === '/v1/challenge') {
         check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
-        for (const [nonce, entry] of nonces) if (now - entry.since >= 30_000 || now < entry.since) nonces.delete(nonce);
-        check(nonces.size < 128 && [...nonces.values()].filter(entry => entry.source === source).length < 8, 429); const nonce = randomBytes(32).toString('hex'); nonces.set(nonce, { since: now, source });
-        send(200, { nonce }); return;
+        send(200, { nonce: issueNonce(now) }); return;
       }
       const collection = `/v1/vaults/${namespace}/objects`;
       const enrollmentId = /^\/v1\/enrollments\/([a-f0-9]{64})$/.exec(path)?.[1];
@@ -199,8 +240,8 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       if (login && ['PUT', 'DELETE'].includes(request.method)) budget('device:' + login.deviceOf(authorized), limits.deviceWrites);
       let since;
       if (!login) {
-        check(typeof device === 'string' && ascii(device) && typeof nonce === 'string' && nonces.has(nonce), 401);
-        since = nonces.get(nonce).since; nonces.delete(nonce); check(now >= since && now - since < 30_000, 401);
+        check(typeof device === 'string' && ascii(device), 401);
+        since = spendNonce(nonce, now); check(since !== null, 401);
       }
       const length = Number(request.headers['content-length'] ?? 0);
       const limit = control ? 16384 : MAX;
@@ -235,10 +276,11 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       }
       if (request.method === 'DELETE') {
         const id = path.slice(collection.length + 1);
-        check(!uncertain, 503); check(!busy, 409); check(objects.has(id), 404); busy = true;
+        check(!uncertain, 503); check(!busy, 409); check(objects.has(id) || quarantined.has(id), 404); busy = true;
         try {
           await unlink(join(directory, id + '.blob')).catch(error => { if (error.code !== 'ENOENT') throw error; });
-          total -= objects.get(id); objects.delete(id);
+          // Skipped (unreadable) objects are removable too, so they do not hold a file slot forever.
+          if (objects.has(id)) { total -= objects.get(id); objects.delete(id); } else quarantined.delete(id);
           try { const dir = await open(directory, 'r'); try { await dir.sync(); } finally { await dir.close(); } }
           catch (error) { uncertain = true; throw error; }
           send(200, { removed: true });
@@ -271,9 +313,9 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         objects.set(id, bytes); total += bytes; send(201, { id });
       } catch (error) { if (renamed) uncertain = true; throw error; }
       finally { busy = false; await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
-    })().catch(error => send(error.status ?? 400, { error: 'request-rejected' }, error.retryAfter));
+    })().catch(error => send(error.status ?? 400, { error: 'request-rejected' }, error.retryAfter)).catch(() => {});
   });
-  server.requestTimeout = 15_000; server.headersTimeout = 10_000; server.keepAliveTimeout = 2000; server.maxConnections = 32; server.maxHeadersCount = 32;
+  server.requestTimeout = 15_000; server.headersTimeout = 5000; server.keepAliveTimeout = 2000; server.maxConnections = 256; server.maxHeadersCount = 32;
   server.on('clientError', (_error, socket) => socket.destroy());
   // Per-source connection cap; off behind a trusted proxy because every socket then comes from the proxy.
   if (!trustedProxy) {
@@ -290,7 +332,9 @@ export async function createSyncServer({ directory, serverId, namespace, devices
     check(typeof host === 'string' && net.isIP(host) !== 0);
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); });
     const shown = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : net.isIPv6(host) ? `[${host}]` : host;
-    return `http://${shown}:${server.address().port}/`;
+    const url = `http://${shown}:${server.address().port}/`;
+    if (origin === null) origin = new URL(url).origin;
+    return url;
   }, async close() { broker?.clear(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
 }
 

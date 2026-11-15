@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { normalizeDeviceName, DEVICE_NAME_MAX } from '../../../shared/device-name';
 import { formatDateTime } from '../../../shared/format';
 import type { VaultSessionResult } from '../../../shared/ipc';
 import { formatRecoveryCode, normalizeRecoveryCode, RECOVERY_CODE_INPUT_MAX } from '../../../shared/recovery-code';
@@ -6,7 +7,7 @@ import type { SyncLabErrorCode, SyncLabReply, SyncLabRequest, SyncLabState } fro
 import { needsPrivateNetwork, normalizeSyncServerUrl } from '../../../shared/sync-server-url.mjs';
 import { useNativeSurfaceBlock } from '../native-surface';
 import { useT } from '../i18n';
-import { canRevoke, enrollReady, importReady, needsRecoveryCode, recoveryCodeValid } from '../sync-lab-view';
+import { canRevoke, enrollReady, importReady, needsRecoveryCode, passwordTooShort, recoveryCodeValid } from '../sync-lab-view';
 import '../sync-lab.css';
 
 type SyncDevice = NonNullable<SyncLabState['devices']>[number];
@@ -23,6 +24,36 @@ export function RecoveryCodeNotice({ code, onNoted }: { code: string; onNoted: (
     <code className="sync-lab-code">{formatRecoveryCode(code)}</code>
     <button type="button" className="primary-button" onClick={onNoted}>{t('syncLab:recoveryCodeNoted')}</button>
   </section>;
+}
+
+/** Warning plus explicit checkbox for a server ID that is already enrolled at another address (C1); only the checkbox unlocks enrollment. */
+export function EnrolledElsewhere({ url, confirmed, busy, onChange }: { url: string; confirmed: boolean; busy: boolean; onChange: (confirmed: boolean) => void }) {
+  const { t } = useT();
+  return <>
+    <p className="sync-lab-notice">{t('syncLab:enrolledElsewhere', { url })}</p>
+    <label className="sync-lab-check"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => onChange(event.target.checked)} />{t('syncLab:enrolledElsewhereConfirm')}</label>
+  </>;
+}
+
+/** Question before a new recovery code replaces the old one (C2). */
+export function RegenerateConfirm({ busy, onYes, onCancel }: { busy: boolean; onYes: () => void; onCancel: () => void }) {
+  const { t } = useT();
+  return <div className="sync-lab-confirm" role="group" aria-label={t('syncLab:recoveryCodeRegenerate')}>
+    <p className="sync-lab-notice">{t('syncLab:recoveryCodeRegenerateConfirm')}</p>
+    <button type="button" className="primary-button" disabled={busy} onClick={onYes}>{t('syncLab:recoveryCodeRegenerateYes')}</button>
+    <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>{t('common:actions.cancel')}</button>
+  </div>;
+}
+
+/** Removal of foreign objects with the opt-in for foreign encrypted versions (B8). */
+export function RemoveForeign({ versions, busy, onVersions, onRemove }: { versions: boolean; busy: boolean; onVersions: (versions: boolean) => void; onRemove: () => void }) {
+  const { t } = useT();
+  return <>
+    <p>{t('syncLab:removeForeignHint')}</p>
+    <label className="sync-lab-check"><input type="checkbox" checked={versions} disabled={busy} onChange={event => onVersions(event.target.checked)} />{t('syncLab:removeForeignVersions')}</label>
+    {versions && <p className="sync-lab-notice">{t('syncLab:removeForeignVersionsHint')}</p>}
+    <button type="button" className="secondary-button" disabled={busy} onClick={onRemove}>{t('syncLab:removeForeign')}</button>
+  </>;
 }
 
 /** Devices of the account in server order; the own and revoked devices have no remove button. */
@@ -55,6 +86,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
   const [state, setState] = useState<SyncLabState>({ phase: 'idle' });
   const [error, setError] = useState<SyncLabErrorCode | null>(null);
   const [privateChecked, setPrivateChecked] = useState(false);
+  const [elsewhereConfirmed, setElsewhereConfirmed] = useState(false); const [confirmRegenerate, setConfirmRegenerate] = useState(false); const [removeVersions, setRemoveVersions] = useState(false);
   const privateCandidate = needsPrivateNetwork(serverUrl);
   const privateNetwork = privateCandidate && privateChecked;
   const normalized = normalizeSyncServerUrl(serverUrl, { loopback: true, private: privateNetwork });
@@ -94,16 +126,18 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
   async function enroll(): Promise<void> {
-    if (!enrollReady(username, password, deviceName)) return;
+    const elsewhere = Boolean(state.enrolledElsewhere);
+    if (!enrollReady(username, password, deviceName, !elsewhere || elsewhereConfirmed)) return;
     const serverPassword = password; setPassword('');
-    await exec({ kind: 'signIn', username, password: serverPassword, deviceName: deviceName.trim() });
+    const draft: Draft = { kind: 'signIn', username, password: serverPassword, deviceName: normalizeDeviceName(deviceName) };
+    await exec(elsewhere ? { ...draft, confirmElsewhere: true } : draft);
   }
   async function disconnect(): Promise<void> {
     if (pending.current) return; pending.current = true; setBusy(true);
     try {
       await window.desktopApi.syncLabAction({ kind: 'close', clientId });
-      if (mounted.current) { setState({ phase: 'idle' }); setError(null); setRecoveryCode(null); }
-    } catch { if (mounted.current) setError('failed'); }
+      if (mounted.current) { setState({ phase: 'idle' }); setError(null); setRecoveryCode(null); setElsewhereConfirmed(false); setConfirmRegenerate(false); setRemoveVersions(false); }
+    } catch { if (mounted.current) setError('connection'); }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
   async function sync(kind: 'synchronize' | 'keepLocal' | 'importVault' | 'removeForeign'): Promise<void> {
@@ -115,14 +149,17 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
     const draft: Draft = kind === 'importVault' ? { kind, recoveryCode: typed ?? '', password: localPassword }
       : kind === 'keepLocal' ? { kind, reviewed: true, revision: state.sync!.conflictRevision! }
       : kind === 'synchronize' ? (typed !== null && needsRecoveryCode(error) ? { kind, recoveryCode: typed } : { kind })
+      : kind === 'removeForeign' ? (removeVersions ? { kind, versions: true } : { kind })
       : { kind };
     if (kind === 'importVault' || (kind === 'synchronize' && typed !== null)) { setCodeInput(''); }
     if (kind === 'importVault') { setNewPassword(''); setRepeatPassword(''); }
     await exec(draft, reply => { if (reply.vaultChanged) onVaultChanged(reply.vaultChanged); });
+    if (kind === 'removeForeign' && mounted.current) setRemoveVersions(false); // The destructive opt-in holds for one run only (m4).
   }
   const errorText = error && ({
     unavailable: t('syncLab:errors.unavailable'), invalid: t('syncLab:errors.invalid'), stale: t('syncLab:errors.stale'),
-    mismatch: t('syncLab:errors.mismatch'), expired: t('syncLab:errors.expired'), failed: t('syncLab:errors.failed'), connection: t('syncLab:errors.connection'), authentication: t('syncLab:errors.authentication'),
+    enrolledElsewhere: t('syncLab:errors.enrolledElsewhere'), syncForeignKey: t('syncLab:errors.syncForeignKey'), syncOtherServer: t('syncLab:errors.syncOtherServer'), syncPlatform: t('syncLab:errors.syncPlatform'),
+    connection: t('syncLab:errors.connection'), authentication: t('syncLab:errors.authentication'),
     identity: t('syncLab:errors.identity'), limit: t('syncLab:errors.limit'),
     syncLocked: t('syncLab:errors.syncLocked'), syncChanged: t('syncLab:errors.syncChanged'), syncHistory: t('syncLab:errors.syncHistory'),
     syncWrongVault: t('syncLab:errors.syncWrongVault'), syncRecovery: t('syncLab:errors.syncRecovery'), syncLimit: t('syncLab:errors.syncLimit'),
@@ -170,7 +207,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
         <p>{t('syncLab:enrolledHint')}</p>
         <button type="button" className="primary-button" disabled={busy} onClick={() => void exec({ kind: 'openSession' })}>{t('syncLab:openSession')}</button>
       </> : <form className="sync-server-form" onSubmit={event => { event.preventDefault(); void enroll(); }}>
-        {state.enrolledElsewhere && <p className="sync-lab-notice">{t('syncLab:enrolledElsewhere', { url: state.enrolledElsewhere })}</p>}
+        {state.enrolledElsewhere && <EnrolledElsewhere url={state.enrolledElsewhere} confirmed={elsewhereConfirmed} busy={busy} onChange={setElsewhereConfirmed} />}
         <label htmlFor={`${id}-username`}>{t('syncLab:username')}</label>
         <input id={`${id}-username`} value={username} maxLength={64} autoComplete="username" spellCheck={false} disabled={busy}
           onChange={event => { setUsername(event.target.value); setError(null); }} />
@@ -179,9 +216,10 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
           aria-describedby={`${id}-password-hint`} onChange={event => { setPassword(event.target.value); setError(null); }} />
         <p className="settings-hint" id={`${id}-password-hint`}>{t('syncLab:passwordHint')}</p>
         <label htmlFor={`${id}-device-name`}>{t('syncLab:deviceName')}</label>
-        <input id={`${id}-device-name`} value={deviceName} maxLength={80} autoComplete="off" spellCheck={false} disabled={busy}
-          onChange={event => { setDeviceName(event.target.value); setError(null); }} />
-        <button className="primary-button" type="submit" disabled={busy || !enrollReady(username, password, deviceName)}>{busy ? t('syncLab:enrolling') : t('syncLab:enroll')}</button>
+        <input id={`${id}-device-name`} value={deviceName} maxLength={DEVICE_NAME_MAX} autoComplete="off" spellCheck={false} disabled={busy}
+          aria-describedby={`${id}-device-name-hint`} onChange={event => { setDeviceName(event.target.value); setError(null); }} />
+        <p className="settings-hint" id={`${id}-device-name-hint`}>{t('syncLab:deviceNameHint')}</p>
+        <button className="primary-button" type="submit" disabled={busy || !enrollReady(username, password, deviceName, !state.enrolledElsewhere || elsewhereConfirmed)}>{busy ? t('syncLab:enrolling') : t('syncLab:enroll')}</button>
       </form>}
       <button type="button" className="secondary-button" disabled={busy} onClick={() => void disconnect()}>{t('syncLab:changeServer')}</button>
     </section>}
@@ -199,7 +237,9 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
           <button type="submit" className="primary-button" disabled={busy || !recoveryCodeValid(codeInput)}>{busy ? t('syncLab:syncing') : t('syncLab:syncNow')}</button>
         </form>}
         {!needsRecoveryCode(error) && <button type="button" className="primary-button" disabled={busy} onClick={() => void sync('synchronize')}>{busy ? t('syncLab:syncing') : t('syncLab:syncNow')}</button>}
-        <button type="button" className="secondary-button" disabled={busy} onClick={() => void exec({ kind: 'regenerateCode' })}>{t('syncLab:recoveryCodeRegenerate')}</button>
+        {confirmRegenerate
+          ? <RegenerateConfirm busy={busy} onCancel={() => setConfirmRegenerate(false)} onYes={() => { setConfirmRegenerate(false); void exec({ kind: 'regenerateCode', confirmed: true }); }} />
+          : <button type="button" className="secondary-button" disabled={busy} onClick={() => setConfirmRegenerate(true)}>{t('syncLab:recoveryCodeRegenerate')}</button>}
         <p className="settings-hint">{t('syncLab:recoveryCodeRegenerateHint')}</p>
       </section> : <form className="sync-server-form" onSubmit={event => { event.preventDefault(); void sync('importVault'); }}>
         {codeField}
@@ -209,6 +249,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
         <label htmlFor={`${id}-repeat-password`}>{t('syncLab:repeatPassword')}</label>
         <input id={`${id}-repeat-password`} type="password" value={repeatPassword} maxLength={1024} autoComplete="off" disabled={busy}
           aria-describedby={`${id}-vault-password-hint`} onChange={event => { setRepeatPassword(event.target.value); setError(null); }} />
+        {passwordTooShort(newPassword) && <p className="field-error" role="alert">{t('app:errors.passwordTooShort')}</p>}
         <p className="settings-hint" id={`${id}-vault-password-hint`}>{t('syncLab:localVaultHint')}</p>
         <button type="submit" className="primary-button" disabled={busy || !importReady(codeInput, newPassword, repeatPassword)}>{busy ? t('syncLab:syncing') : t('syncLab:downloadVault')}</button>
       </form>}
@@ -218,7 +259,7 @@ export function SyncLabDialog({ onClose, vaultName, onVaultChanged }: { onClose:
         {(state.sync.skipped ?? 0) > 0 && <p>{t('syncLab:skipped', { count: state.sync.skipped })}</p>}
         {(state.sync.unknownAuthors ?? 0) > 0 && <p>{t('syncLab:unknownAuthors', { count: state.sync.unknownAuthors })}</p>}
         {(state.sync.quarantined ?? 0) > 0 && <p>{t('syncLab:quarantined', { count: state.sync.quarantined })}</p>}
-        {(state.sync.skipped ?? 0) > 0 && <><p>{t('syncLab:removeForeignHint')}</p><button type="button" className="secondary-button" disabled={busy} onClick={() => void sync('removeForeign')}>{t('syncLab:removeForeign')}</button></>}
+        {(state.sync.skipped ?? 0) > 0 && <RemoveForeign versions={removeVersions} busy={busy} onVersions={setRemoveVersions} onRemove={() => void sync('removeForeign')} />}
         {state.sync.removedForeign !== undefined && state.sync.removedForeign >= 0 && <p>{t('syncLab:removedForeign', { count: state.sync.removedForeign })}</p>}
         {state.sync.approvals > 0 && <p>{t('syncLab:approvalsNeeded', { count: state.sync.approvals })}</p>}
         {state.sync.canKeepLocal && <><p>{t('syncLab:keepLocalHint')}</p><button type="button" className="secondary-button" disabled={busy} onClick={() => void sync('keepLocal')}>{t('syncLab:keepLocal')}</button></>}

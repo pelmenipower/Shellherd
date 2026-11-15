@@ -9,7 +9,7 @@ import { normalizeRecoveryCode } from '../../shared/recovery-code';
 export interface SyncDevice { id: string; sign(data: Buffer): Buffer; keyOf(id: string): KeyObject | undefined; revokedAt(id: string): number | null | undefined }
 export interface SyncContext { serverId: string; namespace: string; device?: SyncDevice }
 export class SyncFailure extends Error {
-  constructor(public readonly code: 'locked' | 'changed' | 'history' | 'conflict' | 'bindings' | 'wrongVault' | 'recovery' | 'limit' | 'syncKey' | 'recoveryCode' | 'migrate') { super(`Vault sync rejected: ${code}`); }
+  constructor(public readonly code: 'locked' | 'changed' | 'history' | 'conflict' | 'bindings' | 'wrongVault' | 'recovery' | 'limit' | 'syncKey' | 'recoveryCode' | 'migrate' | 'foreignKey' | 'otherServer' | 'platform') { super(`Vault sync rejected: ${code}`); }
 }
 export const SYNC_OBJECT_FORMAT = 'shellherd-sync-object';
 const OBJECT_MAX = 1048576; const OBJECT_PLAIN_MAX = 768 * 1024;
@@ -35,7 +35,7 @@ export function encryptedFile(wire: string): EncryptedVaultFile {
   ensure(JSON.stringify(file) === wire); return file;
 }
 /** Only serverId and namespace ever enter a key or AAD, never the passed object (B7). */
-function bound(context: SyncContext): { serverId: string; namespace: string } {
+export function bound(context: SyncContext): { serverId: string; namespace: string } {
   ensure(/^[a-f0-9]{64}$/.test(context.serverId) && /^[a-zA-Z0-9_-]{1,100}$/.test(context.namespace));
   return { serverId: context.serverId, namespace: context.namespace };
 }
