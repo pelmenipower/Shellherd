@@ -466,6 +466,8 @@ seriellen Schnittstelle.
 Das Kontextmenü der Proxmox-Gäste enthält `Shell öffnen`, `Starten`,
 `Herunterfahren` und `Stoppen`. Ein hartes Stoppen einer VM fragt vorher nach.
 
+Ganz oben unter jeder aufgeklappten SSH-Verbindung steht der Eintrag `Dateiansicht (SFTP)`, sofort und unabhängig davon, ob die Erkennung noch läuft, fehlschlägt oder keine Laufzeit findet. Ein Klick oder `Enter` wechselt zu einer offenen Dateiansicht dieser Verbindung oder öffnet eine; `Dateiansicht öffnen` im Kontextmenü des Eintrags öffnet immer eine weitere. Die Dateiansicht braucht keine Terminal-Sitzung: Sie meldet sich selbst an, mit demselben Sprunghost, denselben Anmeldedialogen und derselben Prüfung des Server-Schlüssels. Sie zeigt die Dateien des Hosts, nicht die eines Containers. Bietet der Server kein SFTP an, meldet der Tab „Der Server bietet kein SFTP an.“ Weil das Aufklappen selbst eine Verbindung für die Erkennung öffnet, fragen Verbindungen mit Code-Abfrage dabei zweimal; `Dateien öffnen (SFTP)` im Kontextmenü der Verbindung fragt nur einmal. Dieser Menüpunkt und der Knopf im Kopf eines SSH-Bereichs bleiben erhalten.
+
 `Dieser Computer` zeigt `Docker-Ansicht` und `Podman-Ansicht`, sofern die jeweilige
 CLI installiert ist. Das wird nach dem Entsperren des Vaults geprüft und lässt sich
 über das Kontextmenü der freien Fläche im Verbindungsbaum (`Lokale Laufzeiten suchen`)
@@ -506,6 +508,8 @@ muss man den Namen bzw. die Referenz eintippen. Verwendete Images und Volumes la
 sich nicht entfernen. Im Logs-Reiter schaltet das Häkchen `Automatisch scrollen` das Mitlaufen ab,
 und `Strg+F` oder die Lupe öffnet die Suche (siehe [In Logs suchen](#in-logs-suchen) und
 [Automatisch scrollen](#automatisch-scrollen)).
+
+Die Shell eines laufenden Containers lässt sich auch als eigener Tab öffnen: mit `Shell als Tab öffnen` im Kontextmenü der Zeile, mit dem gleichnamigen Knopf neben `Shell öffnen` im Dock, mit `Als Tab öffnen` in der Dock-Leiste oder mit `Strg+Umschalt+T`. Der Tab heißt etwa „api @ web-01“ und gehört fest zu diesem Container. Das Dock bleibt dabei unverändert; seine Shell startet weiterhin erst mit `Shell öffnen`.
 
 Grenzen:
 
