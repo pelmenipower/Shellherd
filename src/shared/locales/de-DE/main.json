@@ -2,7 +2,9 @@
   "window": {
     "main": "Shellherd",
     "secondary": "Shellherd – Sitzungen",
-    "mainSharing": "Shellherd – Bildschirm wird angesehen"
+    "mainSharing": "Shellherd – Bildschirm wird angesehen",
+    "remoteViewer": "Shellherd – Fernansicht von {{name}}",
+    "remoteAgent": "Shellherd – Bildschirmfreigabe"
   },
   "dialogs": {
     "cancel": "Abbrechen",

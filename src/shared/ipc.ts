@@ -220,7 +220,6 @@ export interface DesktopApi {
   syncLabAction: (request: import('./sync-lab').SyncLabRequest) => Promise<import('./sync-lab').SyncLabReply>;
   /** Development-only remote view lab, enabled by SHELLHERD_REMOTE_LAB=1 independently of the sync lab. */
   remoteLabEnabled: boolean;
-  remoteCaptureFake: boolean;
   remoteLabAction: (request: import('./remote-lab').RemoteLabRequest) => Promise<import('./remote-lab').RemoteLabReply>;
   onRemoteLabEvent: (listener: (event: import('./remote-lab').RemoteLabEvent) => void) => () => void;
   sshRemotePath: (request: import('./remote-path').RemotePathRequest) => Promise<import('./remote-path').RemotePathReply>;

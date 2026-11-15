@@ -5,7 +5,7 @@ export interface RemoteKnown { firstSeen: number; verified: boolean; verifiedAt?
 export interface RemoteDevice { id: string; name: string; known?: RemoteKnown; changed?: true }
 export type RemoteEndReason = 'stopped' | 'remote' | 'expired' | 'locked' | 'declined' | 'failed' | 'scope' | 'mismatch';
 export type RemoteErrorCode = 'unavailable' | 'invalid' | 'stale' | 'identity' | 'locked' | 'connection' | 'authentication' | 'expired'
-  | 'declined' | 'mismatch' | 'signal' | 'media' | 'peer' | 'scope' | 'limit' | 'samePassword' | 'enrolledElsewhere' | 'enrollmentLocked';
+  | 'declined' | 'mismatch' | 'signal' | 'media' | 'mediaWindow' | 'peer' | 'scope' | 'limit' | 'samePassword' | 'enrolledElsewhere' | 'enrollmentLocked';
 /** Wire part inside the E2EE channel. 'bye' is host-internal and never crosses IPC. */
 export interface RemoteSignalPart { kind: 'offer' | 'answer' | 'bye'; part: number; of: number; data: string }
 export type RemoteLabCommand =
@@ -15,11 +15,8 @@ export type RemoteLabCommand =
   | { kind: 'goOnline'; deviceName: string } | { kind: 'goOffline' }
   | { kind: 'request'; target: string; verification: string | null }
   | { kind: 'armCapture'; sessionId: string; verification: string | null }
-  | { kind: 'accept'; sessionId: string } | { kind: 'decline'; sessionId: string }
-  | { kind: 'signal'; sessionId: string; part: RemoteSignalPart }
-  | { kind: 'stop'; sessionId: string }
-  /** Renderer ack: all tracks of this agent session are stopped and its RTCPeerConnection is closed. */
-  | { kind: 'stopped'; sessionId: string };
+  | { kind: 'decline'; sessionId: string }
+  | { kind: 'stop'; sessionId: string };
 export type RemoteLabRequest = RemoteLabCommand & { clientId: string };
 export interface RemoteLabSession {
   id: string; role: 'viewer' | 'agent'; peer: RemoteDevice; scope: RemoteScope;
@@ -28,6 +25,8 @@ export interface RemoteLabSession {
   expiresAt: number; startedAt?: number;
   /** Agent only, while verification is required: remaining typed attempts. */
   attemptsLeft?: number;
+  /** Agent: consent armed, the native dialog follows (V8). */
+  armed?: true;
 }
 export interface RemoteLabState {
   phase: 'idle' | 'serverReady' | 'signedIn' | 'online';
@@ -44,7 +43,6 @@ export interface RemoteLabState {
 }
 export type RemoteLabEvent =
   | { kind: 'state'; state: RemoteLabState }
-  | { kind: 'signal'; sessionId: string; part: RemoteSignalPart }
   | { kind: 'ended'; sessionId: string; reason: RemoteEndReason }
   | { kind: 'error'; code: RemoteErrorCode };
 export type RemoteLabReply = { ok: true; state: RemoteLabState } | { ok: false; code: RemoteErrorCode };
@@ -53,4 +51,5 @@ export const REMOTE_LAB_LIMITS = {
   requestMs: 60000, consentMs: 55000, sessionMs: 300000,
   setupPollMs: 1000, activePollMs: 5000, gatherMs: 2000, acceptDelayMs: 1000, byeMs: 2000,
   verificationHex: 16, verificationAttempts: 3, muteMs: 600000, handshakeMs: 20000,
+  nativeDelayMs: 600, mediaReadyMs: 5000, captureMs: 20000,
 } as const;

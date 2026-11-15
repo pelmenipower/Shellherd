@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, webContents } from 'electron';
+import { ipcMain, webContents } from 'electron';
 import { z } from 'zod';
 import { parseRequest } from '../ssh/validation';
 import { IPC_CHANNELS } from '../../shared/ipc';
@@ -51,7 +51,8 @@ export function registerAiIpcHandlers(registry: WindowRegistry): { service: Assi
     broadcast: () => {
       let catalog: AiCatalog;
       try { catalog = service.catalog(); } catch { return; }
-      for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.aiCatalogChanged, catalog);
+      // Registry windows only: the catalog holds vault data, so unregistered windows (media, drag ghost) get nothing.
+      for (const window of [registry.main(), ...registry.secondaries()]) if (window && !window.isDestroyed()) window.webContents.send(IPC_CHANNELS.aiCatalogChanged, catalog);
     },
   };
 }

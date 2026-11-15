@@ -4,11 +4,15 @@ import type { BrowserWindow } from 'electron';
 import { RdpSessionManager, rdpStatusError, splitAccount } from './host';
 
 vi.mock('electron', () => ({ screen: { dipToScreenRect: (_window: unknown, rect: unknown) => rect } }));
+const spawned = vi.hoisted(() => ({ count: 0, lines: [] as string[] }));
 vi.mock('node:child_process', () => ({
-  spawn: () => Object.assign(Object.assign(new (require('node:events').EventEmitter)(), {
-    stdin: Object.assign(new (require('node:events').EventEmitter)(), { write: () => true, end: () => undefined }),
-    stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null,
-  })),
+  spawn: () => {
+    spawned.count += 1;
+    return Object.assign(Object.assign(new (require('node:events').EventEmitter)(), {
+      stdin: Object.assign(new (require('node:events').EventEmitter)(), { write: (line: string) => { spawned.lines.push(line.trim()); return true; }, end: () => undefined }),
+      stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null,
+    }));
+  },
 }));
 
 function openSession(emit: (ownerId: number, event: unknown) => void): { manager: RdpSessionManager; sessionId: string; receive(line: string): void } {
@@ -76,5 +80,56 @@ describe('rdpStatusError', () => {
   });
   it('reports nothing for a plain disconnect', () => {
     expect(rdpStatusError('disconnected')).toBeUndefined();
+  });
+});
+
+describe('protect', () => {
+  const make = (emit = vi.fn()): RdpSessionManager => new RdpSessionManager({ executable: 'x', mode: 'owned' as never, getTarget: () => ({ host: 'h', port: 3389, clipboard: false }), emit });
+  const window = {
+    getNativeWindowHandle: () => Buffer.alloc(8), getContentBounds: () => ({ x: 0, y: 0, width: 1, height: 1 }),
+    webContents: { getZoomFactor: () => 1 }, on: () => undefined, isDestroyed: () => false,
+  } as unknown as BrowserWindow;
+  const reset = (): void => { spawned.count = 0; spawned.lines.length = 0; };
+
+  it('does not start the helper without one running', () => {
+    reset();
+    make().protect(true);
+    expect(spawned.count).toBe(0);
+  });
+  it('writes protect as the first line when the helper starts afterwards', () => {
+    reset();
+    const manager = make();
+    manager.protect(true);
+    manager.open(7, window, { connectionId: 'c', bounds: { x: 0, y: 0, width: 1, height: 1 }, visible: true } as never);
+    expect(spawned.count).toBe(1);
+    expect(JSON.parse(spawned.lines[0])).toEqual({ type: 'protect', protect: true });
+    expect(JSON.parse(spawned.lines[1]).type).toBe('open');
+  });
+  it('writes no protect line at helper start when unprotected', () => {
+    reset();
+    const manager = make();
+    manager.protect(true);
+    manager.protect(false);
+    manager.open(7, window, { connectionId: 'c', bounds: { x: 0, y: 0, width: 1, height: 1 }, visible: true } as never);
+    expect(JSON.parse(spawned.lines[0]).type).toBe('open');
+  });
+  it('writes exactly one line per change on a running helper', () => {
+    reset();
+    const manager = make();
+    manager.open(7, window, { connectionId: 'c', bounds: { x: 0, y: 0, width: 1, height: 1 }, visible: true } as never);
+    spawned.lines.length = 0;
+    manager.protect(true);
+    expect(spawned.lines.map(line => JSON.parse(line))).toEqual([{ type: 'protect', protect: true }]);
+    manager.protect(true);
+    expect(spawned.lines).toHaveLength(1);
+    manager.protect(false);
+    expect(spawned.lines.map(line => JSON.parse(line))).toEqual([{ type: 'protect', protect: true }, { type: 'protect', protect: false }]);
+    expect(spawned.count).toBe(1);
+  });
+  it('does not emit for a protected line', () => {
+    const emit = vi.fn();
+    const { receive, sessionId } = openSession(emit);
+    receive(JSON.stringify({ type: 'protected', sessionId, mode: 'exclude' }));
+    expect(emit).not.toHaveBeenCalled();
   });
 });

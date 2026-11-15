@@ -29,3 +29,24 @@ describe('contentSecurityPolicy', () => {
     expect(csp).toContain("object-src 'none'");
   });
 });
+
+const MEDIA_PROD = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self' data:; media-src mediastream: blob:; connect-src 'none'; img-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+const MEDIA_DEV = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src mediastream: blob:; connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* http://127.0.0.1:*; img-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+
+describe('contentSecurityPolicy remoteMedia', () => {
+  it('production is the literal', () => {
+    expect(contentSecurityPolicy('production', 'remoteMedia')).toBe(MEDIA_PROD);
+  });
+  it('development is the literal', () => {
+    expect(contentSecurityPolicy('development', 'remoteMedia')).toBe(MEDIA_DEV);
+  });
+  it('production has no unsafe-inline, no connect and no images', () => {
+    const csp = contentSecurityPolicy('production', 'remoteMedia');
+    expect(csp).not.toContain('unsafe-inline');
+    expect(directive(csp, 'connect-src')).toBe("connect-src 'none'");
+    expect(directive(csp, 'img-src')).toBe("img-src 'none'");
+  });
+  it('main page is unchanged by the default', () => {
+    expect(contentSecurityPolicy('production', 'main')).toBe(PROD);
+  });
+});

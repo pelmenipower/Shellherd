@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fakeCapture } from './remote-capture-fake';
+import { fakeCapture } from './capture-fake';
 
 const track = () => ({ stop: vi.fn(), addEventListener: vi.fn() });
 
-function stubDom(getDisplayMedia: () => Promise<unknown>) {
+function stubDom(getDisplayMedia: () => Promise<unknown>, getUserMedia: () => Promise<unknown> = () => Promise.reject(new Error('unused'))) {
   const canvasTrack = track();
   const fillRect = vi.fn();
   const canvas = { width: 0, height: 0, getContext: () => ({ fillRect, fillStyle: '' }), captureStream: () => ({ getTracks: () => [canvasTrack] }) };
   vi.stubGlobal('document', { createElement: () => canvas });
-  vi.stubGlobal('navigator', { mediaDevices: { getDisplayMedia: vi.fn(getDisplayMedia) } });
+  vi.stubGlobal('navigator', { mediaDevices: { getDisplayMedia: vi.fn(getDisplayMedia), getUserMedia: vi.fn(getUserMedia) } });
   return { canvasTrack, canvas };
 }
 
@@ -31,6 +31,15 @@ describe('fakeCapture', () => {
     const { canvasTrack } = stubDom(async () => ({ getTracks: () => [real] }));
     const stream = await fakeCapture().capture();
     expect(real.stop).toHaveBeenCalledTimes(1);
+    expect(stream.getTracks()).toEqual([canvasTrack]);
+  });
+
+  it('uses getUserMedia with the source id on path B', async () => {
+    vi.useFakeTimers();
+    const { canvasTrack } = stubDom(() => Promise.reject(new Error('unused')), () => Promise.reject(new Error('denied')));
+    const stream = await fakeCapture().capture('screen:1:0');
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    expect(navigator.mediaDevices.getDisplayMedia).not.toHaveBeenCalled();
     expect(stream.getTracks()).toEqual([canvasTrack]);
   });
 });
