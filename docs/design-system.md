@@ -52,7 +52,7 @@ Maße stehen seit Stufe 2 nur noch als Token im CSS. Erlaubte Literale: 0, 1 px,
 | `--color-selection-bg` | Textauswahl | `#3f2e22` | `::selection` |
 | `--color-selection-text` | Text der Auswahl | `#fbf5ef` | `::selection` |
 | `--color-match-bg` | alle Suchtreffer (Terminal-Decoration, `mark.is-match`) | `#4a3f12` | Suche in Logs |
-| `--color-match-current-bg` | aktueller Suchtreffer | `#7a5c08` | Suche in Logs |
+| `--color-match-current-bg` | aktueller Suchtreffer in der Liste „Logs aller Pods“ (im Terminal liegt die Auswahl `--color-selection-bg` darüber) | `#7a5c08` | Suche in Logs |
 | `--color-match-current-border` | Rand des aktuellen Treffers (xterm `activeMatchBorder`, `outline` der Liste) | `#facc15` | Suche in Logs |
 | `--color-ok` | Zustand gut | `#4ade80` | Status-Punkt |
 | `--color-warn` | Zustand Warnung | `#facc15` | Status-Punkt |
@@ -99,9 +99,9 @@ Main setzt `nativeTheme.themeSource` aus `settings.json`. Der Renderer liest das
 | `--color-on-accent` | `#ffffff` | Text auf Primärknopf: 6,7 auf Akzent, 8,6 auf Akzent-Hover |
 | `--color-selection-bg` | `#f2cfb3` | Textauswahl und xterm-Auswahl, helles Kupfer |
 | `--color-selection-text` | `#1d1915` | 11,9 auf Auswahl |
-| `--color-match-bg` | `#fff1a8` | alle Suchtreffer; Text `--color-text-code` 14,50, gegen Bühne 1,14 (die Fläche ist zusätzlich, die Information tragen Zähler und Rand) |
-| `--color-match-current-bg` | `#ffd34d` | aktueller Treffer; Text 11,57, gegen übrigen Treffer 1,25 |
-| `--color-match-current-border` | `#765c00` | Rand des aktuellen Treffers: 4,45 gegen dessen Fläche, 6,36 gegen Bühne (≥ 3:1) |
+| `--color-match-bg` | `#fcd34d` | alle Suchtreffer; Text `--color-text-code` 12,12, gegen Bühne 1,44 (kräftiges Bernstein statt Blassgelb: die Fläche muss auf Weiß über die Farbsättigung auffallen; die Information tragen zusätzlich Zähler und Rand) |
+| `--color-match-current-bg` | `#f59e0b` | aktueller Treffer (Liste); Text 8,13, gegen übrigen Treffer 1,49 |
+| `--color-match-current-border` | `#5c4500` | Rand des aktuellen Treffers: 4,24 gegen dessen Fläche, 9,11 gegen Bühne, gegen die Terminal-Auswahl `--color-selection-bg` ≥ 3:1 |
 | `--color-ok` | `#116b34` | Text und Punkt; 6,1 Panel, 5,4 erhöht, 5,0 Hover |
 | `--color-warn` | `#765c00` | Oliv-Gelb (≈ 47°), bewusst weg vom Kupfer, damit „Gelb ist nie Akzent“ erkennbar bleibt; 5,9 Panel, 4,8 Hover, 5,7 auf Warn-Fläche |
 | `--color-warn-border` | `#d4b34a` | Rand einer Warnung, dekorativ wie dunkel |
@@ -251,7 +251,7 @@ Aliase: entfernt in Stufe 2; die Namen `--ui-*`, `--surface*`, `--border`, `--te
 | Aktiv/an | View-Tab `--color-bg-active`. Kube-Art, Chip und Dock-Tab `--color-bg-hover` + `--color-border-strong` + Akzenttext. Terminal-Tab `--color-bg-stage` + `--color-border-strong` + Akzent-Unterkante |
 | Ausgewählt (dauerhaft) | `--color-bg-selected`, Cursor `box-shadow: var(--focus-inset)` |
 | Gedrückt (`aria-pressed`) | Icon-Wahl: Rand `--color-accent` + `--color-bg-selected`. `.assistant-toggle` bekommt zusätzlich `background: var(--color-bg-selected)`. `.root-row` hat nur `--color-bg-selected`. Der Dock-Format-Umschalter behält `--color-accent` + `--color-on-accent`. Quellen-Chip (`.kube-logs-chip`): an = Quellenfarbe, aus = `--color-text-muted` und durchgestrichen. Suchoptionen `.terminal-search-option`: Rand `--color-accent` + `--color-bg-selected`. |
-| Suchtreffer | Gelb ist hier Zustand („gefunden“, „aktuell“), nie Akzent; Kupfer bleibt bei Fokus, gedrückten Optionen und Auswahl. Alle Treffer: `--color-match-bg`. Aktueller Treffer: `--color-match-current-bg` plus Rand `--color-match-current-border`; Text bleibt `--color-text-code`. Kontrast dunkel / hell: Text auf alle Treffer 8,09 / 14,50, Text auf aktuellen Treffer 4,84 / 11,57, Rand gegen aktuellen Treffer 4,08 / 4,45, Rand gegen Bühne 12,45 / 6,36, alle Treffer gegen Bühne 1,83 / 1,14, aktueller gegen übrigen Treffer 1,67 / 1,25. Den aktuellen Treffer unterscheidet der Rand (≥ 3:1), die Fläche ist zusätzlich. Neue Farben greifen bei der nächsten Suchaktion, es gibt kein Live-Umfärben. |
+| Suchtreffer | Gelb ist hier Zustand („gefunden“, „aktuell“), nie Akzent; Kupfer bleibt bei Fokus, gedrückten Optionen und Auswahl. Alle Treffer: `--color-match-bg`. Aktueller Treffer: `--color-match-current-bg` plus Rand `--color-match-current-border`; Text bleibt `--color-text-code`. Im Terminal liegt beim aktuellen Treffer die xterm-Auswahl (`--color-selection-bg`) über der Fläche, weil das Addon den Treffer per `select()` auswählt; erkennbar ist er dort am Rand (Kontrast Rand gegen Auswahl dunkel ≈ 8,4, hell ≈ 6,2). `--color-match-current-bg` sieht man nur in der Liste „Logs aller Pods“. Kontrast dunkel / hell: Text auf alle Treffer 8,09 / 12,12, Text auf aktuellen Treffer 4,84 / 8,13, Rand gegen aktuellen Treffer 4,08 / 4,24, Rand gegen Bühne 12,45 / 9,11, alle Treffer gegen Bühne 1,83 / 1,44, aktueller gegen übrigen Treffer 1,67 / 1,49. Den aktuellen Treffer unterscheidet der Rand (≥ 3:1), die Fläche ist zusätzlich. Neue Farben greifen bei der nächsten Suchaktion, es gibt kein Live-Umfärben. |
 | Drop-Ziel | einzelnes Ziel (Zeile, Tab, Pane-Vorschau, Ordner) `--color-bg-drop`, ganze Fläche (Dateiliste) `--color-bg-tint` + Akzent-Inset |
 | Disabled | `.45` global, Menüeintrag und deaktivierte Baumzeile `.5` |
 | Fokus | `outline: var(--focus-outline); outline-offset: var(--focus-offset)`, Listen `var(--focus-inset)`, Split-Griff und View-Drop `outline-offset: -2px`, Controls in den Köpfen von Editor und Assistent `outline-offset: calc(-1 * var(--focus-offset))` |
@@ -327,7 +327,7 @@ Jede Meldung beantwortet Was, Warum und Was jetzt. Der Verbindungszustand liegt 
 
 Die Leiste „Weiterleitungen“ (`.forward-bar`) steht unter der Ausgabe einer verbundenen SSH-Sitzung, mindestens `var(--control-sm)` hoch, ohne Bewegung.
 
-Die Suchleiste (`.terminal-search`) sitzt oben im Terminal-Panel, auch in Dock-Terminals mit Logs und in „Logs aller Pods“, und hat keine Bewegung. Sie hat die Optionen `Aa`, `.*` und `ab` (`.terminal-search-option`) und einen Trefferzähler mit `min-width: var(--width-search-status)`. Der Link-Hinweis (`.terminal-link-hint`) erscheint unten rechts im Terminal, solange die Maus über einem Link steht, ohne Bewegung. Der Aktivitäts-Ring (`.tab-activity`) steht nach dem Namen eines nicht sichtbaren Tabs mit neuer Ausgabe, neutral in `--color-text` und mit fettem Namen, ohne Animation. „An alle“ (`.broadcast-chip`) und die Warn-Linie (`.pane-chrome.is-broadcast`) zeigen, dass die Eingabe an mehrere Bereiche geht. Gelb ist hier Zustand, nie Kupfer.
+Die Suchleiste (`.terminal-search`) sitzt oben im Terminal-Panel, auch in Dock-Terminals mit Logs und in „Logs aller Pods“, und hat keine Bewegung. Am Anfang steht eine dekorative Lupe (`.terminal-search-icon`, `aria-hidden`, `--color-text-muted`), damit die Suche in „Logs aller Pods“ vom Filterfeld darüber zu unterscheiden ist. Sie hat die Optionen `Aa`, `.*` und `ab` (`.terminal-search-option`) und einen Trefferzähler mit `min-width: var(--width-search-status)`. Der Link-Hinweis (`.terminal-link-hint`) erscheint unten rechts im Terminal, solange die Maus über einem Link steht, ohne Bewegung. Der Aktivitäts-Ring (`.tab-activity`) steht nach dem Namen eines nicht sichtbaren Tabs mit neuer Ausgabe, neutral in `--color-text` und mit fettem Namen, ohne Animation. „An alle“ (`.broadcast-chip`) und die Warn-Linie (`.pane-chrome.is-broadcast`) zeigen, dass die Eingabe an mehrere Bereiche geht. Gelb ist hier Zustand, nie Kupfer.
 
 ## Regeln für neues CSS
 

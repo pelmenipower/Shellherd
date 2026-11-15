@@ -389,7 +389,44 @@ const blocks = {
       await key('Enter');
       await waitFor('aktiver Treffer', `!!document.querySelector('${ACTIVE_DECORATION}')`);
       await pause(300);
+      // Regression: the xterm host must never scroll inside itself (rows hidden under the search bar, gap below).
+      const hostScroll = await evaluate(`document.querySelector('.kube-dock-terminal .terminal-container').scrollTop`);
+      if (hostScroll !== 0) throw new Error(`Log-Terminal ist im Container um ${hostScroll} px verschoben`);
       await shot('container-logs-search');
+      // B3: a pure option change with the same term recounts the matches (Aa on turns "error" into no hits, off brings them back).
+      await click(option('Regulärer Ausdruck'));
+      await waitFor('Regex aus', `document.querySelector('${option('Regulärer Ausdruck')}')?.getAttribute('aria-pressed') === 'false'`);
+      await fill(search, 'error');
+      await waitFor('Zähler ohne Groß-/Kleinschreibung', `document.querySelector('${SEARCH_STATUS}')?.textContent.includes(' von ') && !!document.querySelector('${ACTIVE_DECORATION}')`);
+      const insensitive = await searchCount('Optionswechsel');
+      await click(option('Groß-/Kleinschreibung beachten'));
+      await waitFor('Aa an: keine Treffer', `document.querySelector('${SEARCH_STATUS}')?.textContent.trim() === 'Keine Treffer' && !document.querySelector('${ACTIVE_DECORATION}')`);
+      await click(option('Groß-/Kleinschreibung beachten'));
+      await waitFor('Aa aus: Treffer zurück', `document.querySelector('${SEARCH_STATUS}')?.textContent.includes(' von ') && !!document.querySelector('${ACTIVE_DECORATION}')`);
+      const again = await searchCount('Optionswechsel zurück');
+      if (again.total !== insensitive.total) throw new Error(`Optionswechsel: Trefferzahl ${insensitive.total} → ${again.total}, erwartet gleich`);
+      // B4 positive case: a real mouse selection across a GET row still copies while the search is open (exactly one write).
+      await call('main', `globalThis.__clipWrites.length = 0; return true;`);
+      const row = await evaluate(`(() => { const r = [...document.querySelectorAll('.kube-dock-terminal .xterm-rows > div')].find(d => d.textContent.startsWith('GET /api/orders')); if (!r) return null; const b = r.getBoundingClientRect(); return { x1: Math.round(b.left + 2), x2: Math.round(b.right - 2), y: Math.round(b.top + b.height / 2) }; })()`);
+      if (!row) throw new Error('Mausauswahl: keine GET-Zeile sichtbar');
+      await call('main', `const wc = electron.BrowserWindow.getAllWindows()[0].webContents;
+        wc.sendInputEvent({ type: 'mouseDown', x: ${row.x1}, y: ${row.y}, button: 'left', clickCount: 1 });
+        wc.sendInputEvent({ type: 'mouseMove', x: ${Math.round((row.x1 + row.x2) / 2)}, y: ${row.y}, button: 'left', modifiers: ['leftButtonDown'] });
+        wc.sendInputEvent({ type: 'mouseMove', x: ${row.x2}, y: ${row.y}, button: 'left', modifiers: ['leftButtonDown'] });
+        wc.sendInputEvent({ type: 'mouseUp', x: ${row.x2}, y: ${row.y}, button: 'left', clickCount: 1 });
+        return true;`);
+      for (let i = 0; ; i++) {
+        if ((await clipboardWrites()).length) break;
+        if (i >= 20) throw new Error('Mausauswahl bei offener Suche wurde nicht kopiert');
+        await pause(250);
+      }
+      await pause(400);
+      const copied = await clipboardWrites();
+      if (copied.length !== 1 || !copied[0].startsWith('GET /api/orders')) throw new Error(`Mausauswahl: erwartet ein Schreiben mit „GET /api/orders …“, gefunden ${JSON.stringify(copied).slice(0, 120)}`);
+      // From here on the search itself must stay silent again.
+      await call('main', `globalThis.__clipWrites.length = 0; return true;`);
+      await fill(search, 'ERROR');
+      await waitFor('Zähler ERROR', `document.querySelector('${SEARCH_STATUS}')?.textContent.includes(' von ')`);
       // Light scheme: the match colours apply at the next search action.
       await setTheme('light');
       try {
@@ -402,7 +439,16 @@ const blocks = {
       } finally {
         await setTheme('dark');
       }
-      // Copy-on-select: the open search and the trailing logs never touched the clipboard.
+      // K1/K8: another target starts with the checkbox on and a closed search.
+      await call('eval', `const dock = document.querySelector('.kube-dock-follow input'); if (dock.checked) dock.click(); return true;`);
+      await waitFor('Häkchen aus', `document.querySelector('.kube-dock-follow input').checked === false`);
+      await click('.kube-table tbody tr:has-text("worker")');
+      await waitFor('Zeile worker', `document.querySelector('.kube-dock-hint')?.textContent.trim() === 'worker'`);
+      if (!await evaluate(`!!document.querySelector('.kube-dock-terminal .xterm-screen')`)) await key('l');
+      await waitFor('Log-Terminal worker', `(document.querySelector('.kube-dock-terminal .xterm-rows')?.textContent ?? '').includes('worker')`);
+      await waitFor('Häkchen wieder an', `document.querySelector('.kube-dock-follow input')?.checked === true`);
+      if (await evaluate(`!!document.querySelector('.kube-dock-terminal .terminal-search')`)) throw new Error('Zielwechsel: Suchleiste noch offen');
+      // Copy-on-select: neither the open search nor the trailing logs touched the clipboard after the mouse selection above.
       const writes = await clipboardWrites();
       if (writes.length) throw new Error(`Copy-on-select schreibt bei offener Suche in die Zwischenablage: ${JSON.stringify(writes).slice(0, 120)}`);
     } finally {
@@ -551,7 +597,20 @@ const blocks = {
       if (await evaluate(count(`${view} .kube-logs-line`)) !== linesBefore) throw new Error('Liste: Zeilenzahl ändert sich trotz ausgeschaltetem Häkchen');
       await waitFor('Hinweis neue Zeilen', `!!document.querySelector('${view} .kube-logs-state') && document.querySelector('${view} .kube-logs-state')?.textContent.includes('neue Zeile')`, { timeout: 6000 });
       await shot('kube-logs-search');
-      // The filter text stays; leave the regex option and the bar for the later steps.
+      // Light scheme: many non-current matches are visible at once in the list (E6). The colours apply at the next search action.
+      await call('eval', `await window.desktopApi.setTheme('light'); return true;`);
+      try {
+        await waitFor('prefers-color-scheme: light', `matchMedia('(prefers-color-scheme: light)').matches`, { timeout: 5000 });
+        await click(`${view} .terminal-search input`);
+        await key('Enter');
+        await waitFor('aktueller Treffer (hell)', `${count(`${view} mark.is-current`)} === 1`);
+        await pause(300);
+        await shot('kube-logs-search-light');
+      } finally {
+        await call('eval', `await window.desktopApi.setTheme('dark'); return true;`);
+        await waitFor('prefers-color-scheme: dark', `!matchMedia('(prefers-color-scheme: light)').matches`, { timeout: 5000 });
+      }
+      // The filter text stays; Escape closes the search bar.
       await key('Escape');
       await waitFor('Suchleiste zu', `!document.querySelector('${view} .terminal-search')`);
       // 5. Fallback: monitoring answers incomplete, so nothing is greyed out there. The contextBridge API is frozen,
