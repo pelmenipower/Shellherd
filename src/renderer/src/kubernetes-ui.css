@@ -5,6 +5,7 @@
 .split-terminal-stage > .kube-view { position: absolute; box-sizing: border-box; overflow: hidden; }
 .kube-muted { color: var(--color-text-muted); }
 .kube-placeholder { margin: 0; padding: var(--space-12); color: var(--color-text-muted); }
+.kube-placeholder-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); }
 .kube-tone-ok { color: var(--color-ok); }
 .kube-tone-warn { color: var(--color-warn); }
 .kube-tone-bad { color: var(--color-danger); }
