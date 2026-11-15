@@ -1092,7 +1092,6 @@ const blocks = {
     await pause(300);
     await shot('welcome');
   },
-  // Search bar over the output of uptime: Strg+Umschalt+F opens it, typing selects the first match.
   // The ".term hier loslassen" hint must go away when a file is dropped on an area that handles the drop itself
   // and stops propagation (SFTP server pane, vault tree). A probe element plays that area; no file is opened.
   async 'file-drop'() {
@@ -1113,6 +1112,7 @@ const blocks = {
       await call('eval', `document.getElementById('drop-probe')?.remove(); delete window.__dropProbeFiles; window.dispatchEvent(new DragEvent('dragleave', { bubbles: true })); return true;`);
     }
   },
+  // Search bar over the output of uptime: Strg+Umschalt+F opens it, typing selects the first match.
   async 'terminal-search'() {
     await click(web01);
     await key('Enter');
@@ -1539,12 +1539,14 @@ const blocks = {
   async 'files-entry'() {
     const opened = [];
     const filesTab = n => n === 1 ? 'web-01 · Dateien' : `web-01 · Dateien (${n})`;
-    const rows = `${count('.file-pane-remote [role=row][data-name]')} >= 5`;
+    // Count inside the panel of the named tab: hidden panels stay mounted, a document-wide count would always match.
+    const panelOf = name => `document.getElementById(${tabNamed(name)}[0]?.getAttribute('aria-controls') ?? '')`;
+    const rowsIn = name => `(${panelOf(name)}?.querySelectorAll('.file-pane-remote [role=row][data-name]').length ?? 0) >= 5`;
     try {
       await expandHost('web-01', opened);
       if (await evaluate(`${count('.terminal-tab:not([data-fixed])')} !== 0`)) throw new Error('Vor dem Klick ist schon ein Tab offen');
       await evaluate(`${filesEntryOf('web-01')}.querySelector('button').click()`);
-      await waitFor('Dateien-Tab verbunden', `${tabConnected(filesTab(1))} && ${rows}`);
+      await waitFor('Dateien-Tab verbunden', `${tabConnected(filesTab(1))} && ${rowsIn(filesTab(1))}`);
       if (await evaluate(`${tabNamed('web-01')}.length !== 0`)) throw new Error('Es gibt einen Terminal-Tab web-01, die Dateiansicht darf keinen öffnen');
       // Another tab becomes active, then Enter on the focused entry must focus the open file tab instead of opening a new one.
       await click('text=files-01 >> nth=0');
@@ -1557,7 +1559,7 @@ const blocks = {
       // Context menu: always a further tab.
       await rclick('.vault-tree li:has(> .vault-tree-row .tree-toggle[aria-label*="von web-01"]) .container-row >> nth=0');
       await menuItem('Dateiansicht öffnen');
-      await waitFor('Zweiter Dateien-Tab verbunden', `${tabConnected(filesTab(2))} && ${rows}`);
+      await waitFor('Zweiter Dateien-Tab verbunden', `${tabConnected(filesTab(2))} && ${rowsIn(filesTab(2))}`);
       await pause(300);
       await shot('files-entry');
       // Error path: the entry stays first and opens a file tab that shows the error card.
@@ -1565,11 +1567,11 @@ const blocks = {
       await waitFor('Erkennungsfehler unter legacy-app', `!!${hostItem('legacy-app')}?.querySelector('.tree-error')`);
       if (await evaluate(`${filesEntryText('legacy-app')} !== 'Dateiansicht (SFTP)'`)) throw new Error('Der Eintrag ist bei Erkennungsfehler nicht mehr das erste li');
       await evaluate(`${filesEntryOf('legacy-app')}.querySelector('button').click()`);
-      await waitFor('Fehlerkarte im Dateien-Tab', `!!document.querySelector('.connect-error')`);
+      await waitFor('Fehlerkarte im Dateien-Tab', `!!${panelOf('legacy-app · Dateien')}?.querySelector('.connect-error')`);
       // Jump host: app-intern is reached over web-01.
       await expandHost('app-intern', opened);
       await evaluate(`${filesEntryOf('app-intern')}.querySelector('button').click()`);
-      await waitFor('Dateien-Tab über Sprunghost', `${tabConnected('app-intern · Dateien')} && ${rows}`, { timeout: 30000 });
+      await waitFor('Dateien-Tab über Sprunghost', `${tabConnected('app-intern · Dateien')} && ${rowsIn('app-intern · Dateien')}`, { timeout: 30000 });
     } finally {
       await collapseHosts(opened);
     }
@@ -1586,6 +1588,10 @@ const blocks = {
     await key('s');
     await waitFor('Platzhalter mit Tab-Knopf', `(document.querySelector('.kube-placeholder')?.textContent ?? '').includes('Die Shell startet erst auf Knopfdruck') && [...document.querySelectorAll('.kube-placeholder button')].some(b => b.textContent.trim() === 'Shell als Tab öffnen')`);
     if (await evaluate(`!!document.querySelector('.kube-dock-terminal')`)) throw new Error('Dock-Terminal vor dem Knopfdruck vorhanden');
+    // Both placeholder buttons (Shell öffnen primary, Shell als Tab öffnen secondary) side by side.
+    if (!await evaluate(`[...document.querySelectorAll('.kube-placeholder button')].some(b => b.textContent.trim() === 'Shell öffnen')`)) throw new Error('Platzhalter ohne Knopf „Shell öffnen“');
+    await pause(300);
+    await shot('container-shell-placeholder');
     await evaluate(`[...document.querySelectorAll('.kube-placeholder button')].find(b => b.textContent.trim() === 'Shell als Tab öffnen').click()`);
     await waitFor('Tab api @ web-01 mit Prompt', tabPrompt('api @ web-01', 'root@api:/#'));
     await pause(300);
@@ -1601,6 +1607,13 @@ const blocks = {
     // The new tab must be the visible one (like the api tab above), not a background tab behind the view tab.
     if (!await evaluate(tabActive('worker @ web-01'))) throw new Error('Tab worker @ web-01 ist verbunden, aber nicht aktiv: der Menüweg lässt die Container-Ansicht aktiv');
     await waitFor('Tab worker @ web-01 mit Prompt', tabPrompt('worker @ web-01', 'root@worker:/#'));
+    // Logs from the row menu: same refocus path, the new tab must be in front.
+    await evaluate(`${tabNamed('web-01 · Container')}[0].click()`);
+    await waitFor('Container-Ansicht wieder aktiv (Logs)', `!!document.querySelector('.kube-table')`);
+    await rclick('.kube-table tbody tr:has-text("redis") >> nth=0');
+    await menuItem('Logs als Tab öffnen');
+    await waitFor('Tab Logs: redis @ web-01 verbunden', tabConnected('Logs: redis @ web-01'));
+    if (!await evaluate(tabActive('Logs: redis @ web-01'))) throw new Error('Tab Logs: redis @ web-01 ist verbunden, aber nicht aktiv: der Menüweg lässt die Container-Ansicht aktiv');
   },
 };
 
