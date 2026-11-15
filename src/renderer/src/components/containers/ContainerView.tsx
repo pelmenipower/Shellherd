@@ -54,6 +54,7 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
   const { reload } = useContainerInventory(connection.id, state.requestedRuntime, visible, dispatch);
   const rootRef = useRef<HTMLElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
+  const refocusing = useRef(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [help, setHelp] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
@@ -90,7 +91,9 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
     if (modal || !visible || !focused) return;
     const dock = rootRef.current?.querySelector('.kube-dock');
     if (dock?.contains(document.activeElement)) return;
-    tableRef.current?.focus({ preventScroll: true });
+    // Our own refocus must not select this tab again: a menu action may just have opened and selected another tab.
+    refocusing.current = true;
+    try { tableRef.current?.focus({ preventScroll: true }); } finally { refocusing.current = false; }
   }, [modal, visible, focused]);
 
   // Status for the tab bar, reported only when it changes.
@@ -250,7 +253,7 @@ export function ContainerView({ connection, tabId, visible, focused = true, styl
 
   return (
     <section ref={rootRef} className={`kube-view${focused ? ' focused-pane' : ''}`} style={style} hidden={!visible}
-      id={`containers-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} onPointerDown={onFocus} onFocusCapture={onFocus} onKeyDown={onKeyDown}>
+      id={`containers-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} onPointerDown={onFocus} onFocusCapture={() => { if (!refocusing.current) onFocus?.(); }} onKeyDown={onKeyDown}>
       <header className="kube-header">
         <div className="kube-title"><strong>{state.pinned ? `${hostName} · ${RUNTIME_LABEL[state.pinned]}` : hostName}</strong></div>
         <nav className="ctr-kinds" onContextMenu={event => event.preventDefault()}>
