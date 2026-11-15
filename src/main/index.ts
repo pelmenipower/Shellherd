@@ -42,11 +42,10 @@ import { mainT, setMainLocale } from './i18n';
 import { localTestUrl, readImport } from './import-source';
 import { UPDATE_URL, UpdateChecker } from './update-check';
 import { RecentVaults } from './vault/recent-vaults';
-import { registerSyncLabIpc } from './sync-prototype/lab-ipc';
 import type { SyncLabHost } from './sync-prototype/lab-host';
-import { registerPermissionHandlers } from './permissions';
-import { registerRemoteLabIpc, remoteLabRequested } from './remote/lab-ipc';
-import { RemoteIdentityStore, safeStorageCipher } from './remote/identity';
+import { registerGlobalDeviceGuards, registerPermissionHandlers } from './permissions';
+import { SharingProtection } from './remote/sharing-protection';
+import type { MediaWindows } from './remote/media-window';
 import type { RemoteLabHost } from './remote/lab-host';
 
 import { IPC_CHANNELS } from '../shared/ipc';
@@ -71,14 +70,21 @@ let authPrompts: AuthPrompts | undefined;
 let syncLabHost: SyncLabHost | undefined;
 let remoteLabHost: RemoteLabHost | undefined;
 let lastFocusedId: number | undefined;
-/** True while the vault is locked: windows created meanwhile start excluded from screen capture too. */
-let captureBlocked = false;
-/** True while a remote viewer sees this screen: windows stay excluded from capture so only the chosen screen content is shared. */
+/** Remote media windows (labs only); never part of the window registry. */
+let labs: { sync: SyncLabHost; remote: RemoteLabHost; media?: MediaWindows } | undefined;
 let remoteSharing = false;
 const mainWindowTitle = (): string => mainT(remoteSharing ? 'window.mainSharing' : 'window.main');
-const applyProtection = (): void => {
-  for (const target of [windowRegistry.main(), ...windowRegistry.secondaries()]) if (target && !target.isDestroyed()) target.setContentProtection(captureBlocked || remoteSharing);
-};
+const protection = new SharingProtection({
+  apply: () => applyProtection(),
+  agentsAlive: () => labs?.media?.agentsAlive() ?? 0,
+  destroyAgents: () => labs?.media?.destroyAll(),
+  timers: { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: handle => clearTimeout(handle as ReturnType<typeof setTimeout>) },
+  capMs: REMOTE_LAB_LIMITS.byeMs + 1000,
+});
+function applyProtection(): void {
+  for (const target of [windowRegistry.main(), ...windowRegistry.secondaries()]) if (target && !target.isDestroyed()) target.setContentProtection(protection.protect);
+  rdpSessionManager?.protect(protection.protect);
+}
 
 /** Target of an auth prompt: the owner's window, else the last focused one, else the main window. */
 function resolvePromptTarget(ownerId?: number): PromptTarget | undefined {
@@ -136,12 +142,11 @@ function createWindow(role: WindowRole, bounds?: Rectangle, maximized = false): 
       sandbox: true,
       devTools: false,
       additionalArguments: [`${LOCALE_ARG}${localeStore.get().effective}`, `--shellherd-capabilities=${JSON.stringify(capabilities)}`, `--shellherd-sync-lab=${syncLabHost?.enabled ? '1' : '0'}`,
-        `--shellherd-remote-lab=${remoteLabHost?.enabled ? '1' : '0'}`,
-        `--shellherd-remote-capture-fake=${remoteLabHost?.enabled && process.env.SHELLHERD_REMOTE_CAPTURE_FAKE === '1' ? '1' : '0'}`],
+        `--shellherd-remote-lab=${remoteLabHost?.enabled ? '1' : '0'}`],
     },
   });
   windowRegistry.register(window, role);
-  if (captureBlocked || remoteSharing) window.setContentProtection(true);
+  if (protection.protect) window.setContentProtection(true);
   window.on('focus', () => { lastFocusedId = window.webContents.id; });
   // index.html has its own <title>; keep the localized window title.
   window.on('page-title-updated', event => event.preventDefault());
@@ -255,7 +260,7 @@ app.on('second-instance', (_event, argv) => {
 if (rdpSurfaceMode() === 'child') app.commandLine.appendSwitch('disable-direct-composition');
 
 // WebRTC would hide LAN addresses behind mDNS names; the lab needs plain host candidates.
-if (remoteLabRequested()) {
+if (__SHELLHERD_LABS__ && !app.isPackaged && process.env.SHELLHERD_REMOTE_LAB === '1') {
   const disabled = app.commandLine.getSwitchValue('disable-features');
   app.commandLine.appendSwitch('disable-features', [disabled, 'WebRtcHideLocalIpsWithMdns'].filter(Boolean).join(','));
 }
@@ -263,32 +268,28 @@ if (remoteLabRequested()) {
 app.whenReady().then(async () => {
   if (!singleInstance) return;
   let syncVaultChanged: (snapshot: import('./vault/session').VaultSessionSnapshot) => void = () => {};
-  // One identity store (and file) for both labs; load() caches.
-  const identity = new RemoteIdentityStore(join(app.getPath('userData'), 'remote-identity.json'), safeStorageCipher());
-  syncLabHost = await registerSyncLabIpc({ sessions: vaultSessionManager, identity, onSynced: snapshot => syncVaultChanged(snapshot) });
-  remoteLabHost = await registerRemoteLabIpc({ isUnlocked: () => vaultSessionManager.isUnlocked(), matchesVaultPassword: p => vaultSessionManager.matchesPassword(p), identity });
-  registerPermissionHandlers(session.defaultSession, { remoteLabEnabled: remoteLabHost.enabled, captureGranted: id => remoteLabHost?.captureGranted(id) ?? false, requestCapture: async id => (await remoteLabHost?.requestCapture(id)) != null });
-  // Protection goes on at once but comes off only after the renderer had time to stop its tracks (R11).
-  let unprotectTimer: ReturnType<typeof setTimeout> | undefined;
-  const applySharingWindow = (sharing: boolean): void => {
+  // Labs are bundled only outside release builds (__SHELLHERD_LABS__); the dynamic import keeps them out of the release chunks.
+  labs = __SHELLHERD_LABS__ ? await (await import('./labs')).registerLabs({ sessions: vaultSessionManager, onSynced: snapshot => syncVaultChanged(snapshot), background: windowBackground }) : undefined;
+  syncLabHost = labs?.sync;
+  remoteLabHost = labs?.remote;
+  registerGlobalDeviceGuards();
+  registerPermissionHandlers(session.defaultSession, { remoteLabEnabled: false, captureGranted: () => false });
+  remoteLabHost?.onSharingChange(sharing => {
+    remoteSharing = sharing;
+    protection.setSharing(sharing);
     const main = windowRegistry.main();
-    if (main && !main.isDestroyed()) main.webContents.setBackgroundThrottling(!sharing);
-  };
-  remoteLabHost.onSharingChange(sharing => {
-    if (unprotectTimer) { clearTimeout(unprotectTimer); unprotectTimer = undefined; }
-    const main = windowRegistry.main();
-    if (sharing) {
-      remoteSharing = true; applyProtection(); applySharingWindow(true);
-      if (main && !main.isDestroyed()) main.setTitle(mainWindowTitle());
-      return;
-    }
-    if (main && !main.isDestroyed()) main.setTitle(mainT('window.main'));
-    unprotectTimer = setTimeout(() => {
-      unprotectTimer = undefined;
-      if (remoteLabHost?.sharing) return;
-      remoteSharing = false; applyProtection(); applySharingWindow(false);
-    }, REMOTE_LAB_LIMITS.byeMs);
+    if (main && !main.isDestroyed()) main.setTitle(mainWindowTitle());
   });
+  labs?.media?.onAlive(n => protection.setAgents(n));
+  // A session ending before sharing began (aborted setup) still has to let the protection fall once the windows are gone.
+  remoteLabHost?.onEvent((_owner, event) => { if (event.kind === 'ended') protection.sessionEnded(); });
+  // A hidden orphaned media window must not keep the app alive once the last registry window is gone.
+  if (labs?.media) {
+    const media = labs.media;
+    app.on('browser-window-created', (_e, created) => {
+      created.on('closed', () => setTimeout(() => { if (!windowRegistry.main() && windowRegistry.secondaries().length === 0) media.destroyAll(); }, 0));
+    });
+  }
   // Before anything reads userData (known hosts, last vault): take over the legacy profile files once.
   migrateUserData(join(app.getPath('appData'), 'Terminus'), app.getPath('userData'));
   const settingsFile = join(app.getPath('userData'), 'settings.json');
@@ -413,8 +414,7 @@ app.whenReady().then(async () => {
   };
   // While locked, every Shellherd window is left out of screen capture and sharing (Windows: WDA_EXCLUDEFROMCAPTURE).
   const protectWindows = (on: boolean): void => {
-    captureBlocked = on;
-    applyProtection();
+    protection.setLocked(on);
   };
   syncVaultChanged = snapshot => {
     // Synced configuration never silently keeps sessions created with the previous configuration.
@@ -492,6 +492,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  protection.dispose();
   autoLock?.dispose();
   closeAllSessions();
   rdpSessionManager?.dispose();

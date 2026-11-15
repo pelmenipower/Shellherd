@@ -1,5 +1,6 @@
 import { ToolbarContext } from './toolbar-context';
 import { DEFAULT_TOOLBAR } from '../../shared/toolbar';
+import { VAULT_PASSWORD_MIN_LENGTH } from '../../shared/vault-password';
 import { protocolAvailable } from './platform';
 import {
   useCallback,
@@ -85,9 +86,8 @@ import { SyncLabDialog } from './components/SyncLabDialog';
 import { RemoteLabDialog } from './components/RemoteLabDialog';
 import { RemoteConsentDialog } from './components/RemoteConsentDialog';
 import { RemoteShareBar } from './components/RemoteShareBar';
-import { RemoteSessionController, browserPeers, displayCapture } from './remote-peer';
+import { RemoteSessionController } from './remote-peer';
 import type { RemoteView } from './remote-peer';
-import { fakeCapture } from './remote-capture-fake';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
 type LockState = { minutes?: number; vaultId: string };
@@ -152,7 +152,7 @@ export default function App() {
   const [remoteView, setRemoteView] = useState<RemoteView | null>(null);
   useEffect(() => {
     if (!window.desktopApi.remoteLabEnabled) return undefined;
-    const controller = new RemoteSessionController(window.desktopApi, crypto.randomUUID(), browserPeers, window.desktopApi.remoteCaptureFake ? fakeCapture() : displayCapture);
+    const controller = new RemoteSessionController(window.desktopApi, crypto.randomUUID());
     setRemote(controller);
     const unsubscribe = controller.subscribe(setRemoteView);
     return () => { unsubscribe(); controller.dispose(); setRemote(null); setRemoteView(null); };
@@ -385,7 +385,7 @@ export default function App() {
       return;
     }
 
-    if (password.length < 8) {
+    if (password.length < VAULT_PASSWORD_MIN_LENGTH) {
       setFormError(t('app:errors.passwordTooShort'));
       return;
     }

@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { isDeviceName, normalizeDeviceName } from '../../../shared/device-name';
 import { formatDateTime } from '../../../shared/format';
-import type { RemoteLabReply } from '../../../shared/remote-lab';
+import { REMOTE_LAB_LIMITS, type RemoteLabReply } from '../../../shared/remote-lab';
 import { needsPrivateNetwork, normalizeSyncServerUrl } from '../../../shared/sync-server-url.mjs';
 import { normalizeVerification } from '../../../shared/remote-signal';
 import { endKey, errorKey, groupFingerprint } from '../remote-lab';
@@ -19,7 +20,6 @@ function grouped(fingerprint: string): string {
 export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSessionController; onClose: () => void }) {
   const { t } = useT(); const id = useId();
   const dialog = useRef<HTMLDialogElement>(null); const closeButton = useRef<HTMLButtonElement>(null);
-  const video = useRef<HTMLVideoElement>(null);
   const mounted = useRef(false); const pending = useRef(false);
   const [view, setView] = useState<RemoteView>(controller.view);
   const [busy, setBusy] = useState(false);
@@ -28,6 +28,7 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
   const [typed, setTyped] = useState<Record<string, string>>({});
   const [waiting, setWaiting] = useState(false);
   const [privateChecked, setPrivateChecked] = useState(false);
+  const [confirmedElsewhere, setConfirmedElsewhere] = useState(false);
   const privateCandidate = needsPrivateNetwork(serverUrl);
   const privateNetwork = privateCandidate && privateChecked;
   const normalized = normalizeSyncServerUrl(serverUrl, { loopback: true, private: privateNetwork });
@@ -52,7 +53,6 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
     const handle = setTimeout(() => setWaiting(true), WAITING_DELAY_MS);
     return () => clearTimeout(handle);
   }, [requesting]);
-  useEffect(() => { if (video.current) video.current.srcObject = view.stream ?? null; }, [view.stream]);
 
   async function run(action: () => Promise<RemoteLabReply>): Promise<void> {
     if (pending.current) return;
@@ -60,14 +60,15 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
     try { await action(); }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
-  const connect = (): Promise<void> => run(() => controller.act(privateNetwork ? { kind: 'connect', serverUrl: normalized ?? '', privateNetwork: true } : { kind: 'connect', serverUrl: normalized ?? '' }));
+  const connect = (): Promise<void> => { setConfirmedElsewhere(false); return run(() => controller.act(privateNetwork ? { kind: 'connect', serverUrl: normalized ?? '', privateNetwork: true } : { kind: 'connect', serverUrl: normalized ?? '' })); };
   const signIn = (): Promise<void> => {
     const serverPassword = password; setPassword('');
-    return run(() => controller.act({ kind: 'signIn', username, password: serverPassword, deviceName: deviceName.trim() }));
+    const request = { kind: 'signIn' as const, username, password: serverPassword, deviceName: normalizeDeviceName(deviceName) };
+    return run(() => controller.act(state.enrolledElsewhere && confirmedElsewhere ? { ...request, confirmElsewhere: true } : request));
   };
   const openSession = (): Promise<void> => run(() => controller.act({ kind: 'openSession' }));
   // An empty name makes the host fall back to the enrollment name.
-  const goOnline = (): Promise<void> => run(() => controller.act({ kind: 'goOnline', deviceName: (state.account?.deviceName ?? deviceName).trim() }));
+  const goOnline = (): Promise<void> => run(() => controller.act({ kind: 'goOnline', deviceName: normalizeDeviceName(state.account?.deviceName ?? deviceName) }));
   const goOffline = (): Promise<void> => run(() => controller.act({ kind: 'goOffline' }));
   const requestView = (target: string, verification: string | null): Promise<void> => run(async () => {
     const reply = await controller.act({ kind: 'request', target, verification });
@@ -75,12 +76,12 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
     return reply;
   });
 
-  const nameValid = /^[^\x00-\x1f\x7f]{1,80}$/.test(deviceName.trim());
+  const nameValid = isDeviceName(normalizeDeviceName(deviceName));
   const ownFingerprint = state.identity ? grouped(state.identity.fingerprint) : '';
   return <dialog ref={dialog} className="confirm-dialog remote-lab-dialog" aria-labelledby={`${id}-title`}
-    aria-describedby={`${id}-notice`} onCancel={event => { event.preventDefault(); onClose(); }}>
+    aria-describedby={`${id}-notice`} onCancel={event => { event.preventDefault(); setConfirmedElsewhere(false); onClose(); }}>
     <header className="remote-lab-heading"><div><span className="remote-lab-badge">{t('remoteLab:badge')}</span><h2 id={`${id}-title`}>{t('remoteLab:title')}</h2></div>
-      <button ref={closeButton} type="button" className="secondary-button" onClick={onClose}>{t('common:actions.close')}</button></header>
+      <button ref={closeButton} type="button" className="secondary-button" onClick={() => { setConfirmedElsewhere(false); onClose(); }}>{t('common:actions.close')}</button></header>
     <p id={`${id}-notice`} className="remote-lab-notice">{t('remoteLab:notice')}</p>
     {view.error && <p className="field-error" role="alert">{t(errorKey(view.error))}</p>}
     {view.ended && !session && <p className="remote-lab-ended" role="status">{t(endKey(view.ended))}</p>}
@@ -101,7 +102,10 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
         <p>{t('remoteLab:enrolledHint')}</p>
         <button type="button" className="primary-button" disabled={busy} onClick={() => void openSession()}>{t('remoteLab:openSession')}</button>
       </> : <form className="remote-lab-form" onSubmit={event => { event.preventDefault(); void signIn(); }}>
-        {state.enrolledElsewhere && <p className="remote-lab-warning">{t('remoteLab:enrolledElsewhere', { url: state.enrolledElsewhere })}</p>}
+        {state.enrolledElsewhere && <>
+          <p className="remote-lab-warning">{t('remoteLab:enrolledElsewhere', { url: state.enrolledElsewhere })}</p>
+          <label className="remote-lab-check"><input type="checkbox" checked={confirmedElsewhere} disabled={busy} onChange={event => setConfirmedElsewhere(event.target.checked)} />{t('remoteLab:enrolledElsewhereConfirm')}</label>
+        </>}
         <label htmlFor={`${id}-username`}>{t('remoteLab:username')}</label>
         <input id={`${id}-username`} value={username} maxLength={64} autoComplete="username" spellCheck={false} disabled={busy}
           onChange={event => { setUsername(event.target.value); controller.clearError(); }} />
@@ -109,9 +113,11 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
         <input id={`${id}-password`} type="password" value={password} maxLength={1024} autoComplete="off" disabled={busy}
           onChange={event => { setPassword(event.target.value); controller.clearError(); }} />
         <label htmlFor={`${id}-device-name`}>{t('remoteLab:deviceName')}</label>
-        <input id={`${id}-device-name`} value={deviceName} maxLength={80} autoComplete="off" spellCheck={false} disabled={busy}
+        <input id={`${id}-device-name`} value={deviceName} maxLength={REMOTE_LAB_LIMITS.deviceName} autoComplete="off" spellCheck={false} disabled={busy}
+          aria-describedby={`${id}-device-name-hint`} aria-invalid={deviceName !== '' && !nameValid || undefined}
           onChange={event => { setDeviceName(event.target.value); controller.clearError(); }} />
-        <button className="primary-button" type="submit" disabled={busy || !/^[a-zA-Z0-9_.-]{1,64}$/.test(username) || !password || !nameValid}>{t('remoteLab:signIn')}</button>
+        <p id={`${id}-device-name-hint`} className="remote-lab-caption">{t('remoteLab:deviceNameHint')}</p>
+        <button className="primary-button" type="submit" disabled={busy || !/^[a-zA-Z0-9_.-]{1,64}$/.test(username) || !password || !nameValid || (state.enrolledElsewhere !== undefined && !confirmedElsewhere)}>{t('remoteLab:signIn')}</button>
       </form>}
     </section>}
     {(state.phase === 'signedIn' || state.phase === 'online') && <section className="remote-lab-account">
@@ -149,13 +155,9 @@ export function RemoteLabDialog({ controller, onClose }: { controller: RemoteSes
         </section>}
       </>}
     </section>}
-    {viewerSession?.state === 'connecting' && !view.stream && <p className="remote-lab-caption" role="status">{t('remoteLab:connecting')}</p>}
+    {viewerSession?.state === 'connecting' && <p className="remote-lab-caption" role="status">{t('remoteLab:connecting')}</p>}
     {requesting && waiting && <p className="remote-lab-caption" role="status">{t('remoteLab:waiting')}</p>}
-    {viewerSession && view.stream && <section className="remote-lab-viewer">
-      <video ref={video} className="remote-lab-video" autoPlay muted playsInline />
-      <p className="remote-lab-caption" role="status">{t('remoteLab:viewing', { name: viewerSession.peer.name, time: formatDateTime(viewerSession.expiresAt, 'time') })}</p>
-      <button type="button" className="secondary-button" onClick={() => controller.stop()}>{t('remoteLab:stop')}</button>
-    </section>}
-    {viewerSession && !view.stream && <button type="button" className="secondary-button" onClick={() => controller.stop()}>{t('remoteLab:stop')}</button>}
+    {viewerSession?.state === 'active' && <p className="remote-lab-caption" role="status">{t('remoteLab:viewerWindow')}</p>}
+    {viewerSession && <button type="button" className="secondary-button" onClick={() => controller.stop()}>{t('remoteLab:stop')}</button>}
   </dialog>;
 }

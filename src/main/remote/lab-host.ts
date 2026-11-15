@@ -2,14 +2,17 @@
 // external (server, account, peer, presence, identity, timers) is injected. Deadlines use the local clock only.
 import type { KeyObject } from 'node:crypto';
 import { z } from 'zod';
+import { isDeviceName } from '../../shared/device-name';
 import { compareText } from '../../shared/format';
 import { REMOTE_LAB_LIMITS } from '../../shared/remote-lab';
+import type { RemoteMediaReply } from '../../shared/remote-media';
 import type {
   RemoteDevice, RemoteEndReason, RemoteErrorCode, RemoteLabEvent, RemoteLabReply, RemoteLabSession, RemoteLabState, RemoteSignalPart,
 } from '../../shared/remote-lab';
-import { SignalCollector, isSignalPart, normalizeVerification, splitSignal, verifyFingerprintPrefix } from '../../shared/remote-signal';
+import { SignalCollector, checkSdp, isSignalPart, normalizeVerification, splitSignal, verifyFingerprintPrefix } from '../../shared/remote-signal';
 import { normalizeSyncServerUrl } from '../../shared/sync-server-url.mjs';
 import type { RemoteIdentity, RemoteIdentityStore } from './identity';
+import type { MediaPort } from './media-window';
 import type { PresenceHandlers, PresenceTimers, PresenceTransport } from './presence';
 
 export interface RemoteServerInfo { serverUrl: string; serverId: string; namespace: string; authentication: 'password' | 'device' | 'enrolled-device'; deviceSessions: boolean; rendezvous: boolean; rendezvousProof: boolean; rendezvousNoise: boolean }
@@ -22,6 +25,8 @@ export interface RemotePeer {
   register(name: string): Promise<unknown>; devices(): Promise<unknown[]>; sessions(): Promise<unknown[]>; unregister(): Promise<unknown>;
   request(target: string, scope: 'view'): Promise<RemoteSessionWire>;
   channel(session: RemoteSessionWire, expectedFingerprint: string, scope: 'view'): RemoteChannel;
+  /** Drops a request that never became a channel (frees one of the peer's request slots). */
+  forget(sessionId: string): void;
 }
 export interface RemoteAccount {
   enroll(identity: RemoteIdentity, input: { username: string; password: string; name: string; ephemeral: boolean }): Promise<unknown>;
@@ -42,11 +47,16 @@ export interface RemoteDeps {
   matchesVaultPassword(password: string): Promise<boolean>;
   /** Native consent in main: 'declined' on a real refusal or abort, 'unavailable' when no dialog could be shown (no window). Never throws. */
   confirmCapture(owner: number, prompt: CapturePrompt, signal: AbortSignal): Promise<'accepted' | 'declined' | 'unavailable'>;
-  /** Renderer did not ack 'stopped' in time: kill its process and reload. */
-  emergency(owner: number): void;
+  /** The hidden agent window and the viewer window (Electron-free port). */
+  media: MediaPort;
+  /** Fallback path B only: id of the first screen source from desktopCapturer. Absent means path A. */
+  captureSource?(): Promise<string | null>;
 }
 
 const L = REMOTE_LAB_LIMITS;
+/** Global brake (V7): this many refused or expired unverified requests within the window silence further ones until goOnline. */
+const BRAKE_COUNT = 3;
+const BRAKE_WINDOW_MS = 600_000;
 const hex64 = /^[a-f0-9]{64}$/;
 const uuid = z.string().uuid();
 const sessionId = z.string().min(1).max(128);
@@ -54,25 +64,26 @@ const requestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('status'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('close'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('connect'), clientId: uuid, serverUrl: z.string().max(2048), privateNetwork: z.boolean().optional() }).strict(),
-  z.object({ kind: z.literal('signIn'), clientId: uuid, username: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/), password: z.string().min(1).max(1024), deviceName: z.string().max(1024) }).strict(),
+  z.object({ kind: z.literal('signIn'), clientId: uuid, username: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/), password: z.string().min(1).max(1024), deviceName: z.string().max(1024), confirmElsewhere: z.literal(true).optional() }).strict(),
   z.object({ kind: z.literal('openSession'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('goOnline'), clientId: uuid, deviceName: z.string().max(1024) }).strict(),
   z.object({ kind: z.literal('goOffline'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('request'), clientId: uuid, target: z.string().regex(hex64), verification: z.string().max(64).nullable() }).strict(),
   z.object({ kind: z.literal('armCapture'), clientId: uuid, sessionId, verification: z.string().max(64).nullable() }).strict(),
-  z.object({ kind: z.literal('accept'), clientId: uuid, sessionId }).strict(),
   z.object({ kind: z.literal('decline'), clientId: uuid, sessionId }).strict(),
-  z.object({ kind: z.literal('signal'), clientId: uuid, sessionId, part: z.unknown() }).strict(),
   z.object({ kind: z.literal('stop'), clientId: uuid, sessionId }).strict(),
-  z.object({ kind: z.literal('stopped'), clientId: uuid, sessionId }).strict(),
+]);
+const mediaSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('signal'), part: z.unknown() }).strict(),
+  z.object({ kind: z.literal('stop') }).strict(),
+  z.object({ kind: z.literal('failed'), code: z.enum(['peer', 'signal', 'media']) }).strict(),
 ]);
 const wireSchema = z.object({
   id: z.string().regex(hex64), from: z.string().regex(hex64), to: z.string().regex(hex64), nonce: z.string().regex(/^[a-f0-9]{1,128}$/),
   scope: z.string().max(32), state: z.string().max(32), expiresAt: z.number().finite(),
 });
-const deviceSchema = z.object({ id: z.string().regex(hex64), name: z.string().min(1).max(L.deviceName), publicKey: z.string().max(256) });
+const deviceSchema = z.object({ id: z.string().regex(hex64), name: z.string().refine(isDeviceName), publicKey: z.string().max(256) });
 const frameSchema = z.object({ part: z.unknown() }).strict();
-const NAME = /^[^\x00-\x1f\x7f]{1,80}$/;
 
 interface Sess {
   id: string; role: 'viewer' | 'agent'; peer: RemoteDevice; wire: RemoteSessionWire;
@@ -80,9 +91,26 @@ interface Sess {
   channel?: RemoteChannel; collector: SignalCollector; tail: Promise<unknown>; pending: number;
   armed: boolean; handles: Set<unknown>; deadlineHandle?: unknown; ended: boolean;
   owner: number; verified: boolean; attempts: number; prompting: boolean; captured: boolean; abort: AbortController;
+  /** Complete signal messages received so far (V1: exactly one is allowed). */
+  messages: number;
+  /** Webcontents id of the media window of this session (B5). */
+  media?: number;
+  mediaReady: boolean;
+  /** The one-time capture grant was used by the display-media handler (B7). */
+  grantConsumed: boolean;
+  /** Agent: 'accepted' was sent to the media window. Viewer: the offer was delivered. */
+  ownStarted: boolean;
+  /** Own description (offer/answer) of the media window: parts collected so far, and complete (forwarded). */
+  out: SignalCollector;
+  sent: boolean;
+  /** Parts of the incoming message: partial, and complete but not yet delivered to the media window. */
+  rx: RemoteSignalPart[];
+  inbound: RemoteSignalPart[];
+  /** Own parts collected until the message is complete and checked. */
+  outParts: RemoteSignalPart[];
 }
 interface PeerDevice { id: string; name: string; publicKey: string }
-interface Online { store: RemoteIdentityStore; identity: RemoteIdentity; persistent: boolean; peer: RemotePeer; presence: { start(): Promise<void>; stop(): Promise<void> }; devices: PeerDevice[]; processed: Set<string>; attempts: Map<string, number>; muted: Map<string, number>; mutedCount: number }
+interface Online { store: RemoteIdentityStore; identity: RemoteIdentity; persistent: boolean; peer: RemotePeer; presence: { start(): Promise<void>; stop(): Promise<void> }; devices: PeerDevice[]; processed: Set<string>; attempts: Map<string, number>; muted: Map<string, number>; mutedCount: number; refusals: number[] }
 
 const statusOf = (error: unknown): number | undefined =>
   typeof error === 'object' && error !== null && typeof (error as { status?: unknown }).status === 'number' ? (error as { status: number }).status : undefined;
@@ -99,7 +127,6 @@ export class RemoteLabHost {
   #elsewhere?: string;
   #online?: Online;
   #session?: Sess;
-  #pendingStops = new Map<string, { owner: number; handle: unknown }>();
   #controller = new AbortController();
   #busy = false;
   #gen = 0;
@@ -120,7 +147,6 @@ export class RemoteLabHost {
     const parsed = requestSchema.safeParse(raw);
     if (!parsed.success) return { ok: false, code: 'invalid' };
     const req = parsed.data;
-    if (req.kind === 'stopped') return this.#stopped(owner, req.sessionId);
     const bound = this.#binding;
     if (!bound) {
       if (req.kind === 'status' || req.kind === 'close') return { ok: true, state: { phase: 'idle' } };
@@ -130,69 +156,39 @@ export class RemoteLabHost {
       case 'status': return this.#ok();
       case 'close': this.#teardown('stopped'); return { ok: true, state: { phase: 'idle' } };
       case 'connect': return this.#exclusive(() => this.#connect(owner, req.clientId, req.serverUrl, req.privateNetwork === true));
-      case 'signIn': return this.#exclusive(() => this.#signIn(req.username, req.password, req.deviceName));
+      case 'signIn': return this.#exclusive(() => this.#signIn(req.username, req.password, req.deviceName, req.confirmElsewhere));
       case 'openSession': return this.#exclusive(() => this.#openSession());
       case 'goOnline': return this.#exclusive(() => this.#goOnline(req.deviceName));
       case 'goOffline': return this.#exclusive(() => this.#goOffline());
       case 'request': return this.#exclusive(() => this.#request(req.target, req.verification));
-      case 'accept': return this.#exclusive(() => this.#accept(req.sessionId));
       case 'armCapture': return this.#armCapture(req.sessionId, req.verification);
       case 'decline': return this.#decline(req.sessionId);
-      case 'signal': return this.#signal(req.sessionId, req.part);
       case 'stop': return this.#stop(req.sessionId);
     }
   }
 
-  /** Id of the agent session of this owner whose native consent was given (state 'granted' and later), else null. */
+  /** Agent session in state 'granted' whose media window is this one, grant not consumed, not ended. */
   grantedSession(webContentsId: number): string | null {
     const s = this.#session;
-    return s && this.#binding?.owner === webContentsId && s.owner === webContentsId && s.role === 'agent' && s.captured && !s.ended ? s.id : null;
+    return s && s.role === 'agent' && s.state === 'granted' && s.media === webContentsId && !s.grantConsumed && !s.ended ? s.id : null;
   }
 
-  /** For the permission handlers: native consent was given for the current session of this owner. */
-  captureGranted(webContentsId: number): boolean { return this.grantedSession(webContentsId) !== null; }
+  /** Same condition as grantedSession; marks the grant consumed (once). */
+  consumeCaptureGrant(webContentsId: number): string | null {
+    const id = this.grantedSession(webContentsId);
+    if (id === null) return null;
+    this.#session!.grantConsumed = true;
+    return id;
+  }
 
-  /** True only while exactly this session is still the granted one of this owner. */
-  isGranted(webContentsId: number, sessionId: string): boolean { return this.grantedSession(webContentsId) === sessionId; }
-
-  /** Display-media gate: runs the native consent once per session; resolves the session id after consent -> 'granted', else null. */
-  async requestCapture(webContentsId: number): Promise<string | null> {
-    const deps = this.deps;
+  /** The live captured agent session with this media window (consumed or not), for the check after getSources. */
+  isCaptureSession(webContentsId: number, sessionId?: string): boolean {
     const s = this.#session;
-    if (!deps || !s || this.#binding?.owner !== webContentsId || s.owner !== webContentsId) return null;
-    if (s.role !== 'agent' || s.state !== 'consent' || !s.armed || s.prompting || !deps.isUnlocked() || deps.timers.now() >= s.deadline) return null;
-    s.prompting = true;
-    let result: 'accepted' | 'declined' | 'unavailable' = 'declined';
-    try { result = await deps.confirmCapture(s.owner, { name: s.peer.name, fingerprint: s.peer.id, verified: s.verified || s.peer.known?.verified === true }, s.abort.signal); }
-    catch { result = 'declined'; }
-    s.prompting = false;
-    if (s.ended || this.#session !== s) return null;
-    // No dialog was shown (missing window): no refusal happened, so neither mute nor end; the request may retry.
-    if (result === 'unavailable') return null;
-    if (result !== 'accepted') { this.#mute(s.peer.id); this.#end(s, 'declined'); return null; }
-    const locked = !deps.isUnlocked();
-    if (locked || deps.timers.now() >= s.deadline) { this.#end(s, locked ? 'locked' : 'expired'); return null; }
-    s.state = 'granted'; s.captured = true;
-    this.#publish();
-    return s.id;
-  }
-
-  #stopped(owner: number, id: string): RemoteLabReply {
-    const pending = this.#pendingStops.get(id);
-    if (!pending || pending.owner !== owner) return { ok: false, code: 'stale' };
-    this.deps!.timers.clearTimeout(pending.handle);
-    this.#pendingStops.delete(id);
-    return this.#binding ? this.#ok() : { ok: true, state: { phase: 'idle' } };
+    return !!s && (sessionId === undefined || s.id === sessionId) && s.role === 'agent' && s.captured && s.media === webContentsId && !s.ended;
   }
 
   closeOwner(owner: number): void {
     if (this.#binding?.owner === owner) this.#teardown('stopped');
-    // The renderer is gone: no acknowledgement can come, and nothing is left to kill.
-    for (const [id, pending] of [...this.#pendingStops]) {
-      if (pending.owner !== owner) continue;
-      this.deps?.timers.clearTimeout(pending.handle);
-      this.#pendingStops.delete(id);
-    }
   }
   reset(reason?: 'locked'): void { this.#teardown(reason ?? 'stopped'); }
 
@@ -221,9 +217,9 @@ export class RemoteLabHost {
       let loaded: { identity: RemoteIdentity; persistent: boolean };
       try { loaded = store.load(); } catch { this.#binding = undefined; this.#lastSent = undefined; return { ok: false, code: 'identity' }; }
       this.#loaded = loaded;
-      const e = store.enrollment(info.serverId);
-      if (e && e.serverUrl === info.serverUrl && e.namespace === info.namespace) this.#enrolled = { username: e.username, name: e.name };
-      else if (e) this.#elsewhere = e.serverUrl;
+      const e = store.enrollment(info.serverId, info.serverUrl);
+      if (e && e.namespace === info.namespace) this.#enrolled = { username: e.username, name: e.name };
+      else if (!e) this.#elsewhere = store.enrolledElsewhere(info.serverId, info.serverUrl); // Same origin, new namespace: server reset, enroll normally (N7).
       this.#info = info; this.#phase = 'serverReady';
       return this.#ok();
     } catch {
@@ -233,10 +229,12 @@ export class RemoteLabHost {
     }
   }
 
-  async #signIn(username: string, password: string, deviceName: string): Promise<RemoteLabReply> {
+  async #signIn(username: string, password: string, deviceName: string, confirmElsewhere?: true): Promise<RemoteLabReply> {
     if (this.#phase !== 'serverReady' || !this.#info || !this.#loaded) return { ok: false, code: 'stale' };
     if (!this.deps!.isUnlocked()) return { ok: false, code: 'locked' };
-    if (!NAME.test(deviceName)) return { ok: false, code: 'invalid' };
+    if (!isDeviceName(deviceName)) return { ok: false, code: 'invalid' };
+    // Another address already holds an enrollment for this server ID: enrolling here needs an explicit confirmation (K29).
+    if (this.#elsewhere && confirmElsewhere !== true) return { ok: false, code: 'enrolledElsewhere' };
     const gen = this.#gen;
     let same: boolean;
     try { same = await this.deps!.matchesVaultPassword(password); } catch { return { ok: false, code: 'locked' }; }
@@ -255,7 +253,7 @@ export class RemoteLabHost {
       return this.#ok();
     } catch (error) {
       account.close();
-      return this.#gen !== gen ? { ok: false, code: 'stale' } : { ok: false, code: wireError(error) };
+      return this.#gen !== gen ? { ok: false, code: 'stale' } : { ok: false, code: statusOf(error) === 403 ? 'enrollmentLocked' : wireError(error) };
     }
   }
 
@@ -279,7 +277,7 @@ export class RemoteLabHost {
         if (this.#gen !== gen) return { ok: false, code: 'stale' };
         if (statusOf(error) === 401 && attempt === 0) continue;
         if (statusOf(error) === 401) {
-          this.deps!.identity().forgetEnrollment(info.serverId);
+          this.deps!.identity().forgetEnrollment(info.serverId, info.serverUrl);
           this.#enrolled = undefined;
           this.#publish();
         }
@@ -297,7 +295,7 @@ export class RemoteLabHost {
     if (!loaded) return { ok: false, code: 'stale' };
     // An empty name falls back to the name given at enrollment.
     if (name === '' && this.#enrolled) name = this.#enrolled.name;
-    if (!NAME.test(name)) return { ok: false, code: 'invalid' };
+    if (!isDeviceName(name)) return { ok: false, code: 'invalid' };
     const gen = this.#gen;
     const store = this.deps!.identity();
     const peer = this.deps!.createPeer(account, loaded.identity);
@@ -305,7 +303,7 @@ export class RemoteLabHost {
       register: n => peer.register(n), sessions: () => peer.sessions(), devices: () => peer.devices(),
       refresh: () => account.refresh(), unregister: () => peer.unregister(),
     };
-    const ctx: Online = { store, identity: loaded.identity, persistent: loaded.persistent, peer, devices: [], processed: new Set(), attempts: new Map(), muted: new Map(), mutedCount: 0, presence: undefined as unknown as Online['presence'] };
+    const ctx: Online = { store, identity: loaded.identity, persistent: loaded.persistent, peer, devices: [], processed: new Set(), attempts: new Map(), muted: new Map(), mutedCount: 0, refusals: [], presence: undefined as unknown as Online['presence'] };
     const live = (): boolean => this.#online === ctx;
     ctx.presence = this.deps!.presence(transport, name, {
       onSessions: list => { if (live()) this.#onSessions(ctx, list); },
@@ -382,36 +380,6 @@ export class RemoteLabHost {
     return this.#ok();
   }
 
-  async #accept(id: string): Promise<RemoteLabReply> {
-    const s = this.#session;
-    if (!s || s.id !== id || s.role !== 'agent' || s.state !== 'granted' || !this.#online) return { ok: false, code: 'stale' };
-    if (!this.deps!.isUnlocked()) return { ok: false, code: 'locked' };
-    const timers = this.deps!.timers;
-    if (timers.now() >= s.deadline) { this.#end(s, 'expired'); return { ok: false, code: 'expired' }; }
-    let channel: RemoteChannel;
-    try { channel = this.#online.peer.channel(s.wire, s.peer.id, 'view'); }
-    catch { this.#end(s, 'failed'); return { ok: false, code: 'mismatch' }; }
-    s.channel = channel;
-    try { await channel.accept(); }
-    catch {
-      if (this.#session !== s) return { ok: false, code: 'stale' };
-      const expired = timers.now() >= s.deadline;
-      this.#end(s, expired ? 'expired' : 'failed');
-      return { ok: false, code: expired ? 'expired' : 'connection' };
-    }
-    if (this.#session !== s) return { ok: false, code: 'stale' };
-    // The state stays 'granted' during the handshake; decline and stop end it.
-    const r = await this.#establish(s);
-    if (!r.ok) return { ok: false, code: r.code };
-    if (this.#session !== s) return { ok: false, code: 'stale' };
-    s.state = 'connecting';
-    s.deadline = timers.now() + L.sessionMs;
-    this.#startDeadline(s);
-    this.#setSharing(true);
-    if (this.#consume(s, r.values)) this.#startLoop(s);
-    return this.#ok();
-  }
-
   // --- session actions -------------------------------------------------------------------------
 
   #armCapture(id: string, verification: string | null): RemoteLabReply {
@@ -433,7 +401,93 @@ export class RemoteLabHost {
       s.verified = true;
     }
     s.armed = true;
+    this.#after(s, L.nativeDelayMs, () => { void this.#prompt(s); });
     return this.#ok();
+  }
+
+  /** Native consent, then media window, capture and handshake (agent). Every failure after open ends the session (K8). */
+  async #prompt(s: Sess): Promise<void> {
+    const deps = this.deps!;
+    const gone = (): boolean => s.ended || this.#session !== s;
+    if (gone() || s.role !== 'agent' || s.state !== 'consent' || !s.armed || s.prompting || !deps.isUnlocked() || deps.timers.now() >= s.deadline) return;
+    s.prompting = true;
+    let result: 'accepted' | 'declined' | 'unavailable' = 'declined';
+    try { result = await deps.confirmCapture(s.owner, { name: s.peer.name, fingerprint: s.peer.id, verified: s.verified || s.peer.known?.verified === true }, s.abort.signal); }
+    catch { result = 'declined'; }
+    s.prompting = false;
+    if (gone()) return;
+    // No dialog could be shown (no window): nobody refused, so neither mute nor end (K7).
+    if (result === 'unavailable') { s.armed = false; this.#publish(); return; }
+    if (result !== 'accepted') { this.#mute(s.peer.id); this.#end(s, 'declined'); return; }
+    const locked = !deps.isUnlocked();
+    if (locked || deps.timers.now() >= s.deadline) { this.#end(s, locked ? 'locked' : 'expired'); return; }
+    s.state = 'granted'; s.captured = true;
+    this.#publish();
+    let id: number;
+    try { id = deps.media.open({ role: 'agent', peerName: s.peer.name }); }
+    catch { this.#emit({ kind: 'error', code: 'mediaWindow' }); this.#end(s, 'failed'); return; }
+    s.media = id;
+    if (!await deps.media.ready(id)) {
+      if (gone()) return;
+      this.#emit({ kind: 'error', code: 'mediaWindow' }); this.#end(s, 'failed'); return;
+    }
+    if (gone()) return;
+    s.mediaReady = true;
+    // No data of the other side before the capture has started.
+    deps.media.send(id, { kind: 'hello', role: 'agent', peerName: '', expiresAt: s.deadline });
+    let source: string | undefined;
+    try { source = (await deps.captureSource?.()) ?? undefined; }
+    catch { if (!gone()) { this.#emit({ kind: 'error', code: 'media' }); this.#end(s, 'failed'); } return; }
+    if (gone()) return;
+    const ok = await deps.media.capture(id, source);
+    if (gone()) return;
+    // Chromium reports but does not enforce the gesture: the one-time grant must have been used (B7).
+    if (!ok || !s.grantConsumed) { this.#emit({ kind: 'error', code: 'media' }); this.#end(s, 'failed'); return; }
+    await this.#openChannel(s, id);
+  }
+
+  /** Former accept body: channel, Noise handshake, connecting; then the media window creates its offer (K6 timer). */
+  async #openChannel(s: Sess, id: number): Promise<void> {
+    const deps = this.deps!;
+    const timers = deps.timers;
+    const gone = (): boolean => s.ended || this.#session !== s;
+    if (!this.#online) { this.#end(s, 'failed'); return; }
+    if (!deps.isUnlocked()) { this.#end(s, 'locked'); return; }
+    if (timers.now() >= s.deadline) { this.#end(s, 'expired'); return; }
+    let channel: RemoteChannel;
+    try { channel = this.#online.peer.channel(s.wire, s.peer.id, 'view'); }
+    catch { this.#emit({ kind: 'error', code: 'mismatch' }); this.#end(s, 'failed'); return; }
+    s.channel = channel;
+    try { await channel.accept(); }
+    catch {
+      if (gone()) return;
+      if (timers.now() >= s.deadline) this.#end(s, 'expired');
+      else { this.#emit({ kind: 'error', code: 'connection' }); this.#end(s, 'failed'); }
+      return;
+    }
+    if (gone()) return;
+    // The state stays 'granted' during the handshake; decline and stop end it.
+    const r = await this.#establish(s);
+    if (!r.ok) { if (r.code === 'mismatch') this.#emit({ kind: 'error', code: 'mismatch' }); return; }
+    if (gone()) return;
+    s.state = 'connecting';
+    s.deadline = timers.now() + L.sessionMs;
+    this.#startDeadline(s);
+    this.#setSharing(true);
+    deps.media.send(id, { kind: 'accepted' });
+    s.ownStarted = true;
+    this.#startOwnDeadline(s);
+    this.#publish();
+    if (this.#consume(s, r.values)) this.#startLoop(s);
+  }
+
+  /** K6: no complete own description within handshakeMs ends the session. */
+  #startOwnDeadline(s: Sess): void {
+    this.#after(s, L.handshakeMs, () => {
+      if (s.sent) return;
+      this.#emit({ kind: 'error', code: 'signal' });
+      this.#end(s, 'failed');
+    });
   }
 
   #decline(id: string): RemoteLabReply {
@@ -460,24 +514,56 @@ export class RemoteLabHost {
     return this.#ok();
   }
 
-  async #signal(id: string, raw: unknown): Promise<RemoteLabReply> {
+  /** Actions of the media window. Replies never carry state (B8). */
+  async mediaAction(webContentsId: number, raw: unknown): Promise<RemoteMediaReply> {
     const s = this.#session;
-    if (!s || s.id !== id || !s.channel || !s.channel.ready || (s.state !== 'connecting' && s.state !== 'active')) return { ok: false, code: 'stale' };
-    if (!isSignalPart(raw) || raw.kind === 'bye') return { ok: false, code: 'invalid' };
-    if (raw.kind !== (s.role === 'agent' ? 'offer' : 'answer')) return { ok: false, code: 'invalid' };
-    const channel = s.channel;
-    const part: RemoteSignalPart = raw;
-    s.pending++;
-    const run = s.tail.then(() => { if (this.#session !== s) throw new Error('ended'); return channel.send({ part }); });
-    s.tail = run.catch(() => undefined);
-    try { await run; }
-    catch {
-      s.pending--;
-      if (this.#session === s) { this.#end(s, 'failed'); return { ok: false, code: 'connection' }; }
-      return { ok: false, code: 'stale' };
+    if (!this.deps || !s || s.media === undefined || s.media !== webContentsId || s.ended) return { ok: false, code: 'stale' };
+    const parsed = mediaSchema.safeParse(raw);
+    if (!parsed.success) { this.#end(s, 'failed'); return { ok: false, code: 'invalid' }; }
+    const action = parsed.data;
+    switch (action.kind) {
+      case 'stop': this.#end(s, 'stopped'); return { ok: true };
+      case 'failed': this.#emit({ kind: 'error', code: action.code }); this.#end(s, 'failed'); return { ok: true };
+      case 'signal': return this.#ownSignal(s, action.part);
     }
-    s.pending--;
-    return this.#ok();
+  }
+
+  async #ownSignal(s: Sess, raw: unknown): Promise<RemoteMediaReply> {
+    const channel = s.channel;
+    const ready = s.role === 'agent' ? s.ownStarted : s.ownStarted && s.mediaReady;
+    if (!channel || !channel.ready || (s.state !== 'connecting' && s.state !== 'active') || s.sent || !ready) return { ok: false, code: 'stale' };
+    const kind = s.role === 'agent' ? 'offer' : 'answer';
+    if (!isSignalPart(raw) || raw.kind !== kind) { this.#end(s, 'failed'); return { ok: false, code: 'invalid' }; }
+    const part: RemoteSignalPart = raw;
+    let message: ReturnType<SignalCollector['push']>;
+    try { message = s.out.push(part); } catch { this.#end(s, 'failed'); return { ok: false, code: 'invalid' }; }
+    s.outParts.push(part);
+    if (!message) return { ok: true };
+    try { checkSdp(message.data, kind); }
+    catch { this.#emit({ kind: 'error', code: 'signal' }); this.#end(s, 'failed'); return { ok: false, code: 'invalid' }; }
+    s.sent = true;
+    const parts = s.outParts;
+    s.outParts = [];
+    for (const p of parts) {
+      s.pending++;
+      const run = s.tail.then(() => { if (this.#session !== s) throw new Error('ended'); return channel.send({ part: p }); });
+      s.tail = run.catch(() => undefined);
+      try { await run; }
+      catch {
+        s.pending--;
+        if (this.#session === s) this.#end(s, 'failed');
+        return { ok: false, code: 'stale' };
+      }
+      s.pending--;
+    }
+    return { ok: true };
+  }
+
+  /** The media window closed or its renderer is gone (T1: MediaWindows does not end on its own). */
+  mediaGone(webContentsId: number, reason: 'closed' | 'crashed'): void {
+    const s = this.#session;
+    if (!s || s.media === undefined || s.media !== webContentsId || s.ended) return;
+    this.#end(s, s.role === 'viewer' && reason === 'closed' ? 'stopped' : 'failed');
   }
 
   // --- incoming lists --------------------------------------------------------------------------
@@ -495,6 +581,10 @@ export class RemoteLabHost {
     if (current?.role === 'agent' && (current.state === 'consent' || current.state === 'granted') && !wires.some(w => w.id === current.id)) this.#end(current, 'remote', 'remote');
     for (const wire of wires) {
       if (wire.to !== ctx.identity.id || wire.state !== 'pending' || ctx.processed.has(wire.id)) continue;
+      const now = this.deps!.timers.now();
+      if (ctx.refusals.filter(at => now - at < BRAKE_WINDOW_MS).length >= BRAKE_COUNT && ctx.store.known(wire.from)?.verified !== true) {
+        this.#markProcessed(ctx, wire.id); void this.#delete(wire.id); ctx.mutedCount++; continue;
+      }
       const mutedUntil = ctx.muted.get(wire.from);
       if (mutedUntil !== undefined) {
         if (this.deps!.timers.now() < mutedUntil) { this.#markProcessed(ctx, wire.id); void this.#delete(wire.id); ctx.mutedCount++; continue; }
@@ -541,7 +631,8 @@ export class RemoteLabHost {
       id: wire.id, role, wire, peer: this.#peerOf(device),
       state: role === 'viewer' ? 'requesting' : 'consent', deadline, requestDeadline: deadline, collector: new SignalCollector(),
       tail: Promise.resolve(), pending: 0, armed: false, handles: new Set(), ended: false,
-      owner: this.#binding!.owner, verified: false, attempts: 0, prompting: false, captured: false, abort: new AbortController(),
+      owner: this.#binding!.owner, verified: false, attempts: 0, prompting: false, captured: false, abort: new AbortController(), messages: 0,
+      mediaReady: false, grantConsumed: false, ownStarted: false, out: new SignalCollector(), sent: false, rx: [], inbound: [], outParts: [],
     };
   }
 
@@ -589,8 +680,32 @@ export class RemoteLabHost {
     s.state = 'connecting';
     s.deadline = timers.now() + L.sessionMs;
     this.#startDeadline(s);
+    let id: number;
+    try { id = this.deps!.media.open({ role: 'viewer', peerName: s.peer.name }); }
+    catch { this.#emit({ kind: 'error', code: 'mediaWindow' }); this.#end(s, 'failed'); return; }
+    s.media = id;
     this.#publish();
+    void this.#viewerReady(s, id);
     if (this.#consume(s, r.values)) this.#startLoop(s);
+  }
+
+  /** K5: hello and the buffered offer follow once the media page has loaded. */
+  async #viewerReady(s: Sess, id: number): Promise<void> {
+    const ready = await this.deps!.media.ready(id);
+    if (s.ended || this.#session !== s) return;
+    if (!ready) { this.#emit({ kind: 'error', code: 'mediaWindow' }); this.#end(s, 'failed'); return; }
+    s.mediaReady = true;
+    this.deps!.media.send(id, { kind: 'hello', role: 'viewer', peerName: s.peer.name, expiresAt: s.deadline });
+    this.#deliver(s);
+  }
+
+  /** Hands the checked, complete incoming message to the media window, in order. */
+  #deliver(s: Sess): void {
+    if (s.media === undefined || s.inbound.length === 0) return;
+    const parts = s.inbound;
+    s.inbound = [];
+    for (const part of parts) this.deps!.media.send(s.media, { kind: 'signal', part });
+    if (s.role === 'viewer' && !s.ownStarted) { s.ownStarted = true; this.#startOwnDeadline(s); }
   }
 
   /** Resolves when the timer fires or the session aborts; the handle never outlives the session. */
@@ -658,16 +773,24 @@ export class RemoteLabHost {
       const part = frame.data.part;
       if (part.kind === 'bye') { this.#end(s, 'remote', 'remote'); return false; }
       if (part.kind !== (s.role === 'viewer' ? 'offer' : 'answer')) { this.#end(s, 'failed'); return false; }
-      this.#emit({ kind: 'signal', sessionId: s.id, part });
+      // One complete message per session (V1): any further part ends it before it is passed on.
+      if (s.messages >= 1) { this.#end(s, 'failed'); return false; }
       let message: ReturnType<SignalCollector['push']>;
       try { message = s.collector.push(part); } catch { this.#end(s, 'failed'); return false; }
-      if (message && s.state === 'connecting') {
+      s.rx.push(part);
+      if (!message) continue;
+      try { checkSdp(message.data, s.role === 'viewer' ? 'offer' : 'answer'); }
+      catch { this.#emit({ kind: 'error', code: 'signal' }); this.#end(s, 'failed'); return false; }
+      s.messages++;
+      s.inbound.push(...s.rx); s.rx = [];
+      if (s.state === 'connecting') {
         const now = this.deps!.timers.now();
         s.state = 'active'; s.startedAt = now;
         const store = this.#online?.store;
         store?.remember(s.peer.id, s.peer.name, now, s.verified || store.known(s.peer.id)?.verified === true);
         this.#publish();
       }
+      if (s.mediaReady) this.#deliver(s);
     }
     return !s.ended;
   }
@@ -676,14 +799,18 @@ export class RemoteLabHost {
   #end(s: Sess, reason: RemoteEndReason, mode: 'local' | 'remote' = 'local'): Promise<void> {
     if (this.#session !== s) return Promise.resolve();
     s.ended = true;
+    if (s.media !== undefined) { try { this.deps!.media.destroy(s.media); } catch { /* best effort */ } }
     for (const h of s.handles) this.deps!.timers.clearTimeout(h);
     s.handles.clear();
     s.abort.abort();
-    if (s.role === 'agent' && s.captured) {
-      // The renderer must ack 'stopped'; otherwise its process is killed (emergency brake).
-      const handle = this.deps!.timers.setTimeout(() => { this.#pendingStops.delete(s.id); this.deps!.emergency(s.owner); }, L.byeMs);
-      this.#pendingStops.set(s.id, { owner: s.owner, handle });
+    if (s.role === 'agent' && !s.captured && (reason === 'declined' || reason === 'expired') && !s.verified && s.peer.known?.verified !== true) {
+      const ctx = this.#online;
+      if (ctx) {
+        const now = this.deps!.timers.now();
+        ctx.refusals = [...ctx.refusals.filter(at => now - at < BRAKE_WINDOW_MS), now];
+      }
     }
+    if (s.role === 'viewer' && !s.channel) { try { this.#online?.peer.forget(s.id); } catch { /* best effort */ } }
     this.#session = undefined;
     this.#setSharing(false);
     this.#emit({ kind: 'ended', sessionId: s.id, reason });
@@ -759,7 +886,7 @@ export class RemoteLabHost {
       if (online.mutedCount > 0) state.muted = online.mutedCount;
     }
     const s = this.#session;
-    if (s) state.session = { id: s.id, role: s.role, peer: s.peer, scope: 'view', state: s.state, expiresAt: s.deadline, ...(s.startedAt !== undefined ? { startedAt: s.startedAt } : {}), ...(s.role === 'agent' && s.state === 'consent' && !s.verified && s.peer.known?.verified !== true ? { attemptsLeft: L.verificationAttempts - s.attempts } : {}) };
+    if (s) state.session = { id: s.id, role: s.role, peer: s.peer, scope: 'view', state: s.state, expiresAt: s.deadline, ...(s.startedAt !== undefined ? { startedAt: s.startedAt } : {}), ...(s.role === 'agent' && s.state === 'consent' && !s.verified && s.peer.known?.verified !== true ? { attemptsLeft: L.verificationAttempts - s.attempts } : {}), ...(s.armed && s.state === 'consent' ? { armed: true as const } : {}) };
     return state;
   }
 

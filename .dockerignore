@@ -16,6 +16,7 @@ scripts/sync-prototype/*
 !scripts/sync-prototype/vault-file-wire.mjs
 !scripts/sync-prototype/rendezvous.mjs
 !scripts/sync-prototype/device-proof.mjs
+!scripts/sync-prototype/device-name.mjs
 !scripts/sync-prototype/device-roster.mjs
 !scripts/sync-prototype/sync-object-wire.mjs
 !src/

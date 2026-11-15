@@ -1,5 +1,5 @@
 // Test pattern for the run-app scene only, not UI: fixed colours are intentional (no design tokens).
-import type { CaptureSource } from './remote-peer';
+import { realCapture, type CaptureSource } from './media-peer';
 
 const QUADRANTS: [string, number, number][] = [
   ['rgb(230, 40, 40)', 0, 0],
@@ -10,11 +10,11 @@ const QUADRANTS: [string, number, number][] = [
 
 export function fakeCapture(): CaptureSource {
   return {
-    capture: async () => {
+    capture: async sourceId => {
       // Pass the real permission handler, display-media handler and native consent first;
       // in fake mode the main process answers with no source, so this rejects.
       try {
-        const real = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        const real = await realCapture.capture(sourceId);
         for (const track of real.getTracks()) track.stop();
       } catch { /* expected in fake mode */ }
       const canvas = document.createElement('canvas');

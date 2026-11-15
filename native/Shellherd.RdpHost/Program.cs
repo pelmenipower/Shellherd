@@ -38,7 +38,7 @@ namespace Shellherd.RdpHost
         private readonly Control dispatcher = new Control();
         private readonly Dictionary<string, RdpSession> sessions = new Dictionary<string, RdpSession>();
         private readonly Queue<Action> pending = new Queue<Action>();
-        private bool stopping, draining;
+        private bool stopping, draining, protect;
 
         public SessionHost(ApplicationContext context)
         {
@@ -112,7 +112,19 @@ namespace Shellherd.RdpHost
                     case "bounds": Find(message).SetBounds(Rect(message), Protocol.Int(message, "revision", 0, int.MaxValue, 0)); break;
                     case "visible": Find(message).SetVisible(Protocol.Bool(message, "visible", true)); break;
                     case "focus": Find(message).Focus(); break;
-                    case "reparent": Find(message).Reparent(ParseHandle(Protocol.String(message, "parent", true))); break;
+                    case "reparent":
+                    {
+                        var moved = Find(message);
+                        moved.Reparent(ParseHandle(Protocol.String(message, "parent", true)));
+                        if (protect) ReportProtection(moved, moved.ApplyProtection(true));
+                        break;
+                    }
+                    case "protect":
+                    {
+                        if (!message.ContainsKey("protect")) throw new FormatException("Missing field: protect");
+                        SetProtection(Protocol.Bool(message, "protect", false));
+                        break;
+                    }
                     case "ping": Reply("pong", requestId); break;
                     case "action": Find(message).SendAction(Protocol.String(message, "action", true)); break;
                     default: throw new FormatException("Unbekannter Nachrichtentyp: " + type);
@@ -142,6 +154,7 @@ namespace Shellherd.RdpHost
                 Visible = Protocol.Bool(message, "visible", true),
                 SmartResize = Protocol.Bool(message, "smartResize", true),
                 DynamicResolution = Protocol.Bool(message, "dynamicResolution", true),
+                Protect = protect,
             };
             if (request.Mode == SurfaceMode.Window)
             {
@@ -159,10 +172,26 @@ namespace Shellherd.RdpHost
             if (sessions.Count >= MaxSessions) throw new InvalidOperationException("Maximal " + MaxSessions + " RDP-Sitzungen.");
             var session = new RdpSession(request, closed => sessions.Remove(closed.Id));
             sessions[session.Id] = session;
+            if (protect) ReportProtection(session, session.Protection);
             var reply = Protocol.Message("opened");
             if (requestId != null) reply["requestId"] = requestId;
             reply["sessionId"] = session.Id;
             Protocol.Send(reply);
+        }
+
+        /// <summary>Sets the global capture-protection flag and applies it to every open session.</summary>
+        private void SetProtection(bool on)
+        {
+            protect = on;
+            foreach (var session in new List<RdpSession>(sessions.Values)) ReportProtection(session, session.ApplyProtection(on));
+        }
+
+        private static void ReportProtection(RdpSession session, string mode)
+        {
+            var report = Protocol.Message("protected");
+            report["sessionId"] = session.Id;
+            report["mode"] = mode;
+            Protocol.Send(report);
         }
 
         private static IntPtr ParseHandle(string text)

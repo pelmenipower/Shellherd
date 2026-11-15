@@ -251,3 +251,17 @@ it('refuses to flush or retry once the channel is poisoned', async () => {
   await expect(b.retry()).rejects.toThrow();
   expect(posts.mock.calls.filter(call => call[0] === 'POST')).toHaveLength(0);
 });
+
+it('forget frees a request slot, ignores unknown ids, and the 17th open request is a 429 limit', async () => {
+  const identity = createRendezvousIdentity(); const ids = [];
+  const store = { info: { serverId: 'a'.repeat(64) }, async request(_method, _path, body) {
+    const { target, scope, nonce } = JSON.parse(body); const id = randomBytes(32).toString('hex'); ids.push(id);
+    return { id, from: identity.id, to: target, scope, nonce, state: 'pending', expiresAt: 0 };
+  } };
+  const peer = new RendezvousPeer(store, identity); const target = 'b'.repeat(64);
+  for (let i = 0; i < 16; i++) await peer.request(target);
+  await expect(peer.request(target)).rejects.toMatchObject({ status: 429 });
+  peer.forget('f'.repeat(64)); await expect(peer.request(target)).rejects.toMatchObject({ status: 429 }); // unknown id: no-op
+  peer.forget(ids[3]); await expect(peer.request(target)).resolves.toMatchObject({ state: 'pending' });
+  await expect(peer.request(target)).rejects.toMatchObject({ status: 429 });
+});

@@ -6,16 +6,25 @@ import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ip
 import { AuthPrompts } from './auth-prompts';
 import type { SshSessionManager } from './session';
 import { hostFingerprint } from './known-hosts';
+import { windowRegistry } from '../windows';
+import type { BrowserWindow } from 'electron';
+
+function registerWindow(id: number, role: 'main' | 'secondary' = 'main'): BrowserWindow {
+  const window = { webContents: { id }, on: () => {} } as unknown as BrowserWindow;
+  windowRegistry.register(window, role);
+  return window;
+}
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (event: IpcMainInvokeEvent, request: unknown) => unknown>(),
   trustedWindow: true,
+  focused: null as unknown,
   getSnapshot: vi.fn(),
   showMessageBox: vi.fn(async (_options: unknown) => ({ response: 0 })),
 }));
 vi.mock('electron', () => ({
   app: { getPath: () => 'synthetic-user-data' },
-  BrowserWindow: { fromWebContents: () => mocks.trustedWindow ? {} : null, getFocusedWindow: () => null },
+  BrowserWindow: { fromWebContents: () => mocks.trustedWindow ? {} : null, getFocusedWindow: () => mocks.focused },
   dialog: { showMessageBox: mocks.showMessageBox },
   ipcMain: { handle: (channel: string, handler: (event: IpcMainInvokeEvent, request: unknown) => unknown) => mocks.handlers.set(channel, handler) },
   webContents: { fromId: () => undefined },
@@ -31,7 +40,8 @@ function sender(id = 1, subframe = false): IpcMainInvokeEvent {
 }
 let manager: SshSessionManager;
 beforeEach(() => {
-  mocks.handlers.clear(); mocks.trustedWindow = true;
+  mocks.handlers.clear(); mocks.trustedWindow = true; mocks.focused = null;
+  for (const id of [1, 2, 3]) registerWindow(id, 'secondary');
   mocks.getSnapshot.mockReturnValue({ vault: { nodes: [{ id: 'saved-id', type: 'connection', protocol: 'ssh', name: 'Synthetic',
     host: 'example.test', port: 22, username: 'synthetic-user', authentication: { method: 'password', password: 'synthetic-secret' }, tags: [] }] } });
   manager = registerSshIpcHandlers(createKnownHosts(), new AuthPrompts({ resolveTarget: () => undefined, isUnlocked: () => true }));
@@ -43,6 +53,22 @@ describe('SSH IPC authorization', () => {
     expect(() => requireSshSender(sender(1, true))).toThrow(expect.objectContaining({ code: 'ssh.senderNotAllowed' }));
     mocks.trustedWindow = false;
     expect(() => requireSshSender(sender())).toThrow(expect.objectContaining({ code: 'ssh.senderNotAllowed' }));
+  });
+  it('rejects a valid window that is not in the window registry, accepts a registered one', () => {
+    expect(requireSshSender(sender(1))).toBe(1);
+    expect(() => requireSshSender(sender(99))).toThrow(expect.objectContaining({ code: 'ssh.senderNotAllowed' }));
+  });
+  it('uses only a registered focused window as host key dialog parent', async () => {
+    const prompt = { host: 'example.test', port: 22, fingerprint: 'fp' };
+    const confirm = (createKnownHosts() as unknown as { confirm: (p: typeof prompt) => Promise<boolean> }).confirm;
+    mocks.focused = { webContents: { id: 77 } };
+    const main = registerWindow(5);
+    await confirm(prompt);
+    expect(mocks.showMessageBox).toHaveBeenLastCalledWith(main, expect.anything());
+    const secondary = registerWindow(6, 'secondary');
+    mocks.focused = secondary;
+    await confirm(prompt);
+    expect(mocks.showMessageBox).toHaveBeenLastCalledWith(secondary, expect.anything());
   });
   it('returns only a session ID, with credentials resolved from the main vault', () => {
     const result = mocks.handlers.get('ssh:prepare')!(sender(), { connectionId: 'saved-id', cols: 80, rows: 24 });
@@ -102,7 +128,7 @@ describe('host key dialog', () => {
     const key = Buffer.from('synthetic-host-key');
     const trusted = await createKnownHosts().verify('dialog.test', 22, key, () => true);
     expect(trusted).toBe(false);
-    const options = mocks.showMessageBox.mock.calls.at(-1)![0] as { title: string; message: string; detail: string; buttons: string[] };
+    const options = mocks.showMessageBox.mock.calls.at(-1)!.at(-1) as { title: string; message: string; detail: string; buttons: string[] };
     expect(options.title).toBe('Unbekannter SSH-Server');
     expect(options.message).toBe('Server-Schlüssel für dialog.test:22 prüfen');
     expect(options.detail).toContain(hostFingerprint(key));

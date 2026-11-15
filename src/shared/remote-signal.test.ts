@@ -3,8 +3,9 @@ import { REMOTE_LAB_LIMITS, type RemoteSignalPart } from './remote-lab';
 import { SignalCollector, checkSdp, formatFingerprint, isSignalPart, normalizeVerification, signalBytes, splitSignal, verifyFingerprintPrefix } from './remote-signal';
 
 const fp = Array.from({ length: 32 }, (_, i) => i.toString(16).padStart(2, '0')).join(':');
-const sdp = (extra: string[] = [], media = 'm=video 9 UDP/TLS/RTP/SAVPF 96'): string =>
-  ['v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', `a=fingerprint:sha-256 ${fp}`, 'a=setup:actpass', media, ...extra, ''].join('\r\n');
+const sdp = (extra: string[] = [], media = 'm=video 9 UDP/TLS/RTP/SAVPF 96', direction = 'a=sendonly'): string =>
+  ['v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', `a=fingerprint:sha-256 ${fp}`, 'a=setup:actpass', media, direction, ...extra, ''].join('\r\n');
+const answerSdp = (extra: string[] = []): string => sdp(extra, undefined, 'a=recvonly');
 
 describe('signalBytes', () => {
   it('counts the JSON-escaped UTF-8 size without quotes', () => {
@@ -97,7 +98,7 @@ describe('SignalCollector', () => {
 describe('checkSdp', () => {
   it('accepts a minimal valid SDP', () => {
     expect(() => checkSdp(sdp(), 'offer')).not.toThrow();
-    expect(() => checkSdp(sdp(['a=candidate:1 1 udp 1 192.168.0.2 5000 typ host']), 'answer')).not.toThrow();
+    expect(() => checkSdp(answerSdp(['a=candidate:1 1 udp 1 192.168.0.2 5000 typ host']), 'answer')).not.toThrow();
     expect(() => checkSdp(sdp().replace('sha-256', 'SHA-256').toUpperCase().replace('M=VIDEO', 'm=video'), 'offer')).not.toThrow;
   });
   it('rejects oversize', () => { expect(() => checkSdp(sdp(['a=' + 'x'.repeat(REMOTE_LAB_LIMITS.sdp)]), 'offer')).toThrow(); });
@@ -118,14 +119,24 @@ describe('checkSdp', () => {
     const line = `a=fingerprint:sha-256 ${fp}`;
     expect(() => checkSdp(sdp().replace('\r\n' + 'a=setup', `\r\n${line}\r\na=setup`), 'offer')).toThrow('fingerprint');
     expect(() => checkSdp(sdp(['a=fingerprint:sha-1 AA:BB']), 'offer')).toThrow('fingerprint');
-    expect(() => checkSdp(sdp(['a=fingerprint:sha-512 AA:BB']), 'answer')).toThrow('fingerprint');
+    expect(() => checkSdp(answerSdp(['a=fingerprint:sha-512 AA:BB']), 'answer')).toThrow('fingerprint');
   });
   it('requires exactly one a=setup: line', () => {
     expect(() => checkSdp(sdp().replace('a=setup:actpass\r\n', ''), 'offer')).toThrow('fingerprint');
     expect(() => checkSdp(sdp(['a=setup:active']), 'offer')).toThrow('fingerprint');
   });
   it('rejects relay candidates', () => {
-    expect(() => checkSdp(sdp(['a=candidate:1 1 udp 1 10.0.0.1 5000 typ relay raddr 0.0.0.0 rport 0']), 'answer')).toThrow();
+    expect(() => checkSdp(answerSdp(['a=candidate:1 1 udp 1 10.0.0.1 5000 typ relay raddr 0.0.0.0 rport 0']), 'answer')).toThrow();
+  });
+  it('requires exactly one direction line: a=sendonly for an offer, a=recvonly for an answer (V4)', () => {
+    expect(() => checkSdp(sdp(), 'offer')).not.toThrow();
+    expect(() => checkSdp(answerSdp(), 'answer')).not.toThrow();
+    for (const bad of ['a=sendrecv', 'a=inactive', 'a=recvonly']) expect(() => checkSdp(sdp([], undefined, bad), 'offer')).toThrow('direction');
+    for (const bad of ['a=sendrecv', 'a=inactive', 'a=sendonly']) expect(() => checkSdp(sdp([], undefined, bad), 'answer')).toThrow('direction');
+    expect(() => checkSdp(sdp([], undefined, ''), 'offer')).toThrow('direction');
+    expect(() => checkSdp(sdp(['a=sendrecv']), 'offer')).toThrow('direction');
+    expect(() => checkSdp(sdp(['a=sendonly']), 'offer')).toThrow('direction');
+    expect(() => checkSdp(answerSdp(['a=inactive']), 'answer')).toThrow('direction');
   });
   it('accepts LF-only line endings', () => { expect(() => checkSdp(sdp().replace(/\r\n/g, '\n'), 'offer')).not.toThrow(); });
 });

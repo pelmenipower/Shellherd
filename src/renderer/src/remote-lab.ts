@@ -14,10 +14,13 @@ export const REMOTE_ERROR_KEYS = {
   mismatch: 'remoteLab:errors.mismatch',
   signal: 'remoteLab:errors.signal',
   media: 'remoteLab:errors.media',
+  mediaWindow: 'remoteLab:errors.mediaWindow',
   peer: 'remoteLab:errors.peer',
   scope: 'remoteLab:errors.scope',
   limit: 'remoteLab:errors.limit',
-  samePassword: 'remoteLab:errors.samePassword'
+  samePassword: 'remoteLab:errors.samePassword',
+  enrolledElsewhere: 'remoteLab:errors.enrolledElsewhere',
+  enrollmentLocked: 'remoteLab:errors.enrollmentLocked'
 } as const satisfies Record<RemoteErrorCode, string>;
 
 export const REMOTE_END_KEYS = {
