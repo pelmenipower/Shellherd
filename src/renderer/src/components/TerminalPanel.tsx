@@ -126,6 +126,9 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       setFailure(null); setClosed(null); setMarks([]); setForwardList(null); setStartedAt(Date.now());
       setStatus('connecting');
       onStatusChange(tabId, 'connecting');
+      // The new terminal has no highlights or selection; drop the stale count (bar and last search stay).
+      activeQuery.current = '';
+      setSearchStatus({ kind: 'idle' });
     }
     const styles = getComputedStyle(document.documentElement);
     const term = new Terminal({ ...xtermOptions(terminalPrefs.get()), screenReaderMode: true, 
@@ -212,6 +215,8 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     const terminalElement = container.current!;
     let pointerDown = false;
     const markPointerDown = (event: MouseEvent) => { if (event.button === 0) pointerDown = true; };
+    // A press outside the terminal ends a pointer gesture whose mouseup never arrived.
+    const resetPointer = (event: MouseEvent) => { if (!terminalElement.contains(event.target as Node)) pointerDown = false; };
     const copyOnRelease = (event: MouseEvent) => {
       if (!pointerDown || event.button !== 0) return;
       pointerDown = false;
@@ -234,6 +239,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
     };
     terminalElement.addEventListener('mousedown', preventRightMouse, true);
     terminalElement.addEventListener('mousedown', markPointerDown, true);
+    window.addEventListener('mousedown', resetPointer, true);
     window.addEventListener('mouseup', copyOnRelease);
     terminalElement.addEventListener('contextmenu', pasteOnRightClick, true);
     const unsubscribe = window.desktopApi.onSshEvent(event => {
@@ -339,6 +345,7 @@ export function TerminalPanel({ connection, tabId, visible, focused = true, styl
       controller?.dispose();
       controllerRef.current = null;
       terminalElement.removeEventListener('mousedown', markPointerDown, true);
+      window.removeEventListener('mousedown', resetPointer, true);
       window.removeEventListener('mouseup', copyOnRelease);
       terminalElement.removeEventListener('mousedown', preventRightMouse, true);
       terminalElement.removeEventListener('contextmenu', pasteOnRightClick, true);

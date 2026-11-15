@@ -66,6 +66,7 @@ export function TerminalSearchBar({ onFind, onClose, focusRequest, status, label
 
   return (
     <div className="terminal-search" role="search" aria-label={label ?? t('terminal:search.label')}>
+      <svg className="terminal-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
       <input ref={input} type="text" aria-label={t('terminal:search.input')} placeholder={t('terminal:search.placeholder')}
         value={value} spellCheck={false} autoComplete="off" aria-invalid={status.kind === 'invalid' || undefined}
         onChange={event => { setValue(event.target.value); onFind(event.target.value, options, 'next', true); }} onKeyDown={onKeyDown} />

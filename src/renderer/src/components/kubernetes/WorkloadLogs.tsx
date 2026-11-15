@@ -108,6 +108,7 @@ export function WorkloadLogs({ viewId, row, format, start, stop, textRef, follow
     listRef.current?.focus();
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.defaultPrevented) return;
     if (matchesShortcut(event, { ctrl: true, shift: false, code: 'KeyF' }) || matchesShortcut(event, { ctrl: true, shift: true, code: 'KeyF' })) {
       event.preventDefault();
       openSearch();
