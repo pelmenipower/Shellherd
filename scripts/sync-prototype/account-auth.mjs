@@ -21,7 +21,7 @@ export async function createAccount(username, password) {
   try { return { username, algorithm: 'scrypt-v1', salt: salt.toString('base64'), hash: hash.toString('base64') }; }
   finally { hash.fill(0); }
 }
-export function accountAuth(account, clock = Date.now, limits = DEFAULT_LIMITS) {
+export function accountAuth(account, clock = Date.now, limits = DEFAULT_LIMITS, roster = null) {
   check(account && Object.keys(account).sort().join(',') === 'algorithm,hash,salt,username' && validUser(account.username) && account.algorithm === 'scrypt-v1');
   const salt = bytes(account.salt, 16); const hash = bytes(account.hash, 32);
   const sessions = new Map(); let active = false;
@@ -33,12 +33,37 @@ export function accountAuth(account, clock = Date.now, limits = DEFAULT_LIMITS) 
     failCount++; const r = record(source) ?? { f: 0, last: now }; failures.delete(source);
     r.f++; r.last = now; failures.set(source, r); if (failures.size > limits.maxKeys) failures.delete(failures.keys().next().value);
   };
+  // Session and revocation proofs fail on their own budget: they must not feed the password backoff or the global password failure budget.
+  const sessionFailures = new Map(); const SESSION_FREE = 10;
+  const sessionRecord = source => { const now = clock(); const r = sessionFailures.get(source); if (r && (now < r.last || now - r.last >= FAILURE_MEMORY)) sessionFailures.delete(source); return sessionFailures.get(source); };
   const digest = token => createHash('sha256').update(token).digest('hex');
   const expire = () => { const now = clock(); for (const [key, session] of sessions) if (now < session.created || now >= session.expiresAt) sessions.delete(key); };
   return {
-    isActive(key) { expire(); return sessions.has(key); },
+    isActive(key) { expire(); const session = sessions.get(key); return Boolean(session) && roster !== null && roster.isActive(session.device); },
+    deviceOf(key) { return sessions.get(key)?.device; },
+    hasSession(deviceId) { expire(); for (const session of sessions.values()) if (session.device === deviceId) return true; return false; },
+    dropDevice(deviceId) { for (const [key, session] of sessions) if (session.device === deviceId) sessions.delete(key); },
     fail,
-    async login(body, source = 'local') {
+    /** Throws 429 while the source is backing off after repeated failed session attempts. */
+    sessionGate(source) {
+      const r = sessionRecord(source); if (!r || r.f < SESSION_FREE) return;
+      const until = r.last + Math.min(60, 2 ** (r.f - SESSION_FREE)) * 1000; const now = clock();
+      check(now >= until, 429, Math.max(1, Math.ceil((until - now) / 1000)));
+    },
+    failSession(source) {
+      const now = clock(); const r = sessionRecord(source) ?? { f: 0, last: now }; sessionFailures.delete(source);
+      r.f++; r.last = now; sessionFailures.set(source, r); if (sessionFailures.size > limits.maxKeys) sessionFailures.delete(sessionFailures.keys().next().value);
+    },
+    clearSession(source) { sessionFailures.delete(source); },
+    openSession(deviceId) {
+      check(roster !== null, 500); expire();
+      const own = [...sessions].filter(([, session]) => session.device === deviceId);
+      if (own.length >= 4) sessions.delete(own.sort((a, b) => a[1].created - b[1].created)[0][0]);
+      check(sessions.size < 64, 429);
+      const token = randomBytes(32).toString('hex'); const created = clock(); const expiresAt = created + 900000;
+      sessions.set(digest(token), { created, expiresAt, device: deviceId }); return { token, expiresAt };
+    },
+    async verifyPassword(body, source = 'local') {
       const now = clock(); const r = record(source);
       if (now - failWindow >= 60_000 || now < failWindow) { failWindow = now; failCount = 0; }
       if (r?.f >= 3) { const until = r.last + Math.min(60, 2 ** (r.f - 3)) * 1000; check(now >= until, 429, Math.max(1, Math.ceil((until - now) / 1000))); }
@@ -53,14 +78,14 @@ export function accountAuth(account, clock = Date.now, limits = DEFAULT_LIMITS) 
         const matches = timingSafeEqual(candidate, hash); const nameMatches = timingSafeEqual(digestOf(body.username), digestOf(account.username));
         if (!(matches && nameMatches)) fail(source);
         check(matches && nameMatches, 401);
-        failures.delete(source); expire(); check(sessions.size < 32, 429);
-        const token = randomBytes(32).toString('hex'); const created = clock(); const expiresAt = created + 900000;
-        sessions.set(digest(token), { created, expiresAt }); return { token, expiresAt };
+        failures.delete(source); return true;
       } finally { candidate?.fill(0); active = false; }
     },
     authorize(header) {
-      expire(); check(typeof header === 'string' && /^Bearer [a-f0-9]{64}$/.test(header), 401);
-      const key = digest(header.slice(7)); check(sessions.has(key), 401); return key;
+      check(roster !== null, 500); expire(); check(typeof header === 'string' && /^Bearer [a-f0-9]{64}$/.test(header), 401);
+      const key = digest(header.slice(7)); const session = sessions.get(key); check(session, 401);
+      if (!roster.isActive(session.device)) { sessions.delete(key); check(false, 401); }
+      return key;
     },
     refresh(header) { const key = this.authorize(header); const session = sessions.get(key); session.expiresAt = Math.min(clock() + 900000, session.created + 43200000); return { expiresAt: session.expiresAt }; },
     logout(header) { const key = this.authorize(header); sessions.delete(key); return { signedOut: true }; },

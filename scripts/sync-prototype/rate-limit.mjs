@@ -1,6 +1,6 @@
 // Request budgets for the standalone server: token buckets per key and source address derivation.
 import { isIP } from 'node:net';
-export const DEFAULT_LIMITS = Object.freeze({ global: 600, source: 240, info: 30, login: 5, loginFailuresGlobal: 30, rendezvousToken: 180, connectionsPerSource: 8, maxKeys: 4096 });
+export const DEFAULT_LIMITS = Object.freeze({ global: 600, source: 240, info: 30, login: 5, loginFailuresGlobal: 30, rendezvousToken: 180, challenge: 30, session: 20, deviceWrites: 60, connectionsPerSource: 8, maxKeys: 4096 });
 export function createLimiter({ clock = Date.now, maxKeys = 4096 } = {}) {
   const buckets = new Map();
   return {

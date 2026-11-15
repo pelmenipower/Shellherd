@@ -8,6 +8,7 @@ import Cipher from 'noise-handshake/cipher.js';
 import { createAccount } from './account-auth.mjs';
 import { createSyncServer } from './server.mjs';
 import { AccountStore } from './account-transport.mjs';
+import { createDeviceIdentity } from './device-proof.mjs';
 import { probeSyncServer } from './http-common.mjs';
 import { createRendezvousIdentity, noiseKeyPair, RENDEZVOUS_NOISE_PROFILE, RENDEZVOUS_PROLOGUE, RendezvousPeer, spkiOf } from './rendezvous-client.mjs';
 vi.setConfig({ testTimeout: 20_000 }); // network tests are load-sensitive
@@ -19,12 +20,13 @@ afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0)
 async function setup() {
   const directory = await mkdtemp(join(tmpdir(), 'shellherd-rendezvous-client-'));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
-  const server = await createSyncServer({ directory, serverId: randomBytes(32).toString('hex'), namespace: 'test', account, rendezvous: true, limits: { login: 100 } });
+  const server = await createSyncServer({ directory, serverId: randomBytes(32).toString('hex'), namespace: 'test', account, rendezvous: true, limits: { login: 100, session: 100, challenge: 100 } });
   cleanup.push(() => server.close());
   const info = await probeSyncServer(await server.listen(), { allowLoopbackHttp: true });
   const peer = async name => {
-    const store = new AccountStore(info); cleanup.push(() => store.close());
-    await store.login('testuser', password); const client = new RendezvousPeer(store); await client.register(name); return client;
+    const store = new AccountStore(info); cleanup.push(() => store.close()); const identity = createDeviceIdentity();
+    await store.enroll(identity, { username: 'testuser', password, name, ephemeral: false }); await store.openSession(identity);
+    const client = new RendezvousPeer(store, identity); await client.register(name); return client;
   };
   return { info, peer };
 }

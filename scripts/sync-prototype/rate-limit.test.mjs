@@ -5,7 +5,7 @@ import { DEFAULT_LIMITS, createLimiter, sourceOf } from './rate-limit.mjs';
 const req = (remoteAddress, headers = {}) => ({ socket: { remoteAddress }, headers });
 
 it('exposes the frozen default budgets', () => {
-  expect(DEFAULT_LIMITS).toEqual({ global: 600, source: 240, info: 30, login: 5, loginFailuresGlobal: 30, rendezvousToken: 180, connectionsPerSource: 8, maxKeys: 4096 });
+  expect(DEFAULT_LIMITS).toEqual({ global: 600, source: 240, info: 30, login: 5, loginFailuresGlobal: 30, rendezvousToken: 180, challenge: 30, session: 20, deviceWrites: 60, connectionsPerSource: 8, maxKeys: 4096 });
   expect(Object.isFrozen(DEFAULT_LIMITS)).toBe(true);
 });
 it('limits per key with a token bucket and reports whole-second retryAfter', () => {

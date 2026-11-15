@@ -7,14 +7,14 @@
   "connect": "Verbinden",
   "username": "Benutzername",
   "password": "Serverpasswort",
-  "signIn": "Anmelden",
+  "signIn": "Gerät anmelden",
   "signedInAs": "Angemeldet als {{username}}",
   "deviceName": "Name dieses Geräts",
   "goOnline": "Dieses Gerät online melden",
   "goOffline": "Offline gehen",
   "online": "Online als {{name}} · Anmeldung gültig bis {{time}}",
   "fingerprintOwn": "Fingerabdruck dieses Geräts",
-  "identityTemporary": "Temporäre Geräteidentität: Dieser Rechner hat keine Schlüsselablage des Betriebssystems. Der Fingerabdruck ändert sich beim nächsten Start.",
+  "identityTemporary": "Temporäre Geräteidentität: Dieser Rechner hat keine Schlüsselablage des Betriebssystems. Fingerabdruck und Anmeldung gelten nur bis zum nächsten Start.",
   "devices": "Online-Geräte",
   "noDevices": "Kein anderes Gerät ist online.",
   "requestView": "Bildschirm ansehen",
@@ -52,7 +52,7 @@
     "identity": "Die gespeicherte Geräteidentität ist beschädigt oder nicht lesbar. Sie wurde nicht ersetzt.",
     "locked": "Entsperre deinen Vault, um dieses Gerät online zu melden.",
     "connection": "Der Server ist nicht erreichbar.",
-    "authentication": "Anmeldung fehlgeschlagen oder abgelaufen.",
+    "authentication": "Anmeldung fehlgeschlagen, abgelaufen oder dieses Gerät wurde am Server entfernt.",
     "expired": "Die Anfrage ist abgelaufen. Stelle sie erneut.",
     "declined": "Das andere Gerät hat die Anfrage abgelehnt.",
     "mismatch": "Die Geräteprüfung ist fehlgeschlagen. Es wurde nichts übertragen.",
@@ -75,5 +75,8 @@
   "privateNetwork": {
     "label": "Privates Netz (WireGuard/Tailscale): HTTP erlauben",
     "hint": "Nur für eine WireGuard- oder Tailscale-Adresse dieses Servers. Außerhalb eines solchen Tunnels könnte das Netz Serverpasswort und Daten mitlesen. Dein Vault-Passwort bleibt lokal."
-  }
+  },
+  "openSession": "Sitzung öffnen",
+  "enrolledHint": "Dieses Gerät ist am Server angemeldet; der Server kennt nur seinen öffentlichen Schlüssel.",
+  "enrolledElsewhere": "Dieses Gerät ist für diesen Server unter {{url}} angemeldet. Melde es hier nur an, wenn beide Adressen zu deinem Server gehören."
 }

@@ -11,8 +11,10 @@ import { requestProof } from './http-proof.mjs';
 import { normalizeSyncServerUrl } from '../../src/shared/sync-server-url.mjs';
 import { createAccessRegistry } from './server-access.mjs';
 import { accountAuth } from './account-auth.mjs';
-import { validateVaultFile } from './vault-file-wire.mjs';
-import { createRendezvous } from './rendezvous.mjs';
+import { validateSyncObject, isLegacyVaultObject } from './sync-object-wire.mjs';
+import { createDeviceRoster } from './device-roster.mjs';
+import { enrollmentBody, sessionProof, requestProofV2, signingKeyOf, ed25519Spki } from './device-proof.mjs';
+import { createRendezvous, deviceId } from './rendezvous.mjs';
 import { DEFAULT_LIMITS, createLimiter, sourceOf } from './rate-limit.mjs';
 const MAX = 1024 * 1024;
 const sha = data => createHash('sha256').update(data).digest('hex');
@@ -22,26 +24,28 @@ function base64(s, length) {
   check(typeof s === 'string' && s.length < MAX * 2); const bytes = Buffer.from(s, 'base64');
   check(bytes.toString('base64') === s && (length === undefined || bytes.length === length)); return bytes;
 }
-export async function createSyncServer({ directory, serverId, namespace, devices = [], account = null, publicUrl = null, clock = () => Date.now(), adminPublicKey = null, adminDevices = [], accessFault, rendezvous = false, trustedProxy = false, limits = {} }) {
+export async function createSyncServer({ directory, serverId, namespace, devices = [], account = null, publicUrl = null, clock = () => Date.now(), adminPublicKey = null, adminDevices = [], accessFault, rosterFault, rendezvous = false, trustedProxy = false, limits = {} }) {
   limits = { ...DEFAULT_LIMITS, ...limits };
   check(typeof serverId === 'string' && /^[a-f0-9]{64}$/.test(serverId) && ascii(namespace));
   check(Array.isArray(devices) && devices.length <= 16 && (account !== null ? devices.length === 0 && adminPublicKey === null && adminDevices.length === 0 : devices.length > 0));
-  const login = account === null ? null : accountAuth(account, clock, limits);
-  check(typeof rendezvous === 'boolean' && (!rendezvous || login !== null));
-  const broker = rendezvous ? createRendezvous({ authorize: header => login.authorize(header), isActive: key => login.isActive(key), clock, serverId }) : null;
+  if (account !== null) accountAuth(account, clock, limits); // validate the account before touching the disk
+  check(typeof rendezvous === 'boolean' && (!rendezvous || account !== null));
   check(publicUrl === null || normalizeSyncServerUrl(publicUrl) === publicUrl);
   const keys = new Map();
   for (const device of devices) {
     check(ascii(device.id) && !keys.has(device.id));
-    keys.set(device.id, createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), base64(device.signingKey, 32)]), format: 'der', type: 'spki' }));
+    keys.set(device.id, createPublicKey({ key: ed25519Spki(base64(device.signingKey, 32)), format: 'der', type: 'spki' }));
   }
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const dirStat = await lstat(directory);
   check(dirStat.isDirectory() && !dirStat.isSymbolicLink() && (dirStat.mode & 0o077) === 0, 500);
+  const roster = account === null ? null : await createDeviceRoster({ directory, serverId, namespace, clock, fault: rosterFault });
+  const login = account === null ? null : accountAuth(account, clock, limits, roster);
+  if (roster) roster.hasSession = id => login.hasSession(id);
+  const broker = rendezvous ? createRendezvous({ authorize: header => login.authorize(header), isActive: key => login.isActive(key), deviceOf: key => login.deviceOf(key), noiseKeyOf: id => roster.noiseKeyOf(id), clock, serverId }) : null;
   const access = await createAccessRegistry({ directory, serverId, namespace, devices, keys, adminPublicKey, adminDevices, clock, fault: accessFault });
   const objects = new Map(); let total = 0; let busy = false; let uncertain = false;
   function opaque(wire) {
-    if (login) { validateVaultFile(wire); return null; }
     check(Buffer.byteLength(wire) <= MAX); const tuple = JSON.parse(wire);
     check(Array.isArray(tuple) && tuple.length === 5 && JSON.stringify(tuple) === wire);
     const [header, recipients, nonce, cipher, signature] = tuple;
@@ -58,13 +62,13 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       const stat = await handle.stat(); check(stat.isFile() && stat.nlink === 1 && stat.size <= MAX && (stat.mode & 0o077) === 0, 500);
       const data = Buffer.alloc(MAX + 1); let used = 0;
       while (used < data.length) { const read = await handle.read(data, used, data.length - used, used); if (!read.bytesRead) break; used += read.bytesRead; }
-      check(used <= MAX, 500); const wire = data.subarray(0, used).toString('utf8'); check(sha(wire) === id, 500); opaque(wire); return wire;
+      check(used <= MAX, 500); const wire = data.subarray(0, used).toString('utf8'); check(sha(wire) === id, 500); if (login) { if (!isLegacyVaultObject(wire)) validateSyncObject(wire); } else opaque(wire); return wire;
     } finally { await handle.close(); }
   }
   const files = await readdir(directory); check(files.length <= 256, 500);
   for (const file of files) {
-    if (file === 'access.json') continue;
-    if (!/^[a-f0-9]{64}\.blob$/.test(file)) { check(file.endsWith('.tmp') || file.endsWith('.access-tmp'), 500); continue; }
+    if (file === 'access.json' || file === 'devices.json') continue;
+    if (!/^[a-f0-9]{64}\.blob$/.test(file)) { check(file.endsWith('.tmp') || file.endsWith('.access-tmp') || file.endsWith('.devices-tmp'), 500); continue; }
     const id = file.slice(0, -5); const wire = await readObject(id); objects.set(id, Buffer.byteLength(wire)); total += Buffer.byteLength(wire);
   }
   check(objects.size <= 100 && total <= 32 * MAX, 500);
@@ -85,24 +89,84 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       const path = request.url; check(typeof path === 'string' && path.length < 512);
       // Per-source buckets first: only requests that pass them count against the global budget, so one source cannot exhaust it for all.
       if (request.method === 'GET' && path === '/v1/info') budget('info:' + source, limits.info);
-      if (login && path === '/v1/login' && request.method === 'POST') budget('login:' + source, limits.login);
+      if (request.method === 'GET' && path === '/v1/challenge') budget('challenge:' + source, limits.challenge);
+      if (login && path === '/v1/devices' && request.method === 'POST') budget('enroll:' + source, limits.login);
+      if (login && path === '/v1/session' && request.method === 'POST') budget('session:' + source, limits.session);
       if (now - windowStart >= 60_000 || now < windowStart) { windowStart = now; requests = 0; }
       check(++requests <= limits.global, 429, Math.max(1, Math.ceil((windowStart + 60_000 - now) / 1000)));
       check(request.headers.origin === undefined && request.headers['transfer-encoding'] === undefined);
       if (request.method === 'GET' && path === '/v1/info') {
         check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
-        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'password' : 'device', objectFormat: login ? 'encrypted-vault' : 'device-snapshot', rendezvous: Boolean(broker), rendezvousProof: Boolean(broker), rendezvousNoise: Boolean(broker) }); return;
+        send(200, { service: 'shellherd-sync-prototype', protocol: 1, serverId, namespace, maxObjectBytes: MAX, deviceEnrollment: access.enabled, authentication: login ? 'enrolled-device' : 'device', deviceSessions: Boolean(login), objectFormat: login ? 'sync-object' : 'device-snapshot', rendezvous: Boolean(broker), rendezvousProof: Boolean(broker), rendezvousNoise: Boolean(broker) }); return;
       }
-      if (login && path === '/v1/login') {
-        check(request.method === 'POST', 405);
-        let body;
+      const readJson = async (max, onFormError) => {
         try {
           check(request.headers['content-type'] === 'application/json');
-          const length = Number(request.headers['content-length']); check(Number.isSafeInteger(length) && length > 0 && length <= 8192, 413);
-          const chunks = []; let used = 0; for await (const chunk of request) { used += chunk.length; check(used <= 8192, 413); chunks.push(chunk); }
-          check(used === length); body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        } catch (error) { login.fail(source); throw error; } // a malformed request counts as a failed attempt
-        send(200, await login.login(body, source)); return;
+          const length = Number(request.headers['content-length']); check(Number.isSafeInteger(length) && length > 0 && length <= max, 413);
+          const chunks = []; let used = 0; for await (const chunk of request) { used += chunk.length; check(used <= max, 413); chunks.push(chunk); }
+          check(used === length); const text = Buffer.concat(chunks).toString('utf8'); const body = JSON.parse(text); check(JSON.stringify(body) === text); return body;
+        } catch (error) { onFormError(); throw error; } // a malformed request counts as a failed attempt
+      };
+      const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+      const sameKeys = (value, expected) => plain(value) && Object.keys(value).sort().join(',') === expected;
+      const consumeNonce = value => {
+        const entry = typeof value === 'string' ? nonces.get(value) : undefined; if (entry) nonces.delete(value);
+        return entry !== undefined && now >= entry.since && now - entry.since < 30_000;
+      };
+      if (login && path === '/v1/devices' && request.method === 'POST') {
+        const body = await readJson(16384, () => login.fail(source));
+        try {
+          check(sameKeys(body, 'enrollment,password,username') || sameKeys(body, 'enrollment,ephemeral,password,username'));
+          check(body.ephemeral === undefined || typeof body.ephemeral === 'boolean');
+          const doc = body.enrollment; check(Array.isArray(doc) && doc.length === 2 && Array.isArray(doc[0]) && doc[0].length === 7 && typeof doc[1] === 'string');
+          check(JSON.stringify(doc[0]) === enrollmentBody(...doc[0].slice(1)) && doc[0][1] === serverId && doc[0][2] === namespace);
+          // Cheap rejections (device id vs noise key, weak signing key) come before the expensive password check.
+          check(deviceId(doc[0][5]) === doc[0][3]); signingKeyOf(doc[0][4]);
+        } catch (error) { login.fail(source); throw error; }
+        roster.assertHealthy();
+        await login.verifyPassword({ username: body.username, password: body.password }, source);
+        const { entry, created } = await roster.enroll({ document: body.enrollment, ephemeral: body.ephemeral === true });
+        send(created ? 201 : 200, { device: { id: entry.id, name: entry.name, enrolledAt: entry.enrolledAt, ephemeral: entry.ephemeral } }); return;
+      }
+      if (login && path === '/v1/devices' && request.method === 'GET') {
+        check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
+        const key = login.authorize(request.headers.authorization);
+        send(200, { devices: roster.list().map(d => ({ ...d, self: d.id === login.deviceOf(key) })) }); return;
+      }
+      if (login && path === '/v1/session') {
+        check(request.method === 'POST', 405);
+        login.sessionGate(source);
+        const body = await readJson(4096, () => login.failSession(source));
+        // The nonce is spent first and always, whatever fails next.
+        const fresh = plain(body) ? consumeNonce(body.nonce) : false;
+        const reject = () => { login.failSession(source); check(false, 401); };
+        if (!sameKeys(body, 'device,nonce,signature')) { login.failSession(source); check(false); }
+        const hex = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
+        if (!fresh || !hex(body.device) || !hex(body.nonce) || !roster.isActive(body.device)) reject();
+        let valid = false;
+        try { valid = verify(null, Buffer.from(sessionProof(serverId, namespace, body.nonce, body.device)), roster.signingKeyOf(body.device), base64(body.signature, 64)); } catch { valid = false; }
+        if (!valid) reject();
+        login.clearSession(source); roster.touch(body.device); send(200, { ...login.openSession(body.device), device: body.device }); return;
+      }
+      const revocation = login ? /^\/v1\/devices\/([a-f0-9]{64})$/.exec(path)?.[1] : undefined;
+      if (revocation) {
+        check(request.method === 'DELETE', 405);
+        login.sessionGate(source);
+        const device = request.headers['x-shellherd-device']; const nonce = request.headers['x-shellherd-nonce']; const signature = request.headers['x-shellherd-signature'];
+        const fresh = consumeNonce(nonce); // spent first and always, whatever fails next
+        let key;
+        try { key = login.authorize(request.headers.authorization); } catch (error) { login.failSession(source); throw error; }
+        budget('device:' + login.deviceOf(key), limits.deviceWrites);
+        const length = Number(request.headers['content-length'] ?? 0); check(Number.isSafeInteger(length) && length >= 0, 400); check(length <= 16384, 413); check(length === 0);
+        let valid = false;
+        try {
+          valid = fresh && device === login.deviceOf(key) && verify(null, Buffer.from(requestProofV2(serverId, namespace, 'DELETE', request.url, nonce, device)), roster.signingKeyOf(device), base64(signature, 64));
+        } catch { valid = false; }
+        if (!valid) { login.failSession(source); check(false, 401); }
+        login.clearSession(source);
+        check(login.authorize(request.headers.authorization) === key, 401); roster.assertHealthy();
+        await roster.revoke(revocation); login.dropDevice(revocation); broker?.dropDevice(revocation);
+        send(200, { revoked: true }); return;
       }
       if (login && path === '/v1/logout') {
         check(request.method === 'POST' && Number(request.headers['content-length'] ?? 0) === 0);
@@ -116,9 +180,10 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         const token = login.authorize(request.headers.authorization); budget('rendezvous:' + token, limits.rendezvousToken);
         await broker.handle(request, path, send); return;
       }
-      if (!login && request.method === 'GET' && path === '/v1/challenge') {
-        for (const [nonce, since] of nonces) if (now - since >= 30_000 || now < since) nonces.delete(nonce);
-        check(nonces.size < 128, 429); const nonce = randomBytes(32).toString('hex'); nonces.set(nonce, now);
+      if (request.method === 'GET' && path === '/v1/challenge') {
+        check(request.headers['content-length'] === undefined || request.headers['content-length'] === '0');
+        for (const [nonce, entry] of nonces) if (now - entry.since >= 30_000 || now < entry.since) nonces.delete(nonce);
+        check(nonces.size < 128 && [...nonces.values()].filter(entry => entry.source === source).length < 8, 429); const nonce = randomBytes(32).toString('hex'); nonces.set(nonce, { since: now, source });
         send(200, { nonce }); return;
       }
       const collection = `/v1/vaults/${namespace}/objects`;
@@ -131,10 +196,11 @@ export async function createSyncServer({ directory, serverId, namespace, devices
       check(methods.includes(request.method), 405);
       const device = request.headers['x-shellherd-device']; const nonce = request.headers['x-shellherd-nonce']; const signature = request.headers['x-shellherd-signature'];
       const authorized = login ? login.authorize(request.headers.authorization) : null;
+      if (login && ['PUT', 'DELETE'].includes(request.method)) budget('device:' + login.deviceOf(authorized), limits.deviceWrites);
       let since;
       if (!login) {
         check(typeof device === 'string' && ascii(device) && typeof nonce === 'string' && nonces.has(nonce), 401);
-        since = nonces.get(nonce); nonces.delete(nonce); check(now >= since && now - since < 30_000, 401);
+        since = nonces.get(nonce).since; nonces.delete(nonce); check(now >= since && now - since < 30_000, 401);
       }
       const length = Number(request.headers['content-length'] ?? 0);
       const limit = control ? 16384 : MAX;
@@ -190,7 +256,7 @@ export async function createSyncServer({ directory, serverId, namespace, devices
         }
         return;
       }
-      if (login) opaque(body); else check(opaque(body) === device, 403);
+      if (login) validateSyncObject(body); else check(opaque(body) === device, 403);
       const id = sha(body);
       if (objects.has(id)) { send(200, { id }); return; }
       check(!uncertain, 503); check(!busy, 409); check(objects.size < 100 && total + bytes <= 32 * MAX, 507); busy = true;

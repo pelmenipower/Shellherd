@@ -12,7 +12,7 @@ import { normalizeSyncServerUrl } from '../../shared/sync-server-url.mjs';
 import type { RemoteIdentity, RemoteIdentityStore } from './identity';
 import type { PresenceHandlers, PresenceTimers, PresenceTransport } from './presence';
 
-export interface RemoteServerInfo { serverUrl: string; serverId: string; namespace: string; authentication: 'password' | 'device'; rendezvous: boolean; rendezvousProof: boolean; rendezvousNoise: boolean }
+export interface RemoteServerInfo { serverUrl: string; serverId: string; namespace: string; authentication: 'password' | 'device' | 'enrolled-device'; deviceSessions: boolean; rendezvous: boolean; rendezvousProof: boolean; rendezvousNoise: boolean }
 /** What the native consent dialog shows; fingerprint is the full 64-hex id of the requester. */
 export interface CapturePrompt { name: string; fingerprint: string; verified: boolean }
 export interface RemoteSessionWire { id: string; from: string; to: string; nonce: string; scope: string; state: string; expiresAt: number }
@@ -24,7 +24,8 @@ export interface RemotePeer {
   channel(session: RemoteSessionWire, expectedFingerprint: string, scope: 'view'): RemoteChannel;
 }
 export interface RemoteAccount {
-  login(username: string, password: string): Promise<{ signedIn: true; expiresAt: number }>;
+  enroll(identity: RemoteIdentity, input: { username: string; password: string; name: string; ephemeral: boolean }): Promise<unknown>;
+  openSession(identity: RemoteIdentity): Promise<{ signedIn: true; expiresAt: number; device: string }>;
   request(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: string): Promise<unknown>;
   refresh(): Promise<{ expiresAt: number }>;
   logout(): Promise<void>; close(): void;
@@ -53,7 +54,8 @@ const requestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('status'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('close'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('connect'), clientId: uuid, serverUrl: z.string().max(2048), privateNetwork: z.boolean().optional() }).strict(),
-  z.object({ kind: z.literal('signIn'), clientId: uuid, username: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/), password: z.string().min(1).max(1024) }).strict(),
+  z.object({ kind: z.literal('signIn'), clientId: uuid, username: z.string().regex(/^[a-zA-Z0-9_.-]{1,64}$/), password: z.string().min(1).max(1024), deviceName: z.string().max(1024) }).strict(),
+  z.object({ kind: z.literal('openSession'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('goOnline'), clientId: uuid, deviceName: z.string().max(1024) }).strict(),
   z.object({ kind: z.literal('goOffline'), clientId: uuid }).strict(),
   z.object({ kind: z.literal('request'), clientId: uuid, target: z.string().regex(hex64), verification: z.string().max(64).nullable() }).strict(),
@@ -91,7 +93,10 @@ export class RemoteLabHost {
   #phase: RemoteLabState['phase'] = 'idle';
   #info?: RemoteServerInfo;
   #account?: RemoteAccount;
-  #user?: { username: string; validUntil: number };
+  #user?: { username: string; validUntil: number; deviceName: string };
+  #loaded?: { identity: RemoteIdentity; persistent: boolean };
+  #enrolled?: { username: string; name: string };
+  #elsewhere?: string;
   #online?: Online;
   #session?: Sess;
   #pendingStops = new Map<string, { owner: number; handle: unknown }>();
@@ -125,7 +130,8 @@ export class RemoteLabHost {
       case 'status': return this.#ok();
       case 'close': this.#teardown('stopped'); return { ok: true, state: { phase: 'idle' } };
       case 'connect': return this.#exclusive(() => this.#connect(owner, req.clientId, req.serverUrl, req.privateNetwork === true));
-      case 'signIn': return this.#exclusive(() => this.#signIn(req.username, req.password));
+      case 'signIn': return this.#exclusive(() => this.#signIn(req.username, req.password, req.deviceName));
+      case 'openSession': return this.#exclusive(() => this.#openSession());
       case 'goOnline': return this.#exclusive(() => this.#goOnline(req.deviceName));
       case 'goOffline': return this.#exclusive(() => this.#goOffline());
       case 'request': return this.#exclusive(() => this.#request(req.target, req.verification));
@@ -210,7 +216,14 @@ export class RemoteLabHost {
     try {
       const info = await this.deps!.probe(url, privateNetwork, this.#controller.signal);
       if (this.#gen !== gen) return { ok: false, code: 'stale' };
-      if (info.authentication !== 'password' || !info.rendezvous || info.rendezvousProof !== true || info.rendezvousNoise !== true) { this.#binding = undefined; return { ok: false, code: 'unavailable' }; }
+      if (info.authentication !== 'enrolled-device' || info.deviceSessions !== true || !info.rendezvous || info.rendezvousProof !== true || info.rendezvousNoise !== true) { this.#binding = undefined; return { ok: false, code: 'unavailable' }; }
+      const store = this.deps!.identity();
+      let loaded: { identity: RemoteIdentity; persistent: boolean };
+      try { loaded = store.load(); } catch { this.#binding = undefined; this.#lastSent = undefined; return { ok: false, code: 'identity' }; }
+      this.#loaded = loaded;
+      const e = store.enrollment(info.serverId);
+      if (e && e.serverUrl === info.serverUrl && e.namespace === info.namespace) this.#enrolled = { username: e.username, name: e.name };
+      else if (e) this.#elsewhere = e.serverUrl;
       this.#info = info; this.#phase = 'serverReady';
       return this.#ok();
     } catch {
@@ -220,19 +233,25 @@ export class RemoteLabHost {
     }
   }
 
-  async #signIn(username: string, password: string): Promise<RemoteLabReply> {
-    if (this.#phase !== 'serverReady' || !this.#info) return { ok: false, code: 'stale' };
+  async #signIn(username: string, password: string, deviceName: string): Promise<RemoteLabReply> {
+    if (this.#phase !== 'serverReady' || !this.#info || !this.#loaded) return { ok: false, code: 'stale' };
     if (!this.deps!.isUnlocked()) return { ok: false, code: 'locked' };
+    if (!NAME.test(deviceName)) return { ok: false, code: 'invalid' };
     const gen = this.#gen;
     let same: boolean;
     try { same = await this.deps!.matchesVaultPassword(password); } catch { return { ok: false, code: 'locked' }; }
     if (this.#gen !== gen) return { ok: false, code: 'stale' };
     if (same) return { ok: false, code: 'samePassword' };
-    const account = this.deps!.createAccount(this.#info, this.#controller.signal);
+    const info = this.#info;
+    const loaded = this.#loaded;
+    const account = this.deps!.createAccount(info, this.#controller.signal);
     try {
-      const result = await account.login(username, password);
+      await account.enroll(loaded.identity, { username, password, name: deviceName, ephemeral: !loaded.persistent });
+      const result = await account.openSession(loaded.identity);
       if (this.#gen !== gen) { account.close(); return { ok: false, code: 'stale' }; }
-      this.#account = account; this.#user = { username, validUntil: result.expiresAt }; this.#phase = 'signedIn';
+      this.deps!.identity().rememberEnrollment({ serverId: info.serverId, namespace: info.namespace, serverUrl: info.serverUrl, username, name: deviceName, enrolledAt: this.deps!.timers.now() });
+      this.#enrolled = { username, name: deviceName }; this.#elsewhere = undefined;
+      this.#account = account; this.#user = { username, validUntil: result.expiresAt, deviceName }; this.#phase = 'signedIn';
       return this.#ok();
     } catch (error) {
       account.close();
@@ -240,15 +259,47 @@ export class RemoteLabHost {
     }
   }
 
+  /** Signed session from the enrolled device key; no password. A second 401 means the server forgot this device (B6). */
+  async #openSession(): Promise<RemoteLabReply> {
+    const info = this.#info;
+    const loaded = this.#loaded;
+    const enrolled = this.#enrolled;
+    if (this.#phase !== 'serverReady' || !info || !loaded || !enrolled || this.#account) return { ok: false, code: 'stale' };
+    if (!this.deps!.isUnlocked()) return { ok: false, code: 'locked' };
+    const gen = this.#gen;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const account = this.deps!.createAccount(info, this.#controller.signal);
+      try {
+        const result = await account.openSession(loaded.identity);
+        if (this.#gen !== gen) { account.close(); return { ok: false, code: 'stale' }; }
+        this.#account = account; this.#user = { username: enrolled.username, validUntil: result.expiresAt, deviceName: enrolled.name }; this.#phase = 'signedIn';
+        return this.#ok();
+      } catch (error) {
+        account.close();
+        if (this.#gen !== gen) return { ok: false, code: 'stale' };
+        if (statusOf(error) === 401 && attempt === 0) continue;
+        if (statusOf(error) === 401) {
+          this.deps!.identity().forgetEnrollment(info.serverId);
+          this.#enrolled = undefined;
+          this.#publish();
+        }
+        return { ok: false, code: wireError(error) };
+      }
+    }
+    return { ok: false, code: 'connection' };
+  }
+
   async #goOnline(name: string): Promise<RemoteLabReply> {
     const account = this.#account;
     if (this.#phase !== 'signedIn' || !account) return { ok: false, code: 'stale' };
     if (!this.deps!.isUnlocked()) return { ok: false, code: 'locked' };
+    const loaded = this.#loaded;
+    if (!loaded) return { ok: false, code: 'stale' };
+    // An empty name falls back to the name given at enrollment.
+    if (name === '' && this.#enrolled) name = this.#enrolled.name;
     if (!NAME.test(name)) return { ok: false, code: 'invalid' };
     const gen = this.#gen;
     const store = this.deps!.identity();
-    let loaded: { identity: RemoteIdentity; persistent: boolean };
-    try { loaded = store.load(); } catch { return { ok: false, code: 'identity' }; }
     const peer = this.deps!.createPeer(account, loaded.identity);
     const transport: PresenceTransport = {
       register: n => peer.register(n), sessions: () => peer.sessions(), devices: () => peer.devices(),
@@ -676,6 +727,7 @@ export class RemoteLabHost {
     const controller = this.#controller;
     this.#gen++; this.#busy = false;
     this.#online = undefined; this.#account = undefined; this.#user = undefined; this.#info = undefined; this.#phase = 'idle';
+    this.#loaded = undefined; this.#enrolled = undefined; this.#elsewhere = undefined;
     void online?.presence.stop().catch(() => undefined);
     this.#publish();
     this.#binding = undefined; this.#lastSent = undefined;
@@ -697,10 +749,12 @@ export class RemoteLabHost {
   #state(): RemoteLabState {
     const state: RemoteLabState = { phase: this.#phase };
     if (this.#info) state.server = { serverUrl: this.#info.serverUrl, serverId: this.#info.serverId };
-    if (this.#user) state.account = { username: this.#user.username, validUntil: this.#user.validUntil };
+    if (this.#user) state.account = { username: this.#user.username, validUntil: this.#user.validUntil, deviceName: this.#user.deviceName };
+    if (this.#loaded) state.identity = { fingerprint: this.#loaded.identity.id, persistent: this.#loaded.persistent };
+    if (this.#enrolled) state.enrolled = { ...this.#enrolled };
+    if (this.#elsewhere) state.enrolledElsewhere = this.#elsewhere;
     const online = this.#online;
     if (online && this.#phase === 'online') {
-      state.identity = { fingerprint: online.identity.id, persistent: online.persistent };
       state.devices = online.devices.map(d => this.#peerOf(d));
       if (online.mutedCount > 0) state.muted = online.mutedCount;
     }

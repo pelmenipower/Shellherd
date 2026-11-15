@@ -35,3 +35,23 @@ it('writes and reads a checkpoint with about 20 MiB of versions', async () => {
     await state.write(value); expect(await state.read()).toEqual(value);
   } finally { await state.close(); key.fill(0); }
 }, 30000);
+it('reports a v1 checkpoint as migrate without decrypting it', async () => {
+  const { path, key } = await fixture(); await writeFile(`${path}.sync-state`, JSON.stringify(['shellherd-private-sync-state-v1', { not: 'decryptable' }]), { mode: 0o600 });
+  const state = await lockSyncState(path, key, kdf, context, () => {});
+  try { await expect(state.read()).rejects.toMatchObject({ code: 'migrate' }); }
+  finally { await state.close(); key.fill(0); }
+});
+it('writes the v2 outer tag, removes the checkpoint and refuses to remove a concurrently changed one', async () => {
+  const { path, key } = await fixture(); const state = await lockSyncState(path, key, kdf, context, () => {});
+  try {
+    await state.write({ a: 1 }); expect(JSON.parse(await readFile(`${path}.sync-state`, 'utf8'))[0]).toBe('shellherd-private-sync-state-v2');
+    expect(await state.read()).toEqual({ a: 1 });
+    await writeFile(`${path}.sync-state`, 'tampered', { mode: 0o600 });
+    await expect(state.remove()).rejects.toMatchObject({ code: 'changed' }); expect(await readFile(`${path}.sync-state`, 'utf8')).toBe('tampered');
+  } finally { await state.close(); key.fill(0); }
+});
+it('removes its own checkpoint durably', async () => {
+  const { path, key } = await fixture(); const state = await lockSyncState(path, key, kdf, context, () => {});
+  try { await state.write({ a: 1 }); await state.remove(); await expect(readFile(`${path}.sync-state`)).rejects.toMatchObject({ code: 'ENOENT' }); expect(await state.read()).toBeUndefined(); await state.write({ b: 2 }); }
+  finally { await state.close(); key.fill(0); }
+});

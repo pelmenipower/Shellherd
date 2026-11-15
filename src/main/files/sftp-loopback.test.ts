@@ -171,7 +171,7 @@ describe('SFTP over a real SSH connection', () => {
   const openedWith: string[] = [];
 
   const waitFor = async <T>(find: () => T | undefined): Promise<T> => {
-    for (let attempt = 0; attempt < 200; attempt += 1) {
+    for (let attempt = 0; attempt < 600; attempt += 1) {
       const found = find();
       if (found !== undefined) return found;
       await new Promise(resolve => setTimeout(resolve, 25));
@@ -241,9 +241,9 @@ describe('SFTP over a real SSH connection', () => {
     await manager.editClose(1, sessionId, editId);
     expect(manager.state(1, sessionId).edits).toEqual([]);
     await waitFor(() => { try { statSync(opened[0]); return undefined; } catch { return true; } });
-    // Two real saves (500 ms settle each) plus SSH round trips; each waitFor alone may take 5 s, so the
-    // 5 s default timed out under CI load.
-  }, 30_000);
+    // Two real saves (500 ms settle each) plus SSH round trips; each waitFor may take up to 15 s under
+    // full-suite load, so the 5 s test default timed out.
+  }, 60_000);
 
   it('creates a new empty file but never replaces an existing one', async () => {
     await manager.createFile(1, sessionId, '/project/notes.md');

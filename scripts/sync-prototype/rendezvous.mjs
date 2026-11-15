@@ -1,5 +1,6 @@
 // Ephemeral, account-authenticated signaling. No endpoint grants OS access.
 import { createHash, createHmac, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { DEVICE_NAME } from './device-proof.mjs';
 const fail = (ok, status = 400) => { if (!ok) { const error = Error('Rendezvous request rejected'); error.status = status; throw error; } };
 const hex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const exact = (value, keys) => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === keys.split(',').sort().join(',');
@@ -20,7 +21,7 @@ export function registrationProof({ privateKey, peerKey, serverId, challenge, pu
     return createHmac('sha256', key).update(JSON.stringify([POP, serverId, challenge, publicKey, name])).digest('hex');
   } finally { secret.fill(0); key?.fill(0); }
 }
-export function createRendezvous({ authorize, isActive, clock = Date.now, serverId }) {
+export function createRendezvous({ authorize, isActive, deviceOf, noiseKeyOf, clock = Date.now, serverId }) {
   fail(hex(serverId), 500);
   const devices = new Map(); const sessions = new Map(); const challenges = new Map(); const blocked = new Map();
   function expire() {
@@ -70,7 +71,7 @@ export function createRendezvous({ authorize, isActive, clock = Date.now, server
           devices.delete(ownDevice(owner).id); expire(); send(200, { removed: true }); return;
         }
         fail(request.method === 'PUT', 405);
-        fail(exact(body, 'challenge,name,proof,publicKey') && typeof body.name === 'string' && /^[^\x00-\x1f\x7f]{1,80}$/.test(body.name) && hex(body.challenge) && hex(body.proof));
+        fail(exact(body, 'challenge,name,proof,publicKey') && typeof body.name === 'string' && DEVICE_NAME.test(body.name) && hex(body.challenge) && hex(body.proof));
         const key = deviceId(body.publicKey);
         // Every PUT naming a challenge consumes it, even when the proof is wrong.
         const challenge = challenges.get(body.challenge); challenges.delete(body.challenge);
@@ -78,8 +79,10 @@ export function createRendezvous({ authorize, isActive, clock = Date.now, server
         let expected;
         try { expected = Buffer.from(registrationProof({ privateKey: challenge.privateKey, peerKey: body.publicKey, serverId, challenge: body.challenge, publicKey: body.publicKey, name: body.name }), 'hex'); } catch { fail(false); }
         fail(timingSafeEqual(expected, Buffer.from(body.proof, 'hex')));
+        // The lease belongs to the enrolled device of this session, and only with its enrolled X25519 key.
+        fail(key === deviceOf(owner) && body.publicKey === noiseKeyOf(key), 403);
         const previous = devices.get(key);
-        fail(!previous || previous.owner === owner, 409);
+        fail(!previous || previous.owner === owner || deviceOf(previous.owner) === key, 409);
         fail(![...devices.values()].some(device => device.owner === owner && device.id !== key), 409);
         fail(previous || devices.size < 32, 429);
         devices.set(key, { id: key, name: body.name, publicKey: body.publicKey, owner, created: previous?.created ?? clock(), expiresAt: clock() + 60_000 });
@@ -141,6 +144,10 @@ export function createRendezvous({ authorize, isActive, clock = Date.now, server
       outgoing.sequence = body.sequence; outgoing.queue.push(body); outgoing.receipts.set(body.sequence, digest);
       if (outgoing.receipts.size > 32) outgoing.receipts.delete(outgoing.receipts.keys().next().value);
       send(201, { sequence: body.sequence });
+    },
+    dropDevice(id) {
+      devices.delete(id);
+      for (const [sessionId, session] of sessions) if (session.from === id || session.to === id) sessions.delete(sessionId);
     },
     clear() { devices.clear(); sessions.clear(); },
   };
