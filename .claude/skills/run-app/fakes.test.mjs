@@ -108,6 +108,8 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     const unknown = await exec('docker logs -f --tail 500 nope');
     let err = '';
     unknown.stderr.on('data', data => { err += data.toString(); });
+    // stdout must be read too: an unread ssh2 stream stays paused and never emits 'close'.
+    unknown.resume();
     const code = await new Promise(resolve => unknown.on('close', resolve));
     expect(code).toBe(1);
     expect(err).toContain('No such container: nope');
