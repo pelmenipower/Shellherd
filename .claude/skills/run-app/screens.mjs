@@ -279,6 +279,21 @@ const blocks = {
     await waitFor('Container-Tabelle', `${count('.kube-table tbody tr')} >= 6`);
     await pause(300);
     await shot('containers');
+    // Regression: the embedded log terminal must follow the dock height (it kept its first 24 rows before).
+    await click('.kube-table tbody tr >> nth=0');
+    await call('eval', `[...document.querySelectorAll('.kube-dock-tab')].find(b => b.textContent.trim().startsWith('Logs')).click()`);
+    await waitFor('Log-Terminal', `!!document.querySelector('.kube-dock-terminal .xterm-screen')`);
+    await pause(500);
+    const height = selector => evaluate(`Math.round(document.querySelector('${selector}').getBoundingClientRect().height)`);
+    const before = await height('.kube-dock-terminal .terminal-container');
+    await call('eval', `const h = document.querySelector('.kube-dock-handle'); const r = h.getBoundingClientRect(); const x = r.left + 50, y = r.top + 3;
+      h.setPointerCapture = () => {}; h.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y - 200, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y - 200, pointerId: 1 }));`);
+    await pause(500);
+    const after = await height('.kube-dock-terminal .terminal-container');
+    const panel = await height('.kube-dock-terminal .terminal-panel');
+    if (!(after >= before + 150 && after <= panel)) throw new Error(`Log-Terminal folgt der Dock-Höhe nicht: vorher ${before}, nachher ${after}, Panel ${panel}`);
   },
   async kubernetes() {
     if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) {
