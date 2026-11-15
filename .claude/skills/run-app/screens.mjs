@@ -74,6 +74,18 @@ async function hoverLink(link) {
 }
 
 // Closes open dialogs and every terminal tab (confirming the close dialog if one appears) so each block starts from the same state.
+// Regression: xterm's helper textarea was 64 px high (global textarea rule) and scrolled the clipped host,
+// hiding the top rows under the search bar. The first row must start below the bar and the textarea stay one row high.
+async function rowsBelowSearchBar(scope, label) {
+  const geometry = await evaluate(`(() => { const root = document.querySelector(${JSON.stringify(scope)});
+    const bar = root.querySelector('.terminal-search')?.getBoundingClientRect(); const row = root.querySelector('.xterm-rows > div')?.getBoundingClientRect();
+    const area = root.querySelector('.xterm-helper-textarea')?.getBoundingClientRect();
+    return { bar: bar ? Math.round(bar.bottom) : null, row: row ? Math.round(row.top) : null, rowHeight: row ? Math.round(row.height) : 0, area: area ? Math.round(area.height) : 0 }; })()`);
+  if (geometry.bar === null || geometry.row === null) throw new Error(`${label}: Suchleiste oder Zeilen fehlen ${JSON.stringify(geometry)}`);
+  if (geometry.row < geometry.bar - 1) throw new Error(`${label}: erste Zeile liegt unter der Suchleiste ${JSON.stringify(geometry)}`);
+  if (geometry.area > geometry.rowHeight * 2) throw new Error(`${label}: Hilfs-Textarea zu hoch ${JSON.stringify(geometry)}`);
+}
+
 async function closeTabs() {
   // demo-setup may leave the settings dialog open; it would intercept every click.
   if (await evaluate(`!!document.querySelector('dialog[open]')`)) { await key('Escape'); await pause(300); }
@@ -389,9 +401,7 @@ const blocks = {
       await key('Enter');
       await waitFor('aktiver Treffer', `!!document.querySelector('${ACTIVE_DECORATION}')`);
       await pause(300);
-      // Regression: the xterm host must never scroll inside itself (rows hidden under the search bar, gap below).
-      const hostScroll = await evaluate(`document.querySelector('.kube-dock-terminal .terminal-container').scrollTop`);
-      if (hostScroll !== 0) throw new Error(`Log-Terminal ist im Container um ${hostScroll} px verschoben`);
+      await rowsBelowSearchBar('.kube-dock-terminal', 'Log-Terminal');
       await shot('container-logs-search');
       // B3: a pure option change with the same term recounts the matches (Aa on turns "error" into no hits, off brings them back).
       await click(option('Regulärer Ausdruck'));
@@ -1073,6 +1083,14 @@ const blocks = {
     await call('type', 'load');
     await waitFor('Suchleiste mit Treffer', `!!document.querySelector('.terminal-search') && document.querySelector('.terminal-search-status')?.textContent.includes(' von ') && !!document.querySelector('${ACTIVE_DECORATION}')`);
     await searchCount('terminal-search');
+    // Fill the screen so the cursor (and xterm's helper textarea) sits on the last row, then type: the host must not scroll.
+    await click('.xterm-helper-textarea >> nth=0');
+    for (let i = 0; i < 40; i++) await key('Enter');
+    await call('type', 'x');
+    await pause(500);
+    await rowsBelowSearchBar('.split-terminal-stage .terminal-panel:not([hidden])', 'Terminal');
+    await key('Control+Shift+F');
+    await call('type', 'load');
     await pause(300);
     await shot('terminal-search');
   },
