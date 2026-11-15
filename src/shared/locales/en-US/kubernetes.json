@@ -192,8 +192,6 @@
     "start": "Show logs of all pods",
     "filter": "Filter",
     "filterLabel": "Filter logs (text or pod)",
-    "follow": "Follow",
-    "followNew": "Follow ({{count}} new)",
     "sources": "Sources",
     "ended": "ended",
     "failed": "error",
@@ -208,7 +206,10 @@
     "dropped_other": "{{count}} lines skipped (too many at once)",
     "olderHidden_one": "1 older match not shown; Copy includes it.",
     "olderHidden_other": "{{count}} older matches not shown; Copy includes them.",
-    "linesLabel": "Logs of all pods"
+    "linesLabel": "Logs of all pods",
+    "newer_one": "1 new line",
+    "newer_other": "{{count}} new lines",
+    "search": "Search the logs of all pods"
   },
   "forwards": {
     "item": "127.0.0.1:{{port}} → {{target}}",

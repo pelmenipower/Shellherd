@@ -28,7 +28,7 @@ import { DIAGNOSE_MAX_CHARS } from '../../../src/shared/kubernetes';
 import { deniedAccess } from '../../../src/shared/kube-access';
 import { streamChat } from '../../../src/main/ai/providers';
 import { SecretMasker } from '../../../src/main/ai/secret-mask';
-import { startSshd } from './sshd.mjs';
+import { DOCKER_LOG_HEAD, dockerLogLine, dockerLogsRef, startSshd } from './sshd.mjs';
 import { DEMO_TOTP, seedSftp } from './fixtures.mjs';
 import { findOpenssl, KUBE_REQUEST_LOG, KUBE_TOKEN, startKubeFake } from './kube-fake.mjs';
 import { HARBOR_DIGEST, HARBOR_HOST, KUBE_SECRETS } from './kube-fixtures.mjs';
@@ -38,6 +38,24 @@ import { startRendezvousFake } from './rendezvous.mjs';
 import { probeSyncServer } from '../../../scripts/sync-prototype/http-common.mjs';
 import { AccountStore } from '../../../scripts/sync-prototype/account-transport.mjs';
 import { createDeviceIdentity } from '../../../scripts/sync-prototype/device-proof.mjs';
+
+describe('docker logs fake', () => {
+  it('matches only the exact command and returns the container name', () => {
+    expect(dockerLogsRef('PATH="$PATH:/usr/sbin:/sbin" docker logs -f --tail 500 api')).toBe('api');
+    expect(dockerLogsRef('docker logs -f --tail 500 cron-legacy')).toBe('cron-legacy');
+    expect(dockerLogsRef('docker logs -f --tail 500 api; rm -rf /')).toBeUndefined();
+    expect(dockerLogsRef('docker logs -f --tail 100 api')).toBeUndefined();
+    expect(dockerLogsRef('mydocker logs -f --tail 500 api')).toBeUndefined();
+  });
+
+  it('makes every tenth line an ERROR, the rest GET lines, each one distinct', () => {
+    const lines = Array.from({ length: DOCKER_LOG_HEAD }, (_, n) => dockerLogLine('api', n));
+    expect(lines.filter(line => line.startsWith('ERROR '))).toHaveLength(DOCKER_LOG_HEAD / 10);
+    expect(lines.filter(line => line.startsWith('GET /api/orders 200 '))).toHaveLength(DOCKER_LOG_HEAD - DOCKER_LOG_HEAD / 10);
+    expect(new Set(lines).size).toBe(DOCKER_LOG_HEAD);
+    expect(lines.every(line => !/[\r\n]/.test(line))).toBe(true);
+  });
+});
 
 // Windows only: ssh2 server tests are flaky on Linux CI (see sftp-loopback.test.ts).
 describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real app code', { timeout: 20_000 }, () => {
@@ -73,6 +91,28 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect(parseContainerRows('docker', lists.containers.stdout)).toHaveLength(6);
 
     expect((await host.run('rm -rf /', 5000)).code).toBe(127);
+  });
+
+  it('streams docker logs with CRLF, keeps following and refuses unknown containers', async () => {
+    const client = await sshClient((await start('logs')).port);
+    const exec = command => new Promise((resolve, reject) => client.exec(command, { pty: true }, (error, stream) => (error ? reject(error) : resolve(stream))));
+    const stream = await exec('PATH="$PATH:/usr/sbin:/sbin" docker logs -f --tail 500 api');
+    let text = '';
+    stream.on('data', data => { text += data.toString(); });
+    for (const end = Date.now() + 5000; !text.includes(`#${DOCKER_LOG_HEAD}\r\n`) && Date.now() < end; await new Promise(resolve => setTimeout(resolve, 50)));
+    stream.close();
+    expect(text).toContain(`${dockerLogLine('api', 0)}\r\n`);
+    expect(text).toContain(`${dockerLogLine('api', DOCKER_LOG_HEAD)}\r\n`);
+    expect(text).not.toMatch(/[^\r]\n/);
+
+    const unknown = await exec('docker logs -f --tail 500 nope');
+    let err = '';
+    unknown.stderr.on('data', data => { err += data.toString(); });
+    // stdout must be read too: an unread ssh2 stream stays paused and never emits 'close'.
+    unknown.resume();
+    const code = await new Promise(resolve => unknown.on('close', resolve));
+    expect(code).toBe(1);
+    expect(err).toContain('No such container: nope');
   });
 
   it('serves the root shell and the start commands', async () => {

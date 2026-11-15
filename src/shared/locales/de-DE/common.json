@@ -15,6 +15,10 @@
   "status": {
     "saving": "Speichert …"
   },
+  "logs": {
+    "autoScroll": "Automatisch scrollen",
+    "search": "In Logs suchen (Strg+F)"
+  },
   "wait": "Einen Moment …",
   "truncated": "(gekürzt)",
   "none": "keine",
