@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|container-logs|kube-ai|kube-links|kube-direct|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|container-logs|kube-ai|kube-links|kube-direct|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|file-drop|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -1069,6 +1069,26 @@ const blocks = {
     await shot('welcome');
   },
   // Search bar over the output of uptime: Strg+Umschalt+F opens it, typing selects the first match.
+  // The ".term hier loslassen" hint must go away when a file is dropped on an area that handles the drop itself
+  // and stops propagation (SFTP server pane, vault tree). A probe element plays that area; no file is opened.
+  async 'file-drop'() {
+    const hint = `document.querySelector('.file-drop-hint')`;
+    await call('eval', `const probe = document.createElement('div'); probe.id = 'drop-probe'; document.body.append(probe);
+      probe.addEventListener('dragover', event => { event.preventDefault(); event.stopPropagation(); });
+      probe.addEventListener('drop', event => { event.preventDefault(); event.stopPropagation(); });
+      const files = () => { const data = new DataTransfer(); data.items.add(new File(['x'], 'probe.txt')); return data; };
+      window.__dropProbeFiles = files;
+      probe.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: files() }));
+      window.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: files() }));
+      return true;`);
+    await waitFor('Hinweis erscheint', `!!${hint}`, { timeout: 3000 });
+    await call('eval', `document.getElementById('drop-probe').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: window.__dropProbeFiles() })); return true;`);
+    try {
+      await waitFor('Hinweis verschwindet nach Drop auf einen eigenen Bereich', `!${hint}`, { timeout: 3000 });
+    } finally {
+      await call('eval', `document.getElementById('drop-probe')?.remove(); delete window.__dropProbeFiles; window.dispatchEvent(new DragEvent('dragleave', { bubbles: true })); return true;`);
+    }
+  },
   async 'terminal-search'() {
     await click(web01);
     await key('Enter');

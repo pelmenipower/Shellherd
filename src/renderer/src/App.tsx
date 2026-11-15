@@ -317,14 +317,19 @@ export default function App() {
         granted => openVaultFileRef.current(granted),
         error => notify.info(t('app:notices.vaultPathRefusedTitle'), { body: errorText(error) }));
     };
+    // Capture phase: areas that take the drop themselves (SFTP server side, vault tree) stop propagation, so the
+    // bubbling drop above never arrives there; the hint must still go away.
+    const end = (): void => setFileDragActive(false);
     window.addEventListener('dragover', over);
     window.addEventListener('dragleave', leave);
     window.addEventListener('drop', drop);
+    window.addEventListener('drop', end, true);
     window.addEventListener('dragend', leave);
     return () => {
       window.removeEventListener('dragover', over);
       window.removeEventListener('dragleave', leave);
       window.removeEventListener('drop', drop);
+      window.removeEventListener('drop', end, true);
       window.removeEventListener('dragend', leave);
     };
   }, [t]);
