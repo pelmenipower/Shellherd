@@ -84,7 +84,7 @@ Rechtsklick fügt den Text aus der Zwischenablage in das angeklickte Terminal ei
 Das Einfügen läuft über xterm und berücksichtigt den Bracketed-Paste-Modus des
 Servers. Die üblichen Kopier- und Einfüge-Tastenkürzel bleiben verfügbar.
 
-Im Terminal suchst du mit `Strg+Umschalt+F`. `Enter` sucht weiter, `Umschalt+Enter` zurück, `Esc` schließt die Suche. Groß- und Kleinschreibung spielen keine Rolle. Treffer werden über die Auswahl markiert und nicht in die Zwischenablage kopiert. In den Terminals der Docks in Container- und Cluster-Ansicht gibt es keine Suche; dort geht `Strg+Umschalt+F` an das Terminal.
+Im Terminal suchst du mit `Strg+Umschalt+F`, in Logs und Log-Docks zusätzlich mit `Strg+F` (siehe [In Logs suchen](#in-logs-suchen)). `Enter` und `F3` springen zum nächsten Treffer, `Umschalt+Enter` und `Umschalt+F3` zurück, `Esc` schließt die Suche. Die Optionen `Aa` (Groß-/Kleinschreibung beachten), `.*` (regulärer Ausdruck) und `ab` (ganzes Wort) sind anfangs aus; ohne `Aa` spielt die Schreibweise keine Rolle. Neben der Leiste steht der Zähler, etwa „1 von 100“, ab 1.000 Treffern „mehr als 1.000 Treffer“. Der aktuelle Treffer hat einen Rand, alle Treffer eine gelbe Fläche. Bei offener Suche kopiert nur eine Auswahl mit der Maus in die Zwischenablage; ein Treffer, den die Suche selbst markiert, wird nicht kopiert. In den Shell-Terminals der Docks in Container- und Cluster-Ansicht gibt es keine Suche; dort gehen `Strg+F` und `Strg+Umschalt+F` an das Terminal.
 
 Links öffnest du mit `Strg+Klick`. Erlaubt sind nur `http`- und `https`-Adressen bis 2048 Zeichen ohne Benutzername und Passwort; alles andere bleibt Text. Beim Überfahren eines Links zeigt das Terminal einen Hinweis, der das Ziel nennt: „Strg+Klick öffnet <Host> im Browser“. Erscheint ein Link unter der ruhenden Maus, bewege die Maus kurz auf eine andere Zeile.
 
@@ -112,6 +112,7 @@ Einstellungen → Vault → `Mit Windows Hello entsperren (PIN, Gesicht oder Fin
 | `Strg+,` | Einstellungen öffnen |
 | `Strg+Umschalt+K` | KI-Assistenten ein- oder ausblenden |
 | `Strg+Umschalt+F` | Suche im Terminal |
+| `Strg+F` | Suche in Logs (Log-Docks, Log-Tabs und „Logs aller Pods“) |
 | `Strg+Klick` | Link im Terminal öffnen (nur http und https) |
 | `Strg+Tab` | Nächsten Tab im fokussierten Bereich wählen |
 | `Strg+Umschalt+Tab` | Vorherigen Tab im fokussierten Bereich wählen |
@@ -502,7 +503,9 @@ Knopfdruck, nur bei laufenden Containern) und Inspect (`i`). Bei Images, Volumes
 Netzwerken gibt es nur Inspect. Starten läuft ohne Nachfrage. Stoppen, Neu starten
 und Entfernen öffnen einen Dialog; beim Entfernen von Containern, Images und Volumes
 muss man den Namen bzw. die Referenz eintippen. Verwendete Images und Volumes lassen
-sich nicht entfernen.
+sich nicht entfernen. Im Logs-Reiter schaltet das Häkchen `Automatisch scrollen` das Mitlaufen ab,
+und `Strg+F` oder die Lupe öffnet die Suche (siehe [In Logs suchen](#in-logs-suchen) und
+[Automatisch scrollen](#automatisch-scrollen)).
 
 Grenzen:
 
@@ -515,6 +518,28 @@ Grenzen:
   sich jeder Poll einmal per sudo an; das steht im Auth-Log des Hosts.
 - Fehlt die Laufzeit eines festen Tabs auf dem Host, zeigt der Tab einen Fehler. Im
   Hintergrund prüft er nur noch ohne sudo, ob sie wieder da ist.
+
+### In Logs suchen
+
+In jedem Log-Terminal (Logs im Dock der Container- und Cluster-Ansicht, ein per `Als Tab öffnen` geöffneter Log-Tab) und in `Logs aller Pods` öffnet `Strg+F` die Suchleiste, ebenso die Lupe im Dock. `Enter` und `F3` springen weiter, `Umschalt+Enter` und `Umschalt+F3` zurück, `Esc` schließt. Die Optionen `Aa`, `.*` und `ab` und der Zähler „1 von n“ verhalten sich wie bei der Terminal-Suche. Ein ungültiger regulärer Ausdruck färbt das Feld rot und meldet „Ungültiger regulärer Ausdruck“.
+
+- **Terminal-Logs:** Die Suche läuft über den ganzen Scrollback des Terminals. Der Zähler aktualisiert sich bei wachsenden Logs erst 200 Millisekunden nach der letzten Ausgabe und nach einer Größenänderung; bei Dauerausgabe bleibt er stehen, bis eine Pause kommt. Der aktuelle Treffer bleibt dabei erhalten.
+- **Zwischenablage:** Bei offener Suche kopiert nur eine Auswahl mit der Maus. Nachlaufende Logzeilen und Sprünge zum nächsten Treffer überschreiben die Zwischenablage nie.
+- **Farben:** Der aktuelle Treffer hat einen Rand, die übrigen Treffer eine gelbe Fläche. Im hellen Design ist die Fläche der übrigen Treffer dezent; Zähler und Rand tragen die Information. Neue Farben (etwa nach einem Wechsel des Designs) greifen bei der nächsten Suchaktion: Tippen, `Enter`, `F3` oder eine Option.
+- **Reguläre Ausdrücke und ReDoS:** Ein katastrophales Muster (etwa `(a+)+$`) kann die Oberfläche blockieren, weil es bei jeder Aktualisierung über den ganzen Scrollback läuft, in `Logs aller Pods` über höchstens 2.000 Zeilen. Shellherd bricht ein solches Muster nicht ab. Schließe die Suche oder starte Shellherd neu, wenn die Oberfläche hängt, und nimm einfache Muster.
+- **Mehr als 1.000 Treffer:** Der Zähler sagt „mehr als 1.000 Treffer“. Im Terminal springt die Suche weiter; in `Logs aller Pods` reicht die Navigation nur über die ersten 1.000 Treffer in Listenreihenfolge.
+
+### Automatisch scrollen
+
+Über jedem Log-Terminal im Dock und bei `Logs aller Pods` steht das Häkchen `Automatisch scrollen`. Es gilt je Log-Ziel (Container, Pod, „Logs aller Pods“ einer Zeile) und merkt sich seinen Zustand, solange du zwischen Zielen wechselst; ein neues Ziel startet mit „an“.
+
+- **An:** Neue Zeilen erscheinen unten, die Ansicht folgt dem Ende.
+- **Aus:** Die Ansicht bleibt stehen, auch wenn neue Zeilen kommen. Bei `Logs aller Pods` zeigt die Statuszeile „n neue Zeilen“.
+- **Hochscrollen schaltet aus.** Herunterscrollen schaltet nicht wieder ein; dafür das Häkchen setzen.
+- **Ein Sprung der Suche schaltet aus.** Eine Eingabe ohne Treffer ändert nichts.
+- **Einschalten springt ans Ende** und folgt wieder.
+
+Die Leiste im Hauptfenster-Tab eines Log-Terminals hat kein Häkchen; dort gilt das normale Verhalten von xterm.
 
 ## Kubernetes
 
@@ -630,7 +655,8 @@ Rechtsklick auf ein Deployment, StatefulSet, DaemonSet, einen Job oder einen Ser
 
 - **Sortierung:** nach dem Zeitstempel, den Kubernetes an jede Zeile hängt, in UTC (`HH:MM:SS.mmm`), auch wenn ein Node in Ortszeit läuft. Davor steht `pod/container` in einer von vier Farben. Laufen die Uhren der Nodes auseinander, kann die Reihenfolge zwischen Pods um diesen Versatz abweichen.
 - **Filtern und Quellen:** Das Feld `Filtern` zeigt nur Zeilen, die den Text enthalten, im Präfix oder in der Meldung; Treffer sind markiert. Ein Klick auf einen Container-Chip blendet ihn aus und wieder ein.
-- **Folgen:** Neue Zeilen erscheinen unten. Scrollst du nach oben, bleibt die Ansicht stehen, und `Folgen (12 neu)` zeigt, was dazugekommen ist; ein Klick springt ans Ende.
+- **Automatisch scrollen:** Das Häkchen im Kopf des Docks ersetzt den früheren Knopf `Folgen`. Ist es an, erscheinen neue Zeilen unten. Scrollst du nach oben, schaltet es sich aus, die Ansicht bleibt stehen, und die Statuszeile zeigt „12 neue Zeilen“. Setzt du das Häkchen wieder, springt die Liste ans Ende ([Automatisch scrollen](#automatisch-scrollen)).
+- **Suche:** `Strg+F`, auch mit dem Fokus in der Liste, oder die Lupe öffnet die Suchleiste ([In Logs suchen](#in-logs-suchen)). Sie durchsucht nur die angezeigten Zeilen, also die neuesten 2.000 Treffer des Filters, und nur den Zeilentext, nicht `pod/container` und Uhrzeit. Pro Zeile gilt eine Markierungsart: Wo die Suche trifft, ersetzt ihre Markierung die des Filters. Der Zähler aktualisiert sich bei neuen Zeilen mit; der aktuelle Treffer bleibt, solange er noch angezeigt wird. Ein katastrophaler regulärer Ausdruck kann die Oberfläche blockieren (ReDoS).
 - **Rollouts:** Neue Pods kommen von selbst dazu, sobald ihr Container läuft. Beendete Pods bleiben mit „beendet“ stehen. Startet ein Container neu, liest Shellherd ab der letzten Zeile weiter. Beendet ein Proxy oder Load Balancer einen ruhigen Stream, liest Shellherd nach 5 Sekunden weiter. Bricht ein Stream mit Fehler ab, zeigt der Chip „Fehler“ mit dem Grund im Tooltip; `Kompakt`/`Roh` umschalten startet die Ansicht neu.
 - **Kompakt / Roh** gilt wie bei einzelnen Logs; Farben aus der App werden entfernt. `Kopieren` nimmt alle Treffer mit, auch die nicht angezeigten.
 - **Grenzen:** höchstens 20 Container gleichzeitig (weitere warten und rücken nach), je Container die letzten 200 Zeilen, insgesamt 10 000 Zeilen, angezeigt die neuesten 2 000 Treffer. Zeilen über 4 000 Zeichen werden gekürzt. Kommen mehr als 8 000 Zeilen pro Sekunde, lässt Shellherd welche aus und sagt es. Nur `matchLabels` des Selectors zählen, wie bei „Pods anzeigen“; Init-Container sind nicht dabei. Nach 100 Containern in einer Ansicht kommen keine neuen mehr dazu; `Kompakt`/`Roh` umschalten startet die Ansicht neu.
