@@ -86,6 +86,7 @@ const desktopApi: DesktopApi = {
   updateStatus: () => ipcRenderer.invoke('app:update-status'),
   updateSetEnabled: enabled => ipcRenderer.invoke('app:update-set-enabled', enabled),
   updateSkip: version => ipcRenderer.invoke('app:update-skip', version),
+  updateInstall: () => ipcRenderer.invoke('app:update-install'),
   sshPrepare: request => ipcRenderer.invoke('ssh:prepare', request),
   sshConnect: request => ipcRenderer.invoke('ssh:connect', request),
   sshInput: request => ipcRenderer.invoke('ssh:input', request),

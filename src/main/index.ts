@@ -1,6 +1,9 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, powerMonitor, session, shell, webContents } from 'electron';
 import type { Rectangle, WebContents } from 'electron';
-import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { accessSync, chmodSync, constants as fsConstants, copyFileSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, isAbsolute, join } from 'node:path';
 
 import { createKnownHosts, registerSshIpcHandlers, requireSshSender } from './ssh/ipc';
 import { registerKnownHostsIpc } from './ssh/known-hosts-ipc';
@@ -34,13 +37,14 @@ import { webLinkHref } from '../shared/links';
 import { readAppSettings, writeAppSettings } from './app-settings';
 import { z } from 'zod';
 import { AppError } from '../shared/errors';
-import { capabilities } from './platform';
+import { capabilities, executableOnPath } from './platform';
 import { LANGUAGE_SETTINGS, LOCALE_ARG } from '../shared/locale';
 import { THEME_SETTINGS } from '../shared/theme';
 import { localeStore } from './locale';
 import { mainT, setMainLocale } from './i18n';
 import { localTestUrl, readImport } from './import-source';
 import { UPDATE_URL, UpdateChecker } from './update-check';
+import { UPDATE_VERSION, detectInstallKind, planUpdateLaunch } from './update-launch';
 import { RecentVaults } from './vault/recent-vaults';
 import type { SyncLabHost } from './sync-prototype/lab-host';
 import { registerGlobalDeviceGuards, registerPermissionHandlers } from './permissions';
@@ -50,7 +54,7 @@ import type { RemoteLabHost } from './remote/lab-host';
 
 import { IPC_CHANNELS } from '../shared/ipc';
 import { REMOTE_LAB_LIMITS } from '../shared/remote-lab';
-import type { VaultLockedInfo } from '../shared/ipc';
+import type { UpdateInstallKind, VaultLockedInfo } from '../shared/ipc';
 import { AutoLock } from './vault/auto-lock';
 import { vaultPathGrants } from './vault/path-grants';
 import {
@@ -59,6 +63,9 @@ import {
 } from './vault/ipc';
 
 
+/** Set once the in-app updater is about to quit the app: close guards skip their dialogs. */
+let updateQuitting = false;
+let updateStarted = false;
 let sshSessionManager: SshSessionManager;
 let containerDiscovery: ContainerDiscovery | undefined;
 let kubeSessions: KubeSessions | undefined;
@@ -190,6 +197,7 @@ function guardMainWindowClose(window: BrowserWindow, ownerId: number): void {
   let closing = false;
   let confirmingClose = false;
   window.on('close', event => {
+    if (updateQuitting) { closeOwnerSessions(ownerId); return; }
     if (closing || !hasAnySessions()) { closeSecondaryWindows(); return; }
     let confirm = true;
     try { confirm = vaultSessionManager.getSnapshot().vault.settings.confirmBeforeClosingSession; } catch { /* locked */ }
@@ -220,6 +228,7 @@ function guardSecondaryWindowClose(window: BrowserWindow, ownerId: number): void
     if (!window.isDestroyed()) window.close();
   };
   window.on('close', event => {
+    if (updateQuitting) { closeOwnerSessions(ownerId); return; }
     if (windowRegistry.closeAllowed(ownerId) || !hasOwnerSessions(ownerId)) { closeOwnerSessions(ownerId); return; }
     let confirm = true;
     try { confirm = vaultSessionManager.getSnapshot().vault.settings.confirmBeforeClosingSession; } catch { /* locked */ }
@@ -454,6 +463,16 @@ app.whenReady().then(async () => {
 
   // Test hook for the update URL: only a local fake server is accepted.
   const testUpdateUrl = localTestUrl(process.env.SHELLHERD_UPDATE_URL);
+  // Test hook: unpackaged run with a local update URL and an absolute log path; plans the launch but never spawns or quits.
+  const launchLog = process.env.SHELLHERD_UPDATE_LAUNCH_LOG ?? '';
+  const updateHook = !app.isPackaged && testUpdateUrl !== undefined && isAbsolute(launchLog);
+  const isWindows = process.platform === 'win32';
+  const installKind: UpdateInstallKind | null = updateHook
+    ? (isWindows ? 'setup' : 'deb')
+    : detectInstallKind({
+      platform: process.platform, env: process.env, execPath: process.execPath, isPackaged: app.isPackaged,
+      uninstallerExists: existsSync(join(dirname(process.execPath), 'Uninstall Shellherd.exe')),
+    });
   const updates = new UpdateChecker({
     current: app.getVersion(),
     settingsFile,
@@ -461,6 +480,7 @@ app.whenReady().then(async () => {
     now: Date.now,
     isUnlocked: () => vaultSessionManager.isUnlocked(),
     fetch: (url, init) => net.fetch(url, init),
+    installKind,
   });
   ipcMain.handle(IPC_CHANNELS.updateStatus, event => { windowRegistry.requireMain(event); return updates.status(); });
   ipcMain.handle(IPC_CHANNELS.updateSetEnabled, (event, enabled: unknown) => {
@@ -474,6 +494,52 @@ app.whenReady().then(async () => {
     const parsed = z.string().regex(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/).safeParse(version);
     if (!parsed.success) throw new AppError('core.invalidRequest');
     return updates.skip(parsed.data);
+  });
+  ipcMain.handle(IPC_CHANNELS.updateInstall, async event => {
+    windowRegistry.requireMain(event);
+    vaultSessionManager.getSnapshot();
+    const version = updates.state().available?.version;
+    if (!version || !UPDATE_VERSION.test(version)) throw new AppError('core.invalidRequest');
+    if (installKind === null) throw new AppError('core.updateUnsupported');
+    const appImage = process.env.APPIMAGE;
+    if (installKind === 'appimage') {
+      try { accessSync(dirname(appImage ?? ''), fsConstants.W_OK); } catch { throw new AppError('core.updateUnsupported'); }
+    }
+    let script: string;
+    if (isWindows) {
+      script = updateHook ? join(__dirname, '../../install.ps1') : join(process.resourcesPath, 'install.ps1');
+    } else {
+      // The bundled script may sit in the AppImage mount that vanishes on quit: run a private copy.
+      try {
+        const source = updateHook ? join(__dirname, '../../install.sh') : join(process.resourcesPath, 'install.sh');
+        const dir = mkdtempSync(join(tmpdir(), 'shellherd-update-'));
+        script = join(dir, 'install.sh');
+        copyFileSync(source, script);
+        chmodSync(script, 0o600);
+      } catch { throw new AppError('core.updateLaunchFailed'); }
+    }
+    const plan = planUpdateLaunch({
+      kind: installKind, version, pid: process.pid, script, execPath: process.execPath, env: process.env,
+      findOnPath: name => (updateHook ? `/usr/bin/${name}` : executableOnPath(name)),
+    });
+    if (updateHook) {
+      const hookEnv = Object.fromEntries(Object.entries(plan.env).filter(([key]) => key.startsWith('SHELLHERD_')));
+      try { writeFileSync(launchLog, JSON.stringify({ ...plan, env: hookEnv }, null, 2), { mode: 0o600 }); } catch { throw new AppError('core.updateLaunchFailed'); }
+      return;
+    }
+    if (plan.quitAfter && updateStarted) return;
+    const child = spawn(plan.command, plan.args, {
+      detached: true, stdio: 'ignore', shell: false, env: plan.env, cwd: isWindows ? tmpdir() : homedir(), windowsHide: isWindows,
+    });
+    await new Promise<void>((resolve, reject) => {
+      child.once('error', () => reject(new AppError('core.updateLaunchFailed')));
+      child.once('spawn', () => { child.unref(); resolve(); });
+    });
+    if (plan.quitAfter) {
+      updateQuitting = true;
+      updateStarted = true;
+      setTimeout(() => { closeSecondaryWindows(); closeAllSessions(); app.quit(); }, 300);
+    }
   });
 
   createMainWindow(settingsFile);
