@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,6 +8,8 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve('app-builder-lib/package.json'));
 const { listPackage } = builderRequire('@electron/asar');
+// FuseState.DISABLE of @electron/fuses (the enum is not exported at runtime).
+const FUSE_DISABLED = 0x30;
 
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const directory = await mkdtemp(join(tmpdir(), 'shellherd-package-'));
@@ -27,9 +30,11 @@ try {
     assert.ok(!files.some(file => /\.(exe|dll)$/i.test(file)), 'Windows binaries must not ship on Linux');
     assert.ok(!files.some(file => /^\/node_modules\/(?:vitest|typescript|electron-builder|playwright-core)\//.test(file)), 'Development tools must not ship');
     assert.ok(files.some(file => file.includes('node-pty') && file.endsWith('pty.node')));
-    // Use Electron's bundled Node runtime, including its rebuilt native PTY.
-    const probe = `const p=require(${JSON.stringify(join(root, 'resources/app.asar/node_modules/node-pty'))}).spawn('/bin/bash',['-c','printf packaged-pty-ok'],{cols:80,rows:24});let out='';p.onData(s=>out+=s);p.onExit(e=>{if(e.exitCode||!out.includes('packaged-pty-ok'))process.exitCode=1;});`;
-    execFileSync(join(root, 'shellherd'), ['-e', probe], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 10_000, stdio: 'pipe' });
+    // RunAsNode is off in packaged Linux builds, so the PTY is exercised in the running app (smoke-linux.mjs).
+    const wire = await getCurrentFuseWire(join(root, 'shellherd'));
+    assert.equal(wire[FuseV1Options.RunAsNode], FUSE_DISABLED, 'RunAsNode fuse must be disabled');
+    const pty = await readFile(join(root, 'resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node'));
+    assert.ok(pty.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) && pty.readUInt16LE(18) === 0x3e, 'pty.node must be an x86-64 ELF module');
   }
   const profile = await readFile(join(directory, 'deb/opt/Shellherd/resources/apparmor-profile'), 'utf8');
   assert.ok(profile.includes('/opt/Shellherd/shellherd') && profile.includes('userns,'));
