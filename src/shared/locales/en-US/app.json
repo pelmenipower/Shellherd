@@ -303,9 +303,21 @@
     "title": "Shellherd {{version}} is available",
     "notes": "View release notes",
     "skip": "Skip this version",
+      "install": "Update now",
+      "download": "Download new version",
+      "confirm": {
+        "title": "Install Shellherd {{version}}?",
+        "titleDownload": "Download Shellherd {{version}}?",
+        "install": "Update",
+        "download": "Download",
+        "deb": "Shellherd will close and open connections will end. A terminal window downloads the package, checks its signature and checksum and installs it through APT; it asks for your password. Shellherd then restarts.",
+        "appimage": "Shellherd will close and open connections will end. A terminal window downloads the new AppImage file, checks its signature and checksum and replaces the current file. Shellherd then restarts.",
+        "setup": "Shellherd will close and open connections will end. A PowerShell window downloads the setup, checks its signature and checksum and installs it without questions. Shellherd then restarts.",
+        "portable": "A PowerShell window downloads the new portable EXE into the folder of the current file and checks its signature and checksum. Shellherd keeps running; start the new file afterwards."
+      },
     "setting": {
       "label": "Check for new versions",
-      "hint": "At most once a day, after unlocking, Shellherd asks GitHub for the latest version and shows it in the status bar. Only the request itself is sent, nothing from the vault. You install updates yourself."
+      "hint": "At most once a day, after unlocking, Shellherd asks GitHub for the latest version and shows it in the status bar. Only the request itself is sent, nothing from the vault. You start the update yourself from the hint in the status bar."
     }
   },
   "recent": {

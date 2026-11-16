@@ -303,9 +303,21 @@
     "title": "Shellherd {{version}} ist verfügbar",
     "notes": "Release-Notes ansehen",
     "skip": "Diese Version überspringen",
+      "install": "Jetzt aktualisieren",
+      "download": "Neue Version herunterladen",
+      "confirm": {
+        "title": "Shellherd {{version}} installieren?",
+        "titleDownload": "Shellherd {{version}} herunterladen?",
+        "install": "Aktualisieren",
+        "download": "Herunterladen",
+        "deb": "Shellherd wird geschlossen, offene Verbindungen enden. Ein Terminalfenster lädt das Paket, prüft Signatur und Prüfsumme und installiert es über APT; dafür fragt es nach deinem Passwort. Danach startet Shellherd neu.",
+        "appimage": "Shellherd wird geschlossen, offene Verbindungen enden. Ein Terminalfenster lädt die neue AppImage-Datei, prüft Signatur und Prüfsumme und ersetzt die aktuelle Datei. Danach startet Shellherd neu.",
+        "setup": "Shellherd wird geschlossen, offene Verbindungen enden. Ein PowerShell-Fenster lädt das Setup, prüft Signatur und Prüfsumme und installiert es ohne Rückfragen. Danach startet Shellherd neu.",
+        "portable": "Ein PowerShell-Fenster lädt die neue portable EXE in den Ordner der aktuellen Datei und prüft Signatur und Prüfsumme. Shellherd läuft weiter; starte danach die neue Datei."
+      },
     "setting": {
       "label": "Nach neuen Versionen suchen",
-      "hint": "Höchstens einmal am Tag fragt Shellherd nach dem Entsperren bei GitHub nach der neuesten Version und zeigt sie in der Statusleiste. Gesendet wird nur die Anfrage selbst, nichts aus dem Vault. Installieren musst du selbst."
+      "hint": "Höchstens einmal am Tag fragt Shellherd nach dem Entsperren bei GitHub nach der neuesten Version und zeigt sie in der Statusleiste. Gesendet wird nur die Anfrage selbst, nichts aus dem Vault. Das Update startest du selbst aus dem Hinweis in der Statusleiste."
     }
   },
   "recent": {
