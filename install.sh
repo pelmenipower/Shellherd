@@ -60,7 +60,7 @@ on_exit() {
   if ((from_app)) && [[ -z $handoff && -t 0 ]]; then
     if ((status != 0)); then
       printf '\nShellherd: Das Update ist fehlgeschlagen. Die bisherige Version bleibt installiert.\n'
-      printf 'Starte Shellherd über das Anwendungsmenü neu.\n'
+      printf 'Falls Shellherd nicht mehr läuft, starte es neu.\n'
     fi
     printf '\nEnter zum Schließen '
     read -r _ || true

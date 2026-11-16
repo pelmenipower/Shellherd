@@ -313,7 +313,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     } catch {
         if (-not $ownsWindow) { throw }
         Write-Host $_.Exception.Message -ForegroundColor Red
-        Write-Host 'Starte Shellherd ueber das Startmenue neu.'
+        Write-Host 'Falls Shellherd nicht mehr laeuft, starte es neu.'
         $failed = $true
     } finally {
         if ($ownsWindow) {

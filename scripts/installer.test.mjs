@@ -290,7 +290,7 @@ sys.stdout.write(out.decode('utf8','replace'));sys.exit(os.waitstatus_to_exitcod
         expect(result.status).toBe(1);
         expect(result.stdout).toContain('Unbekanntes Argument: --bogus');
         expect(result.stdout).toContain('Das Update ist fehlgeschlagen.');
-        expect(result.stdout).toContain('Starte Shellherd über das Anwendungsmenü neu.');
+        expect(result.stdout).toContain('Falls Shellherd nicht mehr läuft, starte es neu.');
         expect(result.stdout).toContain('Enter zum Schließen');
       });
     });

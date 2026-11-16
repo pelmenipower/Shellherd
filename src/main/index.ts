@@ -1,7 +1,7 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, powerMonitor, session, shell, webContents } from 'electron';
 import type { Rectangle, WebContents } from 'electron';
 import { spawn } from 'node:child_process';
-import { accessSync, chmodSync, constants as fsConstants, copyFileSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants as fsConstants, copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 
@@ -505,26 +505,32 @@ app.whenReady().then(async () => {
     if (installKind === 'appimage') {
       try { accessSync(dirname(appImage ?? ''), fsConstants.W_OK); } catch { throw new AppError('core.updateUnsupported'); }
     }
+    if (installKind !== 'portable' && updateStarted) return;
     let script: string;
+    let stagedDir: string | null = null;
+    const dropStaged = (): void => { if (stagedDir) rmSync(stagedDir, { recursive: true, force: true }); };
     if (isWindows) {
       script = updateHook ? join(__dirname, '../../install.ps1') : join(process.resourcesPath, 'install.ps1');
     } else {
       // The bundled script may sit in the AppImage mount that vanishes on quit: run a private copy.
       try {
         const source = updateHook ? join(__dirname, '../../install.sh') : join(process.resourcesPath, 'install.sh');
-        const dir = mkdtempSync(join(tmpdir(), 'shellherd-update-'));
-        script = join(dir, 'install.sh');
+        stagedDir = mkdtempSync(join(tmpdir(), 'shellherd-update-'));
+        script = join(stagedDir, 'install.sh');
         copyFileSync(source, script);
         chmodSync(script, 0o600);
-      } catch { throw new AppError('core.updateLaunchFailed'); }
+      } catch { dropStaged(); throw new AppError('core.updateLaunchFailed'); }
     }
-    const plan = planUpdateLaunch({
-      kind: installKind, version, pid: process.pid, script, execPath: process.execPath, env: process.env,
-      findOnPath: name => (updateHook ? `/usr/bin/${name}` : executableOnPath(name)),
-    });
+    let plan: ReturnType<typeof planUpdateLaunch>;
+    try {
+      plan = planUpdateLaunch({
+        kind: installKind, version, pid: process.pid, script, execPath: process.execPath, env: process.env,
+        findOnPath: name => (updateHook ? `/usr/bin/${name}` : executableOnPath(name)),
+      });
+    } catch (error) { dropStaged(); throw error; }
     if (updateHook) {
       const hookEnv = Object.fromEntries(Object.entries(plan.env).filter(([key]) => key.startsWith('SHELLHERD_')));
-      try { writeFileSync(launchLog, JSON.stringify({ ...plan, env: hookEnv }, null, 2), { mode: 0o600 }); } catch { throw new AppError('core.updateLaunchFailed'); }
+      try { writeFileSync(launchLog, JSON.stringify({ ...plan, env: hookEnv }, null, 2), { mode: 0o600 }); } catch { throw new AppError('core.updateLaunchFailed'); } finally { dropStaged(); }
       return;
     }
     if (plan.quitAfter && updateStarted) return;
@@ -536,6 +542,7 @@ app.whenReady().then(async () => {
     await new Promise<void>((resolve, reject) => {
       child.once('error', () => {
         if (plan.quitAfter) updateStarted = false;
+        dropStaged();
         reject(new AppError('core.updateLaunchFailed'));
       });
       child.once('spawn', () => { child.unref(); resolve(); });

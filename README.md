@@ -314,7 +314,7 @@ Found a vulnerability? Please open a [private security advisory](https://github.
 
 ## Privacy
 
-Shellherd makes no requests of its own besides these two. Connections you open (SSH, SFTP, containers, Kubernetes, RDP) go only to the hosts you configured. Argo CD and Harbor links open in your browser only after your click; Shellherd itself never contacts either.
+Shellherd makes no requests of its own besides the ones listed here. Connections you open (SSH, SFTP, containers, Kubernetes, RDP) go only to the hosts you configured. Argo CD and Harbor links open in your browser only after your click; Shellherd itself never contacts either.
 
 - **AI providers** (optional): once you set one up, the assistant sends your questions and the terminal output it reads to the endpoint you chose.
 - **Update check** (on by default): at most once a day, after unlocking, Shellherd asks GitHub for the latest release. The request contains only your IP address and `User-Agent: Shellherd/<version>`, nothing from the vault. Turn it off under Settings → General.
