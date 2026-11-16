@@ -7,31 +7,32 @@
   "connect": "Verbinden",
   "username": "Benutzername",
   "password": "Serverpasswort",
-  "signIn": "Anmelden",
+  "signIn": "Gerät anmelden",
   "signedInAs": "Angemeldet als {{username}}",
   "deviceName": "Name dieses Geräts",
   "goOnline": "Dieses Gerät online melden",
   "goOffline": "Offline gehen",
   "online": "Online als {{name}} · Anmeldung gültig bis {{time}}",
   "fingerprintOwn": "Fingerabdruck dieses Geräts",
-  "identityTemporary": "Temporäre Geräteidentität: Dieser Rechner hat keine Schlüsselablage des Betriebssystems. Der Fingerabdruck ändert sich beim nächsten Start.",
+  "identityTemporary": "Temporäre Geräteidentität: Dieser Rechner hat keine Schlüsselablage des Betriebssystems. Fingerabdruck und Anmeldung gelten nur bis zum nächsten Start.",
   "devices": "Online-Geräte",
   "noDevices": "Kein anderes Gerät ist online.",
-  "compared": "Ich habe den Fingerabdruck auf dem anderen Gerät verglichen",
   "requestView": "Bildschirm ansehen",
   "waiting": "Warten auf Zustimmung am anderen Gerät …",
   "viewing": "Bildschirm von {{name}} · Sitzung endet {{time}}",
   "stop": "Verbindung beenden",
+  "viewerWindow": "Das Bild erscheint in einem eigenen Fenster „Fernansicht“. Es hat keinen Zugriff auf deinen Vault; Schließen beendet die Verbindung.",
   "consent": {
     "title": "Bildschirm freigeben?",
-    "body": "{{name}} möchte den Bildschirm dieses Geräts ansehen. Vergleiche den Fingerabdruck auf dem anderen Gerät.",
+    "body": "{{name}} möchte den Bildschirm dieses Geräts ansehen.",
     "fingerprint": "Fingerabdruck des anfragenden Geräts",
-    "known": "Bekannt seit {{date}}",
-    "unknown": "Noch nicht bekanntes Gerät",
     "expires": "Anfrage verfällt in {{seconds}} s",
+    "armedHint": "Der Systemdialog erscheint gleich. Bestätige dort noch einmal.",
+    "windowsHint": "Unter Windows nimmt Shellherd seine Fenster und RDP-Flächen aus dem übertragenen Bild aus.",
     "linuxHint": "Unter Linux bleibt auch das Shellherd-Fenster im übertragenen Bild sichtbar.",
     "accept": "Bildschirm freigeben",
-    "decline": "Ablehnen"
+    "decline": "Ablehnen",
+    "nativeHint": "Nach dem Klick fragt Shellherd in einem Systemdialog noch einmal nach."
   },
   "bar": {
     "viewing": "Bildschirm wird angesehen von {{name}} · seit {{time}}",
@@ -44,7 +45,8 @@
     "locked": "Die Verbindung wurde beendet, weil der Vault gesperrt wurde.",
     "declined": "Das andere Gerät hat die Anfrage abgelehnt.",
     "failed": "Die Verbindung ist fehlgeschlagen.",
-    "scope": "Steuerung wird noch nicht unterstützt. Nur Ansehen ist möglich."
+    "scope": "Steuerung wird noch nicht unterstützt. Nur Ansehen ist möglich.",
+    "mismatch": "Die Prüfung ist dreimal fehlgeschlagen. Die Anfrage wurde abgelehnt."
   },
   "errors": {
     "unavailable": "Der Fernzugriff ist in diesem Build nicht verfügbar.",
@@ -53,14 +55,36 @@
     "identity": "Die gespeicherte Geräteidentität ist beschädigt oder nicht lesbar. Sie wurde nicht ersetzt.",
     "locked": "Entsperre deinen Vault, um dieses Gerät online zu melden.",
     "connection": "Der Server ist nicht erreichbar.",
-    "authentication": "Anmeldung fehlgeschlagen oder abgelaufen.",
+    "authentication": "Anmeldung fehlgeschlagen, abgelaufen oder dieses Gerät wurde am Server entfernt.",
     "expired": "Die Anfrage ist abgelaufen. Stelle sie erneut.",
     "declined": "Das andere Gerät hat die Anfrage abgelehnt.",
     "mismatch": "Die Geräteprüfung ist fehlgeschlagen. Es wurde nichts übertragen.",
     "signal": "Die Verbindungsdaten sind ungültig oder zu groß. Es wurde nichts übertragen.",
     "media": "Die Bildschirmaufnahme wurde abgebrochen oder ist nicht verfügbar.",
+    "mediaWindow": "Das Fenster für die Fernansicht oder Freigabe konnte nicht geöffnet werden. Es wurde nichts übertragen.",
     "peer": "Keine direkte Verbindung möglich. Beide Geräte müssen im selben Netz sein.",
     "scope": "Steuerung wird noch nicht unterstützt. Nur Ansehen ist möglich.",
-    "limit": "Zu viele Anfragen oder Geräte. Warte kurz und versuche es erneut."
-  }
+    "limit": "Zu viele Anfragen oder Geräte. Warte kurz und versuche es erneut.",
+    "samePassword": "Das Serverpasswort darf nicht dein Vault-Passwort sein. Es wurde nichts an den Server gesendet.",
+    "enrolledElsewhere": "Dieses Gerät ist für diesen Server unter einer anderen Adresse angemeldet. Bestätige die Neuanmeldung ausdrücklich.",
+    "enrollmentLocked": "Dieser Server nimmt neue Geräte nur mit Anmeldecode an. Melde dieses Gerät zuerst im Sync-Lab mit einem Anmeldecode an."
+  },
+  "verify": {
+    "label": "Erste 16 Zeichen des Fingerabdrucks vom anderen Gerät (die ersten zwei Gruppen)",
+    "hint": "Lies sie auf dem anderen Gerät unter „Fingerabdruck dieses Geräts“ ab, nie aus einem Gerätenamen.",
+    "verified": "Geprüft am {{date}}",
+    "changed": "Der Fingerabdruck von {{name}} hat sich geändert. Prüfe ihn erneut."
+  },
+  "muted_one": "{{count}} Anfrage stummgeschaltet",
+  "muted_other": "{{count}} Anfragen stummgeschaltet",
+  "connecting": "Verschlüsselte Verbindung wird aufgebaut …",
+  "privateNetwork": {
+    "label": "Privates Netz (WireGuard/Tailscale): HTTP erlauben",
+    "hint": "Nur für eine WireGuard- oder Tailscale-Adresse dieses Servers. Außerhalb eines solchen Tunnels könnte das Netz Serverpasswort und Daten mitlesen. Dein Vault-Passwort bleibt lokal."
+  },
+  "openSession": "Sitzung öffnen",
+  "enrolledHint": "Dieses Gerät ist am Server angemeldet; der Server kennt nur seinen öffentlichen Schlüssel.",
+  "enrolledElsewhere": "Dieses Gerät ist für diesen Server unter {{url}} angemeldet. Ein fremder Server kann sich als dein Server ausgeben, indem er dieselbe Server-ID meldet. Melde dieses Gerät hier nur an, wenn du sicher bist, dass beide Adressen zu deinem Server gehören.",
+  "enrolledElsewhereConfirm": "Ich habe die Adresse geprüft und melde dieses Gerät hier neu an.",
+  "deviceNameHint": "1–64 Zeichen: Buchstaben, Ziffern, Leerzeichen und - _ . , ( ) '. Keine Folge von 8 oder mehr Zeichen aus 0–9 und a–f, auch nicht durch Leerzeichen getrennt, weil sie wie ein Prüfcode aussieht."
 }

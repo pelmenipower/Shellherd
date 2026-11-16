@@ -267,3 +267,52 @@ describe('Windows Hello in the session', () => {
     expect(() => manager.keyCopy(filePath, file.kdf.salt)).toThrow(expect.objectContaining({ code: 'core.vaultLocked' }));
   });
 });
+
+describe('VaultSessionManager.matchesPassword', () => {
+  async function unlocked(): Promise<{ manager: VaultSessionManager; password: string }> {
+    const { filePath, password } = await createTestVault();
+    const manager = new VaultSessionManager();
+    await manager.unlock(filePath, password);
+    return { manager, password };
+  }
+
+  it('is true for the same and false for a different or empty password', async () => {
+    const { manager, password } = await unlocked();
+    expect(await manager.matchesPassword(password)).toBe(true);
+    expect(await manager.matchesPassword(`${password}x`)).toBe(false);
+    expect(await manager.matchesPassword('')).toBe(false);
+  });
+
+  it('throws core.vaultLocked when locked', async () => {
+    const manager = new VaultSessionManager();
+    await expect(manager.matchesPassword('x')).rejects.toMatchObject({ code: 'core.vaultLocked' });
+  });
+
+  it('throws core.vaultLocked when locked during the derivation and leaves the key intact', async () => {
+    const { manager, password } = await unlocked();
+    const pending = manager.matchesPassword(password);
+    manager.lock();
+    await expect(pending).rejects.toMatchObject({ code: 'core.vaultLocked' });
+  });
+
+  it('keeps the session key byte-identical', async () => {
+    const { manager, password } = await unlocked();
+    const file = manager.helloTarget();
+    const before = manager.keyCopy(file.filePath, file.salt);
+    await manager.matchesPassword(password);
+    await manager.matchesPassword('other');
+    const after = manager.keyCopy(file.filePath, file.salt);
+    expect(after.equals(before)).toBe(true);
+  });
+
+  it('treats an NFKC-equivalent password as equal', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'terminus-session-test-'));
+    temporaryDirectories.push(directory);
+    const filePath = join(directory, 'nfkc.terminus');
+    const composed = 'pässwörd-synthetic';
+    await writeEncryptedVaultFile(filePath, await encryptVault(exampleVault, composed, { memoryKiB: 16_384, iterations: 1, parallelism: 1 }));
+    const manager = new VaultSessionManager();
+    await manager.unlock(filePath, composed);
+    expect(await manager.matchesPassword(composed.normalize('NFD'))).toBe(true);
+  });
+});

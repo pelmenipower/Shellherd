@@ -21,6 +21,8 @@ namespace Shellherd.RdpHost
         public IntPtr Parent;
         public ScreenRect Bounds;
         public bool Visible;
+        /// <summary>Global capture protection at open time; applied before the surface is first shown.</summary>
+        public bool Protect;
         /// <summary>Scale the last frame while the remote resolution changes.</summary>
         public bool SmartResize;
         /// <summary>False when an earlier session showed the server cannot resize dynamically.</summary>
@@ -60,7 +62,12 @@ namespace Shellherd.RdpHost
         private bool smartSizing;
         private readonly bool smartResize;
 
+        private string protection = "none";
+
         public string Id { get { return id; } }
+
+        /// <summary>Result of the last ApplyProtection: exclude, monitor, none, skipped or failed.</summary>
+        public string Protection { get { return protection; } }
 
         public RdpSession(OpenRequest request, Action<RdpSession> onClosed)
         {
@@ -112,6 +119,8 @@ namespace Shellherd.RdpHost
                     throw new InvalidOperationException("SetParent fehlgeschlagen: " + Marshal.GetLastWin32Error());
                 SetBounds(request.Bounds, 0);
             }
+            // Protect before the first frame can be captured. Child surfaces are skipped inside.
+            if (request.Protect) protection = ApplyProtection(true);
             window.Show();
             if (mode != SurfaceMode.Window && !request.Visible) SetVisible(false);
             Connect(request);
@@ -150,6 +159,20 @@ namespace Shellherd.RdpHost
         {
             if (mode == SurfaceMode.Window || closed) return;
             Native.ShowWindow(window.Handle, visible ? Native.SW_SHOWNA : Native.SW_HIDE);
+        }
+
+        /// <summary>
+        /// Excludes the top-level surface from screen capture. A child surface is part of the Electron
+        /// window, whose affinity Electron sets, so it is skipped. Returns exclude, monitor, none, skipped or failed.
+        /// </summary>
+        public string ApplyProtection(bool on)
+        {
+            if (closed || mode == SurfaceMode.Child) protection = "skipped";
+            else if (!on) protection = Native.SetWindowDisplayAffinity(window.Handle, Native.WDA_NONE) ? "none" : "failed";
+            else if (Native.SetWindowDisplayAffinity(window.Handle, Native.WDA_EXCLUDEFROMCAPTURE)) protection = "exclude";
+            else if (Native.SetWindowDisplayAffinity(window.Handle, Native.WDA_MONITOR)) protection = "monitor";
+            else protection = "failed";
+            return protection;
         }
 
         public void Focus()

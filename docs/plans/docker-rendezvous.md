@@ -15,6 +15,12 @@ Sicherheitsreview wird dadurch behauptet.
 
 Stand 2026-11-07: Der Server hat zusätzlich `POST /v1/refresh` (leerer Body, verlängert die Anmeldung um 15 Minuten, höchstens 12 Stunden ab Login, Token bleibt gleich; die Rendezvous-Bindung der Geräte bleibt erhalten). Der Rendezvous-Pfad wird vom Desktop-Meilenstein 1 „Fernzugriff (Ansehen)“ genutzt; `rendezvous.mjs` in `.claude/skills/run-app/` stellt dafür einen synthetischen Fake bereit. Verbleibende Lücken: Eingabeinjektion, TURN/Medienrelay, Betriebssystemdienst und unabhängiger Sicherheitsreview.
 
+Stand 2026-11-09: Härtung H1 am Server. Je Quelladresse (IPv6 je /64) gelten Budgets für Anfragen, Anmeldungen und Verbindungen. Fehlgeschlagene Anmeldungen bremst ein wachsender Backoff (429 mit `retry-after`), ein globales Aussperren des Besitzers gibt es nicht mehr. Hinter dem Caddy-Proxy sieht der Server nur `127.0.0.1`; dann setzt `SHELLHERD_SERVER_TRUSTED_PROXY=1` (nur bei Bindung des Ports an `127.0.0.1`) das letzte Element von `X-Forwarded-For` als Quelle. `PUT /v1/rendezvous/devices` verlangt jedes Mal einen Besitznachweis des Geräteschlüssels (Challenge, X25519-DH, HMAC), `/v1/info` meldet `rendezvousProof`. Je Paar ist nur eine offene Anfrage erlaubt, nach einem Ablehnen gilt 30 s Sperre. Dockerfile: Basisimage per Digest, `rate-limit.mjs` im Image. Caddyfile: `1MiB`, Timeouts. Gegen verteilte Floods hilft nur ein privates Netz (WireGuard/Tailscale, H2). Weiter kein unabhängiger Sicherheitsreview; Betriebshinweise in `server/README.md`.
+
+Historienvermerk (H3.1): Dieser Stand ist überholt. `SHELLHERD_SERVER_TRUSTED_PROXY` nimmt jetzt die IP des Proxys (z. B. das Gateway des Projektnetzes) statt `1`, und `SHELLHERD_SERVER_PUBLIC_URL` wird abgelehnt; maßgeblich ist `SHELLHERD_SERVER_ORIGIN` (siehe `server/README.md`).
+
+Stand 2026-11-09 (H2): Der Rendezvous-Kanal ist ein Noise-XX-Handshake (`{sequence, frame}` statt `{sequence, nonce, ciphertext, tag}`, `/v1/info` meldet `rendezvousNoise`); die Prüfung in der App nutzt 16 Hex-Zeichen. Neu: `DELETE /v1/vaults/<ns>/objects/<id>` (nur Serverkonto) und Kompaktierung der Vault-Historie (16 behalten, ab 32 Versionen, kumulatives `compacts` mit höchstens 256 Einträgen). `server/compose.wireguard.yaml` betreibt den Server ohne Proxy auf einer WireGuard-Adresse (`SHELLHERD_BIND_ADDR`, ohne `TRUSTED_PROXY`); Tailscale `serve` bleibt der einfachere erste Weg. Betriebshinweise in `server/README.md`, Abschnitt „Privates Netz“.
+
 ## Umsetzung
 
 1. Bestehenden Sync-Transport kompatibel weiterverwenden; Container-Listener nur
@@ -26,8 +32,10 @@ Stand 2026-11-07: Der Server hat zusätzlich `POST /v1/refresh` (leerer Body, ve
    Teilnehmer, Berechtigungsumfang und Ablauf fest binden. Verschlüsselte
    Nachrichten mit begrenzten Warteschlangen, Sequenzen und Quittierung vermitteln.
 4. Referenzclient mit lokalem Schlüssel und unabhängig verglichenem Fingerprint:
-   X25519, HKDF-SHA256 und AES-256-GCM aus Node. Lokale Zustimmung wird auch
-   Ende-zu-Ende verschlüsselt bestätigt; Serverstatus allein gibt keine Sitzung frei.
+   Noise XX (X25519, ChaChaPoly, BLAKE2b) über die Server-Frames, mit Forward
+   Secrecy (seit H2; vorher X25519, HKDF-SHA256 und AES-256-GCM aus Node).
+   Lokale Zustimmung wird auch Ende-zu-Ende verschlüsselt bestätigt;
+   Serverstatus allein gibt keine Sitzung frei.
 5. Nicht privilegiertes Containerimage, Compose, Healthcheck, TLS-Proxy-Beispiel,
    Backup-/Restore- und Passwortwechsel-Anleitung erstellen.
 6. Authentifizierung, Zustimmung, E2EE, Ablauf, Wiederholung, Ressourcenlimits,

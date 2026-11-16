@@ -75,11 +75,30 @@ export function checkSdp(sdp: string, kind: 'offer' | 'answer'): void {
   const lines = sdp.split(/\r?\n/);
   const media = lines.filter(line => line.startsWith('m='));
   if (media.length !== 1 || !media[0]!.startsWith('m=video ')) fail('media');
-  if (!lines.some(line => FINGERPRINT_LINE.test(line))) fail('fingerprint');
+  const fingerprints = lines.filter(line => line.startsWith('a=fingerprint:'));
+  if (fingerprints.length !== 1 || !FINGERPRINT_LINE.test(fingerprints[0]!)) fail('fingerprint');
+  if (lines.filter(line => line.startsWith('a=setup:')).length !== 1) fail('fingerprint');
+  const directions = lines.filter(line => /^a=(sendrecv|sendonly|recvonly|inactive)$/.test(line));
+  if (directions.length !== 1 || directions[0] !== (kind === 'offer' ? 'a=sendonly' : 'a=recvonly')) fail('direction');
   if (lines.some(line => line.startsWith('a=candidate') && line.includes(' typ relay'))) fail('relay');
 }
 
 export function formatFingerprint(hex64: string): string {
   if (!/^[a-f0-9]{64}$/.test(hex64)) throw new Error('fingerprint');
   return hex64.match(/.{8}/g)!.join(' ');
+}
+
+/** Strips all whitespace, lower-cases; returns exactly REMOTE_LAB_LIMITS.verificationHex hex chars or null. */
+export function normalizeVerification(input: string): string | null {
+  const text = input.replace(/\s+/g, '').toLowerCase();
+  return new RegExp(`^[a-f0-9]{${REMOTE_LAB_LIMITS.verificationHex}}$`).test(text) ? text : null;
+}
+
+/** Constant-time (pure JS, XOR accumulator; no node:crypto so the renderer can import it) check of the input against fingerprint.slice(0, REMOTE_LAB_LIMITS.verificationHex). */
+export function verifyFingerprintPrefix(input: string, fingerprint: string): boolean {
+  const normalized = normalizeVerification(input);
+  if (normalized === null || !/^[a-f0-9]{64}$/.test(fingerprint)) return false;
+  let diff = 0;
+  for (let i = 0; i < REMOTE_LAB_LIMITS.verificationHex; i++) diff |= normalized.charCodeAt(i) ^ fingerprint.charCodeAt(i);
+  return diff === 0;
 }

@@ -85,6 +85,13 @@ export function ContainerDock(props: ContainerDockProps) {
   const terminalConnection: TerminalConnection | null = terminalMode && row && isContainer
     ? containerConnection(connection.id, hostName, connection.address, terminalTargetOf(row, terminalMode)) : null;
   const shellWaiting = terminalMode === 'shell' && (!armed || !running);
+  const logKey = terminalMode === 'logs' && terminalConnection && row ? `ctr:${dockTerminalKey(row, 'logs', epoch)}` : null;
+  // A new log target starts with auto-scroll on, also when the user comes back to an earlier one.
+  const [followOff, setFollowOff] = useState<string | null>(null);
+  if (followOff !== null && followOff !== logKey) setFollowOff(null);
+  const follow = logKey === null || followOff !== logKey;
+  const setFollow = (on: boolean): void => setFollowOff(on ? null : logKey);
+  const [searchRequest, setSearchRequest] = useState(0);
 
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     const dock = dockRef.current;
@@ -149,7 +156,10 @@ export function ContainerDock(props: ContainerDockProps) {
       body = (
         <div className="kube-placeholder">
           <p>{t('containers:dock.armHint')}</p>
-          <button type="button" className="primary-button" onClick={onArm}>{t('containers:menu.shellOpen')}</button>
+          <div className="kube-placeholder-actions">
+            <button type="button" className="primary-button" onClick={onArm}>{t('containers:menu.shellOpen')}</button>
+            {onPopout && <button type="button" className="secondary-button" onClick={onPopout}>{t('containers:menu.shellTab')}</button>}
+          </div>
         </div>
       );
     } else if (terminalConnection) {
@@ -157,7 +167,8 @@ export function ContainerDock(props: ContainerDockProps) {
       body = (
         <div className="kube-dock-terminal">
           <TerminalPanel key={dockTerminalKey(row, terminalMode, epoch)} connection={terminalConnection} tabId={`${tabId}:dock`}
-            visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} embedded />
+            visible={visible && open} style={{ height: '100%' }} onStatusChange={ignoreStatus} onClose={noop} embedded
+            follow={logKey ? { on: follow, onChange: setFollow } : undefined} searchRequest={logKey ? searchRequest : undefined} />
         </div>
       );
     }
@@ -185,6 +196,18 @@ export function ContainerDock(props: ContainerDockProps) {
         </div>
         <span className="kube-muted kube-dock-hint">{row ? row.name : t('containers:dock.followsSelection')}</span>
         {terminalConnection && onPopout && !(terminalMode === 'shell' && !running) && <button type="button" className="kube-dock-popout" onClick={onPopout}>{t('containers:menu.popout')}</button>}
+        {open && logKey !== null && (
+          <>
+            <label className="kube-dock-follow">
+              <input type="checkbox" checked={follow} onChange={event => setFollow(event.target.checked)} />
+              {t('common:logs.autoScroll')}
+            </label>
+            <button type="button" className="kube-dock-search" aria-label={t('common:logs.search')} title={t('common:logs.search')}
+              onClick={() => setSearchRequest(value => value + 1)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
+            </button>
+          </>
+        )}
         <button type="button" className="kube-dock-copy" disabled={nothingToCopy} title={nothingToCopy ? t('containers:dock.nothingToCopy') : undefined} onClick={copy}>{t('common:actions.copy')}</button>
         <button type="button" className="kube-dock-toggle" aria-expanded={open} aria-label={open ? t('containers:menu.collapse') : t('containers:dock.expand')} onClick={onToggle}>
           <svg className={`chevron${open ? '' : ' is-up'}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m5 9 7 7 7-7" /></svg>

@@ -69,6 +69,8 @@ export class RdpSessionManager {
   private tracked = new WeakSet<BrowserWindow>();
   /** Connections whose server rejected dynamic resolution; later sessions resize by reconnect at once. */
   private staticResolution = new Set<string>();
+  /** Exclude the helper's top-level surfaces from screen capture; replayed first at helper start. */
+  private protected = false;
 
   constructor(private readonly dependencies: RdpDependencies) {}
 
@@ -111,6 +113,13 @@ export class RdpSessionManager {
     if (!session) return;
     this.owned(ownerId, id);
     this.send({ type: 'close', sessionId: id });
+  }
+
+  /** Tells a running helper to hide its surfaces from capture. Never starts the helper: it reads the flag at start (K14). */
+  protect(on: boolean): void {
+    if (this.protected === on) return;
+    this.protected = on;
+    if (this.helper) this.send({ type: 'protect', protect: on });
   }
 
   /** Starts the helper ahead of the first RDP tab; .NET cold start plus virus scanning can take seconds. */
@@ -194,6 +203,8 @@ export class RdpSessionManager {
     helper.on('exit', lost);
     helper.on('error', lost);
     this.helper = helper;
+    // First line, before any open: surfaces must be protected from their first frame.
+    if (this.protected) this.send({ type: 'protect', protect: true });
     return helper;
   }
 

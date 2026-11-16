@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|kube-ai|kube-links|kube-direct|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|container-logs|kube-ai|kube-links|kube-direct|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|file-drop|files-entry|container-shell-tab|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -74,6 +74,18 @@ async function hoverLink(link) {
 }
 
 // Closes open dialogs and every terminal tab (confirming the close dialog if one appears) so each block starts from the same state.
+// Regression: xterm's helper textarea was 64 px high (global textarea rule) and scrolled the clipped host,
+// hiding the top rows under the search bar. The first row must start below the bar and the textarea stay one row high.
+async function rowsBelowSearchBar(scope, label) {
+  const geometry = await evaluate(`(() => { const root = document.querySelector(${JSON.stringify(scope)});
+    const bar = root.querySelector('.terminal-search')?.getBoundingClientRect(); const row = root.querySelector('.xterm-rows > div')?.getBoundingClientRect();
+    const area = root.querySelector('.xterm-helper-textarea')?.getBoundingClientRect();
+    return { bar: bar ? Math.round(bar.bottom) : null, row: row ? Math.round(row.top) : null, rowHeight: row ? Math.round(row.height) : 0, area: area ? Math.round(area.height) : 0 }; })()`);
+  if (geometry.bar === null || geometry.row === null) throw new Error(`${label}: Suchleiste oder Zeilen fehlen ${JSON.stringify(geometry)}`);
+  if (geometry.row < geometry.bar - 1) throw new Error(`${label}: erste Zeile liegt unter der Suchleiste ${JSON.stringify(geometry)}`);
+  if (geometry.area > geometry.rowHeight * 2) throw new Error(`${label}: Hilfs-Textarea zu hoch ${JSON.stringify(geometry)}`);
+}
+
 async function closeTabs() {
   // demo-setup may leave the settings dialog open; it would intercept every click.
   if (await evaluate(`!!document.querySelector('dialog[open]')`)) { await key('Escape'); await pause(300); }
@@ -86,6 +98,38 @@ async function closeTabs() {
     } else await click('.terminal-tab-close');
   }
 }
+
+// Log search helpers (kube-logs, container-logs): the bar status, the auto-scroll checkbox and the main-process clipboard.
+const DOCKER_LOG_HEAD = 60; // initial lines of the docker-logs fake in sshd.mjs
+const SEARCH_STATUS = '.terminal-search-status';
+// @xterm/addon-search 0.16 never sets `xterm-find-active-result-decoration` (it passes `false` to its own style callback), so the
+// active match is the decoration with the inline `outline` (activeMatchBorder); plain matches get no border.
+const ACTIVE_DECORATION = '.xterm-find-result-decoration[style*="outline"]';
+const followChecked = () => evaluate(`document.querySelector('.kube-dock-follow input').checked`);
+// Copy-on-select goes through the 'clipboard:write-text' handler in main. It is recorded there and never forwarded, so a regression
+// cannot overwrite the real clipboard (it is not writable under Wayland without focus anyway), and the check does not depend on it.
+const spyClipboard = () => call('main', `const h = electron.ipcMain._invokeHandlers; const orig = h?.get('clipboard:write-text'); if (!orig) return false;
+  globalThis.__clipWrites = []; globalThis.__clipRestore = () => h.set('clipboard:write-text', orig);
+  h.set('clipboard:write-text', async (event, text) => { globalThis.__clipWrites.push(String(text)); });
+  return true;`);
+const clipboardWrites = () => call('main', `return globalThis.__clipWrites ?? null;`);
+const unspyClipboard = () => call('main', `globalThis.__clipRestore?.(); globalThis.__clipRestore = undefined; return true;`);
+// "x von n" status of the search bar; returns { index, total } or throws with the text seen.
+async function searchCount(step) {
+  const text = await evaluate(`document.querySelector('${SEARCH_STATUS}')?.textContent ?? ''`);
+  const match = /^(\d+) von ([\d.]+)$/.exec(text.trim());
+  if (!match) throw new Error(`${step}: Zähler „x von n“ erwartet, gefunden: „${text}“`);
+  return { index: Number(match[1]), total: Number(match[2].replaceAll('.', '')) };
+}
+// First visible row of the dock terminal: it must stay put while auto-scroll is off (xterm 6 scrolls without a native viewport offset).
+const dockView = () => evaluate(`document.querySelector('.kube-dock-terminal .xterm-rows > div')?.textContent ?? ''`);
+// Real wheel input at the centre of the dock terminal; positive deltaY scrolls up. A synthetic DOM WheelEvent does not move xterm's scrollbar.
+const wheelUp = async () => {
+  const at = await evaluate(`(() => { const r = document.querySelector('.kube-dock-terminal .xterm-screen').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+  await call('main', `electron.BrowserWindow.getAllWindows()[0].webContents.sendInputEvent({ type: 'mouseWheel', x: ${at.x}, y: ${at.y}, deltaX: 0, deltaY: 120, wheelTicksY: 1, canScroll: true }); return true;`);
+};
+// "#n" of the last non-empty visible row (the docker-logs fake numbers its lines).
+const lastRowNumber = () => evaluate(`(() => { const rows = [...document.querySelectorAll('.kube-dock-terminal .xterm-rows > div')].map(r => r.textContent.trim()).filter(Boolean); return Number(/#(\\d+)\\s*$/.exec(rows.at(-1) ?? '')?.[1] ?? -1); })()`);
 
 // True when the path lies in the user's home directory (its names then show the Windows user name).
 const insideHome = p => { const rel = path.relative(os.homedir(), p); return !rel.startsWith('..') && !path.isAbsolute(rel); };
@@ -149,6 +193,30 @@ const connectedTab = `[...document.querySelectorAll('.terminal-tab:not([data-fix
 const web01 = '.vault-tree-row >> text=web-01 >> nth=0';
 // Connected web-01 tabs; duplicates are labelled "web-01 (1)", so the name is matched by prefix.
 const web01Connected = `[...document.querySelectorAll('.terminal-tab:not([data-fixed])')].filter(b => /^web-01/.test(b.querySelector('.tab-name')?.textContent ?? '') && b.querySelector('.tab-status-connected')).length`;
+
+// Tree helpers of the file view entry scenes: a host's <li> (own row only), its expand chevron and the first child entry.
+const hostItem = name => `[...document.querySelectorAll('.vault-tree li')].find(li => li.querySelector(':scope > .vault-tree-row .tree-node-text')?.textContent.trim() === ${JSON.stringify(name)})`;
+const hostChevron = name => `${hostItem(name)}?.querySelector(':scope > .vault-tree-row .tree-toggle')`;
+const filesEntryOf = name => `${hostItem(name)}?.querySelector(':scope > .container-children-wrap > .container-children > li:first-child')`;
+const filesEntryText = name => `(${filesEntryOf(name)}?.textContent ?? '').trim()`;
+// Tabs by exact name; connected = status dot of the connected state.
+const tabNamed = name => `[...document.querySelectorAll('.terminal-tab:not([data-fixed])')].filter(b => b.querySelector('.tab-name')?.textContent === ${JSON.stringify(name)})`;
+const tabConnected = name => `${tabNamed(name)}.some(b => b.querySelector('.tab-status-connected'))`;
+const tabActive = name => `${tabNamed(name)}.some(b => b.getAttribute('aria-selected') === 'true')`;
+// Expands a host only when it is collapsed and records it, so the scene can collapse it again.
+async function expandHost(name, opened) {
+  await waitFor(`Chevron ${name}`, `!!${hostChevron(name)}`);
+  if (await evaluate(`${hostChevron(name)}.getAttribute('aria-expanded') === 'false'`)) {
+    await evaluate(`${hostChevron(name)}.click()`);
+    opened.push(name);
+  }
+  await waitFor(`Dateiansicht-Eintrag unter ${name}`, `${filesEntryText(name)} === 'Dateiansicht (SFTP)'`);
+}
+const collapseHosts = async opened => {
+  for (const name of opened) {
+    if (await evaluate(`${hostChevron(name)}?.getAttribute('aria-expanded') === 'true'`)) await evaluate(`${hostChevron(name)}.click()`);
+  }
+};
 const blocks = {
   async sftp() {
     const { target, segment } = localTarget();
@@ -279,6 +347,147 @@ const blocks = {
     await waitFor('Container-Tabelle', `${count('.kube-table tbody tr')} >= 6`);
     await pause(300);
     await shot('containers');
+    // Regression: the embedded log terminal must follow the dock height (it kept its first 24 rows before).
+    await click('.kube-table tbody tr >> nth=0');
+    await call('eval', `[...document.querySelectorAll('.kube-dock-tab')].find(b => b.textContent.trim().startsWith('Logs')).click()`);
+    await waitFor('Log-Terminal', `!!document.querySelector('.kube-dock-terminal .xterm-screen')`);
+    await pause(500);
+    const height = selector => evaluate(`Math.round(document.querySelector('${selector}').getBoundingClientRect().height)`);
+    const before = await height('.kube-dock-terminal .terminal-container');
+    await call('eval', `const h = document.querySelector('.kube-dock-handle'); const r = h.getBoundingClientRect(); const x = r.left + 50, y = r.top + 3;
+      h.setPointerCapture = () => {}; h.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y - 200, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y - 200, pointerId: 1 }));`);
+    await pause(500);
+    const after = await height('.kube-dock-terminal .terminal-container');
+    const panel = await height('.kube-dock-terminal .terminal-panel');
+    if (!(after >= before + 150 && after <= panel)) throw new Error(`Log-Terminal folgt der Dock-Höhe nicht: vorher ${before}, nachher ${after}, Panel ${panel}`);
+  },
+  // docker logs of `api` in the dock (sshd.mjs fake: 60 lines, then one per second): search, auto-scroll checkbox, copy-on-select.
+  async 'container-logs'() {
+    const search = '.terminal-search input';
+    const option = label => `.terminal-search-option[aria-label="${label}"]`;
+    const setTheme = setting => call('eval', `await window.desktopApi.setTheme('${setting}'); return true;`);
+    await rclick('text=web-01 >> nth=0');
+    await menuItem('Container-Ansicht öffnen');
+    await waitFor('Container-Tabelle', `${count('.kube-table tbody tr')} >= 6`);
+    await click('.kube-table tbody tr >> nth=0');
+    await waitFor('Zeile api', `document.querySelector('.kube-dock-hint')?.textContent.trim() === 'api'`);
+    await key('l');
+    await waitFor('Log-Terminal mit Zeilen', `(document.querySelector('.kube-dock-terminal .xterm-rows')?.textContent ?? '').includes('GET')`);
+    await waitFor('Häkchen an', `document.querySelector('.kube-dock-follow input')?.checked === true`);
+    if (!await spyClipboard()) throw new Error('clipboard:write-text im Main-Prozess nicht erfassbar');
+    try {
+      // Positive control: a write through the same channel is recorded, so "no write" below means something.
+      await evaluate(`window.desktopApi.writeClipboardText('probe')`);
+      if (JSON.stringify(await clipboardWrites()) !== '["probe"]') throw new Error('Zwischenablage-Beobachter erfasst Schreibzugriffe nicht');
+      await call('main', `globalThis.__clipWrites.length = 0; return true;`);
+      await click('.kube-dock-terminal .xterm-helper-textarea');
+      await key('Control+F');
+      await waitFor('Suchfeld fokussiert', `document.activeElement?.matches('${search}')`);
+      await call('type', 'ERROR');
+      await waitFor('Zähler und Decorations', `document.querySelector('${SEARCH_STATUS}')?.textContent.includes(' von ') && !!document.querySelector('${ACTIVE_DECORATION}')`);
+      const found = await searchCount('Container');
+      if (found.index !== 1 || found.total < 6) throw new Error(`Container: Zähler ${found.index} von ${found.total}, erwartet 1 von ≥ 6`);
+      if (await followChecked()) throw new Error('Container: Häkchen nach dem Sprung noch an');
+      // Held view: the first row and the scroll offset stay while new lines arrive.
+      const held = await dockView();
+      await pause(2500);
+      const still = await dockView();
+      if (still !== held) throw new Error(`Container: Ansicht bewegt sich bei ausgeschaltetem Häkchen: „${held}“ → „${still}“`);
+      // Regex: a valid pattern counts, an invalid one marks the input and names the error.
+      await click(option('Regulärer Ausdruck'));
+      await fill(search, 'ERR(OR|)');
+      await waitFor('Regex-Zähler', `document.querySelector('${SEARCH_STATUS}')?.textContent.includes(' von ')`);
+      await fill(search, 'ERR(');
+      await waitFor('ungültiger Regex', `document.querySelector('${search}')?.getAttribute('aria-invalid') === 'true' && document.querySelector('${SEARCH_STATUS}')?.textContent.includes('Ungültiger')`);
+      await fill(search, 'ERROR');
+      await waitFor('gültig wieder', `!document.querySelector('${search}')?.hasAttribute('aria-invalid') && document.querySelector('${SEARCH_STATUS}')?.textContent.includes(' von ')`);
+      // On: jump to the end and follow the newest line.
+      await click('.kube-dock-follow input');
+      await waitFor('Häkchen an', `document.querySelector('.kube-dock-follow input').checked`);
+      await waitFor('Ansicht am Ende', `(() => { const rows = [...document.querySelectorAll('.kube-dock-terminal .xterm-rows > div')].map(r => r.textContent.trim()).filter(Boolean); return Number(/#(\\d+)\\s*$/.exec(rows.at(-1) ?? '')?.[1] ?? -1) >= ${DOCKER_LOG_HEAD - 1}; })()`, { timeout: 5000 });
+      const newest = await lastRowNumber();
+      await waitFor('neuere Zeile unten', `(() => { const rows = [...document.querySelectorAll('.kube-dock-terminal .xterm-rows > div')].map(r => r.textContent.trim()).filter(Boolean); return Number(/#(\\d+)\\s*$/.exec(rows.at(-1) ?? '')?.[1] ?? -1) > ${newest}; })()`, { timeout: 5000 });
+      // Off at the bottom: xterm alone would keep following, the controller holds the view.
+      await click('.kube-dock-follow input');
+      const bottom = await dockView();
+      await pause(2500);
+      const bottomStill = await dockView();
+      if (bottomStill !== bottom) throw new Error(`Container: Ansicht läuft am Ende trotz ausgeschaltetem Häkchen weiter: „${bottom}“ → „${bottomStill}“`);
+      await click('.kube-dock-follow input');
+      await waitFor('wieder am Ende', `document.querySelector('.kube-dock-follow input').checked`);
+      // Scrolling up switches it off.
+      await wheelUp();
+      await waitFor('Hochscrollen schaltet aus', `document.querySelector('.kube-dock-follow input').checked === false`, { timeout: 5000 });
+      // Back to a visible current match for the shot.
+      await click(search);
+      await key('Enter');
+      await waitFor('aktiver Treffer', `!!document.querySelector('${ACTIVE_DECORATION}')`);
+      await pause(300);
+      await rowsBelowSearchBar('.kube-dock-terminal', 'Log-Terminal');
+      await shot('container-logs-search');
+      // B3: a pure option change with the same term recounts the matches (Aa on turns "error" into no hits, off brings them back).
+      await click(option('Regulärer Ausdruck'));
+      await waitFor('Regex aus', `document.querySelector('${option('Regulärer Ausdruck')}')?.getAttribute('aria-pressed') === 'false'`);
+      await fill(search, 'error');
+      await waitFor('Zähler ohne Groß-/Kleinschreibung', `document.querySelector('${SEARCH_STATUS}')?.textContent.includes(' von ') && !!document.querySelector('${ACTIVE_DECORATION}')`);
+      const insensitive = await searchCount('Optionswechsel');
+      await click(option('Groß-/Kleinschreibung beachten'));
+      await waitFor('Aa an: keine Treffer', `document.querySelector('${SEARCH_STATUS}')?.textContent.trim() === 'Keine Treffer' && !document.querySelector('${ACTIVE_DECORATION}')`);
+      await click(option('Groß-/Kleinschreibung beachten'));
+      await waitFor('Aa aus: Treffer zurück', `document.querySelector('${SEARCH_STATUS}')?.textContent.includes(' von ') && !!document.querySelector('${ACTIVE_DECORATION}')`);
+      const again = await searchCount('Optionswechsel zurück');
+      if (again.total !== insensitive.total) throw new Error(`Optionswechsel: Trefferzahl ${insensitive.total} → ${again.total}, erwartet gleich`);
+      // B4 positive case: a real mouse selection across a GET row still copies while the search is open (exactly one write).
+      await call('main', `globalThis.__clipWrites.length = 0; return true;`);
+      const row = await evaluate(`(() => { const r = [...document.querySelectorAll('.kube-dock-terminal .xterm-rows > div')].find(d => d.textContent.startsWith('GET /api/orders')); if (!r) return null; const b = r.getBoundingClientRect(); return { x1: Math.round(b.left + 2), x2: Math.round(b.right - 2), y: Math.round(b.top + b.height / 2) }; })()`);
+      if (!row) throw new Error('Mausauswahl: keine GET-Zeile sichtbar');
+      await call('main', `const wc = electron.BrowserWindow.getAllWindows()[0].webContents;
+        wc.sendInputEvent({ type: 'mouseDown', x: ${row.x1}, y: ${row.y}, button: 'left', clickCount: 1 });
+        wc.sendInputEvent({ type: 'mouseMove', x: ${Math.round((row.x1 + row.x2) / 2)}, y: ${row.y}, button: 'left', modifiers: ['leftButtonDown'] });
+        wc.sendInputEvent({ type: 'mouseMove', x: ${row.x2}, y: ${row.y}, button: 'left', modifiers: ['leftButtonDown'] });
+        wc.sendInputEvent({ type: 'mouseUp', x: ${row.x2}, y: ${row.y}, button: 'left', clickCount: 1 });
+        return true;`);
+      for (let i = 0; ; i++) {
+        if ((await clipboardWrites()).length) break;
+        if (i >= 20) throw new Error('Mausauswahl bei offener Suche wurde nicht kopiert');
+        await pause(250);
+      }
+      await pause(400);
+      const copied = await clipboardWrites();
+      if (copied.length !== 1 || !copied[0].startsWith('GET /api/orders')) throw new Error(`Mausauswahl: erwartet ein Schreiben mit „GET /api/orders …“, gefunden ${JSON.stringify(copied).slice(0, 120)}`);
+      // From here on the search itself must stay silent again.
+      await call('main', `globalThis.__clipWrites.length = 0; return true;`);
+      await fill(search, 'ERROR');
+      await waitFor('Zähler ERROR', `document.querySelector('${SEARCH_STATUS}')?.textContent.includes(' von ')`);
+      // Light scheme: the match colours apply at the next search action.
+      await setTheme('light');
+      try {
+        await waitFor('prefers-color-scheme: light', `matchMedia('(prefers-color-scheme: light)').matches`, { timeout: 5000 });
+        await click(search);
+        await key('Enter');
+        await waitFor('aktiver Treffer (hell)', `!!document.querySelector('${ACTIVE_DECORATION}')`);
+        await pause(300);
+        await shot('container-logs-search-light');
+      } finally {
+        await setTheme('dark');
+      }
+      // K1/K8: another target starts with the checkbox on and a closed search.
+      await call('eval', `const dock = document.querySelector('.kube-dock-follow input'); if (dock.checked) dock.click(); return true;`);
+      await waitFor('Häkchen aus', `document.querySelector('.kube-dock-follow input').checked === false`);
+      await click('.kube-table tbody tr:has-text("worker")');
+      await waitFor('Zeile worker', `document.querySelector('.kube-dock-hint')?.textContent.trim() === 'worker'`);
+      if (!await evaluate(`!!document.querySelector('.kube-dock-terminal .xterm-screen')`)) await key('l');
+      await waitFor('Log-Terminal worker', `(document.querySelector('.kube-dock-terminal .xterm-rows')?.textContent ?? '').includes('worker')`);
+      await waitFor('Häkchen wieder an', `document.querySelector('.kube-dock-follow input')?.checked === true`);
+      if (await evaluate(`!!document.querySelector('.kube-dock-terminal .terminal-search')`)) throw new Error('Zielwechsel: Suchleiste noch offen');
+      // Copy-on-select: neither the open search nor the trailing logs touched the clipboard after the mouse selection above.
+      const writes = await clipboardWrites();
+      if (writes.length) throw new Error(`Copy-on-select schreibt bei offener Suche in die Zwischenablage: ${JSON.stringify(writes).slice(0, 120)}`);
+    } finally {
+      await unspyClipboard();
+    }
   },
   async kubernetes() {
     if (!await evaluate(`document.body.innerText.includes('prod-k8s')`)) {
@@ -407,6 +616,37 @@ const blocks = {
       await waitFor('Filter', `${count(`${view} .kube-logs-line mark`)} > 0 && [...document.querySelectorAll('${view} .kube-logs-line')].every(l => l.textContent.includes('ERROR'))`);
       await pause(300);
       await shot('kube-logs-all-filter');
+      // 4b. Search over the filtered list: magnifier, regex option, one current match, the jump switched auto-scroll off and the list holds.
+      await click('.kube-dock-search');
+      await waitFor('Suchleiste', `!!document.querySelector('${view} .terminal-search input')`);
+      await click(`${view} .terminal-search-option[aria-label="Regulärer Ausdruck"]`);
+      if (await evaluate(`document.querySelector('${view} .terminal-search-option[aria-label="Regulärer Ausdruck"]').getAttribute('aria-pressed')`) !== 'true') throw new Error('Option „.*“ nicht gedrückt');
+      await fill(`${view} .terminal-search input`, 'ERR(OR|)');
+      await waitFor('Zähler und aktueller Treffer', `document.querySelector('${SEARCH_STATUS}')?.textContent.includes(' von ') && ${count(`${view} mark.is-current`)} === 1`);
+      const found = await searchCount('Liste');
+      if (found.index !== 1 || found.total < 1) throw new Error(`Liste: Zähler ${found.index} von ${found.total}, erwartet 1 von n ≥ 1`);
+      if (await followChecked()) throw new Error('Liste: Häkchen „Automatisch scrollen“ nach dem Sprung noch an');
+      const linesBefore = await evaluate(count(`${view} .kube-logs-line`));
+      await pause(2500);
+      if (await evaluate(count(`${view} .kube-logs-line`)) !== linesBefore) throw new Error('Liste: Zeilenzahl ändert sich trotz ausgeschaltetem Häkchen');
+      await waitFor('Hinweis neue Zeilen', `!!document.querySelector('${view} .kube-logs-state') && document.querySelector('${view} .kube-logs-state')?.textContent.includes('neue Zeile')`, { timeout: 6000 });
+      await shot('kube-logs-search');
+      // Light scheme: many non-current matches are visible at once in the list (E6). The colours apply at the next search action.
+      await call('eval', `await window.desktopApi.setTheme('light'); return true;`);
+      try {
+        await waitFor('prefers-color-scheme: light', `matchMedia('(prefers-color-scheme: light)').matches`, { timeout: 5000 });
+        await click(`${view} .terminal-search input`);
+        await key('Enter');
+        await waitFor('aktueller Treffer (hell)', `${count(`${view} mark.is-current`)} === 1`);
+        await pause(300);
+        await shot('kube-logs-search-light');
+      } finally {
+        await call('eval', `await window.desktopApi.setTheme('dark'); return true;`);
+        await waitFor('prefers-color-scheme: dark', `!matchMedia('(prefers-color-scheme: light)').matches`, { timeout: 5000 });
+      }
+      // The filter text stays; Escape closes the search bar.
+      await key('Escape');
+      await waitFor('Suchleiste zu', `!document.querySelector('${view} .terminal-search')`);
       // 5. Fallback: monitoring answers incomplete, so nothing is greyed out there. The contextBridge API is frozen,
       // so the answers are recorded at the main-process handler; "nothing greyed out" only counts once monitoring answered.
       const installed = await call('main', `const h = electron.ipcMain._invokeHandlers; const orig = h?.get('k8s:access'); if (!orig) return false;
@@ -852,6 +1092,26 @@ const blocks = {
     await pause(300);
     await shot('welcome');
   },
+  // The ".term hier loslassen" hint must go away when a file is dropped on an area that handles the drop itself
+  // and stops propagation (SFTP server pane, vault tree). A probe element plays that area; no file is opened.
+  async 'file-drop'() {
+    const hint = `document.querySelector('.file-drop-hint')`;
+    await call('eval', `const probe = document.createElement('div'); probe.id = 'drop-probe'; document.body.append(probe);
+      probe.addEventListener('dragover', event => { event.preventDefault(); event.stopPropagation(); });
+      probe.addEventListener('drop', event => { event.preventDefault(); event.stopPropagation(); });
+      const files = () => { const data = new DataTransfer(); data.items.add(new File(['x'], 'probe.txt')); return data; };
+      window.__dropProbeFiles = files;
+      probe.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: files() }));
+      window.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: files() }));
+      return true;`);
+    await waitFor('Hinweis erscheint', `!!${hint}`, { timeout: 3000 });
+    await call('eval', `document.getElementById('drop-probe').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: window.__dropProbeFiles() })); return true;`);
+    try {
+      await waitFor('Hinweis verschwindet nach Drop auf einen eigenen Bereich', `!${hint}`, { timeout: 3000 });
+    } finally {
+      await call('eval', `document.getElementById('drop-probe')?.remove(); delete window.__dropProbeFiles; window.dispatchEvent(new DragEvent('dragleave', { bubbles: true })); return true;`);
+    }
+  },
   // Search bar over the output of uptime: Strg+Umschalt+F opens it, typing selects the first match.
   async 'terminal-search'() {
     await click(web01);
@@ -865,7 +1125,16 @@ const blocks = {
     await key('Control+Shift+F');
     await waitFor('Suchfeld fokussiert', `document.activeElement?.matches('.terminal-search input')`);
     await call('type', 'load');
-    await waitFor('Suchleiste mit Treffer', `!!document.querySelector('.terminal-search') && !document.querySelector('.terminal-search-status')?.textContent`);
+    await waitFor('Suchleiste mit Treffer', `!!document.querySelector('.terminal-search') && document.querySelector('.terminal-search-status')?.textContent.includes(' von ') && !!document.querySelector('${ACTIVE_DECORATION}')`);
+    await searchCount('terminal-search');
+    // Fill the screen so the cursor (and xterm's helper textarea) sits on the last row, then type: the host must not scroll.
+    await click('.xterm-helper-textarea >> nth=0');
+    for (let i = 0; i < 40; i++) await key('Enter');
+    await call('type', 'x');
+    await pause(500);
+    await rowsBelowSearchBar('.split-terminal-stage .terminal-panel:not([hidden])', 'Terminal');
+    await key('Control+Shift+F');
+    await call('type', 'load');
     await pause(300);
     await shot('terminal-search');
   },
@@ -1265,6 +1534,86 @@ const blocks = {
       if (await evaluate(lockOpen)) await unlockWithPassword();
       await evaluate(`window.desktopApi.helloDisable().catch(() => {})`);
     }
+  },
+  // File view entry under SSH hosts: reuse by click/Enter, new tab by menu, every discovery state, jump host; hosts are collapsed again at the end.
+  async 'files-entry'() {
+    const opened = [];
+    const filesTab = n => n === 1 ? 'web-01 · Dateien' : `web-01 · Dateien (${n})`;
+    // Count inside the panel of the named tab: hidden panels stay mounted, a document-wide count would always match.
+    const panelOf = name => `document.getElementById(${tabNamed(name)}[0]?.getAttribute('aria-controls') ?? '')`;
+    const rowsIn = name => `(${panelOf(name)}?.querySelectorAll('.file-pane-remote [role=row][data-name]').length ?? 0) >= 5`;
+    try {
+      await expandHost('web-01', opened);
+      if (await evaluate(`${count('.terminal-tab:not([data-fixed])')} !== 0`)) throw new Error('Vor dem Klick ist schon ein Tab offen');
+      await evaluate(`${filesEntryOf('web-01')}.querySelector('button').click()`);
+      await waitFor('Dateien-Tab verbunden', `${tabConnected(filesTab(1))} && ${rowsIn(filesTab(1))}`);
+      if (await evaluate(`${tabNamed('web-01')}.length !== 0`)) throw new Error('Es gibt einen Terminal-Tab web-01, die Dateiansicht darf keinen öffnen');
+      // Another tab becomes active, then Enter on the focused entry must focus the open file tab instead of opening a new one.
+      await click('text=files-01 >> nth=0');
+      await key('Enter');
+      await waitFor('Anderer Tab aktiv', `${count('.terminal-tab:not([data-fixed])')} === 2 && !${tabActive(filesTab(1))}`);
+      await evaluate(`${filesEntryOf('web-01')}.querySelector('button').focus()`);
+      await key('Enter');
+      await waitFor('Dateien-Tab wieder aktiv', tabActive(filesTab(1)));
+      if (await evaluate(`${tabNamed(filesTab(1))}.length !== 1 || ${tabNamed(filesTab(2))}.length !== 0`)) throw new Error('Enter hat einen neuen Dateien-Tab geöffnet statt den offenen zu fokussieren');
+      // Context menu: always a further tab.
+      await rclick('.vault-tree li:has(> .vault-tree-row .tree-toggle[aria-label*="von web-01"]) .container-row >> nth=0');
+      await menuItem('Dateiansicht öffnen');
+      await waitFor('Zweiter Dateien-Tab verbunden', `${tabConnected(filesTab(2))} && ${rowsIn(filesTab(2))}`);
+      await pause(300);
+      await shot('files-entry');
+      // Error path: the entry stays first and opens a file tab that shows the error card.
+      await expandHost('legacy-app', opened);
+      await waitFor('Erkennungsfehler unter legacy-app', `!!${hostItem('legacy-app')}?.querySelector('.tree-error')`);
+      if (await evaluate(`${filesEntryText('legacy-app')} !== 'Dateiansicht (SFTP)'`)) throw new Error('Der Eintrag ist bei Erkennungsfehler nicht mehr das erste li');
+      await evaluate(`${filesEntryOf('legacy-app')}.querySelector('button').click()`);
+      await waitFor('Fehlerkarte im Dateien-Tab', `!!${panelOf('legacy-app · Dateien')}?.querySelector('.connect-error')`);
+      // Jump host: app-intern is reached over web-01.
+      await expandHost('app-intern', opened);
+      await evaluate(`${filesEntryOf('app-intern')}.querySelector('button').click()`);
+      await waitFor('Dateien-Tab über Sprunghost', `${tabConnected('app-intern · Dateien')} && ${rowsIn('app-intern · Dateien')}`, { timeout: 30000 });
+    } finally {
+      await collapseHosts(opened);
+    }
+  },
+  // Container shell as a tab from the dock placeholder (no shell in the dock) and from the row menu (sshd.mjs fake: echo shell root@<name>:/# ).
+  async 'container-shell-tab'() {
+    const rows = id => `document.querySelector('${id}')?.textContent ?? ''`;
+    const tabPrompt = (name, prompt) => `${tabConnected(name)} && [...document.querySelectorAll('.terminal-panel .xterm-rows')].some(r => r.textContent.includes(${JSON.stringify(prompt)}))`;
+    await rclick('text=web-01 >> nth=0');
+    await menuItem('Container-Ansicht öffnen');
+    await waitFor('Container-Tabelle', `${count('.kube-table tbody tr')} >= 6`);
+    await click('.kube-table tbody tr >> nth=0');
+    await waitFor('Zeile api', `document.querySelector('.kube-dock-hint')?.textContent.trim() === 'api'`);
+    await key('s');
+    await waitFor('Platzhalter mit Tab-Knopf', `(document.querySelector('.kube-placeholder')?.textContent ?? '').includes('Die Shell startet erst auf Knopfdruck') && [...document.querySelectorAll('.kube-placeholder button')].some(b => b.textContent.trim() === 'Shell als Tab öffnen')`);
+    if (await evaluate(`!!document.querySelector('.kube-dock-terminal')`)) throw new Error('Dock-Terminal vor dem Knopfdruck vorhanden');
+    // Both placeholder buttons (Shell öffnen primary, Shell als Tab öffnen secondary) side by side.
+    if (!await evaluate(`[...document.querySelectorAll('.kube-placeholder button')].some(b => b.textContent.trim() === 'Shell öffnen')`)) throw new Error('Platzhalter ohne Knopf „Shell öffnen“');
+    await pause(300);
+    await shot('container-shell-placeholder');
+    await evaluate(`[...document.querySelectorAll('.kube-placeholder button')].find(b => b.textContent.trim() === 'Shell als Tab öffnen').click()`);
+    await waitFor('Tab api @ web-01 mit Prompt', tabPrompt('api @ web-01', 'root@api:/#'));
+    await pause(300);
+    await shot('container-shell-tab');
+    // Back to the view tab: the placeholder must still stand (checked before any selection change, which would reset the arm state anyway).
+    await evaluate(`${tabNamed('web-01 · Container')}.concat([...document.querySelectorAll('.terminal-tab:not([data-fixed])')].filter(b => b.querySelector('.tab-status-connected') && !/@/.test(b.textContent)))[0].click()`);
+    await waitFor('Container-Ansicht wieder aktiv', `!!document.querySelector('.kube-table')`);
+    if (!await evaluate(`(document.querySelector('.kube-placeholder')?.textContent ?? '').includes('Die Shell startet erst auf Knopfdruck')`)) throw new Error('Platzhalter nach dem Tab-Wechsel nicht mehr da');
+    if (await evaluate(`!!document.querySelector('.kube-dock-terminal')`)) throw new Error('Dock-Terminal nach dem Tab-Wechsel vorhanden');
+    await rclick('.kube-table tbody tr:has-text("worker") >> nth=0');
+    await menuItem('Shell als Tab öffnen');
+    await waitFor('Tab worker @ web-01 verbunden', tabConnected('worker @ web-01'));
+    // The new tab must be the visible one (like the api tab above), not a background tab behind the view tab.
+    if (!await evaluate(tabActive('worker @ web-01'))) throw new Error('Tab worker @ web-01 ist verbunden, aber nicht aktiv: der Menüweg lässt die Container-Ansicht aktiv');
+    await waitFor('Tab worker @ web-01 mit Prompt', tabPrompt('worker @ web-01', 'root@worker:/#'));
+    // Logs from the row menu: same refocus path, the new tab must be in front.
+    await evaluate(`${tabNamed('web-01 · Container')}[0].click()`);
+    await waitFor('Container-Ansicht wieder aktiv (Logs)', `!!document.querySelector('.kube-table')`);
+    await rclick('.kube-table tbody tr:has-text("redis") >> nth=0');
+    await menuItem('Logs als Tab öffnen');
+    await waitFor('Tab Logs: redis @ web-01 verbunden', tabConnected('Logs: redis @ web-01'));
+    if (!await evaluate(tabActive('Logs: redis @ web-01'))) throw new Error('Tab Logs: redis @ web-01 ist verbunden, aber nicht aktiv: der Menüweg lässt die Container-Ansicht aktiv');
   },
 };
 

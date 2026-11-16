@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import ssh2 from 'ssh2';
 import { KubeConfig } from '@kubernetes/client-node';
 import { openRemoteHost } from '../../../src/main/containers/runner';
-import { PROBE_COMMAND, shellJoin } from '../../../src/main/containers/commands';
+import { PROBE_COMMAND, remoteCommand, shellJoin, terminalArgv } from '../../../src/main/containers/commands';
 import { parseProbe } from '../../../src/main/containers/parsers';
 import { BATCH_OUTPUT_LIMIT, inventoryBatchCommand, splitInventoryBatch } from '../../../src/main/containers/inventory-batch';
 import { parseContainerRows } from '../../../src/main/containers/inventory-parsers';
@@ -28,7 +28,7 @@ import { DIAGNOSE_MAX_CHARS } from '../../../src/shared/kubernetes';
 import { deniedAccess } from '../../../src/shared/kube-access';
 import { streamChat } from '../../../src/main/ai/providers';
 import { SecretMasker } from '../../../src/main/ai/secret-mask';
-import { startSshd } from './sshd.mjs';
+import { DOCKER_LOG_HEAD, dockerLogLine, dockerExecRef, dockerLogsRef, startSshd } from './sshd.mjs';
 import { DEMO_TOTP, seedSftp } from './fixtures.mjs';
 import { findOpenssl, KUBE_REQUEST_LOG, KUBE_TOKEN, startKubeFake } from './kube-fake.mjs';
 import { HARBOR_DIGEST, HARBOR_HOST, KUBE_SECRETS } from './kube-fixtures.mjs';
@@ -37,6 +37,42 @@ import { writeImportFixtures } from './import-fixtures.mjs';
 import { startRendezvousFake } from './rendezvous.mjs';
 import { probeSyncServer } from '../../../scripts/sync-prototype/http-common.mjs';
 import { AccountStore } from '../../../scripts/sync-prototype/account-transport.mjs';
+import { createDeviceIdentity } from '../../../scripts/sync-prototype/device-proof.mjs';
+
+describe('docker logs fake', () => {
+  it('matches only the exact command and returns the container name', () => {
+    expect(dockerLogsRef('PATH="$PATH:/usr/sbin:/sbin" docker logs -f --tail 500 api')).toBe('api');
+    expect(dockerLogsRef('docker logs -f --tail 500 cron-legacy')).toBe('cron-legacy');
+    expect(dockerLogsRef('docker logs -f --tail 500 api; rm -rf /')).toBeUndefined();
+    expect(dockerLogsRef('docker logs -f --tail 100 api')).toBeUndefined();
+    expect(dockerLogsRef('mydocker logs -f --tail 500 api')).toBeUndefined();
+  });
+
+  it('makes every tenth line an ERROR, the rest GET lines, each one distinct', () => {
+    const lines = Array.from({ length: DOCKER_LOG_HEAD }, (_, n) => dockerLogLine('api', n));
+    expect(lines.filter(line => line.startsWith('ERROR '))).toHaveLength(DOCKER_LOG_HEAD / 10);
+    expect(lines.filter(line => line.startsWith('GET /api/orders 200 '))).toHaveLength(DOCKER_LOG_HEAD - DOCKER_LOG_HEAD / 10);
+    expect(new Set(lines).size).toBe(DOCKER_LOG_HEAD);
+    expect(lines.every(line => !/[\r\n]/.test(line))).toBe(true);
+  });
+});
+
+describe('docker exec fake', () => {
+  const target = { item: { kind: 'container', runtime: 'docker', ref: 'api', name: 'api' }, mode: 'shell' };
+  it('matches the real container shell command with and without sudo -n', () => {
+    expect(dockerExecRef(remoteCommand(terminalArgv(target), { kind: 'none' }))).toBe('api');
+    expect(dockerExecRef(remoteCommand(terminalArgv(target), { kind: 'noninteractive' }))).toBe('api');
+  });
+
+  it('matches nothing else', () => {
+    const real = remoteCommand(terminalArgv(target), { kind: 'none' });
+    expect(dockerExecRef(`${real}; rm -rf /`)).toBeUndefined();
+    expect(dockerExecRef("podman exec -it api sh -c 'x'")).toBeUndefined();
+    expect(dockerExecRef("mydocker exec -it api sh -c 'x'")).toBeUndefined();
+    expect(dockerExecRef('PATH="$PATH:/usr/sbin:/sbin" docker logs -f --tail 500 api')).toBeUndefined();
+    expect(dockerLogsRef(real)).toBeUndefined();
+  });
+});
 
 // Windows only: ssh2 server tests are flaky on Linux CI (see sftp-loopback.test.ts).
 describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real app code', { timeout: 20_000 }, () => {
@@ -72,6 +108,56 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     expect(parseContainerRows('docker', lists.containers.stdout)).toHaveLength(6);
 
     expect((await host.run('rm -rf /', 5000)).code).toBe(127);
+  });
+
+  it('streams docker logs with CRLF, keeps following and refuses unknown containers', async () => {
+    const client = await sshClient((await start('logs')).port);
+    const exec = command => new Promise((resolve, reject) => client.exec(command, { pty: true }, (error, stream) => (error ? reject(error) : resolve(stream))));
+    const stream = await exec('PATH="$PATH:/usr/sbin:/sbin" docker logs -f --tail 500 api');
+    let text = '';
+    stream.on('data', data => { text += data.toString(); });
+    for (const end = Date.now() + 5000; !text.includes(`#${DOCKER_LOG_HEAD}\r\n`) && Date.now() < end; await new Promise(resolve => setTimeout(resolve, 50)));
+    stream.close();
+    expect(text).toContain(`${dockerLogLine('api', 0)}\r\n`);
+    expect(text).toContain(`${dockerLogLine('api', DOCKER_LOG_HEAD)}\r\n`);
+    expect(text).not.toMatch(/[^\r]\n/);
+
+    const unknown = await exec('docker logs -f --tail 500 nope');
+    let err = '';
+    unknown.stderr.on('data', data => { err += data.toString(); });
+    // stdout must be read too: an unread ssh2 stream stays paused and never emits 'close'.
+    unknown.resume();
+    const code = await new Promise(resolve => unknown.on('close', resolve));
+    expect(code).toBe(1);
+    expect(err).toContain('No such container: nope');
+  });
+
+  it('serves an echo shell for running containers and refuses unknown and stopped ones', async () => {
+    const client = await sshClient((await start('exec-shell')).port);
+    const exec = command => new Promise((resolve, reject) => client.exec(command, { pty: true }, (error, stream) => (error ? reject(error) : resolve(stream))));
+    const command = name => remoteCommand(terminalArgv({ item: { kind: 'container', runtime: 'docker', ref: name, name }, mode: 'shell' }), { kind: 'noninteractive' });
+    const until = async (read, text) => { for (const end = Date.now() + 5000; !read().includes(text) && Date.now() < end; await new Promise(resolve => setTimeout(resolve, 20))); };
+
+    const stream = await exec(command('api'));
+    let text = '';
+    stream.on('data', data => { text += data.toString(); });
+    await until(() => text, 'root@api:/# ');
+    expect(text).toBe('root@api:/# ');
+    stream.write('uptime\r');
+    await until(() => text, 'load average');
+    expect(text).toContain('load average');
+    stream.write('exit\r');
+    expect(await new Promise(resolve => stream.on('close', resolve))).toBe(0);
+
+    for (const [name, message] of [['nope', 'No such container: nope'], ['migrate', 'is not running']]) {
+      const refused = await exec(command(name));
+      let err = '';
+      refused.stderr.on('data', data => { err += data.toString(); });
+      // stdout must be read too: an unread ssh2 stream stays paused and never emits 'close'.
+      refused.resume();
+      expect(await new Promise(resolve => refused.on('close', resolve))).toBe(1);
+      expect(err).toContain(message);
+    }
   });
 
   it('serves the root shell and the start commands', async () => {
@@ -548,18 +634,19 @@ describe('masking fixture of the demo server', () => {
 
 // The fake relies on Linux permissions of the sync server (0700 directory), like rendezvous.test.mjs.
 describe.runIf(process.platform === 'linux')('rendezvous fake of the run-app scene', { timeout: 30_000 }, () => {
-  it('announces rendezvous and accepts the synthetic demo account', async () => {
+  it('announces rendezvous and enrolls a device with the synthetic demo account', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'shellherd-rendezvous-fake-'));
     const fake = await startRendezvousFake({ port: 0, dir: join(dir, 'rendezvous') });
     try {
       expect(fake.url).toBe(`http://127.0.0.1:${fake.port}/`);
       const raw = await (await fetch(`${fake.url}v1/info`)).json();
-      expect(raw).toMatchObject({ authentication: 'password', rendezvous: true, namespace: 'demo' });
+      expect(raw).toMatchObject({ authentication: 'enrolled-device', deviceSessions: true, rendezvous: true, namespace: 'demo' });
       const info = await probeSyncServer(fake.url, { allowLoopbackHttp: true });
-      expect(info).toMatchObject({ authentication: 'password', rendezvous: true, namespace: 'demo' });
-      const account = new AccountStore(info);
+      expect(info).toMatchObject({ authentication: 'enrolled-device', deviceSessions: true, rendezvous: true, namespace: 'demo' });
+      const account = new AccountStore(info); const identity = createDeviceIdentity();
       try {
-        await expect(account.login('demo', 'synthetic-rendezvous-demo')).resolves.toMatchObject({ signedIn: true });
+        await expect(account.enroll(identity, { username: 'demo', password: 'synthetic-rendezvous-demo', name: 'Demo device', ephemeral: true })).resolves.toMatchObject({ id: identity.id, ephemeral: true });
+        await expect(account.openSession(identity)).resolves.toMatchObject({ signedIn: true, device: identity.id });
       } finally { account.close(); }
     } finally {
       await fake.close();

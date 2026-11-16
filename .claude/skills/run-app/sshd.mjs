@@ -6,6 +6,8 @@
 // k8s-cp1:6443 (Kubernetes fake), internal-01:22 (this server, behind a jump host), db-internal:5432 (TCP echo), intranet.demo:80 (one HTTP page).
 // tcpip-forward is accepted for localhost and 127.0.0.1 only, cancel-tcpip-forward is accepted, everything else is refused.
 // SSHD_LATENCY_MS (default 0) delays every READ, WRITE and CLOSE reply, in order, to simulate the ping to a real server.
+// `docker logs -f --tail 500 <name>` (exec with pty, CRLF): 60 synthetic lines, then one more per second until the stream closes.
+// `docker exec -it <name> sh -c '…'` (also behind PATH=… and `sudo -n`): echo shell `root@<name>:/# ` for running containers only.
 // The sha256sum exec only hashes a file that `local()` maps into the SFTP root; the path is never executed.
 import { createHash } from 'node:crypto';
 import { chmodSync, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs';
@@ -47,6 +49,45 @@ const localPath = (root, p) => {
   if (full !== root && !full.startsWith(root + path.sep)) throw enoent();
   return full;
 };
+
+const DOCKER_LOGS = /(?:^|\s)docker logs -f --tail 500 ([A-Za-z0-9_.-]+)$/;
+export const DOCKER_LOG_HEAD = 60;
+export const DOCKER_LOG_EVERY_MS = 1000;
+/** Container name of a `docker logs -f --tail 500 <name>` command, else undefined (nothing is executed). */
+export const dockerLogsRef = command => DOCKER_LOGS.exec(command)?.[1];
+/** Synthetic log line n (0-based) of a container: every tenth line is an ERROR, the rest are GET requests; `#n` marks the order. */
+export const dockerLogLine = (name, n) => (n % 10 === 9
+  ? `ERROR ${name}: upstream timeout after 3000 ms #${n}`
+  : `GET /api/orders 200 ${12 + (n * 7) % 31} ms ${name} #${n}`);
+
+/** Streams the synthetic log of a known container; the interval ends with the stream. */
+function serveDockerLogs(stream, name) {
+  if (!CONTAINERS.some(c => c.Names === name)) {
+    stream.stderr.write(`Error: No such container: ${name}\n`);
+    stream.exit(1);
+    stream.end();
+    return;
+  }
+  let n = 0;
+  for (; n < DOCKER_LOG_HEAD; n++) stream.write(`${dockerLogLine(name, n)}\r\n`);
+  const timer = setInterval(() => { if (stream.writable) stream.write(`${dockerLogLine(name, n++)}\r\n`); }, DOCKER_LOG_EVERY_MS);
+  stream.on('close', () => clearInterval(timer));
+}
+
+// Container shell: `docker exec -it <name> sh -c '<shell choice>'` (also behind the app's PATH=… and `sudo -n` prefixes) serves an echo shell for running
+// containers from CONTAINERS; nothing from the command is executed. The sudo prompt mode wraps the command in sh -c and is not matched (exit 127).
+const DOCKER_EXEC = /(?:^|\s)docker exec -it ([A-Za-z0-9_.-]+) sh -c '[^']*'$/;
+/** Container name of a `docker exec -it <name> sh -c '…'` command, else undefined (nothing is executed). */
+export const dockerExecRef = command => DOCKER_EXEC.exec(command)?.[1];
+
+/** Echo shell of a running fixture container; unknown names and stopped containers fail like docker does. */
+function serveContainerShell(stream, name) {
+  const container = CONTAINERS.find(c => c.Names === name);
+  const refuse = message => { stream.stderr.write(message); stream.exit(1); stream.end(); };
+  if (!container) return refuse(`Error: No such container: ${name}\n`);
+  if (container.State !== 'running') return refuse(`Error response from daemon: container ${container.ID} is not running\n`);
+  serveShell(stream, { prompt: `root@${container.Names}:/# `, banner: '' });
+}
 
 /** Answers an exec command by matching known substrings; nothing from the command is ever run or used as a path. */
 function execReply(command, kubeconfig, root) {
@@ -259,6 +300,10 @@ export async function startSshd({ port = 2222, dir = RUN_DIR, sftpRoot = path.jo
       session.on('exec', (acceptExec, _reject, { command }) => {
         const stream = acceptExec();
         if (/\[terminus-sudo-[0-9a-f]{16}\]/.test(command) && /\[terminus-ready-[0-9a-f]{16}\]/.test(command) && command.includes('sudo -n -i')) { serveRootShell(stream, command); return; }
+        const logsOf = dockerLogsRef(command);
+        if (logsOf !== undefined) { serveDockerLogs(stream, logsOf); return; }
+        const shellOf = dockerExecRef(command);
+        if (shellOf !== undefined) { serveContainerShell(stream, shellOf); return; }
         const { out, err, code } = execReply(command, kubeconfig, sftpRoot);
         if (out) stream.write(out);
         if (err) stream.stderr.write(err);

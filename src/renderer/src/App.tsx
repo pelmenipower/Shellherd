@@ -1,5 +1,6 @@
 import { ToolbarContext } from './toolbar-context';
 import { DEFAULT_TOOLBAR } from '../../shared/toolbar';
+import { VAULT_PASSWORD_MIN_LENGTH } from '../../shared/vault-password';
 import { protocolAvailable } from './platform';
 import {
   useCallback,
@@ -85,9 +86,8 @@ import { SyncLabDialog } from './components/SyncLabDialog';
 import { RemoteLabDialog } from './components/RemoteLabDialog';
 import { RemoteConsentDialog } from './components/RemoteConsentDialog';
 import { RemoteShareBar } from './components/RemoteShareBar';
-import { RemoteSessionController, browserPeers, displayCapture } from './remote-peer';
+import { RemoteSessionController } from './remote-peer';
 import type { RemoteView } from './remote-peer';
-import { fakeCapture } from './remote-capture-fake';
 
 type Screen = 'home' | 'create' | 'open' | 'vault';
 type LockState = { minutes?: number; vaultId: string };
@@ -152,7 +152,7 @@ export default function App() {
   const [remoteView, setRemoteView] = useState<RemoteView | null>(null);
   useEffect(() => {
     if (!window.desktopApi.remoteLabEnabled) return undefined;
-    const controller = new RemoteSessionController(window.desktopApi, crypto.randomUUID(), browserPeers, window.desktopApi.remoteCaptureFake ? fakeCapture() : displayCapture);
+    const controller = new RemoteSessionController(window.desktopApi, crypto.randomUUID());
     setRemote(controller);
     const unsubscribe = controller.subscribe(setRemoteView);
     return () => { unsubscribe(); controller.dispose(); setRemote(null); setRemoteView(null); };
@@ -317,14 +317,19 @@ export default function App() {
         granted => openVaultFileRef.current(granted),
         error => notify.info(t('app:notices.vaultPathRefusedTitle'), { body: errorText(error) }));
     };
+    // Capture phase: areas that take the drop themselves (SFTP server side, vault tree) stop propagation, so the
+    // bubbling drop above never arrives there; the hint must still go away.
+    const end = (): void => setFileDragActive(false);
     window.addEventListener('dragover', over);
     window.addEventListener('dragleave', leave);
     window.addEventListener('drop', drop);
+    window.addEventListener('drop', end, true);
     window.addEventListener('dragend', leave);
     return () => {
       window.removeEventListener('dragover', over);
       window.removeEventListener('dragleave', leave);
       window.removeEventListener('drop', drop);
+      window.removeEventListener('drop', end, true);
       window.removeEventListener('dragend', leave);
     };
   }, [t]);
@@ -385,7 +390,7 @@ export default function App() {
       return;
     }
 
-    if (password.length < 8) {
+    if (password.length < VAULT_PASSWORD_MIN_LENGTH) {
       setFormError(t('app:errors.passwordTooShort'));
       return;
     }
@@ -788,6 +793,20 @@ export default function App() {
     });
   }
 
+  /** File view of an SSH connection: reuse focuses an open one (active first), else a new tab; same checks as connectNode. */
+  function openFiles(id: string, reuse = false): void {
+    const node = vault && findNode(vault.nodes, id);
+    if (!node || node.type !== 'connection' || node.protocol !== 'ssh') return;
+    if (node.disabled) { notifyDisabled(node); return; }
+    navigateEditor(() => {
+      const connection = toTerminalConnection(node, true);
+      const plan = planContainerView(terminals.tabs, terminals.activeTabId, connection, reuse);
+      if (plan.kind === 'focus') { terminals.select(plan.tabId); setEditorOpen(false); setEditorDirty(false); return; }
+      if (plan.kind === 'limit') { notifySessionLimit(); return; }
+      terminals.open(connection); setEditorOpen(false); setEditorDirty(false);
+    });
+  }
+
   function openContainer(hostId: string, item: DiscoveredItem, mode: TerminalTargetMode): void {
     const host = hostId === LOCAL_CONTAINER_HOST ? undefined : vault && findNode(vault.nodes, hostId);
     if (hostId !== LOCAL_CONTAINER_HOST && host?.type !== 'connection') return;
@@ -904,7 +923,7 @@ export default function App() {
     <main className="vault-shell" inert={locked !== null}>
       {remote && remoteSession?.role === 'agent' && (remoteSession.state === 'connecting' || remoteSession.state === 'active')
         && <RemoteShareBar session={remoteSession} onStop={() => remote.stop()} />}
-      {remote && remoteSession?.role === 'agent' && remoteSession.state === 'consent'
+      {remote && remoteSession?.role === 'agent' && (remoteSession.state === 'consent' || remoteSession.state === 'granted')
         && <RemoteConsentDialog key={remoteSession.id} controller={remote} session={remoteSession} />}
       {vaultFileDialog}{fileDropHint}
       <header className="app-header">
@@ -975,7 +994,7 @@ export default function App() {
           <LocalContainers containers={containerTree} disabled={busy} onOpenView={id => openContainerView(id)} />
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy} containers={containerTree}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); })}
-            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} onOpenContainerView={id => openContainerView(id)} />
+            onConnect={connectNode} onOpenFiles={(id: string, reuse?: boolean) => openFiles(id, reuse)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} onOpenContainerView={id => openContainerView(id)} />
           {!vault.nodes.length && <div className="empty-state"><p>{t('app:sidebar.emptyText')}</p><button type="button" className="secondary-button" onClick={() => newConnection()}>{t('app:sidebar.emptyAction')}</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}`}>

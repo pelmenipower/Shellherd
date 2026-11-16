@@ -79,7 +79,7 @@ export function TerminalTabs({ appearance, tabs, activeTabId, disabled, onSelect
             tabIndex={activeTabId === tab.id ? 0 : -1} disabled={disabled} onClick={() => onSelect(tab.id)} data-fixed={welcome || undefined} data-activity={fresh || undefined}
             title={welcome ? label : `${label} · ${connectionAddress(tab)} · ${statusWord(tab.status, 'short')}${fresh ? ` · ${t('terminal:tabs.activity')}` : ''}`}>
             {!welcome && <span className={`tab-status tab-status-${tab.status}`} aria-label={statusWord(tab.status, 'short')} />}
-            {!welcome && <ConnectionIcon {...appearance.get(tab.connection.id)} />}
+            {!welcome && <ConnectionIcon {...appearance.get(tab.connection.id)} {...(tab.connection.view === 'files' ? { icon: 'files' as const } : {})} />}
             <span className="tab-name">{label}</span>
             {fresh && <span className="tab-activity" role="img" aria-label={t('terminal:tabs.activity')} />}
           </button>

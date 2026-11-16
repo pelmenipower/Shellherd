@@ -84,7 +84,7 @@
     "paneOption": "Bereich {{number}}",
     "toOwnView": "Als eigene Ansicht öffnen",
     "resizeHint": "Trennlinien ziehen oder fokussieren und mit Pfeiltasten verschieben. Tabs auf eine Ansicht oben ziehen, um sie dorthin zu verschieben.",
-    "shortcutsHint": "Strg+Umschalt+F sucht im Terminal. Strg+Tab und Strg+Umschalt+Tab wechseln den Tab, Strg+Umschalt+T öffnet eine Verbindung, Strg+Umschalt+W schließt den Tab."
+    "shortcutsHint": "Strg+Umschalt+F sucht im Terminal, Strg+F in Logs. Strg+Tab und Strg+Umschalt+Tab wechseln den Tab, Strg+Umschalt+T öffnet eine Verbindung, Strg+Umschalt+W schließt den Tab."
   },
   "tabMenu": {
     "label": "Aktionen für {{name}}"
@@ -262,10 +262,18 @@
     "label": "Suche im Terminal",
     "input": "Suchbegriff",
     "placeholder": "Suchen",
-    "previous": "Vorheriger Treffer (Umschalt+Eingabe)",
-    "next": "Nächster Treffer (Eingabe)",
+    "previous": "Vorheriger Treffer (Umschalt+Eingabe, Umschalt+F3)",
+    "next": "Nächster Treffer (Eingabe, F3)",
     "close": "Suche schließen (Esc)",
-    "none": "Keine Treffer"
+    "none": "Keine Treffer",
+    "count": "{{index}} von {{total}}",
+    "many": "mehr als {{total}} Treffer",
+    "total_one": "1 Treffer",
+    "total_other": "{{count}} Treffer",
+    "invalidRegex": "Ungültiger regulärer Ausdruck",
+    "caseSensitive": "Groß-/Kleinschreibung beachten",
+    "regex": "Regulärer Ausdruck",
+    "wholeWord": "Ganzes Wort"
   },
   "links": {
     "hintTarget": "Strg+Klick öffnet {{host}} im Browser",

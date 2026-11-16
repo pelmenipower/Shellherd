@@ -5,6 +5,7 @@
 .split-terminal-stage > .kube-view { position: absolute; box-sizing: border-box; overflow: hidden; }
 .kube-muted { color: var(--color-text-muted); }
 .kube-placeholder { margin: 0; padding: var(--space-12); color: var(--color-text-muted); }
+.kube-placeholder-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); }
 .kube-tone-ok { color: var(--color-ok); }
 .kube-tone-warn { color: var(--color-warn); }
 .kube-tone-bad { color: var(--color-danger); }
@@ -109,10 +110,14 @@
 .kube-dock-hint { margin-left: auto; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kube-dock-popout, .kube-dock-toggle { min-height: var(--control-xs); padding: var(--space-2) var(--space-8); font-size: var(--fs-sm); }
 .kube-dock-toggle { width: var(--control-sm); padding: 0; }
+.kube-dock-search { display: grid; place-items: center; min-height: var(--control-xs); width: var(--control-sm); padding: 0; }
+.kube-dock-follow { display: inline-flex; align-items: center; gap: var(--space-4); font-size: var(--fs-sm); white-space: nowrap; }
 .kube-dock-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 .kube-dock-collapsed .kube-dock-bar { border-bottom: 0; }
 .kube-dock-terminal { flex: 1; min-height: 0; display: flex; }
-.kube-dock-terminal .terminal-panel { flex: 1; min-width: 0; min-height: 0; }
+.kube-dock-terminal .terminal-panel { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* The xterm host must take the dock's height, or fit() keeps the first row count and the ResizeObserver never sees a change. */
+.kube-dock-terminal .terminal-container { flex: 1; min-width: 0; min-height: 0; overflow: clip; }
 .kube-manifest { flex: 1; min-height: 0; margin: 0; padding: var(--space-8) var(--space-10); overflow: auto; background: var(--color-bg-stage); color: var(--color-text-code); font: var(--fs-sm)/1.45 var(--font-mono); white-space: pre; }
 .kube-events { font-size: var(--fs-sm); }
 

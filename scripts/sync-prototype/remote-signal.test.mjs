@@ -8,6 +8,7 @@ import { createSyncServer } from './server.mjs';
 import { AccountStore } from './account-transport.mjs';
 import { probeSyncServer } from './http-common.mjs';
 import { RendezvousPeer } from './rendezvous-client.mjs';
+import { createDeviceIdentity } from './device-proof.mjs';
 import { SignalCollector, splitSignal } from '../../src/shared/remote-signal.ts';
 const it = platformIt.runIf(process.platform === 'linux');
 const password = 'ONLY_TEST_REMOTE_SIGNAL_PASSWORD';
@@ -21,15 +22,18 @@ it('carries a 20 KiB payload in parts through the E2EE rendezvous channel', asyn
   cleanup.push(() => server.close());
   const info = await probeSyncServer(await server.listen(), { allowLoopbackHttp: true });
   const peer = async name => {
-    const store = new AccountStore(info); cleanup.push(() => store.close());
-    await store.login('testuser', password); const client = new RendezvousPeer(store); await client.register(name); return client;
+    const store = new AccountStore(info); cleanup.push(() => store.close()); const identity = createDeviceIdentity();
+    await store.enroll(identity, { username: 'testuser', password, name, ephemeral: false }); await store.openSession(identity);
+    const client = new RendezvousPeer(store, identity); await client.register(name); return client;
   };
   const alice = await peer('Alice'); const bob = await peer('Bob');
   const session = await alice.request(bob.identity.id, 'view');
-  const a = alice.channel(session, bob.identity.publicKey, bob.identity.id, 'view');
-  const b = bob.channel(session, alice.identity.publicKey, alice.identity.id, 'view');
+  const a = alice.channel(session, bob.identity.id, 'view');
+  const b = bob.channel(session, alice.identity.id, 'view');
   cleanup.push(() => { a.dispose(); b.dispose(); });
-  await b.accept(); await a.receive();
+  await b.accept();
+  for (let round = 0; round < 6 && !(a.ready && b.ready); round++) { await a.receive(); await b.receive(); }
+  expect(a.ready && b.ready).toBe(true);
   const payload = 'a=candidate line with "q", ä and 😀 padding padding padding\r\n'.repeat(330);
   const parts = splitSignal('offer', payload);
   expect(parts.length).toBeGreaterThan(1);

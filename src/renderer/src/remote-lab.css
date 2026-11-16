@@ -8,6 +8,8 @@
 .remote-lab-warning { padding: var(--space-12); border: 1px solid var(--color-warn-border); border-radius: var(--radius-md); background: var(--color-warn-bg); color: var(--color-text); }
 .remote-lab-form { display: grid; gap: var(--space-12); padding: var(--space-16) 0; }
 .remote-lab-form input { width: 100%; }
+.remote-lab-check { display: flex; align-items: center; gap: var(--space-8); }
+.remote-lab-form .remote-lab-check input { width: auto; flex: 0 0 auto; }
 .remote-lab-form button { justify-self: start; }
 .remote-lab-account { display: grid; gap: var(--space-12); padding: var(--space-16) 0; }
 .remote-lab-account h3, .remote-consent-dialog h3 { margin: 0; font-size: var(--fs-md); font-weight: 600; }
@@ -17,10 +19,7 @@
 .remote-lab-device-list { display: grid; gap: var(--space-12); margin: 0; padding: 0; list-style: none; }
 .remote-lab-device { display: grid; justify-items: start; gap: var(--space-8); padding: var(--space-16); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .remote-lab-device .remote-lab-fingerprint { justify-self: stretch; }
-.remote-lab-check { display: flex; align-items: flex-start; gap: var(--space-8); }
-.remote-lab-check input { flex: 0 0 auto; margin-top: var(--space-4); }
-.remote-lab-viewer { display: grid; gap: var(--space-12); padding: var(--space-16) 0; }
-.remote-lab-video { width: 100%; max-height: 60dvh; background: var(--color-bg-stage); border-radius: var(--radius-md); }
+.remote-lab-verify { width: 100%; font-family: var(--font-mono); }
 .remote-lab-dialog .field-error { color: var(--color-danger); }
 .remote-consent-actions { display: flex; justify-content: flex-end; gap: var(--space-12); margin-top: var(--space-16); }
 .remote-share-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-12); padding: var(--space-6) var(--space-16); background: var(--color-warn-bg); border-bottom: 1px solid var(--color-warn-border); color: var(--color-text); font-size: var(--fs-md); }

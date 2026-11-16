@@ -84,7 +84,7 @@
     "paneOption": "Pane {{number}}",
     "toOwnView": "Open as its own view",
     "resizeHint": "Drag the dividers, or focus them and move them with the arrow keys. Drag tabs onto a view above to move them there.",
-    "shortcutsHint": "Ctrl+Shift+F searches the terminal. Ctrl+Tab and Ctrl+Shift+Tab switch tabs, Ctrl+Shift+T opens a connection, Ctrl+Shift+W closes the tab."
+    "shortcutsHint": "Ctrl+Shift+F searches the terminal, Ctrl+F searches logs. Ctrl+Tab and Ctrl+Shift+Tab switch tabs, Ctrl+Shift+T opens a connection, Ctrl+Shift+W closes the tab."
   },
   "tabMenu": {
     "label": "Actions for {{name}}"
@@ -262,10 +262,18 @@
     "label": "Search in terminal",
     "input": "Search term",
     "placeholder": "Search",
-    "previous": "Previous match (Shift+Enter)",
-    "next": "Next match (Enter)",
+    "previous": "Previous match (Shift+Enter, Shift+F3)",
+    "next": "Next match (Enter, F3)",
     "close": "Close search (Esc)",
-    "none": "No matches"
+    "none": "No matches",
+    "count": "{{index}} of {{total}}",
+    "many": "more than {{total}} matches",
+    "total_one": "1 match",
+    "total_other": "{{count}} matches",
+    "invalidRegex": "Invalid regular expression",
+    "caseSensitive": "Match case",
+    "regex": "Regular expression",
+    "wholeWord": "Whole word"
   },
   "links": {
     "hintTarget": "Ctrl+click opens {{host}} in your browser",

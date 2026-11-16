@@ -277,7 +277,7 @@ function decryptVaultWithKey(
   }
 }
 
-async function deriveKey(
+export async function deriveKey(
   password: string,
   salt: Uint8Array,
   memoryKiB: number,

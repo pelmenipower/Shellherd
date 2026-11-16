@@ -1,19 +1,22 @@
 /** Client-only encryption. The server never imports this module. */
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import { argon2id } from 'hash-wasm';
 import { EncryptedVaultFileSchema } from '../../shared/vault/schema';
 import type { EncryptedVaultFile } from '../../shared/vault/file-format';
-export interface SyncContext { serverId: string; namespace: string }
-export class SyncFailure extends Error {
-  constructor(public readonly code: 'locked' | 'changed' | 'history' | 'conflict' | 'bindings' | 'wrongVault' | 'recovery' | 'limit') { super(`Vault sync rejected: ${code}`); }
-}
-export function ensure(ok: unknown, code: SyncFailure['code'] = 'history'): asserts ok { if (!ok) throw new SyncFailure(code); }
-export const hashWire = (wire: string) => createHash('sha256').update(wire).digest('hex');
-export function stable(value: unknown): string {
-  if (Array.isArray(value)) return '[' + value.map(stable).join(',') + ']';
-  if (value && typeof value === 'object') return '{' + Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => JSON.stringify(k) + ':' + stable(v)).join(',') + '}';
-  return JSON.stringify(value);
-}
+import { SyncFailure } from './sync-core';
+import { normalizeRecoveryCode } from '../../shared/recovery-code';
+import { normalizeSyncServerUrl } from '../../shared/sync-server-url.mjs';
+export { SyncFailure, ensure, hashWire, stable } from './sync-core';
+import { ensure, hashWire, stable } from './sync-core';
+/** Signing side of this device plus the roster view used to check author stamps; lives in main only. */
+/** `trusted` is false for roster entries the user has not acknowledged yet (a server can add devices at will); absent means all trusted. */
+export interface SyncDevice { id: string; sign(data: Buffer): Buffer; keyOf(id: string): KeyObject | undefined; revokedAt(id: string): number | null | undefined; trusted?(id: string): boolean }
+export interface SyncContext { serverId: string; namespace: string; device?: SyncDevice }
+export const SYNC_OBJECT_FORMAT = 'shellherd-sync-object';
+export const SYNC_EPOCH_MAX = 1_000_000;
+const OBJECT_MAX = 1048576; const OBJECT_PLAIN_MAX = 768 * 1024;
+type ObjectKind = 'version' | 'keybox';
 export function samePortable(a: unknown, b: unknown): boolean {
   const strip = (value: unknown) => { const copy = structuredClone(value) as { document?: { updatedAt?: string }; updatedAt?: string }; if (copy.document) delete copy.document.updatedAt; else delete copy.updatedAt; return copy; };
   return stable(strip(a)) === stable(strip(b));
@@ -27,30 +30,104 @@ export function encryptedFile(wire: string): EncryptedVaultFile {
   const file = EncryptedVaultFileSchema.parse(JSON.parse(wire)); validateKdf(file.kdf);
   ensure(JSON.stringify(file) === wire); return file;
 }
-function keyFor(vaultKey: Buffer, context: SyncContext, purpose: 'version' | 'state'): Buffer {
-  ensure(vaultKey.length === 32 && /^[a-f0-9]{64}$/.test(context.serverId) && /^[a-zA-Z0-9_-]{1,100}$/.test(context.namespace));
-  return Buffer.from(hkdfSync('sha256', vaultKey, Buffer.from(JSON.stringify([context.serverId, context.namespace])), `shellherd-vault-sync-${purpose}-v1`, 32));
+/** Only serverId and namespace ever enter a key or AAD, never the passed object (B7). */
+export function bound(context: SyncContext): { serverId: string; namespace: string } {
+  ensure(/^[a-f0-9]{64}$/.test(context.serverId) && /^[a-zA-Z0-9_-]{1,100}$/.test(context.namespace));
+  return { serverId: context.serverId, namespace: context.namespace };
 }
-const aad = (context: SyncContext, purpose: string, kdf: EncryptedVaultFile['kdf']) => Buffer.from(stable(['shellherd-vault-sync', 1, purpose, context, kdf]));
-export function sealDocument(document: unknown, vaultKey: Buffer, kdf: EncryptedVaultFile['kdf'], context: SyncContext, purpose: 'version' | 'state'): EncryptedVaultFile {
-  validateKdf(kdf); const key = keyFor(vaultKey, context, purpose); const nonce = randomBytes(12); const plain = Buffer.from(JSON.stringify(document));
+const salt = (context: SyncContext): Buffer => { const { serverId, namespace } = bound(context); return Buffer.from(JSON.stringify([serverId, namespace])); };
+const epochOk = (epoch: unknown): epoch is number => typeof epoch === 'number' && Number.isSafeInteger(epoch) && epoch >= 1 && epoch <= SYNC_EPOCH_MAX;
+const saltEpoch = (context: SyncContext, epoch: number): Buffer => { ensure(epochOk(epoch), 'wrongVault'); const { serverId, namespace } = bound(context); return Buffer.from(JSON.stringify([serverId, namespace, epoch])); };
+function keyFor(vaultKey: Buffer, context: SyncContext): Buffer {
+  ensure(vaultKey.length === 32);
+  return Buffer.from(hkdfSync('sha256', vaultKey, salt(context), 'shellherd-vault-sync-state-v1', 32));
+}
+const aad = (context: SyncContext, kdf: EncryptedVaultFile['kdf']) => Buffer.from(stable(['shellherd-vault-sync', 1, 'state', bound(context), kdf]));
+const STATE_MAX = 40 * 1048576;
+/** Checkpoint only; server objects use sealSyncObject. */
+export function sealDocument(document: unknown, vaultKey: Buffer, kdf: EncryptedVaultFile['kdf'], context: SyncContext, _purpose: 'state' = 'state'): EncryptedVaultFile {
+  validateKdf(kdf); const key = keyFor(vaultKey, context); const nonce = randomBytes(12); const plain = Buffer.from(JSON.stringify(document));
   try {
-    ensure(plain.length <= (purpose === 'state' ? 16 * 1048576 : 768 * 1024), 'limit');
-    const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(aad(context, purpose, kdf));
+    ensure(plain.length <= STATE_MAX, 'limit');
+    const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(aad(context, kdf));
     const payload = Buffer.concat([cipher.update(plain), cipher.final()]);
     return { format: 'terminus-encrypted-vault', version: 1, kdf: { ...kdf }, cipher: { algorithm: 'aes-256-gcm', nonce: nonce.toString('base64'), authTag: cipher.getAuthTag().toString('base64') }, payload: payload.toString('base64') };
   } finally { key.fill(0); plain.fill(0); }
 }
-export function openDocument(file: EncryptedVaultFile, vaultKey: Buffer, kdf: EncryptedVaultFile['kdf'], context: SyncContext, purpose: 'version' | 'state'): unknown {
+export function openDocument(file: EncryptedVaultFile, vaultKey: Buffer, kdf: EncryptedVaultFile['kdf'], context: SyncContext, _purpose: 'state' = 'state'): unknown {
   validateKdf(file.kdf); ensure(stable(file.kdf) === stable(kdf), 'wrongVault');
-  const key = keyFor(vaultKey, context, purpose); let plain: Buffer | undefined;
+  const key = keyFor(vaultKey, context); let plain: Buffer | undefined;
   try {
     const nonce = Buffer.from(file.cipher.nonce, 'base64'); const tag = Buffer.from(file.cipher.authTag, 'base64'); ensure(nonce.length === 12 && tag.length === 16);
-    const decipher = createDecipheriv('aes-256-gcm', key, nonce); decipher.setAAD(aad(context, purpose, kdf)); decipher.setAuthTag(tag);
+    const decipher = createDecipheriv('aes-256-gcm', key, nonce); decipher.setAAD(aad(context, kdf)); decipher.setAuthTag(tag);
     plain = Buffer.concat([decipher.update(Buffer.from(file.payload, 'base64')), decipher.final()]);
-    ensure(plain.length <= (purpose === 'state' ? 16 * 1048576 : 768 * 1024), 'limit'); return JSON.parse(plain.toString('utf8'));
+    ensure(plain.length <= STATE_MAX, 'limit'); return JSON.parse(plain.toString('utf8'));
   } catch (error) { if (error instanceof SyncFailure) throw error; throw new SyncFailure('wrongVault'); }
   finally { key.fill(0); plain?.fill(0); }
+}
+
+export function generateRecoveryCode(): string { return randomBytes(16).toString('hex'); }
+const canonical = (value: unknown, size?: number): boolean => {
+  if (typeof value !== 'string') return false; const bytes = Buffer.from(value, 'base64');
+  return bytes.toString('base64') === value && (size === undefined ? bytes.length >= 1 : bytes.length === size);
+};
+const orderedKeys = (value: unknown, expected: string): boolean => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).join(',') === expected;
+/** TS mirror of the server's validateSyncObject (envelope v2); null for anything else, including the legacy vault format and v1. */
+export function parseSyncEnvelope(wire: string): { kind: ObjectKind; epoch: number } | null {
+  if (typeof wire !== 'string' || Buffer.byteLength(wire) > OBJECT_MAX) return null;
+  let parsed: { format?: unknown; version?: unknown; kind?: unknown; epoch?: unknown; cipher?: { algorithm?: unknown; nonce?: unknown; authTag?: unknown }; payload?: unknown };
+  try { parsed = JSON.parse(wire); } catch { return null; }
+  if (JSON.stringify(parsed) !== wire || !orderedKeys(parsed, 'format,version,kind,epoch,cipher,payload')) return null;
+  if (parsed.format !== SYNC_OBJECT_FORMAT || parsed.version !== 2 || (parsed.kind !== 'version' && parsed.kind !== 'keybox') || !epochOk(parsed.epoch)) return null;
+  if (!orderedKeys(parsed.cipher, 'algorithm,nonce,authTag') || parsed.cipher!.algorithm !== 'aes-256-gcm') return null;
+  if (!canonical(parsed.cipher!.nonce, 12) || !canonical(parsed.cipher!.authTag, 16) || !canonical(parsed.payload)) return null;
+  return { kind: parsed.kind, epoch: parsed.epoch };
+}
+/** HKDF over the 32 byte sync key of one epoch; the caller owns (and zeroes) both keys. */
+export function versionKey(syncKey: Buffer, context: SyncContext, epoch: number): Buffer {
+  ensure(syncKey.length === 32);
+  return Buffer.from(hkdfSync('sha256', syncKey, saltEpoch(context, epoch), 'shellherd-sync-version-v3', 32));
+}
+function codeKey(code: string, context: SyncContext, epoch: number, info: string, failure: 'recoveryCode' | 'inviteKey'): Buffer {
+  const normalized = normalizeRecoveryCode(code); ensure(normalized !== null, failure);
+  const bytes = Buffer.from(normalized, 'hex');
+  try { return Buffer.from(hkdfSync('sha256', bytes, saltEpoch(context, epoch), info, 32)); } finally { bytes.fill(0); }
+}
+export function keyboxWrapKey(code: string, context: SyncContext, epoch: number): Buffer { return codeKey(code, context, epoch, 'shellherd-sync-keybox-recovery-v2', 'recoveryCode'); }
+export function inviteWrapKey(code: string, context: SyncContext, epoch: number): Buffer { return codeKey(code, context, epoch, 'shellherd-sync-keybox-invite-v1', 'inviteKey'); }
+/** The only value of an enrollment code the server sees; `origin` must be canonical (no slash; HTTPS, or loopback/private HTTP like the server). */
+export function inviteEnrollSecret(code: string, context: SyncContext, origin: string): string {
+  const normalized = normalizeRecoveryCode(code); ensure(normalized !== null, 'inviteKey');
+  const { serverId, namespace } = bound(context);
+  // Same rule as the server's originOk (device-proof.mjs): canonical origin, HTTPS or loopback/private HTTP.
+  const canonicalOrigin = typeof origin === 'string' && normalizeSyncServerUrl(origin + '/', { loopback: true, private: true }) === origin + '/';
+  ensure(canonicalOrigin, 'wrongVault');
+  const bytes = Buffer.from(normalized, 'hex');
+  try { return Buffer.from(hkdfSync('sha256', bytes, Buffer.from(JSON.stringify([serverId, namespace, origin])), 'shellherd-invite-enroll-v1', 32)).toString('hex'); } finally { bytes.fill(0); }
+}
+const objectAad = (kind: ObjectKind, context: SyncContext, epoch: number) => { const { serverId, namespace } = bound(context); return Buffer.from(stable([SYNC_OBJECT_FORMAT, 2, kind, epoch, serverId, namespace])); };
+export function sealSyncObject(kind: ObjectKind, document: unknown, key: Buffer, context: SyncContext, epoch: number): string {
+  ensure(key.length === 32); ensure(epochOk(epoch), 'wrongVault'); const nonce = randomBytes(12); const plain = Buffer.from(JSON.stringify(document));
+  try {
+    ensure(plain.length <= OBJECT_PLAIN_MAX, 'limit');
+    const cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(objectAad(kind, context, epoch));
+    const payload = Buffer.concat([cipher.update(plain), cipher.final()]);
+    const wire = JSON.stringify({ format: SYNC_OBJECT_FORMAT, version: 2, kind, epoch, cipher: { algorithm: 'aes-256-gcm', nonce: nonce.toString('base64'), authTag: cipher.getAuthTag().toString('base64') }, payload: payload.toString('base64') });
+    ensure(Buffer.byteLength(wire) <= OBJECT_MAX, 'limit'); return wire;
+  } finally { plain.fill(0); }
+}
+/** The envelope epoch must equal `epoch`, otherwise `wrongVault`. */
+export function openSyncObject(wire: string, kind: ObjectKind, key: Buffer, context: SyncContext, epoch: number): unknown {
+  ensure(typeof wire !== 'string' || Buffer.byteLength(wire) <= OBJECT_MAX, 'limit');
+  const envelope = parseSyncEnvelope(wire); ensure(envelope?.kind === kind && envelope.epoch === epoch, 'wrongVault'); ensure(key.length === 32, 'wrongVault');
+  let plain: Buffer | undefined;
+  try {
+    const parsed = JSON.parse(wire) as { cipher: { nonce: string; authTag: string }; payload: string };
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(parsed.cipher.nonce, 'base64')); decipher.setAAD(objectAad(kind, context, epoch)); decipher.setAuthTag(Buffer.from(parsed.cipher.authTag, 'base64'));
+    plain = Buffer.concat([decipher.update(Buffer.from(parsed.payload, 'base64')), decipher.final()]);
+    ensure(plain.length <= OBJECT_PLAIN_MAX, 'limit'); return JSON.parse(plain.toString('utf8'));
+  } catch (error) { if (error instanceof SyncFailure) throw error; throw new SyncFailure('wrongVault'); }
+  finally { plain?.fill(0); }
 }
 export async function keyFromPassword(password: string, kdf: EncryptedVaultFile['kdf']): Promise<Buffer> {
   validateKdf(kdf); ensure(typeof password === 'string' && password.length > 0 && password.length <= 1024, 'wrongVault');

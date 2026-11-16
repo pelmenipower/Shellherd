@@ -14,9 +14,13 @@ export const REMOTE_ERROR_KEYS = {
   mismatch: 'remoteLab:errors.mismatch',
   signal: 'remoteLab:errors.signal',
   media: 'remoteLab:errors.media',
+  mediaWindow: 'remoteLab:errors.mediaWindow',
   peer: 'remoteLab:errors.peer',
   scope: 'remoteLab:errors.scope',
-  limit: 'remoteLab:errors.limit'
+  limit: 'remoteLab:errors.limit',
+  samePassword: 'remoteLab:errors.samePassword',
+  enrolledElsewhere: 'remoteLab:errors.enrolledElsewhere',
+  enrollmentLocked: 'remoteLab:errors.enrollmentLocked'
 } as const satisfies Record<RemoteErrorCode, string>;
 
 export const REMOTE_END_KEYS = {
@@ -26,7 +30,8 @@ export const REMOTE_END_KEYS = {
   locked: 'remoteLab:ended.locked',
   declined: 'remoteLab:ended.declined',
   failed: 'remoteLab:ended.failed',
-  scope: 'remoteLab:ended.scope'
+  scope: 'remoteLab:ended.scope',
+  mismatch: 'remoteLab:ended.mismatch'
 } as const satisfies Record<RemoteEndReason, string>;
 
 export function errorKey<C extends RemoteErrorCode>(code: C): (typeof REMOTE_ERROR_KEYS)[C] {

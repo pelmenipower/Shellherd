@@ -7,31 +7,32 @@
   "connect": "Connect",
   "username": "Username",
   "password": "Server password",
-  "signIn": "Sign in",
+  "signIn": "Enroll device",
   "signedInAs": "Signed in as {{username}}",
   "deviceName": "Name of this device",
   "goOnline": "Announce this device online",
   "goOffline": "Go offline",
   "online": "Online as {{name}} · sign-in valid until {{time}}",
   "fingerprintOwn": "Fingerprint of this device",
-  "identityTemporary": "Temporary device identity: this computer has no operating system key store. The fingerprint changes on the next start.",
+  "identityTemporary": "Temporary device identity: this computer has no operating-system key store. Fingerprint and enrollment last only until the next start.",
   "devices": "Online devices",
   "noDevices": "No other device is online.",
-  "compared": "I compared the fingerprint on the other device",
   "requestView": "View screen",
   "waiting": "Waiting for approval on the other device…",
   "viewing": "Screen of {{name}} · session ends {{time}}",
   "stop": "End connection",
+  "viewerWindow": "The picture appears in a separate “Remote view” window. It has no access to your vault; closing it ends the connection.",
   "consent": {
     "title": "Share your screen?",
-    "body": "{{name}} wants to view the screen of this device. Compare the fingerprint on the other device.",
+    "body": "{{name}} wants to view the screen of this device.",
     "fingerprint": "Fingerprint of the requesting device",
-    "known": "Known since {{date}}",
-    "unknown": "Device not seen before",
     "expires": "Request expires in {{seconds}} s",
+    "armedHint": "The system dialog appears in a moment. Confirm there once more.",
+    "windowsHint": "On Windows, Shellherd leaves its windows and RDP surfaces out of the shared picture.",
     "linuxHint": "On Linux, the Shellherd window also stays visible in the shared picture.",
     "accept": "Share screen",
-    "decline": "Decline"
+    "decline": "Decline",
+    "nativeHint": "After the click, Shellherd asks once more in a system dialog."
   },
   "bar": {
     "viewing": "Screen is being viewed by {{name}} · since {{time}}",
@@ -44,7 +45,8 @@
     "locked": "The connection ended because the vault was locked.",
     "declined": "The other device declined the request.",
     "failed": "The connection failed.",
-    "scope": "Control is not supported yet. Only viewing is possible."
+    "scope": "Control is not supported yet. Only viewing is possible.",
+    "mismatch": "Verification failed three times. The request was declined."
   },
   "errors": {
     "unavailable": "Remote access is not available in this build.",
@@ -53,14 +55,36 @@
     "identity": "The stored device identity is damaged or unreadable. It was not replaced.",
     "locked": "Unlock your vault to announce this device online.",
     "connection": "The server cannot be reached.",
-    "authentication": "Sign-in failed or expired.",
+    "authentication": "Sign-in failed, expired, or this device was removed at the server.",
     "expired": "The request expired. Make it again.",
     "declined": "The other device declined the request.",
     "mismatch": "Device verification failed. Nothing was transferred.",
     "signal": "The connection data is invalid or too large. Nothing was transferred.",
     "media": "Screen capture was canceled or is not available.",
+    "mediaWindow": "The window for the remote view or sharing could not be opened. Nothing was transferred.",
     "peer": "No direct connection possible. Both devices must be on the same network.",
     "scope": "Control is not supported yet. Only viewing is possible.",
-    "limit": "Too many requests or devices. Wait a moment and try again."
-  }
+    "limit": "Too many requests or devices. Wait a moment and try again.",
+    "samePassword": "The server password must not be your vault password. Nothing was sent to the server.",
+    "enrolledElsewhere": "This device is enrolled for this server at another address. Confirm the new enrollment explicitly.",
+    "enrollmentLocked": "This server accepts new devices only with an enrollment code. Enroll this device in the sync lab with an enrollment code first."
+  },
+  "verify": {
+    "label": "First 16 characters of the fingerprint from the other device (the first two groups)",
+    "hint": "Read them on the other device under “Fingerprint of this device”, never from a device name.",
+    "verified": "Verified on {{date}}",
+    "changed": "The fingerprint of {{name}} has changed. Verify it again."
+  },
+  "muted_one": "{{count}} request muted",
+  "muted_other": "{{count}} requests muted",
+  "connecting": "Establishing the encrypted connection…",
+  "privateNetwork": {
+    "label": "Private network (WireGuard/Tailscale): allow HTTP",
+    "hint": "Only for a WireGuard or Tailscale address of this server. Outside such a tunnel the network could read the server password and data. Your vault password stays local."
+  },
+  "openSession": "Open session",
+  "enrolledHint": "This device is enrolled at the server; the server knows only its public key.",
+  "enrolledElsewhere": "This device is enrolled for this server at {{url}}. A foreign server can pose as your server by reporting the same server ID. Enroll this device here only if you are sure that both addresses belong to your server.",
+  "enrolledElsewhereConfirm": "I have checked the address and enroll this device here again.",
+  "deviceNameHint": "1–64 characters: letters, digits, spaces and - _ . , ( ) '. No run of 8 or more characters from 0–9 and a–f, not even separated by spaces, because it looks like a verification code."
 }
