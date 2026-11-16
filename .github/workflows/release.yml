@@ -131,7 +131,7 @@ jobs:
       # Input names of the SignPath action are to be checked against its documentation.
       - if: steps.signing.outputs.enabled == 'true'
         name: Sign app folder with SignPath
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@ced31329c0317e779dad2eec2a7c3bb46ea1343e # v1
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -206,7 +206,7 @@ jobs:
             dist/Shellherd-Portable-*.exe
       - if: steps.signing.outputs.enabled == 'true'
         name: Sign installers with SignPath
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@ced31329c0317e779dad2eec2a7c3bb46ea1343e # v1
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -305,7 +305,9 @@ jobs:
           cd dist
           sha256sum *.exe *.AppImage *.deb install.sh install.ps1 > SHA256SUMS
       - if: env.FORK_PR != 'true'
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+        with:
+          cosign-release: v2.6.1
       - if: env.FORK_PR != 'true'
         name: Sign and verify checksums with Sigstore
         run: |
@@ -344,14 +346,16 @@ jobs:
         with:
           name: release-files
           path: .
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+        with:
+          cosign-release: v2.6.1
       - name: Verify checksums and signature again
         run: |
           (cd dist && sha256sum --check SHA256SUMS)
           cosign verify-blob --bundle dist/SHA256SUMS.sigstore.json \
             --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com dist/SHA256SUMS
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-checksums: dist/SHA256SUMS
       # A draft is invisible publicly until every asset has uploaded successfully.

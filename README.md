@@ -183,10 +183,10 @@ Replace the filename if your build uses another version. The installer uses APT'
 
 **Update from the app:** after unlocking, Shellherd checks GitHub for a newer stable release, at most once every 24 hours after a successful check. When one is available, the status bar displays its version. Its menu opens the release notes, skips that version or, for most installations, starts the update with **Update now** after a confirmation:
 
-- **DEB and Windows setup:** the app opens a terminal or PowerShell window and runs the release's own `install.sh` or `install.ps1` there, then closes itself while the update runs. The script verifies `SHA256SUMS` (and the Sigstore signature if `cosign` is installed) before it installs; on Windows it also checks the Authenticode signature of the setup. Keep the window open until it finishes. Linux asks for sudo through APT in that window; the Windows setup is started silently for a per-user installation.
+- **DEB and Windows setup:** the app opens a terminal or PowerShell window and runs the release's own `install.sh` or `install.ps1` there, then closes itself while the update runs. The script verifies `SHA256SUMS` (and the Sigstore signature if `cosign` is installed) before it installs; on Windows it also checks the Authenticode signature of the setup. Keep the window open until it finishes. Linux asks for sudo through APT in that window; for an all-users Windows installation the setup opens and asks for administrator rights.
 - **AppImage:** the same script runs in a terminal and replaces the AppImage file in place.
-- **Portable EXE:** the app only offers **Download new version**, which opens the release page. It cannot replace itself.
-- If no terminal is found on Linux, the app shows the command to run yourself. Development builds and unrecognized installations offer only the download.
+- **Portable EXE:** **Download new version** opens, after a confirmation, a PowerShell window that downloads the new portable EXE into the folder of the running file and verifies it. Nothing is replaced and Shellherd keeps running; you start the new file yourself.
+- If no terminal is found on Linux, the app shows the command to run yourself. Development builds and unrecognized installations have no update entry, only the release notes.
 
 You can disable the check under **Settings → General**. The app never downloads or installs anything in the background; nothing happens before you confirm. Unpublished local changes, builds with the same version number, drafts and prereleases do not trigger a notification.
 
@@ -219,7 +219,7 @@ Free code signing on Windows provided by [SignPath.io](https://signpath.io), cer
 
 - **Build rule:** Windows binaries are signed only by the [Release workflow](.github/workflows/release.yml) on GitHub Actions from the public repository. No maintainer machine holds a certificate.
 - **Roles:** Committers and reviewers: [@pelmenipower](https://github.com/pelmenipower). Approver: [@pelmenipower](https://github.com/pelmenipower).
-- **Privacy policy:** Shellherd transfers nothing to other systems except (1) the connections you create in the vault and start, (2) the daily version check at GitHub, which you can turn off under Settings → General, and (3) requests to the AI provider you configured yourself. See [Privacy](#privacy).
+- **Privacy policy:** Shellherd transfers nothing to other systems except (1) the connections you create in the vault and start, (2) the daily version check at GitHub, which you can turn off under Settings → General, and, when you start an update yourself, the download of the release files from GitHub, and (3) requests to the AI provider you configured yourself. See [Privacy](#privacy).
 
 ### Platform limitations
 

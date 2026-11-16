@@ -528,16 +528,20 @@ app.whenReady().then(async () => {
       return;
     }
     if (plan.quitAfter && updateStarted) return;
+    // Claim the start before spawning so a double click cannot launch two terminals.
+    if (plan.quitAfter) updateStarted = true;
     const child = spawn(plan.command, plan.args, {
       detached: true, stdio: 'ignore', shell: false, env: plan.env, cwd: isWindows ? tmpdir() : homedir(), windowsHide: isWindows,
     });
     await new Promise<void>((resolve, reject) => {
-      child.once('error', () => reject(new AppError('core.updateLaunchFailed')));
+      child.once('error', () => {
+        if (plan.quitAfter) updateStarted = false;
+        reject(new AppError('core.updateLaunchFailed'));
+      });
       child.once('spawn', () => { child.unref(); resolve(); });
     });
     if (plan.quitAfter) {
       updateQuitting = true;
-      updateStarted = true;
       setTimeout(() => { closeSecondaryWindows(); closeAllSessions(); app.quit(); }, 300);
     }
   });
