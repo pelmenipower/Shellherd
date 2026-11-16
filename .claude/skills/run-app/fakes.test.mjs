@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import ssh2 from 'ssh2';
 import { KubeConfig } from '@kubernetes/client-node';
 import { openRemoteHost } from '../../../src/main/containers/runner';
-import { PROBE_COMMAND, shellJoin } from '../../../src/main/containers/commands';
+import { PROBE_COMMAND, remoteCommand, shellJoin, terminalArgv } from '../../../src/main/containers/commands';
 import { parseProbe } from '../../../src/main/containers/parsers';
 import { BATCH_OUTPUT_LIMIT, inventoryBatchCommand, splitInventoryBatch } from '../../../src/main/containers/inventory-batch';
 import { parseContainerRows } from '../../../src/main/containers/inventory-parsers';
@@ -28,7 +28,7 @@ import { DIAGNOSE_MAX_CHARS } from '../../../src/shared/kubernetes';
 import { deniedAccess } from '../../../src/shared/kube-access';
 import { streamChat } from '../../../src/main/ai/providers';
 import { SecretMasker } from '../../../src/main/ai/secret-mask';
-import { DOCKER_LOG_HEAD, dockerLogLine, dockerLogsRef, startSshd } from './sshd.mjs';
+import { DOCKER_LOG_HEAD, dockerLogLine, dockerExecRef, dockerLogsRef, startSshd } from './sshd.mjs';
 import { DEMO_TOTP, seedSftp } from './fixtures.mjs';
 import { findOpenssl, KUBE_REQUEST_LOG, KUBE_TOKEN, startKubeFake } from './kube-fake.mjs';
 import { HARBOR_DIGEST, HARBOR_HOST, KUBE_SECRETS } from './kube-fixtures.mjs';
@@ -54,6 +54,23 @@ describe('docker logs fake', () => {
     expect(lines.filter(line => line.startsWith('GET /api/orders 200 '))).toHaveLength(DOCKER_LOG_HEAD - DOCKER_LOG_HEAD / 10);
     expect(new Set(lines).size).toBe(DOCKER_LOG_HEAD);
     expect(lines.every(line => !/[\r\n]/.test(line))).toBe(true);
+  });
+});
+
+describe('docker exec fake', () => {
+  const target = { item: { kind: 'container', runtime: 'docker', ref: 'api', name: 'api' }, mode: 'shell' };
+  it('matches the real container shell command with and without sudo -n', () => {
+    expect(dockerExecRef(remoteCommand(terminalArgv(target), { kind: 'none' }))).toBe('api');
+    expect(dockerExecRef(remoteCommand(terminalArgv(target), { kind: 'noninteractive' }))).toBe('api');
+  });
+
+  it('matches nothing else', () => {
+    const real = remoteCommand(terminalArgv(target), { kind: 'none' });
+    expect(dockerExecRef(`${real}; rm -rf /`)).toBeUndefined();
+    expect(dockerExecRef("podman exec -it api sh -c 'x'")).toBeUndefined();
+    expect(dockerExecRef("mydocker exec -it api sh -c 'x'")).toBeUndefined();
+    expect(dockerExecRef('PATH="$PATH:/usr/sbin:/sbin" docker logs -f --tail 500 api')).toBeUndefined();
+    expect(dockerLogsRef(real)).toBeUndefined();
   });
 });
 
@@ -113,6 +130,34 @@ describe.runIf(process.platform === 'win32')('run-app fakes, driven by the real 
     const code = await new Promise(resolve => unknown.on('close', resolve));
     expect(code).toBe(1);
     expect(err).toContain('No such container: nope');
+  });
+
+  it('serves an echo shell for running containers and refuses unknown and stopped ones', async () => {
+    const client = await sshClient((await start('exec-shell')).port);
+    const exec = command => new Promise((resolve, reject) => client.exec(command, { pty: true }, (error, stream) => (error ? reject(error) : resolve(stream))));
+    const command = name => remoteCommand(terminalArgv({ item: { kind: 'container', runtime: 'docker', ref: name, name }, mode: 'shell' }), { kind: 'noninteractive' });
+    const until = async (read, text) => { for (const end = Date.now() + 5000; !read().includes(text) && Date.now() < end; await new Promise(resolve => setTimeout(resolve, 20))); };
+
+    const stream = await exec(command('api'));
+    let text = '';
+    stream.on('data', data => { text += data.toString(); });
+    await until(() => text, 'root@api:/# ');
+    expect(text).toBe('root@api:/# ');
+    stream.write('uptime\r');
+    await until(() => text, 'load average');
+    expect(text).toContain('load average');
+    stream.write('exit\r');
+    expect(await new Promise(resolve => stream.on('close', resolve))).toBe(0);
+
+    for (const [name, message] of [['nope', 'No such container: nope'], ['migrate', 'is not running']]) {
+      const refused = await exec(command(name));
+      let err = '';
+      refused.stderr.on('data', data => { err += data.toString(); });
+      // stdout must be read too: an unread ssh2 stream stays paused and never emits 'close'.
+      refused.resume();
+      expect(await new Promise(resolve => refused.on('close', resolve))).toBe(1);
+      expect(err).toContain(message);
+    }
   });
 
   it('serves the root shell and the start commands', async () => {

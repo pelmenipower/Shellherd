@@ -1,5 +1,5 @@
 // Scenario script: takes the component screenshots (SFTP, containers, Kubernetes, settings, AI assistant, lock screen, secondary-window lock, login commands, welcome tab, import sources, update hint) through the running driver.
-// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|container-logs|kube-ai|kube-links|kube-direct|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
+// Usage: node .claude/skills/run-app/screens.mjs [sftp|containers|kubernetes|kube-forward|kube-logs|container-logs|kube-ai|kube-links|kube-direct|settings|assistant|masking|lock|lock-secondary|login-commands|welcome|auth-prompt|jump-form|forwards|file-drop|files-entry|container-shell-tab|terminal-search|terminal-link|terminal-link-osc8|settings-terminal|tab-activity|broadcast|import|update|recent|theme-light|vault-path|host-keys|hello …] [--readme]   (no argument = all)
 // --readme copies sftp, containers, kubernetes, settings and assistant to docs/images/screenshot-<name>.png
 // Needs the driver, the test server (`npm run drive:sshd`) and the unlocked demo vault (`demo-setup.mjs`).
 import fs from 'node:fs';
@@ -193,6 +193,30 @@ const connectedTab = `[...document.querySelectorAll('.terminal-tab:not([data-fix
 const web01 = '.vault-tree-row >> text=web-01 >> nth=0';
 // Connected web-01 tabs; duplicates are labelled "web-01 (1)", so the name is matched by prefix.
 const web01Connected = `[...document.querySelectorAll('.terminal-tab:not([data-fixed])')].filter(b => /^web-01/.test(b.querySelector('.tab-name')?.textContent ?? '') && b.querySelector('.tab-status-connected')).length`;
+
+// Tree helpers of the file view entry scenes: a host's <li> (own row only), its expand chevron and the first child entry.
+const hostItem = name => `[...document.querySelectorAll('.vault-tree li')].find(li => li.querySelector(':scope > .vault-tree-row .tree-node-text')?.textContent.trim() === ${JSON.stringify(name)})`;
+const hostChevron = name => `${hostItem(name)}?.querySelector(':scope > .vault-tree-row .tree-toggle')`;
+const filesEntryOf = name => `${hostItem(name)}?.querySelector(':scope > .container-children-wrap > .container-children > li:first-child')`;
+const filesEntryText = name => `(${filesEntryOf(name)}?.textContent ?? '').trim()`;
+// Tabs by exact name; connected = status dot of the connected state.
+const tabNamed = name => `[...document.querySelectorAll('.terminal-tab:not([data-fixed])')].filter(b => b.querySelector('.tab-name')?.textContent === ${JSON.stringify(name)})`;
+const tabConnected = name => `${tabNamed(name)}.some(b => b.querySelector('.tab-status-connected'))`;
+const tabActive = name => `${tabNamed(name)}.some(b => b.getAttribute('aria-selected') === 'true')`;
+// Expands a host only when it is collapsed and records it, so the scene can collapse it again.
+async function expandHost(name, opened) {
+  await waitFor(`Chevron ${name}`, `!!${hostChevron(name)}`);
+  if (await evaluate(`${hostChevron(name)}.getAttribute('aria-expanded') === 'false'`)) {
+    await evaluate(`${hostChevron(name)}.click()`);
+    opened.push(name);
+  }
+  await waitFor(`Dateiansicht-Eintrag unter ${name}`, `${filesEntryText(name)} === 'Dateiansicht (SFTP)'`);
+}
+const collapseHosts = async opened => {
+  for (const name of opened) {
+    if (await evaluate(`${hostChevron(name)}?.getAttribute('aria-expanded') === 'true'`)) await evaluate(`${hostChevron(name)}.click()`);
+  }
+};
 const blocks = {
   async sftp() {
     const { target, segment } = localTarget();
@@ -1068,6 +1092,26 @@ const blocks = {
     await pause(300);
     await shot('welcome');
   },
+  // The ".term hier loslassen" hint must go away when a file is dropped on an area that handles the drop itself
+  // and stops propagation (SFTP server pane, vault tree). A probe element plays that area; no file is opened.
+  async 'file-drop'() {
+    const hint = `document.querySelector('.file-drop-hint')`;
+    await call('eval', `const probe = document.createElement('div'); probe.id = 'drop-probe'; document.body.append(probe);
+      probe.addEventListener('dragover', event => { event.preventDefault(); event.stopPropagation(); });
+      probe.addEventListener('drop', event => { event.preventDefault(); event.stopPropagation(); });
+      const files = () => { const data = new DataTransfer(); data.items.add(new File(['x'], 'probe.txt')); return data; };
+      window.__dropProbeFiles = files;
+      probe.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: files() }));
+      window.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: files() }));
+      return true;`);
+    await waitFor('Hinweis erscheint', `!!${hint}`, { timeout: 3000 });
+    await call('eval', `document.getElementById('drop-probe').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: window.__dropProbeFiles() })); return true;`);
+    try {
+      await waitFor('Hinweis verschwindet nach Drop auf einen eigenen Bereich', `!${hint}`, { timeout: 3000 });
+    } finally {
+      await call('eval', `document.getElementById('drop-probe')?.remove(); delete window.__dropProbeFiles; window.dispatchEvent(new DragEvent('dragleave', { bubbles: true })); return true;`);
+    }
+  },
   // Search bar over the output of uptime: Strg+Umschalt+F opens it, typing selects the first match.
   async 'terminal-search'() {
     await click(web01);
@@ -1490,6 +1534,86 @@ const blocks = {
       if (await evaluate(lockOpen)) await unlockWithPassword();
       await evaluate(`window.desktopApi.helloDisable().catch(() => {})`);
     }
+  },
+  // File view entry under SSH hosts: reuse by click/Enter, new tab by menu, every discovery state, jump host; hosts are collapsed again at the end.
+  async 'files-entry'() {
+    const opened = [];
+    const filesTab = n => n === 1 ? 'web-01 · Dateien' : `web-01 · Dateien (${n})`;
+    // Count inside the panel of the named tab: hidden panels stay mounted, a document-wide count would always match.
+    const panelOf = name => `document.getElementById(${tabNamed(name)}[0]?.getAttribute('aria-controls') ?? '')`;
+    const rowsIn = name => `(${panelOf(name)}?.querySelectorAll('.file-pane-remote [role=row][data-name]').length ?? 0) >= 5`;
+    try {
+      await expandHost('web-01', opened);
+      if (await evaluate(`${count('.terminal-tab:not([data-fixed])')} !== 0`)) throw new Error('Vor dem Klick ist schon ein Tab offen');
+      await evaluate(`${filesEntryOf('web-01')}.querySelector('button').click()`);
+      await waitFor('Dateien-Tab verbunden', `${tabConnected(filesTab(1))} && ${rowsIn(filesTab(1))}`);
+      if (await evaluate(`${tabNamed('web-01')}.length !== 0`)) throw new Error('Es gibt einen Terminal-Tab web-01, die Dateiansicht darf keinen öffnen');
+      // Another tab becomes active, then Enter on the focused entry must focus the open file tab instead of opening a new one.
+      await click('text=files-01 >> nth=0');
+      await key('Enter');
+      await waitFor('Anderer Tab aktiv', `${count('.terminal-tab:not([data-fixed])')} === 2 && !${tabActive(filesTab(1))}`);
+      await evaluate(`${filesEntryOf('web-01')}.querySelector('button').focus()`);
+      await key('Enter');
+      await waitFor('Dateien-Tab wieder aktiv', tabActive(filesTab(1)));
+      if (await evaluate(`${tabNamed(filesTab(1))}.length !== 1 || ${tabNamed(filesTab(2))}.length !== 0`)) throw new Error('Enter hat einen neuen Dateien-Tab geöffnet statt den offenen zu fokussieren');
+      // Context menu: always a further tab.
+      await rclick('.vault-tree li:has(> .vault-tree-row .tree-toggle[aria-label*="von web-01"]) .container-row >> nth=0');
+      await menuItem('Dateiansicht öffnen');
+      await waitFor('Zweiter Dateien-Tab verbunden', `${tabConnected(filesTab(2))} && ${rowsIn(filesTab(2))}`);
+      await pause(300);
+      await shot('files-entry');
+      // Error path: the entry stays first and opens a file tab that shows the error card.
+      await expandHost('legacy-app', opened);
+      await waitFor('Erkennungsfehler unter legacy-app', `!!${hostItem('legacy-app')}?.querySelector('.tree-error')`);
+      if (await evaluate(`${filesEntryText('legacy-app')} !== 'Dateiansicht (SFTP)'`)) throw new Error('Der Eintrag ist bei Erkennungsfehler nicht mehr das erste li');
+      await evaluate(`${filesEntryOf('legacy-app')}.querySelector('button').click()`);
+      await waitFor('Fehlerkarte im Dateien-Tab', `!!${panelOf('legacy-app · Dateien')}?.querySelector('.connect-error')`);
+      // Jump host: app-intern is reached over web-01.
+      await expandHost('app-intern', opened);
+      await evaluate(`${filesEntryOf('app-intern')}.querySelector('button').click()`);
+      await waitFor('Dateien-Tab über Sprunghost', `${tabConnected('app-intern · Dateien')} && ${rowsIn('app-intern · Dateien')}`, { timeout: 30000 });
+    } finally {
+      await collapseHosts(opened);
+    }
+  },
+  // Container shell as a tab from the dock placeholder (no shell in the dock) and from the row menu (sshd.mjs fake: echo shell root@<name>:/# ).
+  async 'container-shell-tab'() {
+    const rows = id => `document.querySelector('${id}')?.textContent ?? ''`;
+    const tabPrompt = (name, prompt) => `${tabConnected(name)} && [...document.querySelectorAll('.terminal-panel .xterm-rows')].some(r => r.textContent.includes(${JSON.stringify(prompt)}))`;
+    await rclick('text=web-01 >> nth=0');
+    await menuItem('Container-Ansicht öffnen');
+    await waitFor('Container-Tabelle', `${count('.kube-table tbody tr')} >= 6`);
+    await click('.kube-table tbody tr >> nth=0');
+    await waitFor('Zeile api', `document.querySelector('.kube-dock-hint')?.textContent.trim() === 'api'`);
+    await key('s');
+    await waitFor('Platzhalter mit Tab-Knopf', `(document.querySelector('.kube-placeholder')?.textContent ?? '').includes('Die Shell startet erst auf Knopfdruck') && [...document.querySelectorAll('.kube-placeholder button')].some(b => b.textContent.trim() === 'Shell als Tab öffnen')`);
+    if (await evaluate(`!!document.querySelector('.kube-dock-terminal')`)) throw new Error('Dock-Terminal vor dem Knopfdruck vorhanden');
+    // Both placeholder buttons (Shell öffnen primary, Shell als Tab öffnen secondary) side by side.
+    if (!await evaluate(`[...document.querySelectorAll('.kube-placeholder button')].some(b => b.textContent.trim() === 'Shell öffnen')`)) throw new Error('Platzhalter ohne Knopf „Shell öffnen“');
+    await pause(300);
+    await shot('container-shell-placeholder');
+    await evaluate(`[...document.querySelectorAll('.kube-placeholder button')].find(b => b.textContent.trim() === 'Shell als Tab öffnen').click()`);
+    await waitFor('Tab api @ web-01 mit Prompt', tabPrompt('api @ web-01', 'root@api:/#'));
+    await pause(300);
+    await shot('container-shell-tab');
+    // Back to the view tab: the placeholder must still stand (checked before any selection change, which would reset the arm state anyway).
+    await evaluate(`${tabNamed('web-01 · Container')}.concat([...document.querySelectorAll('.terminal-tab:not([data-fixed])')].filter(b => b.querySelector('.tab-status-connected') && !/@/.test(b.textContent)))[0].click()`);
+    await waitFor('Container-Ansicht wieder aktiv', `!!document.querySelector('.kube-table')`);
+    if (!await evaluate(`(document.querySelector('.kube-placeholder')?.textContent ?? '').includes('Die Shell startet erst auf Knopfdruck')`)) throw new Error('Platzhalter nach dem Tab-Wechsel nicht mehr da');
+    if (await evaluate(`!!document.querySelector('.kube-dock-terminal')`)) throw new Error('Dock-Terminal nach dem Tab-Wechsel vorhanden');
+    await rclick('.kube-table tbody tr:has-text("worker") >> nth=0');
+    await menuItem('Shell als Tab öffnen');
+    await waitFor('Tab worker @ web-01 verbunden', tabConnected('worker @ web-01'));
+    // The new tab must be the visible one (like the api tab above), not a background tab behind the view tab.
+    if (!await evaluate(tabActive('worker @ web-01'))) throw new Error('Tab worker @ web-01 ist verbunden, aber nicht aktiv: der Menüweg lässt die Container-Ansicht aktiv');
+    await waitFor('Tab worker @ web-01 mit Prompt', tabPrompt('worker @ web-01', 'root@worker:/#'));
+    // Logs from the row menu: same refocus path, the new tab must be in front.
+    await evaluate(`${tabNamed('web-01 · Container')}[0].click()`);
+    await waitFor('Container-Ansicht wieder aktiv (Logs)', `!!document.querySelector('.kube-table')`);
+    await rclick('.kube-table tbody tr:has-text("redis") >> nth=0');
+    await menuItem('Logs als Tab öffnen');
+    await waitFor('Tab Logs: redis @ web-01 verbunden', tabConnected('Logs: redis @ web-01'));
+    if (!await evaluate(tabActive('Logs: redis @ web-01'))) throw new Error('Tab Logs: redis @ web-01 ist verbunden, aber nicht aktiv: der Menüweg lässt die Container-Ansicht aktiv');
   },
 };
 

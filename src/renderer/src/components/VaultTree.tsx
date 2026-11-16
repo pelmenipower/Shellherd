@@ -28,7 +28,8 @@ interface VaultTreeProps {
   /** parentId '' means the vault root. */
   onNewConnection?: (protocol: ConnectionProtocol, parentId: string) => void;
   /** Opens an SSH connection as file browser. */
-  onOpenFiles?: (id: string) => void;
+  /** Opens an SSH connection as file browser; reuse focuses an open one. undefined/false = new tab. */
+  onOpenFiles?: (id: string, reuse?: boolean) => void;
   /** Opens every connection in a folder. */
   onConnectAll?: (folderId: string) => void;
   /** Starts the Kubernetes cluster setup from an SSH connection that can reach the API server. */
@@ -215,7 +216,7 @@ export function VaultTree({ nodes, selectedNodeId, disabled, onSelect, onConnect
     </div>
     {node.type === 'folder' && !searching && !collapsed.has(node.id) && node.children.length > 0 && <ul>{node.children.map(child => renderNode(child, depth + 1))}</ul>}
     {isHost(node) && expandedHosts.has(node.id) && containers && <ContainerChildren hostId={node.id} discovery={containers.state[node.id]} depth={depth + 1} hostName={node.name}
-      disabled={disabled} onOpen={containers.onOpen} onOpenView={containers.onOpenView} onAction={containers.onAction} onRefresh={() => containers.onExpand(node.id)} />}
+      files={onOpenFiles ? { onOpen: reuse => onOpenFiles(node.id, reuse) } : undefined} disabled={disabled} onOpen={containers.onOpen} onOpenView={containers.onOpenView} onAction={containers.onAction} onRefresh={() => containers.onExpand(node.id)} />}
   </li>;
   const results = searching ? searchVaultNodes(nodes, query) : [];
   return <nav className={`vault-tree${dropHint?.id === null ? ' is-drop-root' : ''}`} aria-label={t('vault:tree.aria')}

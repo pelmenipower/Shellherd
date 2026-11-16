@@ -210,6 +210,30 @@ describe('container view tabs', () => {
     expect(planContainerView(filler(2), null, docker, true)).toEqual({ kind: 'open' });
     expect(planContainerView([...filler(2), mk('v', docker)], null, docker, false)).toEqual({ kind: 'open' });
   });
+  describe('file view tabs of an SSH host', () => {
+    const node = { id: 'h1', type: 'connection', protocol: 'ssh', name: 'srv', host: 'srv', port: 22, username: 'u', authentication: { method: 'agent' }, tags: [] } as never as Parameters<typeof toTerminalConnection>[0];
+    const shellTab = mk('s', toTerminalConnection(node));
+    const viewTab = mk('v', docker);
+    const files = toTerminalConnection(node, true);
+    it('focuses an open file tab with reuse, preferring the active one', () => {
+      expect(planContainerView([shellTab, viewTab, mk('f', files)], null, files, true)).toEqual({ kind: 'focus', tabId: 'f' });
+      expect(planContainerView([mk('f1', files), shellTab, mk('f2', files)], 'f2', files, true)).toEqual({ kind: 'focus', tabId: 'f2' });
+    });
+    it('opens a new tab without reuse', () => {
+      expect(planContainerView([shellTab, mk('f', files)], null, files, false)).toEqual({ kind: 'open' });
+    });
+    it('opens when only shell and container view tabs exist', () => {
+      expect(planContainerView([shellTab, viewTab], null, files, true)).toEqual({ kind: 'open' });
+    });
+    it('focuses at the session limit when a file tab exists, else limits', () => {
+      expect(planContainerView([...filler(MAX_SSH_SESSIONS - 1), mk('f', files)], null, files, true)).toEqual({ kind: 'focus', tabId: 'f' });
+      expect(planContainerView(filler(MAX_SSH_SESSIONS), null, files, true)).toEqual({ kind: 'limit' });
+    });
+    it('does not match the file tab of another host', () => {
+      const other = toTerminalConnection({ ...node, id: 'h2', name: 'other' } as typeof node, true);
+      expect(planContainerView([mk('f', other)], null, files, true)).toEqual({ kind: 'open' });
+    });
+  });
 });
 
 describe('terminal tab names in en-US', () => {

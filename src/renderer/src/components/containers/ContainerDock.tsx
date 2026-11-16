@@ -156,7 +156,10 @@ export function ContainerDock(props: ContainerDockProps) {
       body = (
         <div className="kube-placeholder">
           <p>{t('containers:dock.armHint')}</p>
-          <button type="button" className="primary-button" onClick={onArm}>{t('containers:menu.shellOpen')}</button>
+          <div className="kube-placeholder-actions">
+            <button type="button" className="primary-button" onClick={onArm}>{t('containers:menu.shellOpen')}</button>
+            {onPopout && <button type="button" className="secondary-button" onClick={onPopout}>{t('containers:menu.shellTab')}</button>}
+          </div>
         </div>
       );
     } else if (terminalConnection) {

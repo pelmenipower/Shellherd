@@ -58,6 +58,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
   const { state, dispatch, retry, detail, action, startForward, stopForward, viewId, startLogs, stopLogs, ensureAccess } = useClusterSession(connection.id, initialView, null);
   const rootRef = useRef<HTMLElement>(null);
   const tableRef = useRef<HTMLDivElement>(null);
+  const refocusing = useRef(false);
   const [previous, setPrevious] = useState(false);
   const [armedFor, setArmedFor] = useState<string | null>(null);
   const [logsAllFor, setLogsAllFor] = useState<string | null>(null);
@@ -123,7 +124,9 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
     if (modal || !visible || !focused) return;
     const dock = rootRef.current?.querySelector('.kube-dock');
     if (dock?.contains(document.activeElement)) return;
-    tableRef.current?.focus({ preventScroll: true });
+    // Our own refocus must not select this tab again: a menu action may just have opened and selected another tab.
+    refocusing.current = true;
+    try { tableRef.current?.focus({ preventScroll: true }); } finally { refocusing.current = false; }
   }, [modal, visible, focused]);
 
   // Status for the tab bar: ready = connected, error = error, everything else = connecting.
@@ -373,7 +376,7 @@ export function ClusterView({ connection, tabId, visible, focused = true, style,
 
   return (
     <section ref={rootRef} className={`kube-view${focused ? ' focused-pane' : ''}`} style={style} hidden={!visible}
-      id={`cluster-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} onPointerDown={onFocus} onFocusCapture={onFocus} onKeyDown={onKeyDown}>
+      id={`cluster-${tabId}`} role="tabpanel" aria-labelledby={`tab-${tabId}`} onPointerDown={onFocus} onFocusCapture={() => { if (!refocusing.current) onFocus?.(); }} onKeyDown={onKeyDown}>
       <header className="kube-header">
         <div className="kube-title">
           <strong>{clusterName}</strong>

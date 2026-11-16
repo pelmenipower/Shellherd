@@ -317,14 +317,19 @@ export default function App() {
         granted => openVaultFileRef.current(granted),
         error => notify.info(t('app:notices.vaultPathRefusedTitle'), { body: errorText(error) }));
     };
+    // Capture phase: areas that take the drop themselves (SFTP server side, vault tree) stop propagation, so the
+    // bubbling drop above never arrives there; the hint must still go away.
+    const end = (): void => setFileDragActive(false);
     window.addEventListener('dragover', over);
     window.addEventListener('dragleave', leave);
     window.addEventListener('drop', drop);
+    window.addEventListener('drop', end, true);
     window.addEventListener('dragend', leave);
     return () => {
       window.removeEventListener('dragover', over);
       window.removeEventListener('dragleave', leave);
       window.removeEventListener('drop', drop);
+      window.removeEventListener('drop', end, true);
       window.removeEventListener('dragend', leave);
     };
   }, [t]);
@@ -788,6 +793,20 @@ export default function App() {
     });
   }
 
+  /** File view of an SSH connection: reuse focuses an open one (active first), else a new tab; same checks as connectNode. */
+  function openFiles(id: string, reuse = false): void {
+    const node = vault && findNode(vault.nodes, id);
+    if (!node || node.type !== 'connection' || node.protocol !== 'ssh') return;
+    if (node.disabled) { notifyDisabled(node); return; }
+    navigateEditor(() => {
+      const connection = toTerminalConnection(node, true);
+      const plan = planContainerView(terminals.tabs, terminals.activeTabId, connection, reuse);
+      if (plan.kind === 'focus') { terminals.select(plan.tabId); setEditorOpen(false); setEditorDirty(false); return; }
+      if (plan.kind === 'limit') { notifySessionLimit(); return; }
+      terminals.open(connection); setEditorOpen(false); setEditorDirty(false);
+    });
+  }
+
   function openContainer(hostId: string, item: DiscoveredItem, mode: TerminalTargetMode): void {
     const host = hostId === LOCAL_CONTAINER_HOST ? undefined : vault && findNode(vault.nodes, hostId);
     if (hostId !== LOCAL_CONTAINER_HOST && host?.type !== 'connection') return;
@@ -975,7 +994,7 @@ export default function App() {
           <LocalContainers containers={containerTree} disabled={busy} onOpenView={id => openContainerView(id)} />
           <VaultTree nodes={vault.nodes} selectedNodeId={selectedNodeId} disabled={busy} containers={containerTree}
             onSelect={id => navigateEditor(() => { setSelectedNodeId(id); setShowConnectionForm(false); setEditorDirty(false); })}
-            onConnect={connectNode} onOpenFiles={id => connectNode(id, undefined, true)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} onOpenContainerView={id => openContainerView(id)} />
+            onConnect={connectNode} onOpenFiles={(id: string, reuse?: boolean) => openFiles(id, reuse)} onConnectAll={connectFolder} onToggleDisabled={id => void toggleDisabled(id)} onMove={(id, target) => void moveTreeNode(id, target)} onEdit={editNode} onRename={renameNode} onNewConnection={newConnection} onNewFolder={newFolder} onSetupCluster={id => void setupCluster(id)} onOpenContainerView={id => openContainerView(id)} />
           {!vault.nodes.length && <div className="empty-state"><p>{t('app:sidebar.emptyText')}</p><button type="button" className="secondary-button" onClick={() => newConnection()}>{t('app:sidebar.emptyAction')}</button></div>}
         </ResizableSidebar>
         <section className={`workspace${editorOpen ? ' with-editor' : ''}`}>
