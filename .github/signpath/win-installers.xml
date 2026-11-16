@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Reference copy of the SignPath artifact configuration "win-installers" (the workflow does not read it).
+  The artifact root holds the two EXE files from dist/ (the GitHub artifact is the ZIP).
+  The NSIS uninstaller is embedded in the setup and stays unsigned for now.
+  To check in SignPath: wildcard support for the version in the file names; otherwise name the files
+  without version inside the artifact and rename them after unpacking.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file-set>
+      <include path="Shellherd-Setup-*.exe"/>
+      <include path="Shellherd-Portable-*.exe"/>
+      <for-each>
+        <authenticode-sign hash-algorithm="sha256"/>
+      </for-each>
+    </pe-file-set>
+  </zip-file>
+</artifact-configuration>

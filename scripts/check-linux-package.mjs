@@ -23,6 +23,8 @@ try {
     const resources = await readdir(join(root, 'resources'));
     assert.ok(!resources.includes('rdp-host') && !resources.includes('hello'));
     assert.ok(resources.includes('icon.png'));
+    assert.ok(resources.includes('install.sh'), 'install.sh must ship for the in-app update');
+    assert.ok(!resources.includes('install.ps1'), 'install.ps1 must not ship on Linux');
     const files = listPackage(join(root, 'resources/app.asar'));
     assert.ok(!files.some(file => /\.(exe|dll)$/i.test(file)), 'Windows binaries must not ship on Linux');
     assert.ok(!files.some(file => /^\/node_modules\/(?:vitest|typescript|electron-builder|playwright-core)\//.test(file)), 'Development tools must not ship');

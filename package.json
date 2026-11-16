@@ -32,7 +32,9 @@
     "drive": "node .claude/skills/run-app/driver.mjs",
     "drive:sshd": "node .claude/skills/run-app/sshd.mjs",
     "dist:linux": "node scripts/with-release.mjs npm run build && electron-builder --linux AppImage deb --x64 --publish never",
-    "dist:win": "node scripts/with-release.mjs npm run build && electron-builder --win --publish never"
+    "dist:win": "node scripts/with-release.mjs npm run build && electron-builder --win --publish never",
+    "dist:win:dir": "node scripts/with-release.mjs npm run build && electron-builder --win --dir --x64 --publish never",
+    "dist:win:pack": "electron-builder --win nsis portable --x64 --prepackaged dist/win-unpacked --publish never"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

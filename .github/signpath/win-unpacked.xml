@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Reference copy of the SignPath artifact configuration "win-unpacked" (the workflow does not read it).
+  Keep it in sync with the package content (scripts/check-win-signatures.ps1 lists the same files).
+  The artifact root is dist/win-unpacked, uploaded as a GitHub artifact (the artifact is the ZIP).
+  To check in SignPath: whether .node files count as PE files and how already foreign-signed DLLs
+  (for example d3dcompiler_47.dll) are handled; if they are refused, exclude them here.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="Shellherd.exe">
+      <authenticode-sign hash-algorithm="sha256"/>
+    </pe-file>
+    <pe-file-set>
+      <include path="*.dll"/>
+      <exclude path="d3dcompiler_47.dll"/>
+      <for-each>
+        <authenticode-sign hash-algorithm="sha256"/>
+      </for-each>
+    </pe-file-set>
+    <directory path="resources">
+      <directory path="rdp-host">
+        <pe-file-set>
+          <include path="*.exe"/>
+          <for-each>
+            <authenticode-sign hash-algorithm="sha256"/>
+          </for-each>
+        </pe-file-set>
+      </directory>
+      <directory path="hello">
+        <pe-file-set>
+          <include path="*.exe"/>
+          <for-each>
+            <authenticode-sign hash-algorithm="sha256"/>
+          </for-each>
+        </pe-file-set>
+      </directory>
+      <directory path="app.asar.unpacked">
+        <pe-file-set>
+          <include path="**/*.node"/>
+          <include path="**/winpty-agent.exe"/>
+          <include path="**/winpty.dll"/>
+          <for-each>
+            <authenticode-sign hash-algorithm="sha256"/>
+          </for-each>
+        </pe-file-set>
+      </directory>
+    </directory>
+  </zip-file>
+</artifact-configuration>

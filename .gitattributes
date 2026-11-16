@@ -1,2 +1,4 @@
 # Server-side shell scripts must remain executable on Linux after a Windows checkout.
 *.sh text eol=lf
+# The bundled install.ps1 must hash like the release file built on Linux (handoff comparison).
+install.ps1 text eol=lf

@@ -34,6 +34,14 @@ jobs:
         name: Check PowerShell 7 installer
         shell: pwsh
         run: ./scripts/test-windows-installer.ps1
+      - if: runner.os == 'Windows'
+        name: Check signature rules on Windows PowerShell 5.1
+        shell: powershell
+        run: ./scripts/check-win-signatures.test.ps1
+      - if: runner.os == 'Windows'
+        name: Check signature rules on PowerShell 7
+        shell: pwsh
+        run: ./scripts/check-win-signatures.test.ps1
       - run: npm ci
       - run: npm run build
       - run: npx vitest run
