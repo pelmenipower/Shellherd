@@ -44,6 +44,28 @@ Assert-Equal @(Test-ShellherdSignatures -Entries @(Entry 'Shellherd.exe' 'Valid'
 Assert-Equal @(Test-ShellherdSignatures -Entries @(Entry 'x.node' 'Unverifiable' $false $true) -Expect Unsigned).Count 1 'unverifiable unsigned'
 Assert-Equal @(Test-ShellherdSignatures -Entries @(Entry 'ffmpeg.dll' 'Valid' $true $false) -Expect Unsigned).Count 0 'foreign signature allowed when unsigned'
 
+# Return shape: an empty result must count as zero, one problem as one
+Assert-Equal @(Test-ShellherdSignatures -Entries @(Entry 'Shellherd.exe' 'Valid') -Expect Signed).Count 0 'empty result counts as zero'
+Assert-Equal @(Test-ShellherdSignatures -Entries @((Entry 'Shellherd.exe' 'NotSigned'), (Entry 'winpty.dll' 'NotSigned')) -Expect Signed).Count 2 'two problems count as two'
+Assert-Equal @(Test-ShellherdInstall -Present @('Shellherd.exe')).Count 0 'empty install result counts as zero'
+
+# Only PE files are rated (node-pty ships macOS prebuilds as Mach-O)
+$peDir = Join-Path ([IO.Path]::GetTempPath()) ("shellherd-pe-" + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $peDir | Out-Null
+try {
+    $pe = Join-Path $peDir 'a.node'
+    $macho = Join-Path $peDir 'b.node'
+    $tiny = Join-Path $peDir 'c.node'
+    [IO.File]::WriteAllBytes($pe, [byte[]](0x4D, 0x5A, 0x90, 0x00))
+    [IO.File]::WriteAllBytes($macho, [byte[]](0xCF, 0xFA, 0xED, 0xFE))
+    [IO.File]::WriteAllBytes($tiny, [byte[]](0x4D))
+    Assert-Equal (Test-ShellherdIsPe $pe) $true 'MZ header is PE'
+    Assert-Equal (Test-ShellherdIsPe $macho) $false 'Mach-O is not PE'
+    Assert-Equal (Test-ShellherdIsPe $tiny) $false 'one byte is not PE'
+} finally {
+    Remove-Item -LiteralPath $peDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # Install check
 Assert-Equal @(Test-ShellherdInstall -Present @('Shellherd.exe', 'resources\app.asar', 'Uninstall Shellherd.exe')).Count 0 'good install'
 Assert-Equal @(Test-ShellherdInstall -Present @('Shellherd.exe', 'resources\elevate.exe')).Count 1 'elevate.exe present'

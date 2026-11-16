@@ -49,7 +49,8 @@ function Test-ShellherdSignatures {
             if ($e.Pinned -and $status -ne 'NotSigned') { $problems.Add("${path}: expected unsigned but status is $status") }
         }
     }
-    return , @($problems.ToArray())
+    # Emit the items; callers wrap the call in @() (a leading comma would nest an empty array).
+    return $problems.ToArray()
 }
 
 # Pure rule check of the installed folder: paths relative to the install dir.
@@ -59,7 +60,21 @@ function Test-ShellherdInstall {
     $norm = @($Present | ForEach-Object { $_.Replace('\', '/') })
     if (-not ($norm -icontains 'Shellherd.exe')) { $problems.Add('Shellherd.exe is missing in the installation') }
     if ($norm -icontains 'resources/elevate.exe') { $problems.Add('resources/elevate.exe must not be installed (unsigned helper)') }
-    return , @($problems.ToArray())
+    # Emit the items; callers wrap the call in @() (a leading comma would nest an empty array).
+    return $problems.ToArray()
+}
+
+# True when the file starts with the MZ header of a Windows PE image.
+function Test-ShellherdIsPe {
+    param([string] $FullPath)
+    $stream = [IO.File]::OpenRead($FullPath)
+    try {
+        $head = New-Object byte[] 2
+        if ($stream.Read($head, 0, 2) -ne 2) { return $false }
+        return ($head[0] -eq 0x4D -and $head[1] -eq 0x5A)
+    } finally {
+        $stream.Dispose()
+    }
 }
 
 function Find-Signtool {
@@ -114,6 +129,11 @@ function Get-RootEntries {
             Write-Host "Info: $relative status $($info.Status) (not rated)"
             continue
         }
+        if (-not (Test-ShellherdIsPe $item.FullName)) {
+            # Prebuilds for other systems (macOS Mach-O) cannot carry Authenticode.
+            Write-Host "Info: $relative is not a Windows PE file (not rated)"
+            continue
+        }
         $entries += Get-ShellherdEntry -FullPath $item.FullName -RelativePath $relative -Pinned (Test-ShellherdPinned $relative)
     }
     return , $entries
@@ -160,7 +180,8 @@ function Invoke-ShellherdSignatureCheck {
             }
         }
     }
-    return , @($problems.ToArray())
+    # Emit the items; callers wrap the call in @() (a leading comma would nest an empty array).
+    return $problems.ToArray()
 }
 
 # Dot-sourcing (the tests) only loads the functions.
