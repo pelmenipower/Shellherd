@@ -44,6 +44,18 @@ try {
   });
   assert.ok(sandboxed, 'Renderer sandbox must be enabled');
   assert.ok((await window.locator('body').innerText()).includes('Shellherd'));
+  // The rebuilt native PTY must load and run inside the packaged main process.
+  const ptyOk = await app.evaluate(async ({ app: electronApp }) => {
+    const { createRequire } = process.getBuiltinModule('node:module');
+    const pty = createRequire(`${electronApp.getAppPath()}/`)('node-pty');
+    return await new Promise((done) => {
+      const child = pty.spawn('/bin/bash', ['-c', 'printf packaged-pty-ok'], { cols: 80, rows: 24 });
+      let out = '';
+      child.onData((data) => { out += data; });
+      child.onExit((event) => done(event.exitCode === 0 && out.includes('packaged-pty-ok')));
+    });
+  });
+  assert.ok(ptyOk, 'Bundled node-pty must spawn a shell in the packaged app');
   // Read the flipped fuses straight from the binary (Electron ignores NODE_OPTIONS in packaged apps anyway, so a behaviour probe proves nothing).
   const wire = await getCurrentFuseWire(executablePath);
   assert.equal(wire[FuseV1Options.RunAsNode], FUSE_DISABLED, 'RunAsNode fuse must be disabled');
