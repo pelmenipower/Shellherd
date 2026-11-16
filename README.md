@@ -21,11 +21,11 @@
 
 Shellherd keeps all your servers, desktops and clusters in one window. Connections and their credentials live in a single encrypted vault file (`.term`) that you can carry around, back up or keep in sync – no account and no cloud service required.
 
-## New in 0.32.0
+## New in 0.33.0
 
-**Kubernetes without SSH:** add a cluster with access "Direct" from a pasted kubeconfig (stored encrypted in the vault) or a local file such as `~/.kube/config`. Login programs from pasted kubeconfigs run only after you confirm their exact command line, and `token-file` is now refused on every path. Older versions cannot open a vault that contains a direct cluster entry.
+**Log search and file view entry:** container and pod logs get a search bar with match count, regex and highlighted matches, plus an auto-scroll switch. Every SSH host in the sidebar now has a **File view (SFTP)** entry, and the container shell opens as a tab straight from the dock.
 
-For developers, the [self-hosted storage and rendezvous server](server/README.md) now ships as a hardened Docker setup, and a first view-only remote-access milestone runs in unpacked development builds. See the [full changelog](CHANGELOG.en.md#0320--2026-11-07).
+All windows now run under a Content Security Policy with deny-by-default permissions. For developers, the sync and remote-access lab gained device keys, key rotation, a Noise channel and an isolated screen-sharing window. See the [full changelog](CHANGELOG.en.md#0330--2026-11-16).
 
 ## Features
 

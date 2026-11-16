@@ -4,6 +4,14 @@ All notable changes to Shellherd (called Terminus up to 0.9.0). Version numbers 
 MAJOR for incompatible changes (e.g. to the vault format), MINOR for new features, PATCH for bug fixes.
 Every version needs a section `## [x.y.z] – YYYY-MM-DD` here; the build fails otherwise.
 
+## [0.33.0] – 2026-11-16
+
+- New: Search in container and pod logs with a match count ("1 of 100"), match case, regular expressions and whole words, highlighted matches and Ctrl+F. An "Auto-scroll" switch keeps the view at the end or holds it in place.
+- New: Every SSH host in the sidebar has a "File view (SFTP)" entry that opens the file view without a terminal session; the host menu still works. The container shell can be opened as a tab directly from the dock.
+- Fixed: The log area grows when the dock is dragged larger; the hint for dropping a .term file disappears after a drop on the file view or the vault tree; a shell or log tab opened from the row menu stays in front; file tabs show the files icon.
+- Security: Content Security Policy and deny-by-default permissions for every window; the main process accepts privileged IPC calls only from registered windows.
+- New (development): Sync and remote-access lab hardened: devices enroll with Ed25519 keys and invite codes, vault keys rotate in epochs, the session channel runs over Noise XX, and the server limits requests per source. Screen sharing runs in an isolated window without access to the vault, SSH or Kubernetes, only after a typed fingerprint and native consent; Shellherd and RDP windows are excluded from capture on Windows. Still only in unpacked development builds.
+
 ## [0.32.0] – 2026-11-07
 
 - New: Kubernetes clusters can be set up without SSH: access "Direct" with a pasted kubeconfig (stored encrypted in the vault) or a file on this computer, with a context list and visible consent for login programs (`exec`) from pasted kubeconfigs. Older versions do not open a vault containing a direct cluster entry.
