@@ -4,6 +4,14 @@ Alle nennenswerten Änderungen an Shellherd (bis 0.9.0 unter dem Namen Terminus)
 MAJOR für inkompatible Änderungen (z. B. am Vault-Format), MINOR für neue Funktionen, PATCH für Fehlerbehebungen.
 Jede Version braucht hier einen Abschnitt `## [x.y.z] – JJJJ-MM-TT`; der Build bricht sonst ab.
 
+## [0.33.0] – 2026-11-16
+
+- Neu: Suche in Container- und Pod-Logs mit Trefferzahl („1 von 100“), Groß-/Kleinschreibung, regulären Ausdrücken und ganzen Wörtern, hervorgehobenen Treffern und Strg+F. Ein Schalter „Automatisch scrollen“ hält die Ansicht am Ende oder lässt sie stehen.
+- Neu: Jeder SSH-Host in der Seitenleiste hat den Eintrag „Dateiansicht (SFTP)“, der die Dateiansicht ohne Terminalsitzung öffnet; der Weg über das Host-Menü bleibt. Die Container-Shell lässt sich im Dock direkt als Tab öffnen.
+- Behoben: Der Log-Bereich wächst mit, wenn das Dock größer gezogen wird; der Hinweis zum Loslassen einer .term-Datei verschwindet nach einem Drop auf die Dateiansicht oder den Vault-Baum; ein über das Zeilenmenü geöffneter Shell- oder Log-Tab bleibt im Vordergrund; Dateien-Tabs zeigen das Dateien-Symbol.
+- Sicherheit: Content Security Policy und standardmäßig verweigerte Berechtigungen für alle Fenster; privilegierte IPC-Aufrufe nimmt der Main-Prozess nur noch von registrierten Fenstern an.
+- Neu (Entwicklung): Sync- und Fernzugriff-Lab gehärtet: Geräte melden sich mit Ed25519-Schlüsseln und Einladungscodes an, Vault-Schlüssel rotieren in Epochen, der Sitzungskanal läuft über Noise XX, der Server begrenzt Anfragen je Quelle. Die Bildschirmfreigabe läuft in einem abgeschotteten Fenster ohne Zugriff auf Vault, SSH und Kubernetes, erst nach getipptem Fingerabdruck und nativer Zustimmung; Shellherd- und RDP-Fenster werden unter Windows nicht aufgenommen. Weiterhin nur in ungepackten Entwicklungs-Builds.
+
 ## [0.32.0] – 2026-11-07
 
 - Neu: Kubernetes-Cluster lassen sich ohne SSH einrichten: Zugang „Direkt“ mit eingefügter kubeconfig (verschlüsselt im Vault) oder einer Datei auf diesem Rechner, mit Context-Liste und sichtbarer Freigabe für Login-Programme (`exec`) aus eingefügten kubeconfigs. Ältere Versionen öffnen einen Vault mit direktem Cluster-Eintrag nicht.
