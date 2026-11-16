@@ -34,6 +34,10 @@ export function checkWinPackage({ wire, resources, asarFiles, mainTexts, outFile
     if (!resources.includes(resource)) problems.push(`Missing resource: ${resource}`);
   }
   if (resources.includes('install.sh')) problems.push('Windows package must not contain install.sh');
+  // Mach-O prebuilds cannot carry Authenticode and are never loaded on Windows.
+  for (const resource of resources.filter((r) => /\/prebuilds\/darwin-[^/]+\//.test(r))) {
+    problems.push(`Windows package must not contain foreign prebuilds: ${resource}`);
+  }
   for (const marker of LAB_MARKERS) {
     if (mainTexts.some((text) => text.includes(marker))) problems.push(`Release bundle must not contain lab code: ${marker} in out/main`);
   }

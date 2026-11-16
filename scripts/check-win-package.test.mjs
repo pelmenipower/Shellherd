@@ -62,3 +62,9 @@ it('reports install.sh in a Windows package', () => {
   input.resources.push('install.sh');
   expect(checkWinPackage(input)).toHaveLength(1);
 });
+
+it('reports node-pty prebuilds for other systems', () => {
+  const input = good();
+  input.resources.push('app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-x64/pty.node');
+  expect(checkWinPackage(input)).toEqual(['Windows package must not contain foreign prebuilds: app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-x64/pty.node']);
+});

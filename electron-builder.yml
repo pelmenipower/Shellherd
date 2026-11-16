@@ -14,6 +14,8 @@ files:
   # Build leftovers nobody loads at runtime: sourcemaps, TypeScript sources, node-pty's C++ tree.
   - '!**/node_modules/**/*.{map,ts,mts,cts}'
   - '!**/node_modules/node-pty/{deps,third_party,src,scripts}/**'
+  # macOS prebuilds: never loaded (npmRebuild builds build/Release) and not signable with Authenticode.
+  - '!**/node_modules/node-pty/prebuilds/darwin-*/**'
 
 # Chromium's own UI strings only; the app ships its own catalogs in src/shared/locales.
 electronLanguages:
