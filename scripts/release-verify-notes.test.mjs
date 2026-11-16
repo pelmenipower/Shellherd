@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { verifyNotes } from './release-verify-notes.mjs';
 
-const script = new URL('./release-verify-notes.mjs', import.meta.url).pathname;
+const script = fileURLToPath(new URL('./release-verify-notes.mjs', import.meta.url));
 const IDENTITY = 'https://github.com/pelmenipower/Shellherd/.github/workflows/release.yml@refs/heads/main';
 const run = (...args) => spawnSync(process.execPath, [script, ...args], { encoding: 'utf8' });
 

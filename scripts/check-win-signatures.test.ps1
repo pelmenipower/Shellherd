@@ -50,3 +50,5 @@ Assert-Equal @(Test-ShellherdInstall -Present @('Shellherd.exe', 'resources\elev
 Assert-Equal @(Test-ShellherdInstall -Present @('resources\app.asar')).Count 1 'Shellherd.exe missing'
 
 Write-Host 'check-win-signatures tests passed.'
+# Mocked native calls leave LASTEXITCODE set; the CI wrapper would exit with it.
+$global:LASTEXITCODE = 0

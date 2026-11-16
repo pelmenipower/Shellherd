@@ -364,3 +364,5 @@ try {
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
 Write-Output 'Windows installer tests passed: parsing, download, checksums, cosign, Authenticode, FromApp, portable, handoff and setup errors.'
+# Mocked native calls leave LASTEXITCODE set; the CI wrapper would exit with it.
+$global:LASTEXITCODE = 0
