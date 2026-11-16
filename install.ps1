@@ -14,7 +14,8 @@ function Get-ShellherdEnvValue {
     # Reads a process environment variable and removes it, so nothing leaks into child processes.
     param([string] $Name)
     $value = [Environment]::GetEnvironmentVariable($Name, 'Process')
-    [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
+    # Remove-Item works on PowerShell 5.1 and 7; SetEnvironmentVariable($null) leaves an empty value on 7.
+    Remove-Item -LiteralPath ('Env:' + $Name) -ErrorAction SilentlyContinue
     return $value
 }
 
@@ -49,7 +50,7 @@ function Get-ShellherdAsset {
 
 function Confirm-ShellherdSignature {
     # Optional Sigstore check of SHA256SUMS. Older releases have no bundle.
-    param([string] $Base, [string] $Checksums, [string] $WorkDirectory)
+    param([string] $Base, [string] $Checksums, [string] $WorkDirectory, [switch] $Strict)
     if (-not (Get-Command cosign -ErrorAction SilentlyContinue)) {
         Write-Host 'cosign nicht gefunden: nur Pruefsummen und Authenticode.'
         return
@@ -58,6 +59,8 @@ function Confirm-ShellherdSignature {
     try {
         Invoke-WebRequest -UseBasicParsing -Uri "$Base/SHA256SUMS.sigstore.json" -OutFile $bundle
     } catch {
+        # The in-app update only targets signed releases; a missing bundle there is an attack or a broken release.
+        if ($Strict) { throw 'Dem Release fehlt die Sigstore-Signatur. Nichts wurde installiert.' }
         Write-Host 'Dieses Release hat keine Sigstore-Signatur; nur Pruefsummen.'
         return
     }
@@ -76,9 +79,9 @@ function Test-ShellherdAuthenticode {
     if ($status -eq 'Valid') {
         Write-Host ('Authenticode gueltig: ' + $signature.SignerCertificate.Subject)
     } elseif ($status -eq 'NotSigned') {
-        Write-Host 'Hinweis: dieses Setup ist nicht signiert (Release vor der Signierung).'
+        Write-Host 'Hinweis: diese Datei ist nicht signiert (Release vor der Signierung).'
     } else {
-        throw 'Die Signatur des Setups ist ungueltig. Installation abgebrochen.'
+        throw 'Die Signatur dieser Datei ist ungueltig. Installation abgebrochen.'
     }
 }
 
@@ -214,7 +217,7 @@ function Invoke-ShellherdInstall {
             Write-Host "Lade Shellherd $Version herunter ..."
             $checksums = Join-Path $workDirectory 'SHA256SUMS'
             Invoke-WebRequest -UseBasicParsing -Uri "$base/SHA256SUMS" -OutFile $checksums
-            Confirm-ShellherdSignature -Base $base -Checksums $checksums -WorkDirectory $workDirectory
+            Confirm-ShellherdSignature -Base $base -Checksums $checksums -WorkDirectory $workDirectory -Strict:$FromApp
 
             # 3. Handoff to the installer of the release, before waiting for the app.
             if (-not $handoffChild -and $SelfPath -and (Test-Path -LiteralPath $SelfPath -PathType Leaf)) {
@@ -246,7 +249,7 @@ function Invoke-ShellherdInstall {
                         [Environment]::SetEnvironmentVariable('SHELLHERD_INSTALL_HANDOFF', '1', 'Process')
                         $childExit = Invoke-ShellherdChild -HostPath (Get-ShellherdHostPath) -ScriptPath $newScript -Arguments $childArguments
                     } finally {
-                        foreach ($name in $handoffNames) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
+                        foreach ($name in $handoffNames) { Remove-Item -LiteralPath ('Env:' + $name) -ErrorAction SilentlyContinue }
                     }
                     if ($childExit -ne 0) { throw "Der Installer von Shellherd $Version ist fehlgeschlagen (Exitcode $childExit)." }
                     return
@@ -280,7 +283,7 @@ function Invoke-ShellherdInstall {
                 Write-Host 'Installiere Shellherd ...'
                 $options.ArgumentList = "/S /D=$installDir"
             } else {
-                Write-Host 'Shellherd ist fuer alle Benutzer installiert. Das Setup oeffnet sich und fragt nach Administratorrechten.'
+                Write-Host 'Das Setup oeffnet sich; folge den Schritten. Es kann nach Administratorrechten fragen.'
             }
         } else {
             Write-Host 'Starte das Shellherd-Setup (Installation fuer den aktuellen Benutzer) ...'
@@ -310,6 +313,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     } catch {
         if (-not $ownsWindow) { throw }
         Write-Host $_.Exception.Message -ForegroundColor Red
+        Write-Host 'Starte Shellherd ueber das Startmenue neu.'
         $failed = $true
     } finally {
         if ($ownsWindow) {

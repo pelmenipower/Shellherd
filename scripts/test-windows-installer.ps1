@@ -112,7 +112,7 @@ function Assert-True {
 function Reset-State {
     $script:started = @(); $script:launched = @(); $script:messages = @(); $script:urls = @()
     $script:waited = @(); $script:children = @(); $script:cosignCalls = @()
-    foreach ($name in $envNames) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
+    foreach ($name in $envNames) { Remove-Item -LiteralPath ('Env:' + $name) -ErrorAction SilentlyContinue }
 }
 function Set-AppEnv {
     param([string] $Target = 'setup', [string] $VersionText = '1.2.3', [string] $PidText = '4242', [string] $Relaunch = $script:userExe, [string] $Portable = $script:portableDir)
@@ -181,7 +181,7 @@ try {
     $script:authStatus = 'NotSigned'
     Invoke-ShellherdInstall -Version '1.2.3'
     Assert-True ($script:started.Count -eq 1) 'Unsigned setup must still start.'
-    Assert-True (@($script:messages | Where-Object { $_ -like 'Hinweis: dieses Setup ist nicht signiert*' }).Count -eq 1) 'Unsigned hint missing.'
+    Assert-True (@($script:messages | Where-Object { $_ -like 'Hinweis: diese Datei ist nicht signiert*' }).Count -eq 1) 'Unsigned hint missing.'
     foreach ($status in @('HashMismatch', 'NotTrusted', 'UnknownError')) {
         Reset-State
         $script:authStatus = $status
@@ -216,6 +216,11 @@ try {
     Assert-True ($script:cosignCalls.Count -eq 0) 'No bundle: cosign must not run.'
     Assert-True ($script:started.Count -eq 1) 'No bundle must fall back to checksums.'
     Assert-True (@($script:messages | Where-Object { $_ -like 'Dieses Release hat keine Sigstore-Signatur*' }).Count -eq 1) 'No-bundle hint missing.'
+    # -FromApp with cosign: a missing bundle is an error, nothing is installed.
+    Reset-State
+    Set-AppEnv
+    Assert-Rejected { Invoke-ShellherdInstall -FromApp }
+    Assert-True ($script:started.Count -eq 0) 'FromApp without a bundle must never start a setup.'
     $script:noBundle = $false
     $script:cosignPresent = $false
 
@@ -248,7 +253,7 @@ try {
     Invoke-ShellherdInstall -FromApp
     Assert-True ($script:started.Count -eq 1) 'All-users install must start the setup.'
     Assert-True ($null -eq $script:started[0].Arguments) 'All-users install must start without /S.'
-    Assert-True (@($script:messages | Where-Object { $_ -eq 'Shellherd ist fuer alle Benutzer installiert. Das Setup oeffnet sich und fragt nach Administratorrechten.' }).Count -eq 1) 'All-users hint missing.'
+    Assert-True (@($script:messages | Where-Object { $_ -eq 'Das Setup oeffnet sich; folge den Schritten. Es kann nach Administratorrechten fragen.' }).Count -eq 1) 'All-users hint missing.'
 
     # -FromApp validation: every bad value is rejected, never starts a setup, and clears the environment.
     $bad = @(
@@ -360,7 +365,7 @@ try {
     Assert-True ($script:children.Count -eq 0 -and $script:started.Count -eq 0) 'A release script with a wrong hash must never run.'
 } finally {
     $env:LOCALAPPDATA = $oldLocalApp
-    foreach ($name in $envNames) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
+    foreach ($name in $envNames) { Remove-Item -LiteralPath ('Env:' + $name) -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
 Write-Output 'Windows installer tests passed: parsing, download, checksums, cosign, Authenticode, FromApp, portable, handoff and setup errors.'

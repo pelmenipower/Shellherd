@@ -39,15 +39,28 @@ Nur der APT-Installationsschritt benötigt Administratorrechte.
 EOF
 }
 
+remove_private_copy() {
+  # The app starts this script from a private copy in <tmp>/shellherd-update-*; remove exactly that folder.
+  local dir tmp
+  [[ $SELF == /* ]] || return 0
+  dir=${SELF%/*}
+  tmp=${TMPDIR:-/tmp}
+  tmp=${tmp%/}
+  [[ ${dir##*/} == shellherd-update-* && ${dir%/*} == "$tmp" && ! -L $dir ]] || return 0
+  rm -rf -- "$dir"
+}
+
 on_exit() {
   local status=$?
   trap - EXIT
   [[ -z $work_dir ]] || rm -rf -- "$work_dir"
   [[ -z $tmp_image ]] || rm -f -- "$tmp_image"
+  remove_private_copy
   # Only the outermost update run holds the terminal open.
   if ((from_app)) && [[ -z $handoff && -t 0 ]]; then
     if ((status != 0)); then
       printf '\nShellherd: Das Update ist fehlgeschlagen. Die bisherige Version bleibt installiert.\n'
+      printf 'Starte Shellherd über das Anwendungsmenü neu.\n'
     fi
     printf '\nEnter zum Schließen '
     read -r _ || true
@@ -159,6 +172,9 @@ verify_signature() {
         "$work_dir/SHA256SUMS" </dev/null >/dev/null 2>&1 ||
         fail 'Die Signatur von SHA256SUMS ist ungültig. Nichts wurde installiert.'
       say 'Signatur geprüft (Sigstore)'
+    elif ((from_app)); then
+      # The in-app update only targets signed releases; a missing bundle must not fall back to checksums.
+      fail 'Dem Release fehlt die Sigstore-Signatur. Nichts wurde installiert.'
     else
       say 'Dieses Release hat keine Sigstore-Signatur; nur Prüfsummen.'
     fi
@@ -240,13 +256,14 @@ relaunch_app() {
 }
 
 main() {
-  parse_args "$@"
+  # First action: even early failures (missing tool, busy lock, bad arguments) must reach on_exit.
+  trap on_exit EXIT
   if [[ ${SHELLHERD_INSTALL_HANDOFF:-} == 1 ]]; then handoff=1; fi
   unset SHELLHERD_INSTALL_HANDOFF
+  parse_args "$@"
   check_environment
   acquire_lock
   work_dir=$(mktemp -d -t shellherd-install.XXXXXXXX </dev/null)
-  trap on_exit EXIT
   chmod 755 "$work_dir" # APT's _apt user must be able to read this public package.
 
   if [[ -z $local_package ]]; then

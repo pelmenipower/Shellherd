@@ -262,6 +262,82 @@ exit \${CHILD_EXIT:-0}
     });
   });
 
+  describe('early failures and private copy', () => {
+    // Runs the script on a pseudo terminal, answers the Enter prompt and returns the terminal output.
+    const hasPython = spawnSync('python3', ['-c', '']).status === 0;
+    const onPty = (sb, args, extra = {}) => {
+      const code = `import os,pty,sys,select,time
+pid,fd=pty.fork()
+if pid==0:
+    os.execvp('bash',['bash']+sys.argv[1:])
+out=b'';sent=False;end=time.time()+20
+while time.time()<end:
+    r,_,_=select.select([fd],[],[],0.2)
+    if r:
+        try: d=os.read(fd,4096)
+        except OSError: break
+        if not d: break
+        out+=d
+        if b'Enter zum' in out and not sent: os.write(fd,b'\\n');sent=True
+_,st=os.waitpid(pid,0)
+sys.stdout.write(out.decode('utf8','replace'));sys.exit(os.waitstatus_to_exitcode(st))`;
+      return spawnSync('python3', ['-I', '-c', code, installer, ...args], { env: sb.env(extra), encoding: 'utf8' });
+    };
+
+    it.runIf(hasPython)('shows the failure and waits for Enter when --from-app fails on a bad argument', () => {
+      withSandbox((sb) => {
+        const result = onPty(sb, ['--from-app', '--bogus']);
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain('Unbekanntes Argument: --bogus');
+        expect(result.stdout).toContain('Das Update ist fehlgeschlagen.');
+        expect(result.stdout).toContain('Starte Shellherd über das Anwendungsmenü neu.');
+        expect(result.stdout).toContain('Enter zum Schließen');
+      });
+    });
+
+    it.runIf(hasPython && notRoot)('shows the failure and waits for Enter when the lock is taken', () => {
+      withSandbox((sb) => {
+        const lock = join(sb.xdg, `shellherd-install-${process.getuid()}.lock`);
+        execFileSync('bash', ['-c', `flock -n "${lock}" sleep 4 >/dev/null 2>&1 & sleep 0.4`], { cwd: sb.root });
+        const result = onPty(sb, ['--from-app', '--version', '9.9.9', '--wait-pid', '1']);
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain('Ein anderer Shellherd-Installer läuft bereits.');
+        expect(result.stdout).toContain('Enter zum Schließen');
+      });
+    });
+
+    it('does not wait for Enter when the same early failure happens in a handoff child', () => {
+      withSandbox((sb) => {
+        const result = sb.run(['--from-app', '--bogus'], { SHELLHERD_INSTALL_HANDOFF: '1' }, { input: '' });
+        expect(result.status).toBe(1);
+        expect(result.stdout).not.toContain('Enter zum');
+      });
+    });
+
+    it('removes its own private update folder, and only that one', () => {
+      withSandbox((sb) => {
+        const tmp = join(sb.root, 'tmp');
+        mkdirSync(tmp);
+        const place = (parent, name) => {
+          const dir = join(parent, name);
+          mkdirSync(dir, { recursive: true });
+          const script = join(dir, 'install.sh');
+          writeFileSync(script, readFileSync(installer));
+          return { dir, script };
+        };
+        const mine = place(tmp, 'shellherd-update-abc123');
+        sb.run(['--bogus'], { TMPDIR: tmp }, { script: mine.script });
+        expect(existsSync(mine.dir)).toBe(false);
+        const otherName = place(tmp, 'something-else');
+        sb.run(['--bogus'], { TMPDIR: tmp }, { script: otherName.script });
+        expect(existsSync(otherName.dir)).toBe(true);
+        const otherParent = place(join(sb.root, 'elsewhere'), 'shellherd-update-abc123');
+        sb.run(['--bogus'], { TMPDIR: tmp }, { script: otherParent.script });
+        expect(existsSync(otherParent.dir)).toBe(true);
+      });
+    });
+  });
+
   describe.skipIf(!notRoot)('AppImage and --from-app', () => {
     const image = 'Shellherd-9.9.9-x86_64.AppImage';
     const setupImage = (sb, content = 'old-image') => {
@@ -342,6 +418,23 @@ exit \${CHILD_EXIT:-0}
         const result = sb.run(['--appimage', target, '--version', '9.9.9']);
         expect(result.status).not.toBe(0);
         expect(readFileSync(target, 'utf8')).toBe('old-image');
+      });
+    });
+
+    it('treats a missing signature bundle as an error with --from-app but not for manual runs', () => {
+      withSandbox((sb) => {
+        const { target } = setupImage(sb);
+        sb.publish({ [image]: 'new-image' }, { bundle: false });
+        rmSync(join(sb.release, 'SHA256SUMS.sigstore.json'), { force: true }); // setupImage published one
+        const deadPid = String(spawnSync('true').pid);
+        const fromApp = sb.run(['--from-app', '--version', '9.9.9', '--wait-pid', deadPid, '--appimage', target]);
+        expect(fromApp.status).not.toBe(0);
+        expect(fromApp.stderr).toContain('Dem Release fehlt die Sigstore-Signatur.');
+        expect(readFileSync(target, 'utf8')).toBe('old-image');
+        const manual = sb.run(['--version', '9.9.9', '--appimage', target]);
+        expect(manual.status, manual.stderr).toBe(0);
+        expect(manual.stdout).toContain('Dieses Release hat keine Sigstore-Signatur; nur Prüfsummen.');
+        expect(readFileSync(target, 'utf8')).toBe('new-image');
       });
     });
 
