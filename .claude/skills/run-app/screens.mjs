@@ -153,6 +153,7 @@ const IMPORT_DIR = path.join(RUN_DIR, 'import');
 const VAULT_FILE = path.join(RUN_DIR, 'profile', 'demo.term');
 const SETTINGS_FILE = path.join(RUN_DIR, 'profile', 'Shellherd', 'settings.json');
 const UPDATE_FLAG = path.join(RUN_DIR, 'update-available');
+const UPDATE_LAUNCH_LOG = path.join(RUN_DIR, 'update-launch.json');
 // Replaces the native open dialog in the main process; the driver's stub answers with the demo vault.
 const setOpenDialog = file => call('main', `electron.dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [${JSON.stringify(file)}] });`);
 // Opens the import menu entry by its leading text and waits until the dialog shows its preview or error.
@@ -1281,6 +1282,29 @@ const blocks = {
       await waitFor('Update-Menü', `!!document.querySelector('.context-menu[role=menu]')`);
       await pause(300);
       await shot('update-menu', true);
+      // Install hook: the main process writes the launch plan to a file instead of spawning; the app stays open.
+      fs.rmSync(UPDATE_LAUNCH_LOG, { force: true });
+      await menuItem('Jetzt aktualisieren');
+      await waitFor('Bestätigungsdialog', `!!document.querySelector('dialog.confirm-dialog[open]')`);
+      await pause(300);
+      await shot('update-confirm', true);
+      await click('.confirm-dialog .primary-button');
+      for (let i = 0; i < 100 && !fs.existsSync(UPDATE_LAUNCH_LOG); i++) await pause(100);
+      if (!fs.existsSync(UPDATE_LAUNCH_LOG)) throw new Error('update: update-launch.json wurde nicht geschrieben (Hook inaktiv?)');
+      const log = JSON.parse(fs.readFileSync(UPDATE_LAUNCH_LOG, 'utf8'));
+      const [major, minor] = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).version.split('.').map(Number);
+      const win = process.platform === 'win32';
+      const problems = [];
+      if (log.kind !== (win ? 'setup' : 'deb')) problems.push(`kind ${log.kind}`);
+      if (log.version !== `${major}.${minor + 1}.0`) problems.push(`version ${log.version}`);
+      if (typeof log.script !== 'string' || !log.script.endsWith(win ? 'install.ps1' : 'install.sh')) problems.push(`script ${log.script}`);
+      if (!win && !(Array.isArray(log.args) && log.args.includes('--from-app'))) problems.push('args ohne --from-app');
+      if (win && !(log.env?.SHELLHERD_UPDATE_SCRIPT === log.script && log.env?.SHELLHERD_UPDATE_TARGET === 'setup')) problems.push('env SHELLHERD_UPDATE_SCRIPT/TARGET');
+      fs.rmSync(UPDATE_LAUNCH_LOG, { force: true });
+      if (problems.length) throw new Error(`update: Startprotokoll falsch: ${problems.join(', ')}`);
+      await waitFor('Dialog zu, App läuft', `!document.querySelector('dialog.confirm-dialog[open]') && !!document.querySelector('.update-button')`, { timeout: 10000 });
+      await click('.update-button');
+      await waitFor('Update-Menü', `!!document.querySelector('.context-menu[role=menu]')`);
       fs.rmSync(UPDATE_FLAG, { force: true });
       await menuItem('Diese Version überspringen');
       await waitFor('Update-Knopf verschwunden', `!document.querySelector('.update-button')`);

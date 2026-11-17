@@ -71,6 +71,9 @@
     "importTooComplex": "The import source is too complex or damaged. Shellherd stopped reading it after 5 seconds.",
     "importUnreadable": "The import source could not be read.",
     "importEncrypted": "The file is encrypted. Export it from mRemoteNG without full file encryption.",
-    "importWindowsOnly": "Registry import is only available on Windows."
+    "importWindowsOnly": "Registry import is only available on Windows.",
+    "updateNoTerminal": "No terminal found. Run this in a terminal: {{command}}",
+    "updateLaunchFailed": "The update could not be started.",
+    "updateUnsupported": "This installation cannot update itself. Download the new version from the releases page."
   }
 }

@@ -71,6 +71,9 @@
     "importTooComplex": "Die Importquelle ist zu umfangreich oder beschädigt. Shellherd hat das Lesen nach 5 Sekunden abgebrochen.",
     "importUnreadable": "Die Importquelle konnte nicht gelesen werden.",
     "importEncrypted": "Die Datei ist verschlüsselt. Exportiere sie in mRemoteNG ohne vollständige Dateiverschlüsselung.",
-    "importWindowsOnly": "Registry-Import ist nur unter Windows verfügbar."
+    "importWindowsOnly": "Registry-Import ist nur unter Windows verfügbar.",
+    "updateNoTerminal": "Kein Terminal gefunden. Führe im Terminal aus: {{command}}",
+    "updateLaunchFailed": "Das Update konnte nicht gestartet werden.",
+    "updateUnsupported": "Diese Installation kann sich nicht selbst aktualisieren. Lade die neue Version von der Release-Seite."
   }
 }

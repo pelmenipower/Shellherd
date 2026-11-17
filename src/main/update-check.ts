@@ -1,4 +1,4 @@
-import type { UpdateStatus } from '../shared/ipc';
+import type { UpdateInstallKind, UpdateStatus } from '../shared/ipc';
 import { AppError } from '../shared/errors';
 import { compareVersions } from '../shared/version';
 import { readAppSettings, writeAppSettings } from './app-settings';
@@ -40,6 +40,7 @@ export interface UpdateCheckerDeps {
   url: string;
   now: () => number;
   isUnlocked: () => boolean;
+  installKind?: UpdateInstallKind | null;
   fetch: (url: string, init: { headers: Record<string, string>; signal: AbortSignal }) => Promise<Response>;
 }
 
@@ -101,9 +102,9 @@ export class UpdateChecker {
     if (!writeAppSettings(this.deps.settingsFile, { update: { ...update, ...patch } })) throw new AppError('core.unknown');
   }
 
-  private state(): UpdateStatus {
+  state(): UpdateStatus {
     const { update } = readAppSettings(this.deps.settingsFile);
     const version = update.enabled ? availableVersion(this.deps.current, update.latest, update.skipped) : null;
-    return { enabled: update.enabled, current: this.deps.current, available: version ? { version, url: releaseUrl(version) } : null };
+    return { enabled: update.enabled, current: this.deps.current, available: version ? { version, url: releaseUrl(version) } : null, install: this.deps.installKind ?? null };
   }
 }

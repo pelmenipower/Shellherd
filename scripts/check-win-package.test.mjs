@@ -5,7 +5,7 @@ import { checkWinPackage } from './check-win-package.mjs';
 // Numeric FuseState values: 0x30 disabled, 0x31 enabled. Keys are FuseV1Options.
 const good = () => ({
   wire: { [FuseV1Options.RunAsNode]: 0x31, [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: 0x30, [FuseV1Options.EnableNodeCliInspectArguments]: 0x31 },
-  resources: ['app.asar', 'icon.ico', 'icon.png', 'rdp-host/Shellherd.RdpHost.exe', 'hello/Shellherd.Hello.exe'],
+  resources: ['app.asar', 'icon.ico', 'icon.png', 'rdp-host/Shellherd.RdpHost.exe', 'hello/Shellherd.Hello.exe', 'install.ps1'],
   asarFiles: ['/out/main/index.js', '/out/renderer/index.html', '/out/preload/index.cjs'],
   mainTexts: ['console.log("main")'],
   outFiles: [],
@@ -49,4 +49,22 @@ it('reports media files left in out/', () => {
   const input = good();
   input.outFiles = ['out/preload/remote-media.cjs'];
   expect(checkWinPackage(input)).toHaveLength(1);
+});
+
+it('reports a missing install.ps1', () => {
+  const input = good();
+  input.resources = input.resources.filter((r) => r !== 'install.ps1');
+  expect(checkWinPackage(input)).toHaveLength(1);
+});
+
+it('reports install.sh in a Windows package', () => {
+  const input = good();
+  input.resources.push('install.sh');
+  expect(checkWinPackage(input)).toHaveLength(1);
+});
+
+it('reports node-pty prebuilds for other systems', () => {
+  const input = good();
+  input.resources.push('app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-x64/pty.node');
+  expect(checkWinPackage(input)).toEqual(['Windows package must not contain foreign prebuilds: app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-x64/pty.node']);
 });

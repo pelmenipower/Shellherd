@@ -142,6 +142,7 @@ export const IPC_CHANNELS = {
   updateStatus: 'app:update-status',
   updateSetEnabled: 'app:update-set-enabled',
   updateSkip: 'app:update-skip',
+  updateInstall: 'app:update-install',
   kubeOpen: 'k8s:open',
   kubeSubscribe: 'k8s:subscribe',
   kubeDetail: 'k8s:detail',
@@ -204,7 +205,8 @@ export type SaveVaultResult =
     };
 
 /** Version check state for the main window; see docs/superpowers/specs/2026-10-24-import-update-design.md. */
-export interface UpdateStatus { enabled: boolean; current: string; available: { version: string; url: string } | null }
+export type UpdateInstallKind = 'deb' | 'appimage' | 'setup' | 'portable';
+export interface UpdateStatus { enabled: boolean; current: string; available: { version: string; url: string } | null; install: UpdateInstallKind | null }
 
 /** One entry of the open screen list. filePath is for display and for the existing unlockVault; the list itself only changes in main. */
 export interface RecentVault { id: string; filePath: string; name: string; folder: string; openedAt: number; missing: boolean }
@@ -234,6 +236,7 @@ export interface DesktopApi {
   updateStatus: () => Promise<UpdateStatus>;
   updateSetEnabled: (enabled: boolean) => Promise<UpdateStatus>;
   updateSkip: (version: string) => Promise<UpdateStatus>;
+  updateInstall: () => Promise<void>;
   sshPrepare: (request: SshPrepareRequest) => Promise<{ sessionId: string }>;
   sshConnect: (request: SshSessionRequest) => Promise<void>;
   sshInput: (request: SshInputRequest) => Promise<void>;

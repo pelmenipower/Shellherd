@@ -14,6 +14,8 @@ files:
   # Build leftovers nobody loads at runtime: sourcemaps, TypeScript sources, node-pty's C++ tree.
   - '!**/node_modules/**/*.{map,ts,mts,cts}'
   - '!**/node_modules/node-pty/{deps,third_party,src,scripts}/**'
+  # macOS prebuilds: never loaded (npmRebuild builds build/Release) and not signable with Authenticode.
+  - '!**/node_modules/node-pty/prebuilds/darwin-*/**'
 
 # Chromium's own UI strings only; the app ships its own catalogs in src/shared/locales.
 electronLanguages:
@@ -39,6 +41,9 @@ win:
       to: rdp-host
     - from: out/hello
       to: hello
+    # Run by the in-app update (src/main/update-launch.ts) from process.resourcesPath.
+    - from: install.ps1
+      to: install.ps1
   icon: resources/icon.ico
   target:
     - target: nsis
@@ -56,6 +61,8 @@ nsis:
     - de_DE
     - en_US
   displayLanguageSelector: false
+  # The signed win-unpacked folder must stay byte-identical, and an unsigned elevate.exe would land in every install. The installer elevates through the UAC plugin.
+  packElevateHelper: false
 
 portable:
   artifactName: ${productName}-Portable-${version}.${ext}
@@ -68,6 +75,9 @@ afterPack: scripts/linux-after-pack.cjs
 publish: null
 
 linux:
+  extraResources:
+    - from: install.sh
+      to: install.sh
   syncDesktopName: true
   executableName: shellherd
   icon: resources/icon.png
