@@ -9,7 +9,7 @@ import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 const FUSE_DISABLED = 0x30;
 const FUSE_ENABLED = 0x31;
 const LAB_MARKERS = ['SyncLabHost', 'RemoteLabHost', 'SHELLHERD_SYNC_LAB', 'SHELLHERD_REMOTE_LAB', 'remote-media.cjs'];
-const REQUIRED_RESOURCES = ['rdp-host/Shellherd.RdpHost.exe', 'hello/Shellherd.Hello.exe', 'icon.ico', 'icon.png', 'app.asar'];
+const REQUIRED_RESOURCES = ['rdp-host/Shellherd.RdpHost.exe', 'hello/Shellherd.Hello.exe', 'icon.ico', 'icon.png', 'app.asar', 'install.ps1'];
 const MEDIA_ASAR_FILES = ['/out/preload/remote-media.cjs', '/out/renderer/remote-media.html'];
 const MEDIA_OUT_FILES = ['out/preload/remote-media.cjs', 'out/renderer/remote-media.html'];
 
@@ -32,6 +32,11 @@ export function checkWinPackage({ wire, resources, asarFiles, mainTexts, outFile
   }
   for (const resource of REQUIRED_RESOURCES) {
     if (!resources.includes(resource)) problems.push(`Missing resource: ${resource}`);
+  }
+  if (resources.includes('install.sh')) problems.push('Windows package must not contain install.sh');
+  // Mach-O prebuilds cannot carry Authenticode and are never loaded on Windows.
+  for (const resource of resources.filter((r) => /\/prebuilds\/darwin-[^/]+\//.test(r))) {
+    problems.push(`Windows package must not contain foreign prebuilds: ${resource}`);
   }
   for (const marker of LAB_MARKERS) {
     if (mainTexts.some((text) => text.includes(marker))) problems.push(`Release bundle must not contain lab code: ${marker} in out/main`);

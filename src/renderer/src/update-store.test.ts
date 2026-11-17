@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UpdateStatus } from '../../shared/ipc';
 
-const status = (available: UpdateStatus['available'] = null): UpdateStatus => ({ enabled: true, current: '0.21.0', available });
+const status = (available: UpdateStatus['available'] = null): UpdateStatus => ({ enabled: true, current: '0.21.0', available, install: null });
 
 describe('updateStore', () => {
   // Fresh module per test, the store keeps its value at module level.

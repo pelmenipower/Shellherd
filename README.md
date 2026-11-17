@@ -99,7 +99,7 @@ Download the latest version from the [releases page](https://github.com/pelmenip
 | `Shellherd-x.y.z-amd64.deb` | You use Ubuntu/Debian and want desktop integration and dependency installation. |
 | `Shellherd-x.y.z-x86_64.AppImage` | You want the portable Linux build; see the sandbox requirements below. |
 
-The builds are not code-signed yet, so Windows SmartScreen may warn on first start. Choose **More info → Run anyway**.
+Windows files are signed through the [SignPath Foundation](https://signpath.org) once the project has been approved there; until then they are unsigned and Windows SmartScreen may warn on first start (choose **More info → Run anyway**). Each release carries `SHA256SUMS`, its Sigstore bundle `SHA256SUMS.sigstore.json` and a GitHub build attestation. The release notes state whether the Windows files of that release are signed; see [Verify a download](#verify-a-download) and [Code signing policy](#code-signing-policy).
 
 **Supported platforms:** Windows 10/11 x64 and Linux x86_64 (Ubuntu 22.04/24.04 or newer with a graphical desktop). Linux packages include Electron and their native modules; end users do not need Node.js. Linux packages and the installation scripts are included starting with 0.31.0; older releases may contain only Windows executables.
 
@@ -111,7 +111,7 @@ The setup EXE installs Shellherd for the current user and adds a Start menu entr
 & ([scriptblock]::Create((Invoke-RestMethod 'https://github.com/pelmenipower/Shellherd/releases/latest/download/install.ps1')))
 ```
 
-The script downloads the latest setup EXE, verifies it against the release's `SHA256SUMS`, and opens the normal setup wizard. It requires Windows 10/11 x64 and PowerShell 5.1 or newer. No Node.js or administrator PowerShell session is needed. It does not change your execution policy or bypass SmartScreen.
+The script downloads the latest setup EXE, verifies it against the release's `SHA256SUMS` (and the Sigstore signature of that file if `cosign` is installed), checks the Authenticode signature of the setup, and opens the normal setup wizard. A setup that is unsigned (a release from before signing) is reported with a note; an invalid signature stops the installation. It requires Windows 10/11 x64 and PowerShell 5.1 or newer. No Node.js or administrator PowerShell session is needed. It does not change your execution policy or bypass SmartScreen.
 
 To inspect the script first, download `install.ps1` from the release and open it in a text editor. A downloaded script can be run with a process-only execution-policy override:
 
@@ -131,7 +131,7 @@ For a published release of 0.31.0 or later, install the Linux DEB with:
 curl -fsSL https://github.com/pelmenipower/Shellherd/releases/latest/download/install.sh | bash
 ```
 
-The script downloads the DEB, verifies its SHA-256 checksum and installs it through APT, including dependencies and desktop integration. Only APT requests sudo privileges. No Node.js is required. The selected release must contain `install.sh`, `SHA256SUMS` and the Linux DEB (0.31.0 or later).
+The script downloads the DEB, verifies its SHA-256 checksum (and the Sigstore signature of `SHA256SUMS` if `cosign` is installed) and installs it through APT, including dependencies and desktop integration. Only APT requests sudo privileges. No Node.js is required. The selected release must contain `install.sh`, `SHA256SUMS` and the Linux DEB (0.31.0 or later).
 
 For a local build, use `bash ./install.sh --package ./dist/Shellherd-0.31.0-amd64.deb`.
 
@@ -179,9 +179,47 @@ Replace the filename if your build uses another version. The installer uses APT'
 & ([scriptblock]::Create((Invoke-RestMethod 'https://github.com/pelmenipower/Shellherd/releases/latest/download/install.ps1')))
 ```
 
-**Portable builds:** download the new AppImage or portable EXE from the release, close the running app, and replace the old executable. The Linux shell installer installs the DEB; it does not replace an AppImage.
+**Portable builds:** with the portable EXE, download the new file from the release, close the running app and replace the old executable (or run `install.ps1 -PortableDir <folder>` to download and verify it). An AppImage can be replaced in place with `bash ./install.sh --appimage /absolute/path/Shellherd.AppImage`; the plain installer installs the DEB and does not touch an AppImage.
 
-**Update notification in the app:** after unlocking, Shellherd checks GitHub for a newer stable release, at most once every 24 hours after a successful check. When one is available, the status bar displays its version. Click the hint to open the release notes or skip that version. You can disable the check under **Settings → General**. This is a notification, not an automatic download or installation. Unpublished local changes, builds with the same version number, drafts and prereleases do not trigger a notification.
+**Update from the app:** after unlocking, Shellherd checks GitHub for a newer stable release, at most once every 24 hours after a successful check. When one is available, the status bar displays its version. Its menu opens the release notes, skips that version or, for most installations, starts the update with **Update now** after a confirmation:
+
+- **DEB and Windows setup:** the app opens a terminal or PowerShell window and runs the release's own `install.sh` or `install.ps1` there, then closes itself while the update runs. The script verifies `SHA256SUMS` (and the Sigstore signature if `cosign` is installed) before it installs; on Windows it also checks the Authenticode signature of the setup. Keep the window open until it finishes. Linux asks for sudo through APT in that window; for an all-users Windows installation the setup opens and asks for administrator rights.
+- **AppImage:** the same script runs in a terminal and replaces the AppImage file in place.
+- **Portable EXE:** **Download new version** opens, after a confirmation, a PowerShell window that downloads the new portable EXE into the folder of the running file and verifies it. Nothing is replaced and Shellherd keeps running; you start the new file yourself.
+- If no terminal is found on Linux, the app shows the command to run yourself. Development builds and unrecognized installations have no update entry, only the release notes.
+
+You can disable the check under **Settings → General**. The app never downloads or installs anything in the background; nothing happens before you confirm. Unpublished local changes, builds with the same version number, drafts and prereleases do not trigger a notification.
+
+### Verify a download
+
+Every release lists all its files in `SHA256SUMS`, signed through [Sigstore](https://www.sigstore.dev) by the Release workflow (`SHA256SUMS.sigstore.json`), and carries a GitHub build attestation. Download the files you need together with `SHA256SUMS` and `SHA256SUMS.sigstore.json` into one folder and run:
+
+```bash
+cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity https://github.com/pelmenipower/Shellherd/.github/workflows/release.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+gh attestation verify Shellherd-Setup-x.y.z.exe --repo pelmenipower/Shellherd
+```
+
+The first command proves that `SHA256SUMS` was produced by the Release workflow of this repository on `main`, the second that your files match it, the third that GitHub built the file from this repository. Releases before the signing work have no Sigstore bundle; only the checksum check applies to them.
+
+On Windows (PowerShell), check the checksum and, where the release is signed, the Authenticode signature:
+
+```powershell
+Get-FileHash .\Shellherd-Setup-x.y.z.exe -Algorithm SHA256   # compare with the line in SHA256SUMS
+Get-AuthenticodeSignature .\Shellherd-Setup-x.y.z.exe | Format-List Status, SignerCertificate
+```
+
+`Status` is `Valid` for a signed file and `NotSigned` for an unsigned one. The release notes say which applies. The uninstaller (`Uninstall Shellherd.exe`, created during installation) is not signed yet.
+
+### Code signing policy
+
+Free code signing on Windows provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org). This applies once the project is approved by the foundation and the pipeline is configured; releases before that are unsigned, and their release notes say so.
+
+- **Build rule:** Windows binaries are signed only by the [Release workflow](.github/workflows/release.yml) on GitHub Actions from the public repository. No maintainer machine holds a certificate.
+- **Roles:** Committers and reviewers: [@pelmenipower](https://github.com/pelmenipower). Approver: [@pelmenipower](https://github.com/pelmenipower).
+- **Privacy policy:** Shellherd transfers nothing to other systems except (1) the connections you create in the vault and start, (2) the daily version check at GitHub, which you can turn off under Settings → General, and, when you start an update yourself, the download of the release files from GitHub, and (3) requests to the AI provider you configured yourself. See [Privacy](#privacy).
 
 ### Platform limitations
 
@@ -276,7 +314,7 @@ Found a vulnerability? Please open a [private security advisory](https://github.
 
 ## Privacy
 
-Shellherd makes no requests of its own besides these two. Connections you open (SSH, SFTP, containers, Kubernetes, RDP) go only to the hosts you configured. Argo CD and Harbor links open in your browser only after your click; Shellherd itself never contacts either.
+Shellherd makes no requests of its own besides the ones listed here. Connections you open (SSH, SFTP, containers, Kubernetes, RDP) go only to the hosts you configured. Argo CD and Harbor links open in your browser only after your click; Shellherd itself never contacts either.
 
 - **AI providers** (optional): once you set one up, the assistant sends your questions and the terminal output it reads to the endpoint you chose.
 - **Update check** (on by default): at most once a day, after unlocking, Shellherd asks GitHub for the latest release. The request contains only your IP address and `User-Agent: Shellherd/<version>`, nothing from the vault. Turn it off under Settings → General.
@@ -364,7 +402,13 @@ Feature branches merge into `staging` by pull request. `main` only receives pull
 3. Update the README and screenshots, run `npm run build` and `npm test`, then commit and push only the release branch. Open its pull request **against `staging`**.
 4. The maintainer merges the release branch into `staging`, then opens and merges the `staging` → `main` pull request after CI passes. Never work, commit or push directly on `main` or `staging`.
 
-On every push to `main`, the [release workflow](.github/workflows/release.yml) reads the version from `package.json`. For a version without an existing tag, it tests and packages **Windows and Linux**, validates the Linux packages, and uploads all four installers, both installation scripts and `SHA256SUMS` to a draft. Only after every asset is uploaded does it publish the release and mark it as latest, with bilingual release notes.
+On every push to `main`, the [release workflow](.github/workflows/release.yml) reads the version from `package.json`. For a version without an existing tag, it tests and packages **Windows and Linux**, validates the Linux packages, signs the Windows files through SignPath when that is configured, signs `SHA256SUMS` through Sigstore, and uploads all four installers, both installation scripts, `SHA256SUMS` and `SHA256SUMS.sigstore.json` to a draft. Only the final `publish` job has write access: it creates the GitHub build attestation, and only after every asset is uploaded does it publish the release and mark it as latest, with bilingual release notes that include a "Verify / Prüfen" section.
+
+**Windows signing (SignPath).** Signing runs only when the repository has the secret `SIGNPATH_API_TOKEN` and the variables `SIGNPATH_ORGANIZATION_ID` and `SIGNPATH_PROJECT_SLUG`. Optional variables are `SIGNPATH_POLICY_SLUG` (default `release-signing`) and `SIGNPATH_WAIT_SECONDS` (default `7200`, how long the workflow waits for the signing request). No values are stored in the repository. Without the secret or the variables the release is published unsigned and the workflow stays green; the release notes then say that the Windows files are not signed. The artifact configurations SignPath needs are mirrored in `.github/signpath/`; the workflow does not read them.
+
+**Dry run.** Pull requests that touch the release pipeline, and manual runs outside `main`, build, sign nothing through SignPath, publish nothing and attest nothing. They only check that the packages and, where possible, the Sigstore signature are valid. The `dist:win:dir` and `dist:win:pack` scripts are the two workflow steps for Windows; `npm run dist:win` remains the unsigned one-step local build.
+
+**Uninstaller.** electron-builder creates `Uninstall Shellherd.exe` during the build and embeds it in the setup. It is not signed in the SignPath flow yet, and the release notes say so.
 
 **A merge does not bump the version automatically.** If `vX.Y.Z` is already published, the Release workflow skips packaging and publication. CI still builds and tests the code on both platforms, but creates no downloadable release installers. Rerunning Release with the same published version does not change this. Prepare a new version on a separate branch instead of replacing published assets or moving tags.
 

@@ -87,7 +87,7 @@ describe('UpdateChecker', () => {
 
   it('fetches when enabled, unlocked and due, then stores the result and offers it', async () => {
     const status = await make().status();
-    expect(status).toEqual({ enabled: true, current: '0.21.0', available: { version: '0.22.0', url: releaseUrl('0.22.0') } });
+    expect(status).toEqual({ enabled: true, current: '0.21.0', available: { version: '0.22.0', url: releaseUrl('0.22.0') }, install: null });
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe(UPDATE_URL);
@@ -98,6 +98,11 @@ describe('UpdateChecker', () => {
       mainWindow: { bounds: { x: 1, y: 2, width: 1200, height: 900 }, maximized: false },
       update: { enabled: true, checkedAt: NOW, latest: '0.22.0' },
     });
+  });
+
+  it('reports the install kind independent of an available version', () => {
+    const checker = new UpdateChecker({ current: '0.21.0', settingsFile: file, url: UPDATE_URL, now: () => now, isUnlocked: () => unlocked, fetch, installKind: 'deb' });
+    expect(checker.state()).toEqual({ enabled: true, current: '0.21.0', available: null, install: 'deb' });
   });
 
   it('uses the time limit for the request', async () => {
@@ -120,7 +125,7 @@ describe('UpdateChecker', () => {
     writeFileSync(file, JSON.stringify({ update: { enabled: false } }));
     const status = await make().status();
     expect(fetch).not.toHaveBeenCalled();
-    expect(status).toEqual({ enabled: false, current: '0.21.0', available: null });
+    expect(status).toEqual({ enabled: false, current: '0.21.0', available: null, install: null });
   });
 
   it('checks at most once per 24 h after a success', async () => {
@@ -153,7 +158,7 @@ describe('UpdateChecker', () => {
 
   it('stays silent on network errors, HTTP errors and broken bodies', async () => {
     fetch.mockRejectedValueOnce(new Error('offline'));
-    await expect(make().status()).resolves.toEqual({ enabled: true, current: '0.21.0', available: null });
+    await expect(make().status()).resolves.toEqual({ enabled: true, current: '0.21.0', available: null, install: null });
     fetch.mockResolvedValueOnce(new Response('nope', { status: 500 }));
     await expect(make().status()).resolves.toMatchObject({ available: null });
     fetch.mockResolvedValueOnce(new Response('{broken', { status: 200 }));
@@ -191,7 +196,7 @@ describe('UpdateChecker', () => {
   it('setEnabled writes the flag and hides a known version while off', async () => {
     const checker = make();
     await checker.status();
-    expect(checker.setEnabled(false)).toEqual({ enabled: false, current: '0.21.0', available: null });
+    expect(checker.setEnabled(false)).toEqual({ enabled: false, current: '0.21.0', available: null, install: null });
     expect(stored().update).toEqual({ enabled: false, checkedAt: NOW, latest: '0.22.0' });
     expect(checker.setEnabled(true)).toMatchObject({ enabled: true, available: { version: '0.22.0' } });
     expect(stored().language).toBe('de-DE');
@@ -200,7 +205,7 @@ describe('UpdateChecker', () => {
   it('skip hides exactly that version and a later one is shown again', async () => {
     const checker = make();
     await checker.status();
-    expect(checker.skip('0.22.0')).toEqual({ enabled: true, current: '0.21.0', available: null });
+    expect(checker.skip('0.22.0')).toEqual({ enabled: true, current: '0.21.0', available: null, install: null });
     expect(stored().update).toEqual({ enabled: true, checkedAt: NOW, latest: '0.22.0', skipped: '0.22.0' });
     now += UPDATE_INTERVAL_MS;
     fetch.mockResolvedValueOnce(release('v0.23.0'));

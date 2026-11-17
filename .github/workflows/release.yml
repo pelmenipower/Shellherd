@@ -1,25 +1,47 @@
-# Builds Windows and Linux before publishing one release for a version without a tag.
+# Builds Windows and Linux, signs what can be signed and publishes one release for a version without a tag.
 # Trigger: merging staging into main. Merges that keep the version (docs, tooling) publish nothing.
+# Pull requests that touch the release pipeline and manual runs outside main are dry runs: they build and
+# check everything but never publish, attest or write to the repository.
 name: Release
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+  pull_request:
+    branches: [staging, main]
+    # GitHub path filters know no {a,b} braces, so every file stands alone.
+    paths:
+      - .github/workflows/release.yml
+      - .github/signpath/**
+      - .gitattributes
+      - electron-builder.yml
+      - package.json
+      - install.sh
+      - install.ps1
+      - scripts/check-win-package.mjs
+      - scripts/check-win-signatures.ps1
+      - scripts/check-linux-package.mjs
+      - scripts/release-notes.mjs
+      - scripts/release-verify-notes.mjs
+      - scripts/linux-after-pack.cjs
 
 permissions:
   contents: read
 
-# Two quick merges must not publish the same version twice.
+# Two quick merges must not publish the same version twice. Pull request runs replace each other.
 concurrency:
-  group: release
-  cancel-in-progress: false
+  group: release-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   version:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       tag: ${{ steps.check.outputs.tag }}
+      dry: ${{ steps.check.outputs.dry }}
       exists: ${{ steps.check.outputs.exists }}
     steps:
       - uses: actions/checkout@v5
@@ -27,10 +49,16 @@ jobs:
       - id: check
         env:
           GH_TOKEN: ${{ github.token }}
+          DRY: ${{ github.event_name == 'pull_request' || github.ref != 'refs/heads/main' }}
         run: |
           tag="v$(node -p "require('./package.json').version")"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          if [ "$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null || true)" = true ]; then
+          echo "dry=$DRY" >> "$GITHUB_OUTPUT"
+          if [ "$DRY" = true ]; then
+            # A dry run never asks GitHub about releases and never stops at an existing tag.
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Dry-Run: es wird nichts veröffentlicht."
+          elif [ "$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null || true)" = true ]; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
           elif git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -39,36 +67,202 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-  build:
+  build-windows:
     needs: version
     if: needs.version.outputs.exists == 'false'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            command: dist:win
-            artifact: windows-x64
-          - os: ubuntu-latest
-            command: dist:linux
-            artifact: linux-x64
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      signed: ${{ steps.signing.outputs.enabled }}
+    env:
+      DRY: ${{ needs.version.outputs.dry }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3 libx11-dev libxkbfile-dev xvfb libgtk-3-0 libnss3 libasound2t64
       - run: npm ci
       - run: npm test
-      - run: npm run ${{ matrix.command }}
-      - if: runner.os == 'Windows'
-        name: Verify Windows package
+
+      # Phase 1: the unpacked app with fuses and resources, before anything is signed.
+      - run: npm run dist:win:dir
+      - name: Verify Windows package
         run: node scripts/check-win-package.mjs
-      - if: runner.os == 'Linux'
-        name: Verify Linux packages and installed application
+
+      # secrets.* is not available in step conditions, so the decision runs through env.
+      - id: signing
+        name: Decide on SignPath signing
+        shell: bash
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+        run: |
+          if [ "$DRY" = true ]; then
+            enabled=false
+            message="Dry-Run: SignPath übersprungen, Windows-Pakete unsigniert."
+          elif [ -n "$SIGNPATH_API_TOKEN" ] && [ -n "$SIGNPATH_ORGANIZATION_ID" ] && [ -n "$SIGNPATH_PROJECT_SLUG" ]; then
+            enabled=true
+            message="Windows-Pakete werden über SignPath signiert."
+          else
+            enabled=false
+            message="Windows-Pakete werden unsigniert veröffentlicht: SignPath-Zugang nicht konfiguriert."
+          fi
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+          if [ "$enabled" = true ]; then
+            echo "::notice::$message"
+          else
+            echo "::warning::$message"
+          fi
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+
+      - if: steps.signing.outputs.enabled == 'true'
+        name: Upload unsigned app folder
+        id: upload-unpacked
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-unpacked-unsigned
+          if-no-files-found: error
+          retention-days: 1
+          path: dist/win-unpacked/
+      # Input names of the SignPath action are to be checked against its documentation.
+      - if: steps.signing.outputs.enabled == 'true'
+        name: Sign app folder with SignPath
+        uses: signpath/github-action-submit-signing-request@ced31329c0317e779dad2eec2a7c3bb46ea1343e # v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: win-unpacked
+          github-artifact-id: ${{ steps.upload-unpacked.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: ${{ vars.SIGNPATH_WAIT_SECONDS || '7200' }}
+          output-artifact-directory: dist/signed-unpacked
+      - if: steps.signing.outputs.enabled == 'true'
+        name: Replace app folder with the signed content
+        shell: pwsh
+        run: |
+          $out = 'dist/signed-unpacked'
+          $items = @(Get-ChildItem -LiteralPath $out -Force)
+          $source = $out
+          if ($items.Count -eq 1 -and $items[0].Extension -eq '.zip') {
+            Expand-Archive -LiteralPath $items[0].FullName -DestinationPath 'dist/signed-unpacked-content'
+            $source = 'dist/signed-unpacked-content'
+          }
+          if (@(Get-ChildItem -LiteralPath $source -Force).Count -eq 0) { throw 'SignPath returned no files.' }
+          Remove-Item -LiteralPath dist/win-unpacked -Recurse -Force
+          Copy-Item -LiteralPath $source -Destination dist/win-unpacked -Recurse
+
+      - name: Check signatures of the app folder
+        shell: pwsh
+        env:
+          EXPECT: ${{ steps.signing.outputs.enabled == 'true' && 'Signed' || 'Unsigned' }}
+        run: ./scripts/check-win-signatures.ps1 -Root dist/win-unpacked -Expect $env:EXPECT
+
+      # Phase 2 must not touch the signed folder: hash every file before and after.
+      - name: Hash app folder
+        shell: pwsh
+        run: |
+          $base = (Resolve-Path dist/win-unpacked).Path
+          $rows = @(Get-ChildItem -LiteralPath $base -Recurse -File | Sort-Object FullName | ForEach-Object {
+            [pscustomobject]@{ path = $_.FullName.Substring($base.Length + 1).Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+          })
+          ConvertTo-Json -InputObject $rows | Set-Content -LiteralPath dist/win-unpacked.manifest.json -Encoding utf8
+
+      - run: npm run dist:win:pack
+
+      - name: App folder unchanged by packaging
+        shell: pwsh
+        run: |
+          $base = (Resolve-Path dist/win-unpacked).Path
+          $rows = @(Get-ChildItem -LiteralPath $base -Recurse -File | Sort-Object FullName | ForEach-Object {
+            [pscustomobject]@{ path = $_.FullName.Substring($base.Length + 1).Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+          })
+          ConvertTo-Json -InputObject $rows | Set-Content -LiteralPath dist/win-unpacked.manifest.after.json -Encoding utf8
+          if ((Get-Content -Raw dist/win-unpacked.manifest.json) -ne (Get-Content -Raw dist/win-unpacked.manifest.after.json)) {
+            Compare-Object (Get-Content dist/win-unpacked.manifest.json) (Get-Content dist/win-unpacked.manifest.after.json) | Out-String | Write-Host
+            throw 'Packaging changed dist/win-unpacked.'
+          }
+      - name: Check signatures of the app folder after packaging
+        shell: pwsh
+        env:
+          EXPECT: ${{ steps.signing.outputs.enabled == 'true' && 'Signed' || 'Unsigned' }}
+        run: ./scripts/check-win-signatures.ps1 -Root dist/win-unpacked -Expect $env:EXPECT
+
+      - if: steps.signing.outputs.enabled == 'true'
+        name: Upload unsigned installers
+        id: upload-installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-installers-unsigned
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            dist/Shellherd-Setup-*.exe
+            dist/Shellherd-Portable-*.exe
+      - if: steps.signing.outputs.enabled == 'true'
+        name: Sign installers with SignPath
+        uses: signpath/github-action-submit-signing-request@ced31329c0317e779dad2eec2a7c3bb46ea1343e # v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: win-installers
+          github-artifact-id: ${{ steps.upload-installers.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: ${{ vars.SIGNPATH_WAIT_SECONDS || '7200' }}
+          output-artifact-directory: dist/signed-installers
+      - if: steps.signing.outputs.enabled == 'true'
+        name: Replace installers with the signed files
+        shell: pwsh
+        run: |
+          $out = 'dist/signed-installers'
+          $items = @(Get-ChildItem -LiteralPath $out -Force)
+          $source = $out
+          if ($items.Count -eq 1 -and $items[0].Extension -eq '.zip') {
+            Expand-Archive -LiteralPath $items[0].FullName -DestinationPath 'dist/signed-installers-content'
+            $source = 'dist/signed-installers-content'
+          }
+          $signed = @(Get-ChildItem -LiteralPath $source -Recurse -File -Filter '*.exe')
+          if ($signed.Count -ne 2) { throw "Expected 2 signed installers, found $($signed.Count)." }
+          foreach ($file in $signed) { Copy-Item -LiteralPath $file.FullName -Destination (Join-Path 'dist' $file.Name) -Force }
+
+      - name: Check signatures of the installers and the installation
+        shell: pwsh
+        env:
+          EXPECT: ${{ steps.signing.outputs.enabled == 'true' && 'Signed' || 'Unsigned' }}
+        run: ./scripts/check-win-signatures.ps1 -Files 'dist/Shellherd-Setup-*.exe', 'dist/Shellherd-Portable-*.exe' -Expect $env:EXPECT -InstallCheck
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          if-no-files-found: error
+          path: |
+            dist/Shellherd-Setup-*.exe
+            dist/Shellherd-Portable-*.exe
+
+  build-linux:
+    needs: version
+    if: needs.version.outputs.exists == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y build-essential python3 libx11-dev libxkbfile-dev xvfb libgtk-3-0 libnss3 libasound2t64
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist:linux
+      - name: Verify Linux packages and installed application
         run: |
           node scripts/check-linux-package.mjs
           sudo apt-get install -y ./dist/Shellherd-*-amd64.deb
@@ -76,23 +270,24 @@ jobs:
           xvfb-run -a node scripts/toolbar-smoke.mjs /opt/Shellherd/shellherd
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: linux-x64
           if-no-files-found: error
           path: |
-            dist/Shellherd-Setup-*.exe
-            dist/Shellherd-Portable-*.exe
             dist/Shellherd-*.AppImage
             dist/Shellherd-*.deb
 
-  release:
-    needs: [version, build]
+  sign:
+    needs: [version, build-windows, build-linux]
     if: needs.version.outputs.exists == 'false'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      id-token: write
     env:
       TAG: ${{ needs.version.outputs.tag }}
-      GH_TOKEN: ${{ github.token }}
+      SIGNED: ${{ needs.build-windows.outputs.signed == 'true' && 'signed' || 'unsigned' }}
+      # Fork pull requests get no OIDC token, so Sigstore is skipped for them.
+      FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
@@ -100,12 +295,69 @@ jobs:
           pattern: '*-x64'
           path: dist
           merge-multiple: true
-      - run: node scripts/release-notes.mjs "$TAG" > release-notes.md
+      - name: Release notes
+        run: |
+          node scripts/release-notes.mjs "$TAG" > release-notes.md
+          node scripts/release-verify-notes.mjs "$TAG" "$SIGNED" >> release-notes.md
       - name: Prepare installer and checksums
         run: |
           cp install.sh install.ps1 dist/
           cd dist
           sha256sum *.exe *.AppImage *.deb install.sh install.ps1 > SHA256SUMS
+      - if: env.FORK_PR != 'true'
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+        with:
+          cosign-release: v2.6.1
+      - if: env.FORK_PR != 'true'
+        name: Sign and verify checksums with Sigstore
+        run: |
+          cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+          cosign verify-blob --bundle dist/SHA256SUMS.sigstore.json \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com dist/SHA256SUMS
+      - if: env.FORK_PR == 'true'
+        run: 'echo "::notice::Fork-PR: Sigstore übersprungen."'
+      - name: Check checksums
+        run: cd dist && sha256sum --check SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/*
+            release-notes.md
+
+  # The only job with write access. It runs only for pushes to main, never for dry runs.
+  publish:
+    needs: [version, sign]
+    if: needs.version.outputs.exists == 'false' && needs.version.outputs.dry == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: .
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+        with:
+          cosign-release: v2.6.1
+      - name: Verify checksums and signature again
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS)
+          cosign verify-blob --bundle dist/SHA256SUMS.sigstore.json \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com dist/SHA256SUMS
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-checksums: dist/SHA256SUMS
       # A draft is invisible publicly until every asset has uploaded successfully.
       # A failed publication can be retried without creating a second release.
       - name: Stage release and upload all installers
@@ -120,5 +372,5 @@ jobs:
           else
             gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Shellherd ${TAG#v}" --notes-file release-notes.md
           fi
-          gh release upload "$TAG" dist/*.exe dist/*.AppImage dist/*.deb dist/install.sh dist/install.ps1 dist/SHA256SUMS --clobber
+          gh release upload "$TAG" dist/*.exe dist/*.AppImage dist/*.deb dist/install.sh dist/install.ps1 dist/SHA256SUMS dist/SHA256SUMS.sigstore.json --clobber
           gh release edit "$TAG" --draft=false --latest
